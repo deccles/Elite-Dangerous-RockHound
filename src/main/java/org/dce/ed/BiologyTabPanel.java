@@ -1,5 +1,6 @@
 package org.dce.ed;
 
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -11,9 +12,11 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.RenderingHints;
+import java.awt.geom.Arc2D;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
+import javax.swing.Timer;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -1165,6 +1168,16 @@ private final class BioMapPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
 
+    // Scale tiers: (maxDistM threshold, gridSpacingM, label). Tiers are 0..4.
+    private static final double[][] SCALE_TIERS = {
+        { 500, 100, 500 },
+        { 2000, 500, 2000 },
+        { 10000, 2000, 10000 },
+        { 50000, 10000, 50000 },
+        { Double.MAX_VALUE, 25000, 50000 }
+    };
+    private static final String[] SCALE_LABELS = { "100 m", "500 m", "2 km", "10 km", "25 km" };
+
     private double shipLat;
     private double shipLon;
     private double shipRadiusM;
@@ -1172,8 +1185,27 @@ private final class BioMapPanel extends JPanel {
 
     private double shipHeadingDeg; // 0=N, clockwise. "Up" on map.
 
+    private int currentScaleTierIndex = 0;
+    private int targetScaleTierIndex = 0;
+    private float scaleAnimProgress = 1f;
+    private Timer scaleAnimTimer;
+
+    private float sweepAngleDeg = 0f;
+    private static final int SWEEP_DURATION_MS = 500;
+    private static final int SWEEP_TICK_MS = 16;
+    private Timer sweepTimer;
+
     private BioMapPanel() {
         setOpaque(false);
+    }
+
+    private static int getScaleTierIndexForMaxDistM(double maxDistM) {
+        for (int i = 0; i < SCALE_TIERS.length; i++) {
+            if (maxDistM < SCALE_TIERS[i][0]) {
+                return i;
+            }
+        }
+        return SCALE_TIERS.length - 1;
     }
 
     private void setShipLatLon(double lat, double lon, double radiusM) {
@@ -1181,12 +1213,35 @@ private final class BioMapPanel extends JPanel {
         this.shipLon = lon;
         this.shipRadiusM = radiusM;
         this.haveShip = true;
+        startSweepAnimation();
         repaint();
     }
 
     private void setShipHeadingDeg(double headingDeg) {
         this.shipHeadingDeg = headingDeg;
+        startSweepAnimation();
         repaint();
+    }
+
+    private void startSweepAnimation() {
+        if (sweepTimer != null && sweepTimer.isRunning()) {
+            return; // let current sweep finish; don't restart on every position/heading tick
+        }
+        if (sweepTimer != null) {
+            sweepTimer.stop();
+        }
+        sweepAngleDeg = 0f;
+        sweepTimer = new Timer(SWEEP_TICK_MS, e -> {
+            sweepAngleDeg += 360f * SWEEP_TICK_MS / SWEEP_DURATION_MS;
+            if (sweepAngleDeg >= 360f) {
+                sweepAngleDeg = 360f;
+                if (sweepTimer != null) {
+                    sweepTimer.stop();
+                }
+            }
+            repaint();
+        });
+        sweepTimer.start();
     }
 
     @Override
@@ -1208,7 +1263,6 @@ private final class BioMapPanel extends JPanel {
                 g2.fillRect(x0, y0, side, side);
             }
             g2.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_140);
-//            g2.drawRect(x0, y0, side - 1, side - 1);
 
             if (!haveShip) {
                 g2.setColor(Color.WHITE);
@@ -1223,6 +1277,76 @@ private final class BioMapPanel extends JPanel {
             int cx = x0 + side / 2;
             int cy = y0 + side / 2;
 
+            boolean northUp = OverlayPreferences.getExobiologyMapNorthUp();
+            double mapRotationDeg = northUp ? 0 : -shipHeadingDeg;
+
+            // Compute maxDistM and scale tier (with animation)
+            double maxDistM = 500.0; // default when no targets so grid is visible
+            java.util.List<BioRow> rows = model.getRowsSnapshot();
+            if (rows != null && !rows.isEmpty()) {
+                for (BioRow row : rows) {
+                    if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null) {
+                        continue;
+                    }
+                    for (BodyInfo.BioSamplePoint p : row.points) {
+                        if (p == null) continue;
+                        double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+                        if (d > maxDistM) maxDistM = d;
+                    }
+                }
+                if (maxDistM < 100.0) maxDistM = 100.0; // avoid degenerate scale when ship on top of points
+            }
+            int newTierIndex = getScaleTierIndexForMaxDistM(maxDistM);
+            if (newTierIndex != targetScaleTierIndex) {
+                targetScaleTierIndex = newTierIndex;
+                if (scaleAnimTimer != null) scaleAnimTimer.stop();
+                scaleAnimProgress = 0f;
+                scaleAnimTimer = new Timer(16, e -> {
+                    scaleAnimProgress += 0.04f;
+                    if (scaleAnimProgress >= 1f) {
+                        scaleAnimProgress = 1f;
+                        currentScaleTierIndex = targetScaleTierIndex;
+                        if (scaleAnimTimer != null) scaleAnimTimer.stop();
+                    }
+                    repaint();
+                });
+                scaleAnimTimer.start();
+            }
+            double scaleTierProgress = scaleAnimProgress;
+            int fromTier = currentScaleTierIndex;
+            int toTier = targetScaleTierIndex;
+            double gridSpacingM = SCALE_TIERS[fromTier][1] + (SCALE_TIERS[toTier][1] - SCALE_TIERS[fromTier][1]) * scaleTierProgress;
+            double effectiveMaxDistM = maxDistM;
+            if (scaleTierProgress < 1f && fromTier != toTier) {
+                double oldThreshold = SCALE_TIERS[fromTier][0];
+                effectiveMaxDistM = (1.0 - scaleTierProgress) * oldThreshold + scaleTierProgress * maxDistM;
+            }
+            double scale = (side * 0.42) / effectiveMaxDistM;
+
+            // Grid (north-up in world; rotate by mapRotationDeg for heading-up); clip to circle
+            double radiusPx = side / 2.0;
+            g2.setColor(EdoUi.Internal.mainTextAlpha(80));
+            g2.setStroke(new BasicStroke(1f));
+            g2.setClip(new Ellipse2D.Double(x0, y0, side, side));
+            g2.rotate(Math.toRadians(mapRotationDeg), cx, cy);
+            for (int k = 1; ; k++) {
+                double offset = k * gridSpacingM * scale;
+                if (offset > radiusPx) break;
+                g2.draw(new Line2D.Double(cx + offset, y0, cx + offset, y0 + side));
+                g2.draw(new Line2D.Double(cx - offset, y0, cx - offset, y0 + side));
+                g2.draw(new Line2D.Double(x0, cy + offset, x0 + side, cy + offset));
+                g2.draw(new Line2D.Double(x0, cy - offset, x0 + side, cy - offset));
+            }
+            g2.rotate(-Math.toRadians(mapRotationDeg), cx, cy);
+            g2.setClip(null);
+
+            // Scale label
+            String scaleLabel = SCALE_LABELS[scaleAnimProgress >= 1f ? currentScaleTierIndex : targetScaleTierIndex];
+            g2.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_140);
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+            FontMetrics fmLabel = g2.getFontMetrics();
+            g2.drawString(scaleLabel, x0 + 6, y0 + side - 6);
+
             // Draw ship marker
             int r = 6;
             g2.setColor(Color.WHITE);
@@ -1230,8 +1354,7 @@ private final class BioMapPanel extends JPanel {
             g2.setColor(Color.BLACK);
             g2.draw(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
 
-            // Collect target points: use all rows' recorded sample points (incomplete only)
-            java.util.List<BioRow> rows = model.getRowsSnapshot();
+            // Target lines and labels
             if (rows == null || rows.isEmpty()) {
                 g2.setColor(Color.WHITE);
                 String msg = "No specimens detected";
@@ -1240,24 +1363,6 @@ private final class BioMapPanel extends JPanel {
                 int ty = y0 + (side + fm.getAscent()) / 2;
                 g2.drawString(msg, tx, ty);
             } else {
-                double maxDistM = 1.0;
-                for (BioRow row : rows) {
-                    if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null) {
-                        continue;
-                    }
-                    for (BodyInfo.BioSamplePoint p : row.points) {
-                        if (p == null) {
-                            continue;
-                        }
-                        double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
-                        if (d > maxDistM) {
-                            maxDistM = d;
-                        }
-                    }
-                }
-                // leave margin so labels fit
-                double scale = (side * 0.42) / maxDistM;
-
                 for (BioRow row : rows) {
                     if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null || row.points.isEmpty()) {
                         continue;
@@ -1265,7 +1370,7 @@ private final class BioMapPanel extends JPanel {
                     for (BodyInfo.BioSamplePoint p : row.points) {
                         double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
                         double brng = bearingDeg(shipLat, shipLon, p.getLatitude(), p.getLongitude());
-                        double rel = Math.toRadians(brng - shipHeadingDeg);
+                        double rel = northUp ? Math.toRadians(brng) : Math.toRadians(brng - shipHeadingDeg);
 
                         double dx = Math.sin(rel) * d;
                         double dy = -Math.cos(rel) * d;
@@ -1277,7 +1382,6 @@ private final class BioMapPanel extends JPanel {
                         g2.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
                         g2.draw(new Line2D.Double(cx, cy, tx, ty));
 
-                        // distance label at midpoint
                         String label = BiologyTabPanel.formatMetersFixed(d);
                         FontMetrics fm = g2.getFontMetrics();
                         int mx = (cx + tx) / 2;
@@ -1286,6 +1390,15 @@ private final class BioMapPanel extends JPanel {
                         g2.drawString(label, mx - fm.stringWidth(label) / 2, my - 2);
                     }
                 }
+            }
+
+            // Radar sweep (semi-transparent wedge); start from direction of travel on screen
+            if (sweepAngleDeg > 0 && sweepAngleDeg <= 360f) {
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.2f));
+                g2.setColor(Color.CYAN);
+                double sweepStartDeg = northUp ? (90 - shipHeadingDeg) : 90;
+                g2.fill(new Arc2D.Double(x0, y0, side, side, sweepStartDeg, sweepAngleDeg, Arc2D.PIE));
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f));
             }
 
             // Compass (upper right)
@@ -1299,15 +1412,21 @@ private final class BioMapPanel extends JPanel {
             g2.setColor(EdoUi.Internal.WHITE_ALPHA_200);
             g2.draw(new Ellipse2D.Double(compCx - compR, compCy - compR, compR * 2, compR * 2));
 
-            double relN = Math.toRadians(0.0 - shipHeadingDeg);
-            double nx = Math.sin(relN);
-            double ny = -Math.cos(relN);
-
-            int nx2 = compCx + (int) Math.round(nx * (compR - 4));
-            int ny2 = compCy + (int) Math.round(ny * (compR - 4));
-
-            g2.draw(new Line2D.Double(compCx, compCy, nx2, ny2));
-            g2.drawString("N", nx2 - 4, ny2 - 2);
+            if (northUp) {
+                g2.drawString("N", compCx - 3, compCy - compR + 12);
+                double needleRad = Math.toRadians(shipHeadingDeg);
+                int nx2 = compCx + (int) Math.round(Math.sin(needleRad) * (compR - 4));
+                int ny2 = compCy - (int) Math.round(Math.cos(needleRad) * (compR - 4));
+                g2.draw(new Line2D.Double(compCx, compCy, nx2, ny2));
+            } else {
+                double relN = Math.toRadians(0.0 - shipHeadingDeg);
+                double nx = Math.sin(relN);
+                double ny = -Math.cos(relN);
+                int nx2 = compCx + (int) Math.round(nx * (compR - 4));
+                int ny2 = compCy + (int) Math.round(ny * (compR - 4));
+                g2.draw(new Line2D.Double(compCx, compCy, nx2, ny2));
+                g2.drawString("N", nx2 - 4, ny2 - 2);
+            }
         } finally {
             g2.dispose();
         }

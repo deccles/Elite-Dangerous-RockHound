@@ -110,6 +110,9 @@ public final class OverlayPreferences {
     private static final String KEY_MINING_LIMPET_REMINDER_THRESHOLD = "mining.limpetReminder.threshold"; // COUNT
     private static final String KEY_MINING_LIMPET_REMINDER_THRESHOLD_PERCENT = "mining.limpetReminder.thresholdPercent"; // PERCENT
 
+    // Exobiology map: bind map to north is up
+    private static final String KEY_EXOBIOLOGY_MAP_NORTH_UP = "exobiology.map.northUp";
+
     // Reuse the same prefs node as OverlayFrame so everything is in one place.
     private static final Preferences PREFS = Preferences.userNodeForPackage(OverlayFrame.class);
 
@@ -751,6 +754,18 @@ public static Engine getSpeechEngine() {
 
     public static void setMiningEstimateTonsCore(double tons) {
         putDoubleClamped(KEY_MINING_EST_TONS_CORE, tons, 0.0, 200.0);
+    }
+
+    // ---------------------------------------------------------------------
+    // Exobiology map: bind map to north is up
+    // ---------------------------------------------------------------------
+
+    public static boolean getExobiologyMapNorthUp() {
+        return PREFS.getBoolean(KEY_EXOBIOLOGY_MAP_NORTH_UP, false);
+    }
+
+    public static void setExobiologyMapNorthUp(boolean northUp) {
+        PREFS.putBoolean(KEY_EXOBIOLOGY_MAP_NORTH_UP, northUp);
     }
 
     private static double getDoubleClamped(String key, double def, double min, double max) {

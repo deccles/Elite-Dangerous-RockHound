@@ -119,6 +119,9 @@ public class PreferencesDialog extends JDialog {
     private JSpinner miningTonsHighSpinner;
     private JSpinner miningTonsCoreSpinner;
 
+    // Exobiology tab
+    private JCheckBox exobiologyMapNorthUpCheckBox;
+
     // Text notifications
     private JCheckBox textNotificationsEnabledCheckBox;
     private JTextField textNotificationAddressField;
@@ -174,6 +177,7 @@ public class PreferencesDialog extends JDialog {
         tabs.addTab("Fonts", createFontsPanel());
         tabs.addTab("Colors", createColorsPanel());
         tabs.addTab("Mining", createMiningPanel());
+        tabs.addTab("Exobiology", createExobiologyPanel());
         tabs.addTab("Tools", createToolsPanel());
         
         add(tabs, BorderLayout.CENTER);
@@ -876,6 +880,28 @@ public class PreferencesDialog extends JDialog {
     	panel.add(outer, BorderLayout.NORTH);
     	return panel;
     }
+
+    private JPanel createExobiologyPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        panel.setOpaque(false);
+
+        JPanel content = new JPanel(new GridBagLayout());
+        content.setOpaque(false);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        gbc.insets = new Insets(6, 6, 6, 6);
+
+        exobiologyMapNorthUpCheckBox = new JCheckBox("Bind map to north is up");
+        exobiologyMapNorthUpCheckBox.setOpaque(false);
+        exobiologyMapNorthUpCheckBox.setSelected(OverlayPreferences.getExobiologyMapNorthUp());
+        content.add(exobiologyMapNorthUpCheckBox, gbc);
+
+        panel.add(content, BorderLayout.NORTH);
+        return panel;
+    }
     
     private JPanel createToolsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
@@ -1454,6 +1480,10 @@ content.add(speechUseAwsCheckBox, gbc);
         }
         if (miningGoogleClientSecretField != null) {
             OverlayPreferences.setMiningGoogleSheetsClientSecret(miningGoogleClientSecretField.getText());
+        }
+
+        if (exobiologyMapNorthUpCheckBox != null) {
+            OverlayPreferences.setExobiologyMapNorthUp(exobiologyMapNorthUpCheckBox.isSelected());
         }
 
         if (miningLowLimpetReminderEnabledCheckBox != null) {
