@@ -1325,7 +1325,7 @@ private final class BioMapPanel extends JPanel {
 
             // Grid (north-up in world; rotate by mapRotationDeg for heading-up); clip to circle
             double radiusPx = side / 2.0;
-            g2.setColor(EdoUi.Internal.mainTextAlpha(80));
+            g2.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_140);
             g2.setStroke(new BasicStroke(1f));
             g2.setClip(new Ellipse2D.Double(x0, y0, side, side));
             g2.rotate(Math.toRadians(mapRotationDeg), cx, cy);
@@ -1340,12 +1340,12 @@ private final class BioMapPanel extends JPanel {
             g2.rotate(-Math.toRadians(mapRotationDeg), cx, cy);
             g2.setClip(null);
 
-            // Scale label
+            // Scale label (bottom-left, clearly visible)
             String scaleLabel = SCALE_LABELS[scaleAnimProgress >= 1f ? currentScaleTierIndex : targetScaleTierIndex];
-            g2.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_140);
-            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+            g2.setColor(Color.WHITE);
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
             FontMetrics fmLabel = g2.getFontMetrics();
-            g2.drawString(scaleLabel, x0 + 6, y0 + side - 6);
+            g2.drawString(scaleLabel, x0 + 8, y0 + side - 8);
 
             // Draw ship marker
             int r = 6;
@@ -1394,7 +1394,7 @@ private final class BioMapPanel extends JPanel {
 
             // Radar sweep (semi-transparent wedge); start from direction of travel on screen
             if (sweepAngleDeg > 0 && sweepAngleDeg <= 360f) {
-                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.2f));
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f));
                 g2.setColor(Color.CYAN);
                 double sweepStartDeg = northUp ? (90 - shipHeadingDeg) : 90;
                 g2.fill(new Arc2D.Double(x0, y0, side, side, sweepStartDeg, sweepAngleDeg, Arc2D.PIE));
