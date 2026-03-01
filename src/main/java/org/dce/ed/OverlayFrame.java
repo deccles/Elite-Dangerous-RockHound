@@ -100,6 +100,10 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private String carrierJumpTargetSystem;
     private boolean carrierJumpTextNotificationSent;
 
+    /** Cooldown phase (5 min) after fleet jump countdown expires. */
+    private Instant carrierJumpCooldownEndTime;
+    private javax.swing.Timer carrierJumpCooldownTimer;
+
     private long exoCreditsTotal;
 
     /** Debounced save of session state (500 ms after last tab change). */
@@ -141,6 +145,12 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 countdown += " → " + carrierJumpTargetSystem;
             }
             return countdown;
+        }
+        if (carrierJumpCooldownEndTime != null) {
+            long seconds = Math.max(0, carrierJumpCooldownEndTime.getEpochSecond() - Instant.now().getEpochSecond());
+            long minutes = seconds / 60;
+            long secs = seconds % 60;
+            return String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs);
         }
         return formatExoCredits(exoCreditsTotal);
     }
@@ -396,19 +406,60 @@ private void updateCarrierJumpCountdown() {
 
     if (Instant.now().isAfter(carrierJumpDepartureTime.plusSeconds(5))) {
         maybeSendCarrierJumpTextNotification();
-        clearCarrierJumpCountdown();
+        clearCarrierJumpCountdownStateOnly();
+        startCarrierJumpCooldown();
     }
 }
 
-private void clearCarrierJumpCountdown() {
+/** Clears only the jump countdown state and timer; does not touch cooldown or right status. */
+private void clearCarrierJumpCountdownStateOnly() {
     carrierJumpDepartureTime = null;
     carrierJumpTargetSystem = null;
     carrierJumpTextNotificationSent = false;
-
     if (carrierJumpCountdownTimer != null) {
         carrierJumpCountdownTimer.stop();
         carrierJumpCountdownTimer = null;
     }
+}
+
+private void startCarrierJumpCooldown() {
+    carrierJumpCooldownEndTime = Instant.now().plusSeconds(5 * 60); // 5 minutes
+    if (carrierJumpCooldownTimer != null) {
+        carrierJumpCooldownTimer.stop();
+    }
+    carrierJumpCooldownTimer = new javax.swing.Timer(500, e -> updateCarrierJumpCooldown());
+    carrierJumpCooldownTimer.setRepeats(true);
+    carrierJumpCooldownTimer.start();
+    updateCarrierJumpCooldown();
+    saveSessionState();
+}
+
+private void updateCarrierJumpCooldown() {
+    if (titleBar == null || carrierJumpCooldownEndTime == null) {
+        return;
+    }
+    long seconds = Math.max(0, carrierJumpCooldownEndTime.getEpochSecond() - Instant.now().getEpochSecond());
+    long minutes = seconds / 60;
+    long secs = seconds % 60;
+    publishRightStatusText(String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs));
+    if (Instant.now().compareTo(carrierJumpCooldownEndTime) >= 0) {
+        if (carrierJumpCooldownTimer != null) {
+            carrierJumpCooldownTimer.stop();
+            carrierJumpCooldownTimer = null;
+        }
+        carrierJumpCooldownEndTime = null;
+        updateRightStatusDefault();
+        saveSessionState();
+    }
+}
+
+private void clearCarrierJumpCountdown() {
+    clearCarrierJumpCountdownStateOnly();
+    if (carrierJumpCooldownTimer != null) {
+        carrierJumpCooldownTimer.stop();
+        carrierJumpCooldownTimer = null;
+    }
+    carrierJumpCooldownEndTime = null;
 
     updateRightStatusDefault();
     saveSessionState();
