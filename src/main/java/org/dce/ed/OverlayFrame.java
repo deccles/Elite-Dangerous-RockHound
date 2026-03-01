@@ -70,6 +70,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 
     private static final String PREF_KEY_EXO_CREDITS_TOTAL = "exo.creditsTotal";
 
+    private static final String DEFAULT_TITLE_BAR_TITLE = "Elite Dangerous Overlay";
+
+    /** Cooldown duration after fleet jump countdown expires (seconds). */
+    private static final int CARRIER_JUMP_COOLDOWN_SECONDS = 5 * 60;
+
     private final LineBorder overlayBorder = new LineBorder(
             new java.awt.Color(200, 200, 255, 180),
             1,
@@ -288,6 +293,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 carrierJumpDepartureTime = departure;
                 carrierJumpTargetSystem = state.getCarrierJumpTargetSystem();
                 carrierJumpTextNotificationSent = Boolean.TRUE.equals(state.getCarrierJumpTextNotificationSent());
+                setTitleBarText("");
                 if (carrierJumpCountdownTimer != null) {
                     carrierJumpCountdownTimer.stop();
                 }
@@ -363,6 +369,7 @@ private void startCarrierJumpCountdown(Instant departureTime, String targetSyste
         carrierJumpCountdownTimer.stop();
     }
 
+    setTitleBarText("");
     carrierJumpCountdownTimer = new javax.swing.Timer(500, e -> updateCarrierJumpCountdown());
     carrierJumpCountdownTimer.setRepeats(true);
     carrierJumpCountdownTimer.start();
@@ -372,12 +379,7 @@ private void startCarrierJumpCountdown(Instant departureTime, String targetSyste
 }
 
 private void updateCarrierJumpCountdown() {
-    if (titleBar == null) {
-        return;
-    }
-
     if (carrierJumpDepartureTime == null) {
-        publishRightStatusText("");
         return;
     }
 
@@ -423,7 +425,7 @@ private void clearCarrierJumpCountdownStateOnly() {
 }
 
 private void startCarrierJumpCooldown() {
-    carrierJumpCooldownEndTime = Instant.now().plusSeconds(5 * 60); // 5 minutes
+    carrierJumpCooldownEndTime = Instant.now().plusSeconds(CARRIER_JUMP_COOLDOWN_SECONDS);
     if (carrierJumpCooldownTimer != null) {
         carrierJumpCooldownTimer.stop();
     }
@@ -435,7 +437,7 @@ private void startCarrierJumpCooldown() {
 }
 
 private void updateCarrierJumpCooldown() {
-    if (titleBar == null || carrierJumpCooldownEndTime == null) {
+    if (carrierJumpCooldownEndTime == null) {
         return;
     }
     long seconds = Math.max(0, carrierJumpCooldownEndTime.getEpochSecond() - Instant.now().getEpochSecond());
@@ -448,6 +450,7 @@ private void updateCarrierJumpCooldown() {
             carrierJumpCooldownTimer = null;
         }
         carrierJumpCooldownEndTime = null;
+        setTitleBarText(DEFAULT_TITLE_BAR_TITLE);
         updateRightStatusDefault();
         saveSessionState();
     }
@@ -461,6 +464,7 @@ private void clearCarrierJumpCountdown() {
     }
     carrierJumpCooldownEndTime = null;
 
+    setTitleBarText(DEFAULT_TITLE_BAR_TITLE);
     updateRightStatusDefault();
     saveSessionState();
 }

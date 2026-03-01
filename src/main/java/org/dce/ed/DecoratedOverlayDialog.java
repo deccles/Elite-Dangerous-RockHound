@@ -205,7 +205,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 
 		statusLabel = new JLabel("");
 		statusLabel.setOpaque(false);
-		statusLabel.setForeground(Color.RED);
+		statusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
 		statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD));
 
 		bar.add(Box.createHorizontalGlue());
