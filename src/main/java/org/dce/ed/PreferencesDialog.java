@@ -124,6 +124,7 @@ public class PreferencesDialog extends JDialog {
     private JTextField textNotificationAddressField;
 
     private JSpinner nearbySphereRadiusSpinner;
+    private JSpinner nearbyMaxSystemsSpinner;
     private JSpinner nearbyMinValueMillionSpinner;
 
     private boolean okPressed;
@@ -988,6 +989,15 @@ public class PreferencesDialog extends JDialog {
 
         npc.gridx = 0;
         npc.gridy++;
+        nearbyPanel.add(new JLabel("Max systems (closest first, limits API calls):"), npc);
+        npc.gridx = 1;
+        nearbyMaxSystemsSpinner = new JSpinner(new SpinnerNumberModel(
+                OverlayPreferences.getNearbyMaxSystems(), 1, 200, 1));
+        ((JSpinner.DefaultEditor) nearbyMaxSystemsSpinner.getEditor()).getTextField().setColumns(4);
+        nearbyPanel.add(nearbyMaxSystemsSpinner, npc);
+
+        npc.gridx = 0;
+        npc.gridy++;
         nearbyPanel.add(new JLabel("Min value (million credits):"), npc);
         npc.gridx = 1;
         nearbyMinValueMillionSpinner = new JSpinner(new SpinnerNumberModel(
@@ -1566,6 +1576,14 @@ if (miningTonsLowSpinner != null) {
             try {
                 int r = ((Number) nearbySphereRadiusSpinner.getValue()).intValue();
                 OverlayPreferences.setNearbySphereRadiusLy(r);
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        if (nearbyMaxSystemsSpinner != null) {
+            try {
+                int m = ((Number) nearbyMaxSystemsSpinner.getValue()).intValue();
+                OverlayPreferences.setNearbyMaxSystems(m);
             } catch (Exception e) {
                 // ignore
             }

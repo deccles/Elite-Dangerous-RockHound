@@ -113,6 +113,7 @@ public final class OverlayPreferences {
     // Nearby tab (exobiology sphere search)
     private static final String KEY_NEARBY_SPHERE_RADIUS_LY = "nearby.sphereRadiusLy";
     private static final String KEY_NEARBY_MIN_VALUE_MILLION_CREDITS = "nearby.minValueMillionCredits";
+    private static final String KEY_NEARBY_MAX_SYSTEMS = "nearby.maxSystems";
 
     // Reuse the same prefs node as OverlayFrame so everything is in one place.
     private static final Preferences PREFS = Preferences.userNodeForPackage(OverlayFrame.class);
@@ -588,6 +589,34 @@ public static Engine getSpeechEngine() {
             v = 100;
         }
         PREFS.put(KEY_NEARBY_SPHERE_RADIUS_LY, Integer.toString(v));
+    }
+
+    /** Max number of systems to query for the Nearby table (default 40). Limits EDSM/Spansh API calls per hour. */
+    public static int getNearbyMaxSystems() {
+        String s = PREFS.get(KEY_NEARBY_MAX_SYSTEMS, "40");
+        try {
+            int v = Integer.parseInt(s.trim());
+            if (v < 1) {
+                v = 1;
+            }
+            if (v > 200) {
+                v = 200;
+            }
+            return v;
+        } catch (Exception e) {
+            return 40;
+        }
+    }
+
+    public static void setNearbyMaxSystems(int maxSystems) {
+        int v = maxSystems;
+        if (v < 1) {
+            v = 1;
+        }
+        if (v > 200) {
+            v = 200;
+        }
+        PREFS.put(KEY_NEARBY_MAX_SYSTEMS, Integer.toString(v));
     }
 
     /** Minimum exobiology value (million credits) to show a system in the Nearby table (default 5). */

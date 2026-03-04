@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -13,10 +14,17 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JLabel;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
@@ -41,6 +49,7 @@ import org.dce.ed.state.SystemState;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.SpanshClient;
 import org.dce.ed.util.SpanshLandmark;
 import org.dce.ed.util.SpanshLandmarkCache;
 
@@ -54,6 +63,7 @@ public class NearbyTabPanel extends JPanel {
 
     private final SystemTabPanel systemTabPanel;
     private final EdsmClient edsmClient = new EdsmClient();
+    private final SpanshClient spanshClient = new SpanshClient();
 
     private final JLabel headerLabel;
     private final JPanel progressPanel;
@@ -188,6 +198,7 @@ public class NearbyTabPanel extends JPanel {
         }
 
         int radiusLy = OverlayPreferences.getNearbySphereRadiusLy();
+        int maxSystems = OverlayPreferences.getNearbyMaxSystems();
         long minValueCr = (long) (OverlayPreferences.getNearbyMinValueMillionCredits() * 1_000_000);
 
         final String finalCenterName = centerName;
@@ -225,10 +236,28 @@ public class NearbyTabPanel extends JPanel {
                     if (systems == null || systems.length == 0) {
                         return rows;
                     }
-                    final int totalSystems = systems.length;
+                    // Sort by distance (closest first) and limit to max systems to reduce API usage (e.g. rate limits per hour).
+                    Arrays.sort(systems, Comparator.comparingDouble(sys -> sys.distance));
+                    final int totalSystems = Math.min(maxSystems, systems.length);
                     SystemCache cache = SystemCache.getInstance();
+                    // Only call Spansh/EDSM for systems not already in cache — avoid re-querying cached data.
+                    boolean needBodiesFromApi = false;
+                    for (int j = 0; j < totalSystems; j++) {
+                        SphereSystemsResponse s0 = systems[j];
+                        if (s0 == null || s0.name == null || s0.name.isEmpty()) continue;
+                        CachedSystem cached = cache.get(0L, s0.name);
+                        if (cached == null || cached.bodies == null || cached.bodies.isEmpty()) {
+                            needBodiesFromApi = true;
+                            break;
+                        }
+                    }
+                    Map<String, List<BodiesResponse.Body>> bodiesBySystemFromSpansh = null;
+                    if (needBodiesFromApi) {
+                        bodiesBySystemFromSpansh = fetchSpanshBodiesInSphere(finalCenterName, radiusLy);
+                    }
                     int sysIndex = 0;
-                    for (SphereSystemsResponse sys : systems) {
+                    for (int i = 0; i < totalSystems; i++) {
+                        SphereSystemsResponse sys = systems[i];
                         if (sys == null || sys.name == null || sys.name.isEmpty()) {
                             continue;
                         }
@@ -282,7 +311,20 @@ public class NearbyTabPanel extends JPanel {
                             }
                         } else {
                             try {
-                                BodiesResponse bodiesResp = edsmClient.showBodies(sys.name);
+                                BodiesResponse bodiesResp = null;
+                                List<BodiesResponse.Body> spanshBodies = bodiesBySystemFromSpansh != null ? bodiesBySystemFromSpansh.get(sys.name) : null;
+                                if (spanshBodies != null && !spanshBodies.isEmpty() && sys.coords != null) {
+                                    bodiesResp = new BodiesResponse();
+                                    bodiesResp.name = sys.name;
+                                    bodiesResp.coords = new BodiesResponse.Coords();
+                                    bodiesResp.coords.x = Double.valueOf(sys.coords.x);
+                                    bodiesResp.coords.y = Double.valueOf(sys.coords.y);
+                                    bodiesResp.coords.z = Double.valueOf(sys.coords.z);
+                                    bodiesResp.bodies = spanshBodies;
+                                }
+                                if (bodiesResp == null) {
+                                    bodiesResp = edsmClient.showBodies(sys.name);
+                                }
                                 if (bodiesResp != null && bodiesResp.bodies != null) {
                                     double x = 0, y = 0, z = 0;
                                     if (bodiesResp.coords != null) {
@@ -428,6 +470,115 @@ public class NearbyTabPanel extends JPanel {
         progressBar.setString("0%");
         progressLabel.setText("Scanning... 0 / ? systems");
         worker.execute();
+    }
+
+    /**
+     * One Spansh bodies/search call for the whole sphere; returns bodies grouped by system name.
+     * Reduces N×EDSM showBodies to 1 Spansh query when the response contains enough body data.
+     */
+    private Map<String, List<BodiesResponse.Body>> fetchSpanshBodiesInSphere(String centerName, int radiusLy) {
+        try {
+            String json = spanshClient.queryBodiesSearch(centerName, (double) radiusLy, 2000);
+            if (json == null || json.isBlank()) {
+                return null;
+            }
+            return parseSpanshBodiesSearchBySystem(json);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Parse Spansh POST /api/bodies/search response into system name -> list of bodies.
+     * Handles both flat result objects and "record" wrapper; tries snake_case and camelCase field names.
+     */
+    private static Map<String, List<BodiesResponse.Body>> parseSpanshBodiesSearchBySystem(String json) {
+        Map<String, List<BodiesResponse.Body>> bySystem = new HashMap<>();
+        try {
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            if (!root.has("results") || !root.get("results").isJsonArray()) {
+                return bySystem;
+            }
+            JsonArray results = root.getAsJsonArray("results");
+            for (JsonElement el : results) {
+                if (!el.isJsonObject()) {
+                    continue;
+                }
+                JsonObject o = el.getAsJsonObject();
+                JsonObject rec = o.has("record") && o.get("record").isJsonObject() ? o.get("record").getAsJsonObject() : o;
+                String systemName = getStr(rec, "system_name", "systemName");
+                String name = getStr(rec, "name");
+                if (systemName == null || name == null || systemName.isBlank()) {
+                    continue;
+                }
+                Boolean isLandable = getBool(rec, "is_landable", "isLandable");
+                if (isLandable == null || !isLandable) {
+                    continue;
+                }
+                BodiesResponse.Body body = new BodiesResponse.Body();
+                body.name = name;
+                body.type = getStr(rec, "type");
+                body.subType = getStr(rec, "sub_type", "subType");
+                body.atmosphereType = getStr(rec, "atmosphere_type", "atmosphereType");
+                body.isLandable = Boolean.TRUE;
+                body.gravity = getDouble(rec, "gravity", "surface_gravity");
+                body.surfaceTemperature = getDouble(rec, "surface_temperature", "surfaceTemperature");
+                body.volcanismType = getStr(rec, "volcanism_type", "volcanismType");
+                if (rec.has("rings") && rec.get("rings").isJsonArray()) {
+                    List<BodiesResponse.Body.Ring> rings = new ArrayList<>();
+                    for (JsonElement re : rec.getAsJsonArray("rings")) {
+                        if (re.isJsonObject()) {
+                            String rType = getStr(re.getAsJsonObject(), "type");
+                            if (rType != null && !rType.isBlank()) {
+                                BodiesResponse.Body.Ring r = new BodiesResponse.Body.Ring();
+                                r.type = rType;
+                                rings.add(r);
+                            }
+                        }
+                    }
+                    if (!rings.isEmpty()) {
+                        body.rings = rings;
+                    }
+                }
+                bySystem.computeIfAbsent(systemName.trim(), k -> new ArrayList<>()).add(body);
+            }
+        } catch (Exception e) {
+            return new HashMap<>();
+        }
+        return bySystem;
+    }
+
+    private static String getStr(JsonObject o, String... keys) {
+        for (String k : keys) {
+            if (o.has(k) && !o.get(k).isJsonNull()) {
+                return o.get(k).getAsString();
+            }
+        }
+        return null;
+    }
+
+    private static Double getDouble(JsonObject o, String... keys) {
+        for (String k : keys) {
+            if (o.has(k) && !o.get(k).isJsonNull()) {
+                try {
+                    return Double.valueOf(o.get(k).getAsDouble());
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Boolean getBool(JsonObject o, String... keys) {
+        for (String k : keys) {
+            if (o.has(k) && !o.get(k).isJsonNull()) {
+                try {
+                    return Boolean.valueOf(o.get(k).getAsBoolean());
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return null;
     }
 
     private static boolean isExcluded(CachedBody cb) {
