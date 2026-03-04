@@ -10,10 +10,13 @@ import org.dce.ed.EliteDangerousOverlay;
 import org.dce.ed.OverlayFrame;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.exobiology.ExobiologyData;
+import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
+import org.dce.ed.session.EdoSessionPersistence;
+import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemEventProcessor;
 import org.dce.ed.state.SystemState;
@@ -128,10 +131,22 @@ public class RescanJournalsMain {
 
 		Instant newestEventTimestamp = lastImport;
 
+		// Track latest carrier-related event so we can update session state for overlay countdown.
+		EliteLogEvent latestCarrierEvent = null;
+
 		for (EliteLogEvent event : events) {
 			Instant ts = event.getTimestamp();
 			if (ts != null && (newestEventTimestamp == null || ts.isAfter(newestEventTimestamp))) {
 				newestEventTimestamp = ts;
+			}
+
+			// Carrier jump: countdown request, jump happened, or cancelled.
+			if (event instanceof CarrierJumpRequestEvent
+					|| event.getType() == EliteEventType.CARRIER_JUMP
+					|| event.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
+				if (ts != null && (latestCarrierEvent == null || ts.isAfter(latestCarrierEvent.getTimestamp()))) {
+					latestCarrierEvent = event;
+				}
 			}
 
 			// IMPORTANT:
@@ -182,6 +197,30 @@ public class RescanJournalsMain {
 		// Persist recomputed exobiology expected credits total.
 		prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
 		System.out.println("Recomputed exobiology expected credits total (unsold): " + exoCreditsTotal + " Cr");
+
+		// Update carrier jump state in session file so overlay restores countdown when tool was closed during jump.
+		EdoSessionState sessionState = EdoSessionPersistence.load();
+		if (latestCarrierEvent != null) {
+			if (latestCarrierEvent instanceof CarrierJumpRequestEvent) {
+				CarrierJumpRequestEvent req = (CarrierJumpRequestEvent) latestCarrierEvent;
+				Instant dep = req.getDepartureTime();
+				if (dep != null && dep.isAfter(Instant.now())) {
+					sessionState.setCarrierJumpDepartureTime(dep.toString());
+					sessionState.setCarrierJumpTargetSystem(req.getSystemName());
+					sessionState.setCarrierJumpTextNotificationSent(false);
+				} else {
+					sessionState.setCarrierJumpDepartureTime(null);
+					sessionState.setCarrierJumpTargetSystem(null);
+					sessionState.setCarrierJumpTextNotificationSent(null);
+				}
+			} else {
+				// CarrierJump or CarrierJumpCancelled: clear countdown.
+				sessionState.setCarrierJumpDepartureTime(null);
+				sessionState.setCarrierJumpTargetSystem(null);
+				sessionState.setCarrierJumpTextNotificationSent(null);
+			}
+			EdoSessionPersistence.save(sessionState);
+		}
 
 		if (journalDirectory != null && newestEventTimestamp != null) {
 			JournalImportCursor.write(journalDirectory, newestEventTimestamp);
