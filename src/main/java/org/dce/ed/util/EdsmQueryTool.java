@@ -331,30 +331,53 @@ public class EdsmQueryTool extends JFrame {
                 return;
             }
 
-            String xText = sphereXField.getText().trim();
-            String yText = sphereYField.getText().trim();
-            String zText = sphereZField.getText().trim();
-
-            if (xText.isEmpty() || yText.isEmpty() || zText.isEmpty()) {
-                appendOutput(systemOutputPanel, "Please enter X, Y, and Z coordinates (or use Locate).\n");
+            int radius;
+            try {
+                radius = Integer.parseInt(rText);
+            } catch (NumberFormatException ex) {
+                appendOutput(systemOutputPanel, "Invalid number format for radius.\n");
                 return;
             }
 
-            try {
-                int radius = Integer.parseInt(rText);
-                double x = Double.parseDouble(xText);
-                double y = Double.parseDouble(yText);
-                double z = Double.parseDouble(zText);
+            String xText = sphereXField.getText().trim();
+            String yText = sphereYField.getText().trim();
+            String zText = sphereZField.getText().trim();
+            boolean hasCoords = !xText.isEmpty() && !yText.isEmpty() && !zText.isEmpty();
 
+            if (hasCoords) {
+                try {
+                    double x = Double.parseDouble(xText);
+                    double y = Double.parseDouble(yText);
+                    double z = Double.parseDouble(zText);
+
+                    final String preferredName = systemTabSystemField.getText().trim();
+                    runQueryAsync(systemOutputPanel,
+                            "sphereSystems(" + x + "," + y + "," + z + "," + radius + ")",
+                            () -> {
+                                SphereSystemsResponse[] resp = client.sphereSystems(x, y, z, radius, preferredName.isEmpty() ? null : preferredName);
+                                return toJsonOrMessage(resp);
+                            });
+                } catch (NumberFormatException ex) {
+                    appendOutput(systemOutputPanel, "Invalid number format for X, Y, or Z coordinates.\n");
+                }
+                return;
+            }
+
+            // No coords: use system name from "System name" field if present (e.g. after Locate)
+            String systemName = systemTabSystemField.getText().trim();
+            if (!systemName.isEmpty()) {
+                final String nameForQuery = systemName;
                 runQueryAsync(systemOutputPanel,
-                        "sphereSystems(" + x + "," + y + "," + z + "," + radius + ")",
+                        "sphereSystems(systemName=\"" + nameForQuery + "\", radius=" + radius + ")",
                         () -> {
-                            SphereSystemsResponse[] resp = client.sphereSystems(x, y, z, radius);
+                            SphereSystemsResponse[] resp = client.sphereSystems(nameForQuery, radius);
                             return toJsonOrMessage(resp);
                         });
-            } catch (NumberFormatException ex) {
-                appendOutput(systemOutputPanel, "Invalid number format for radius or coordinates.\n");
+                return;
             }
+
+            appendOutput(systemOutputPanel,
+                    "Please enter X, Y, and Z coordinates, or a system name above (e.g. use Locate to fill from EDSM).\n");
         });
 
         return panel;
@@ -1326,8 +1349,10 @@ public class EdsmQueryTool extends JFrame {
                     }
                     output.appendText(result + "\n\n");
                     output.updateTableFromText(result);
+                    output.appendText("Query complete.\n");
                 } catch (Exception ex) {
                     output.appendText("ERROR retrieving result: " + ex.getMessage() + "\n");
+                    output.appendText("Query complete.\n");
                 }
             }
         }.execute();
