@@ -25,6 +25,9 @@ import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.util.EdsmClient;
+import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.SpanshLandmark;
+import org.dce.ed.util.SpanshLandmarkCache;
 
 /**
  * Consumes Elite Dangerous journal events and mutates a SystemState.
@@ -637,8 +640,13 @@ public class SystemEventProcessor {
                 // Publish first (so UI can render immediately), then return.
                 info.setPredictions(filtered);
 
-                Boolean wasFootfalled = info.getWasFootfalled();
-                boolean bonusApplies = !Boolean.TRUE.equals(wasFootfalled);
+                if (!Boolean.TRUE.equals(info.getWasFootfalled()) && info.getSpanshLandmarks() == null) {
+                    List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(info.getStarSystem(), info.getBodyName());
+                    if (landmarks != null) {
+                        info.setSpanshLandmarks(landmarks);
+                    }
+                }
+                boolean bonusApplies = FirstBonusHelper.firstBonusApplies(info);
 
                 BioScanPredictionEvent bioScanPredictionEvent = new BioScanPredictionEvent(
                         Instant.now(),
@@ -657,8 +665,13 @@ public class SystemEventProcessor {
 
         // *** FIX: publish to BodyInfo BEFORE dispatching the event ***
         info.setPredictions(candidates);
-        Boolean wasFootfalled = info.getWasFootfalled();
-        boolean bonusApplies = !Boolean.TRUE.equals(wasFootfalled);
+        if (!Boolean.TRUE.equals(info.getWasFootfalled()) && info.getSpanshLandmarks() == null) {
+            List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(info.getStarSystem(), info.getBodyName());
+            if (landmarks != null) {
+                info.setSpanshLandmarks(landmarks);
+            }
+        }
+        boolean bonusApplies = FirstBonusHelper.firstBonusApplies(info);
 
         BioScanPredictionEvent bioScanPredictionEvent = new BioScanPredictionEvent(
                 Instant.now(),

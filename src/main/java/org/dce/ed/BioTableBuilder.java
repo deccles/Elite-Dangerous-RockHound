@@ -12,6 +12,9 @@ import org.dce.ed.SystemTabPanel.Row;
 import org.dce.ed.exobiology.BodyAttributes;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.SpanshLandmark;
+import org.dce.ed.util.SpanshLandmarkCache;
 
 final class BioTableBuilder {
 
@@ -92,7 +95,13 @@ final class BioTableBuilder {
             boolean hasObservedNames = observedNamesRaw != null && !observedNamesRaw.isEmpty();
             boolean hasPreds = preds != null && !preds.isEmpty();
 
-            boolean firstBonus = !Boolean.TRUE.equals(b.getWasFootfalled());
+            if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
+                List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(b.getStarSystem(), b.getBodyName());
+                if (landmarks != null) {
+                    b.setSpanshLandmarks(landmarks);
+                }
+            }
+            boolean firstBonus = FirstBonusHelper.firstBonusApplies(b);
 
             // If literally nothing but "hasBio", show a generic message
             if (!hasGenusPrefixes && !hasObservedNames && !hasPreds) {
@@ -401,7 +410,13 @@ final class BioTableBuilder {
             return Long.MIN_VALUE;
         }
 
-        boolean firstBonus = !Boolean.TRUE.equals(b.getWasFootfalled());
+        if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
+            List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(b.getStarSystem(), b.getBodyName());
+            if (landmarks != null) {
+                b.setSpanshLandmarks(landmarks);
+            }
+        }
+        boolean firstBonus = FirstBonusHelper.firstBonusApplies(b);
 
         long max = Long.MIN_VALUE;
         for (ExobiologyData.BioCandidate c : preds) {

@@ -41,6 +41,9 @@ import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.notifications.TextNotificationSender;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
+import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.SpanshLandmark;
+import org.dce.ed.util.SpanshLandmarkCache;
 
 import com.google.gson.JsonObject;
 import com.sun.jna.Native;
@@ -396,7 +399,13 @@ private void installExoCreditsTracker() {
                 if (st != null) {
                     BodyInfo body = st.getBodies().get(so.getBodyId());
                     if (body != null) {
-                        firstBonus = !Boolean.TRUE.equals(body.getWasFootfalled());
+                        if (!Boolean.TRUE.equals(body.getWasFootfalled()) && body.getSpanshLandmarks() == null) {
+                            List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(body.getStarSystem(), body.getBodyName());
+                            if (landmarks != null) {
+                                body.setSpanshLandmarks(landmarks);
+                            }
+                        }
+                        firstBonus = FirstBonusHelper.firstBonusApplies(body);
                     }
                 }
             } catch (Exception ignored) {

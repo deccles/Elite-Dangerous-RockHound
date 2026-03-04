@@ -17,6 +17,9 @@ import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemEventProcessor;
 import org.dce.ed.state.SystemState;
+import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.SpanshLandmark;
+import org.dce.ed.util.SpanshLandmarkCache;
 
 /**
  * Standalone utility with a main() that scans all Elite Dangerous journal files
@@ -160,7 +163,13 @@ public class RescanJournalsMain {
 					boolean firstBonus = true;
 					BodyInfo body = state.getBodies().get(so.getBodyId());
 					if (body != null) {
-						firstBonus = !Boolean.TRUE.equals(body.getWasFootfalled());
+						if (!Boolean.TRUE.equals(body.getWasFootfalled()) && body.getSpanshLandmarks() == null) {
+							List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(body.getStarSystem(), body.getBodyName());
+							if (landmarks != null) {
+								body.setSpanshLandmarks(landmarks);
+							}
+						}
+						firstBonus = FirstBonusHelper.firstBonusApplies(body);
 					}
 
 					Long payout = ExobiologyData.estimatePayout(

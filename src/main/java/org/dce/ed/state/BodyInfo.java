@@ -14,6 +14,7 @@ import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.exobiology.ExobiologyData.AtmosphereType;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.exobiology.ExobiologyData.PlanetType;
+import org.dce.ed.util.SpanshLandmark;
 
 /**
  * Pure domain representation of a single stellar body.
@@ -133,6 +134,9 @@ public class BodyInfo {
 
 	private Boolean wasMapped = null;
 	private Double orbitalPeriod;
+
+	/** Spansh exobiology landmarks for this body (null = not fetched). Used to derive first-bonus. */
+	private List<SpanshLandmark> spanshLandmarks = null;
 
 	public void addObservedBioDisplayName(String name) {
 		if (name == null || name.isEmpty()) {
@@ -383,6 +387,14 @@ public class BodyInfo {
 
 	public Boolean getWasFootfalled() {
 		return wasFootfalled;
+	}
+
+	public List<SpanshLandmark> getSpanshLandmarks() {
+		return spanshLandmarks;
+	}
+
+	public void setSpanshLandmarks(List<SpanshLandmark> spanshLandmarks) {
+		this.spanshLandmarks = spanshLandmarks;
 	}
 
 	public Boolean getWasMapped() {

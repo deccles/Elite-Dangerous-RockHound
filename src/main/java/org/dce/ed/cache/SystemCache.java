@@ -276,6 +276,9 @@ public final class SystemCache {
             info.setWasMapped(cb.wasMapped);
             info.setWasDiscovered(cb.wasDiscovered);
             info.setWasFootfalled(cb.wasFootfalled);
+            if (cb.spanshLandmarks != null) {
+                info.setSpanshLandmarks(new ArrayList<>(cb.spanshLandmarks));
+            }
             if (cb.bioSampleCountsByDisplayName != null && !cb.bioSampleCountsByDisplayName.isEmpty()) {
                 info.setBioSampleCounts(cb.bioSampleCountsByDisplayName);
             if (cb.bioSamplePointsByDisplayName != null && !cb.bioSamplePointsByDisplayName.isEmpty()) {
@@ -583,6 +586,7 @@ public final class SystemCache {
             cb.wasMapped = b.getWasMapped();
             cb.wasDiscovered = b.getWasDiscovered();
             cb.wasFootfalled = b.getWasFootfalled();
+            cb.spanshLandmarks = b.getSpanshLandmarks() != null ? new ArrayList<>(b.getSpanshLandmarks()) : null;
 
             // Preserve cache truth when the current session hasn't learned these flags yet.
             // These flags are monotonic in practice (once true, they don't become false).
@@ -598,6 +602,9 @@ public final class SystemCache {
                 }
                 if (cb.wasFootfalled == null || (Boolean.FALSE.equals(cb.wasFootfalled) && Boolean.TRUE.equals(prev.wasFootfalled))) {
                     cb.wasFootfalled = prev.wasFootfalled;
+                }
+                if (cb.spanshLandmarks == null && prev.spanshLandmarks != null) {
+                    cb.spanshLandmarks = new ArrayList<>(prev.spanshLandmarks);
                 }
             }
 

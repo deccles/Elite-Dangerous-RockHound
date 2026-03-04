@@ -46,6 +46,9 @@ import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
+import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.SpanshLandmark;
+import org.dce.ed.util.SpanshLandmarkCache;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
@@ -347,7 +350,13 @@ private static List<BioRow> buildRows(BodyInfo body) {
         Map<String, Integer> counts = body.getBioSampleCountsSnapshot();
         Map<String, List<BodyInfo.BioSamplePoint>> points = body.getBioSamplePointsSnapshot();
 
-        boolean firstBonus = !Boolean.TRUE.equals(body.getWasFootfalled());
+        if (!Boolean.TRUE.equals(body.getWasFootfalled()) && body.getSpanshLandmarks() == null) {
+            List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(body.getStarSystem(), body.getBodyName());
+            if (landmarks != null) {
+                body.setSpanshLandmarks(landmarks);
+            }
+        }
+        boolean firstBonus = FirstBonusHelper.firstBonusApplies(body);
 
         for (BioRow r : rows) {
 

@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
+import org.dce.ed.util.SpanshLandmark;
 
 /**
  * Represents one body as stored in the cache.
@@ -77,6 +78,9 @@ public class CachedBody {
 	public Boolean wasMapped;
 	public Boolean wasDiscovered;
 	public Boolean wasFootfalled;
+
+	/** Spansh exobiology landmarks (null = not fetched). First bonus does not apply when non-empty. */
+	public List<SpanshLandmark> spanshLandmarks;
 
 	public int getNumberOfBioSignals() {
 		return numberOfBioSignals;

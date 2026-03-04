@@ -9,6 +9,10 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -27,6 +31,7 @@ import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.edsm.BodiesResponse;
 import org.dce.ed.edsm.SphereSystemsResponse;
+import org.dce.ed.edsm.SystemResponse;
 import org.dce.ed.exobiology.BodyAttributes;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.exobiology.ExobiologyData.AtmosphereType;
@@ -35,6 +40,9 @@ import org.dce.ed.exobiology.ExobiologyData.PlanetType;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.util.EdsmClient;
+import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.SpanshLandmark;
+import org.dce.ed.util.SpanshLandmarkCache;
 
 /**
  * Nearby tab: sphere search around current system, exobiology prediction on landable planets,
@@ -48,6 +56,9 @@ public class NearbyTabPanel extends JPanel {
     private final EdsmClient edsmClient = new EdsmClient();
 
     private final JLabel headerLabel;
+    private final JPanel progressPanel;
+    private final JLabel progressLabel;
+    private final javax.swing.JProgressBar progressBar;
     private final JTable table;
     private final DefaultTableModel tableModel;
     private final JScrollPane scrollPane;
@@ -69,7 +80,7 @@ public class NearbyTabPanel extends JPanel {
         Font base = OverlayPreferences.getUiFont();
         headerLabel.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize() + 2));
 
-        tableModel = new DefaultTableModel(new Object[]{"System", "Planets", "Value (cr)", "ValueCr"}, 0) {
+        tableModel = new DefaultTableModel(new Object[]{"System", "Planets", "Exobiology", "Rings", "Est. exobiology (cr)", "ValueCr"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -85,9 +96,9 @@ public class NearbyTabPanel extends JPanel {
         table.setRowSelectionAllowed(false);
         table.getTableHeader().setForeground(EdoUi.User.MAIN_TEXT);
         table.getTableHeader().setBackground(EdoUi.User.BACKGROUND);
-        table.getColumnModel().getColumn(3).setMinWidth(0);
-        table.getColumnModel().getColumn(3).setMaxWidth(0);
-        table.getColumnModel().getColumn(3).setWidth(0);
+        table.getColumnModel().getColumn(5).setMinWidth(0);
+        table.getColumnModel().getColumn(5).setMaxWidth(0);
+        table.getColumnModel().getColumn(5).setWidth(0);
         DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer() {
             {
                 setOpaque(false);
@@ -102,8 +113,8 @@ public class NearbyTabPanel extends JPanel {
                     ((JLabel) c).setBackground(EdoUi.Internal.TRANSPARENT);
                     long minValueCr = (long) (OverlayPreferences.getNearbyMinValueMillionCredits() * 1_000_000);
                     boolean highValue = false;
-                    if (tableModel.getRowCount() > row && tableModel.getColumnCount() > 3) {
-                        Object valObj = tableModel.getValueAt(row, 3);
+                    if (tableModel.getRowCount() > row && tableModel.getColumnCount() > 5) {
+                        Object valObj = tableModel.getValueAt(row, 5);
                         if (valObj instanceof Number) {
                             highValue = ((Number) valObj).longValue() >= minValueCr;
                         }
@@ -114,6 +125,7 @@ public class NearbyTabPanel extends JPanel {
             }
         };
         table.setDefaultRenderer(Object.class, cellRenderer);
+        table.setToolTipText("<html>Exobiology: predicted genus names. Est. exobiology (cr): sum of estimated credits for scanning/sampling all predicted species in the system (first-discovery bonus where applicable).</html>");
 
         scrollPane = new JScrollPane(table);
         scrollPane.setOpaque(false);
@@ -122,9 +134,25 @@ public class NearbyTabPanel extends JPanel {
         scrollPane.setBorder(null);
         scrollPane.setViewportBorder(null);
 
+        progressPanel = new JPanel(new BorderLayout());
+        progressPanel.setOpaque(false);
+        progressLabel = new JLabel(" ");
+        progressLabel.setForeground(EdoUi.User.MAIN_TEXT);
+        progressLabel.setOpaque(false);
+        progressBar = new javax.swing.JProgressBar(0, 100);
+        progressBar.setIndeterminate(false);
+        progressBar.setStringPainted(true);
+        progressBar.setForeground(EdoUi.User.MAIN_TEXT);
+        progressBar.setBackground(EdoUi.User.BACKGROUND);
+        progressBar.setOpaque(false);
+        progressPanel.add(progressLabel, BorderLayout.NORTH);
+        progressPanel.add(progressBar, BorderLayout.CENTER);
+        progressPanel.setVisible(false);
+
         JPanel north = new JPanel(new BorderLayout());
         north.setOpaque(false);
-        north.add(headerLabel, BorderLayout.WEST);
+        north.add(headerLabel, BorderLayout.NORTH);
+        north.add(progressPanel, BorderLayout.CENTER);
         add(north, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
     }
@@ -149,10 +177,12 @@ public class NearbyTabPanel extends JPanel {
     private void refreshInBackground() {
         SystemState state = systemTabPanel != null ? systemTabPanel.getState() : null;
         String centerName = state != null ? state.getSystemName() : null;
+        if (centerName == null)
+        	centerName = "Tenjin";
         if (centerName == null || centerName.trim().isEmpty()) {
             SwingUtilities.invokeLater(() -> {
                 tableModel.setRowCount(0);
-                tableModel.addRow(new Object[]{"—", "No current system", "—"});
+                tableModel.addRow(new Object[]{"—", "No current system", "—", "—", "—", Long.valueOf(0L)});
             });
             return;
         }
@@ -160,22 +190,55 @@ public class NearbyTabPanel extends JPanel {
         int radiusLy = OverlayPreferences.getNearbySphereRadiusLy();
         long minValueCr = (long) (OverlayPreferences.getNearbyMinValueMillionCredits() * 1_000_000);
 
-        new SwingWorker<List<Object[]>, Void>() {
+        final String finalCenterName = centerName;
+
+        SwingWorker<List<Object[]>, int[]> worker = new SwingWorker<List<Object[]>, int[]>() {
             @Override
             protected List<Object[]> doInBackground() throws Exception {
                 List<Object[]> rows = new ArrayList<>();
                 try {
-                    SphereSystemsResponse[] systems = edsmClient.sphereSystemsLocal(centerName.trim(), radiusLy);
+                    double cx = 0, cy = 0, cz = 0;
+                    boolean haveCoords = false;
+                    SystemState s = systemTabPanel != null ? systemTabPanel.getState() : null;
+                    if (s != null && s.getStarPos() != null && s.getStarPos().length >= 3) {
+                        cx = s.getStarPos()[0];
+                        cy = s.getStarPos()[1];
+                        cz = s.getStarPos()[2];
+                        haveCoords = true;
+                    }
+                    if (!haveCoords) {
+                        SystemResponse center = edsmClient.getSystem(finalCenterName.trim());
+                        if (center != null && center.coords != null) {
+                            cx = center.coords.x;
+                            cy = center.coords.y;
+                            cz = center.coords.z;
+                            haveCoords = true;
+                        }
+                    }
+                    SphereSystemsResponse[] systems = null;
+                    if (finalCenterName != null && !finalCenterName.trim().isEmpty()) {
+                        systems = edsmClient.sphereSystemsByName(finalCenterName.trim(), radiusLy);
+                    }
+                    if ((systems == null || systems.length == 0) && haveCoords) {
+                        systems = edsmClient.sphereSystems(cx, cy, cz, radiusLy);
+                    }
                     if (systems == null || systems.length == 0) {
                         return rows;
                     }
+                    final int totalSystems = systems.length;
                     SystemCache cache = SystemCache.getInstance();
+                    int sysIndex = 0;
                     for (SphereSystemsResponse sys : systems) {
                         if (sys == null || sys.name == null || sys.name.isEmpty()) {
                             continue;
                         }
+                        sysIndex++;
+                        setProgress(totalSystems > 0 ? (int) (100.0 * sysIndex / totalSystems) : 0);
+                        publish(new int[]{sysIndex, totalSystems});
                         CachedSystem cs = cache.get(0L, sys.name);
                         List<BodyValue> bodyValues = new ArrayList<>();
+                        Set<String> predictedGenera = new LinkedHashSet<>();
+                        Set<String> ringTypes = new LinkedHashSet<>();
                         if (cs != null && cs.bodies != null) {
                             double[] starPos = cs.starPos != null ? cs.starPos : new double[3];
                             for (CachedBody cb : cs.bodies) {
@@ -194,10 +257,19 @@ public class NearbyTabPanel extends JPanel {
                                 if (preds == null || preds.isEmpty()) {
                                     continue;
                                 }
-                                boolean firstBonus = !Boolean.TRUE.equals(cb.wasFootfalled);
+                                if (!Boolean.TRUE.equals(cb.wasFootfalled) && cb.spanshLandmarks == null) {
+                                    List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(cs.systemName, cb.name);
+                                    if (landmarks != null) {
+                                        cb.spanshLandmarks = landmarks;
+                                    }
+                                }
+                                boolean firstBonus = FirstBonusHelper.firstBonusApplies(cb);
                                 long maxVal = 0;
                                 for (BioCandidate bc : preds) {
                                     if (bc != null) {
+                                        if (bc.getGenus() != null && !bc.getGenus().isEmpty()) {
+                                            predictedGenera.add(bc.getGenus());
+                                        }
                                         long v = bc.getEstimatedPayout(firstBonus);
                                         if (v > maxVal) {
                                             maxVal = v;
@@ -211,12 +283,22 @@ public class NearbyTabPanel extends JPanel {
                         } else {
                             try {
                                 BodiesResponse bodiesResp = edsmClient.showBodies(sys.name);
-                                if (bodiesResp != null && bodiesResp.bodies != null && bodiesResp.coords != null) {
-                                    double x = bodiesResp.coords.x != null ? bodiesResp.coords.x : 0;
-                                    double y = bodiesResp.coords.y != null ? bodiesResp.coords.y : 0;
-                                    double z = bodiesResp.coords.z != null ? bodiesResp.coords.z : 0;
+                                if (bodiesResp != null && bodiesResp.bodies != null) {
+                                    double x = 0, y = 0, z = 0;
+                                    if (bodiesResp.coords != null) {
+                                        x = bodiesResp.coords.x != null ? bodiesResp.coords.x : 0;
+                                        y = bodiesResp.coords.y != null ? bodiesResp.coords.y : 0;
+                                        z = bodiesResp.coords.z != null ? bodiesResp.coords.z : 0;
+                                    }
                                     double[] starPos = new double[]{x, y, z};
                                     for (BodiesResponse.Body b : bodiesResp.bodies) {
+                                        if (b != null && b.rings != null && !b.rings.isEmpty()) {
+                                            for (BodiesResponse.Body.Ring r : b.rings) {
+                                                if (r != null && r.type != null && !r.type.trim().isEmpty()) {
+                                                    ringTypes.add(r.type.trim());
+                                                }
+                                            }
+                                        }
                                         if (b == null || b.isLandable == null || !b.isLandable) {
                                             continue;
                                         }
@@ -227,10 +309,14 @@ public class NearbyTabPanel extends JPanel {
                                         if (preds == null || preds.isEmpty()) {
                                             continue;
                                         }
-                                        boolean firstBonus = true;
+                                        List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(sys.name, b.name);
+                                        boolean firstBonus = FirstBonusHelper.firstBonusApplies(null, landmarks);
                                         long maxVal = 0;
                                         for (BioCandidate bc : preds) {
                                             if (bc != null) {
+                                                if (bc.getGenus() != null && !bc.getGenus().isEmpty()) {
+                                                    predictedGenera.add(bc.getGenus());
+                                                }
                                                 long v = bc.getEstimatedPayout(firstBonus);
                                                 if (v > maxVal) {
                                                     maxVal = v;
@@ -246,7 +332,9 @@ public class NearbyTabPanel extends JPanel {
                                 // skip this system
                             }
                         }
-                        if (bodyValues.isEmpty()) {
+                        boolean hasExo = !bodyValues.isEmpty();
+                        boolean hasRings = !ringTypes.isEmpty();
+                        if (!hasExo && !hasRings) {
                             continue;
                         }
                         long systemTotal = 0;
@@ -255,30 +343,42 @@ public class NearbyTabPanel extends JPanel {
                             systemTotal += bv.valueCr;
                             names.add(bv.bodyName);
                         }
+                        String planetsCol = bodyValues.isEmpty() ? "—" : String.join(", ", names);
+                        String exobiologyCol = predictedGenera.isEmpty() ? "—" : String.join(", ", predictedGenera);
+                        String ringsCol = ringTypes.isEmpty() ? "—" : String.join(", ", ringTypes);
+                        String valueCol = bodyValues.isEmpty() ? "—" : String.format(Locale.ROOT, "%,d", systemTotal);
                         rows.add(new Object[]{
                                 sys.name,
-                                String.join(", ", names),
-                                String.format(Locale.ROOT, "%,d", systemTotal),
+                                planetsCol,
+                                exobiologyCol,
+                                ringsCol,
+                                valueCol,
                                 Long.valueOf(systemTotal)
                         });
                     }
+                    setProgress(100);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
-                rows.sort(Comparator.comparingLong((Object[] row) -> ((Long) row[3]).longValue()).reversed());
+                rows.sort(Comparator.comparingLong((Object[] row) -> ((Long) row[5]).longValue()).reversed());
                 return rows;
             }
 
             @Override
             protected void done() {
+                SwingUtilities.invokeLater(() -> {
+                    progressPanel.setVisible(false);
+                    progressBar.setValue(0);
+                });
                 try {
                     List<Object[]> result = get();
+                    final List<Object[]> res = result;
                     SwingUtilities.invokeLater(() -> {
                         tableModel.setRowCount(0);
-                        if (result == null || result.isEmpty()) {
-                            tableModel.addRow(new Object[]{"—", "No systems with exobiology in range", "—", Long.valueOf(0L)});
+                        if (res == null || res.isEmpty()) {
+                            tableModel.addRow(new Object[]{"—", "No systems with exobiology or rings in range", "—", "—", "—", Long.valueOf(0L)});
                         } else {
-                            for (Object[] row : result) {
+                            for (Object[] row : res) {
                                 tableModel.addRow(row);
                             }
                         }
@@ -287,17 +387,47 @@ public class NearbyTabPanel extends JPanel {
                     Thread.currentThread().interrupt();
                     SwingUtilities.invokeLater(() -> {
                         tableModel.setRowCount(0);
-                        tableModel.addRow(new Object[]{"—", "Interrupted", "—", Long.valueOf(0L)});
+                        tableModel.addRow(new Object[]{"—", "Interrupted", "—", "—", "—", Long.valueOf(0L)});
                     });
                 } catch (ExecutionException e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    final String msg = cause != null ? cause.getMessage() : e.getMessage();
                     SwingUtilities.invokeLater(() -> {
                         tableModel.setRowCount(0);
-                        tableModel.addRow(new Object[]{"—", "Error: " + cause.getMessage(), "—", Long.valueOf(0L)});
+                        tableModel.addRow(new Object[]{"—", "Error: " + msg, "—", "—", "—", Long.valueOf(0L)});
                     });
                 }
             }
-        }.execute();
+
+            @Override
+            protected void process(java.util.List<int[]> chunks) {
+                if (chunks.isEmpty()) return;
+                int[] last = chunks.get(chunks.size() - 1);
+                int current = last[0];
+                int total = last[1];
+                int pct = total > 0 ? (int) (100.0 * current / total) : 0;
+                progressBar.setValue(pct);
+                progressBar.setString(pct + "%");
+                progressLabel.setText("Scanning... " + current + " / " + total + " systems");
+            }
+        };
+        worker.addPropertyChangeListener(new PropertyChangeListener() {
+            @Override
+            public void propertyChange(PropertyChangeEvent evt) {
+                if ("progress".equals(evt.getPropertyName())) {
+                    int p = (Integer) evt.getNewValue();
+                    SwingUtilities.invokeLater(() -> {
+                        progressBar.setValue(p);
+                        progressBar.setString(p + "%");
+                    });
+                }
+            }
+        });
+        progressPanel.setVisible(true);
+        progressBar.setValue(0);
+        progressBar.setString("0%");
+        progressLabel.setText("Scanning... 0 / ? systems");
+        worker.execute();
     }
 
     private static boolean isExcluded(CachedBody cb) {
@@ -357,12 +487,12 @@ public class NearbyTabPanel extends JPanel {
     }
 
     private static List<BioCandidate> predictFromEdsmBody(BodiesResponse.Body b, BodiesResponse bodies, double[] starPos) {
-        if (bodies.coords == null) {
-            return Collections.emptyList();
+        double x = 0, y = 0, z = 0;
+        if (bodies.coords != null) {
+            x = bodies.coords.x != null ? bodies.coords.x : 0;
+            y = bodies.coords.y != null ? bodies.coords.y : 0;
+            z = bodies.coords.z != null ? bodies.coords.z : 0;
         }
-        double x = bodies.coords.x != null ? bodies.coords.x : 0;
-        double y = bodies.coords.y != null ? bodies.coords.y : 0;
-        double z = bodies.coords.z != null ? bodies.coords.z : 0;
         double[] coords = new double[]{x, y, z};
         PlanetType pt = ExobiologyData.parsePlanetType(b.subType);
         String atmoRaw = b.atmosphereType != null ? b.atmosphereType : "";
@@ -418,12 +548,17 @@ public class NearbyTabPanel extends JPanel {
         scrollPane.getViewport().setBackground(EdoUi.Internal.TRANSPARENT);
         headerLabel.setOpaque(false);
         headerLabel.setBackground(EdoUi.Internal.TRANSPARENT);
+        if (progressPanel != null) progressPanel.setOpaque(false);
+        if (progressLabel != null) progressLabel.setOpaque(false);
         repaint();
     }
 
     public void applyUiFont(Font font) {
         if (font != null && headerLabel != null) {
             headerLabel.setFont(font.deriveFont(Font.BOLD, font.getSize() + 2));
+        }
+        if (progressLabel != null && font != null) {
+            progressLabel.setFont(font);
         }
         if (table != null) {
             table.setFont(font != null ? font : table.getFont());

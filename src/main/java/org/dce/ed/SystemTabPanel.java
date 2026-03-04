@@ -45,6 +45,9 @@ import javax.swing.table.TableColumnModel;
 
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
+import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.SpanshLandmark;
+import org.dce.ed.util.SpanshLandmarkCache;
 import org.dce.ed.edsm.BodiesResponse;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
@@ -883,7 +886,13 @@ return c;
             return Long.MIN_VALUE;
         }
 
-        boolean firstBonus = !Boolean.TRUE.equals(b.getWasFootfalled());
+        if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
+            List<SpanshLandmark> landmarks = SpanshLandmarkCache.getInstance().getOrFetch(b.getStarSystem(), b.getBodyName());
+            if (landmarks != null) {
+                b.setSpanshLandmarks(landmarks);
+            }
+        }
+        boolean firstBonus = FirstBonusHelper.firstBonusApplies(b);
 
         long max = Long.MIN_VALUE;
         for (ExobiologyData.BioCandidate c : preds) {
