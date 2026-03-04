@@ -224,6 +224,8 @@ public class EliteDangerousOverlay implements NativeKeyListener {
 
     	if (toWindow == passThroughFrame) {
     		passThroughFrame.add(contentPanel, java.awt.BorderLayout.CENTER);
+    		passThroughFrame.setRightStatusListener(null);
+    		passThroughFrame.refreshRightStatusDisplay();
     	} else {
     		// attachContent() should remove+add contentPanel into the decorated frame.
     		passThroughFrame.setPassThroughEnabled(false);
@@ -231,6 +233,8 @@ public class EliteDangerousOverlay implements NativeKeyListener {
 
     		decoratedDialog.setBounds(bounds);      // set bounds FIRST
     		decoratedDialog.attachContent();        // then attach content
+    		passThroughFrame.setRightStatusListener(decoratedDialog::setRightStatusText);
+    		passThroughFrame.refreshRightStatusDisplay();
     		decoratedDialog.applyOverlayBackgroundFromPreferences(false);
     		decoratedDialog.setVisible(true);
     		decoratedDialog.toFront();

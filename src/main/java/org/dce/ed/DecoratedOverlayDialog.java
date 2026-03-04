@@ -56,6 +56,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 	private JLabel statusLabel;
 	private volatile boolean lastDocked;
 	private volatile CargoMonitor.Snapshot lastCargoSnapshot;
+	private String lastRightStatusText = "";
 
 	/**
 	 * Minimal DWM binding.
@@ -150,15 +151,23 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		updateStatusLabel();
 	}
 
+	/** Called by OverlayFrame when this dialog is the visible status display (single entry point). */
+	public void setRightStatusText(String text) {
+		this.lastRightStatusText = text != null ? text : "";
+		updateStatusLabel();
+	}
+
 	private void updateStatusLabel() {
 		if (statusLabel == null) {
 			return;
 		}
 
 		Runnable r = () -> {
-			boolean show = shouldShowLowLimpetWarning();
-			statusLabel.setText(show ? "Low Limpet Warning!" : "");
-			statusLabel.setVisible(show);
+			boolean limpet = shouldShowLowLimpetWarning();
+			String right = lastRightStatusText != null ? lastRightStatusText.trim() : "";
+			String full = right + (limpet ? (right.isEmpty() ? "" : "  |  ") + "Low Limpet Warning!" : "");
+			statusLabel.setText(full);
+			statusLabel.setVisible(!full.isEmpty());
 		};
 
 		if (SwingUtilities.isEventDispatchThread()) {
@@ -196,7 +205,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 
 		statusLabel = new JLabel("");
 		statusLabel.setOpaque(false);
-		statusLabel.setForeground(Color.RED);
+		statusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
 		statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD));
 
 		bar.add(Box.createHorizontalGlue());

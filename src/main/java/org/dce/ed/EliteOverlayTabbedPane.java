@@ -283,6 +283,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 	public SystemTabPanel getSystemTabPanel() {
 		return systemTab;
 	}
+
+	public RouteTabPanel getRouteTabPanel() {
+		return routeTab;
+	}
 	static LoadoutEvent loadoutEventx = null;
 
 	private static volatile boolean currentlyDocked = false;

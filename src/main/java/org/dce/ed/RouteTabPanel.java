@@ -38,6 +38,7 @@ import javax.swing.table.TableColumnModel;
 
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
+import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.edsm.BodiesResponse;
 import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
@@ -124,6 +125,68 @@ public class RouteTabPanel extends JPanel {
 		jumpFlashOn = !jumpFlashOn;
 		table.repaint();
 	});
+
+	/** Optional callback when route state changes (for debounced session persist). */
+	private Runnable sessionStateChangeCallback;
+
+	public void setSessionStateChangeCallback(Runnable callback) {
+		this.sessionStateChangeCallback = callback;
+	}
+
+	private void fireSessionStateChanged() {
+		if (sessionStateChangeCallback != null) {
+			sessionStateChangeCallback.run();
+		}
+	}
+
+	/** Fill route-related fields of the given session state (for save). */
+	public void fillSessionState(EdoSessionState state) {
+		if (state == null) return;
+		state.setCurrentSystemName(currentSystemName);
+		state.setCurrentSystemAddress(currentSystemAddress != 0L ? Long.valueOf(currentSystemAddress) : null);
+		state.setCurrentStarPos(currentStarPos != null && currentStarPos.length > 0 ? currentStarPos : null);
+		state.setTargetSystemName(targetSystemName);
+		state.setTargetSystemAddress(targetSystemAddress != 0L ? Long.valueOf(targetSystemAddress) : null);
+		state.setDestinationSystemAddress(destinationSystemAddress);
+		state.setDestinationBodyId(destinationBodyId);
+		state.setDestinationName(destinationName);
+		state.setPendingJumpLockedName(pendingJumpLockedName);
+		state.setPendingJumpLockedAddress(pendingJumpLockedAddress != 0L ? Long.valueOf(pendingJumpLockedAddress) : null);
+		state.setInHyperspace(inHyperspace);
+	}
+
+	/** Apply persisted route state (for restore on startup). */
+	public void applySessionState(EdoSessionState state) {
+		if (state == null) return;
+		if (state.getCurrentSystemName() != null) {
+			setCurrentSystemName(state.getCurrentSystemName());
+		}
+		if (state.getCurrentSystemAddress() != null) {
+			currentSystemAddress = state.getCurrentSystemAddress().longValue();
+		}
+		if (state.getCurrentStarPos() != null && state.getCurrentStarPos().length >= 3) {
+			currentStarPos = state.getCurrentStarPos();
+		}
+		if (state.getTargetSystemName() != null) {
+			targetSystemName = state.getTargetSystemName();
+		} else {
+			targetSystemName = null;
+		}
+		if (state.getTargetSystemAddress() != null) {
+			targetSystemAddress = state.getTargetSystemAddress().longValue();
+		} else {
+			targetSystemAddress = 0L;
+		}
+		destinationSystemAddress = state.getDestinationSystemAddress();
+		destinationBodyId = state.getDestinationBodyId();
+		destinationName = state.getDestinationName();
+		pendingJumpLockedName = state.getPendingJumpLockedName();
+		pendingJumpLockedAddress = (state.getPendingJumpLockedAddress() != null) ? state.getPendingJumpLockedAddress().longValue() : 0L;
+		if (state.getInHyperspace() != null) {
+			inHyperspace = state.getInHyperspace().booleanValue();
+		}
+		rebuildDisplayedEntries();
+	}
 
 	public RouteTabPanel() {
 		super(new BorderLayout());
@@ -569,6 +632,7 @@ public class RouteTabPanel extends JPanel {
 
 			rebuildDisplayedEntries();
 		}
+		fireSessionStateChanged();
 	}
 	private void setCurrentSystemIfEmpty(String systemName, long systemAddress) {
 		if (tableModel.getRowCount() > 0) {

@@ -46,6 +46,7 @@ import javax.swing.table.TableColumnModel;
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.edsm.BodiesResponse;
+import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.logreader.EliteJournalReader;
@@ -110,6 +111,48 @@ public class SystemTabPanel extends JPanel {
     private volatile Integer targetDestinationParentBodyId;
     private volatile String targetDestinationName;
 	private JLabel headerSummaryLabel;
+
+	/** Optional callback when system tab target/near/destination state changes (for debounced session persist). */
+	private Runnable sessionStateChangeCallback;
+
+	public void setSessionStateChangeCallback(Runnable callback) {
+	    this.sessionStateChangeCallback = callback;
+	}
+
+	private void fireSessionStateChanged() {
+	    if (sessionStateChangeCallback != null) {
+	        sessionStateChangeCallback.run();
+	    }
+	}
+
+	/** Fill system-tab-related fields of the given session state (for save). */
+	public void fillSessionState(EdoSessionState state) {
+	    if (state == null) return;
+	    state.setTargetBodyId(targetBodyId);
+	    state.setTargetBodyName(targetBodyName);
+	    state.setNearBodyId(nearBodyId);
+	    state.setNearBodyName(nearBodyName);
+	    state.setTargetDestinationParentBodyId(targetDestinationParentBodyId);
+	    state.setTargetDestinationName(targetDestinationName);
+	}
+
+	/** Apply persisted system tab state (for restore on startup). */
+	public void applySessionState(EdoSessionState state) {
+	    if (state == null) return;
+	    if (state.getTargetBodyId() != null) {
+	        targetBodyId = state.getTargetBodyId();
+	        targetBodyName = state.getTargetBodyName();
+	    }
+	    if (state.getNearBodyId() != null || state.getNearBodyName() != null) {
+	        nearBodyId = state.getNearBodyId();
+	        nearBodyName = state.getNearBodyName();
+	    }
+	    if (state.getTargetDestinationParentBodyId() != null || state.getTargetDestinationName() != null) {
+	        targetDestinationParentBodyId = state.getTargetDestinationParentBodyId();
+	        targetDestinationName = state.getTargetDestinationName();
+	    }
+	    requestRebuild();
+	}
     
 	public void setNearBodyChangedListener(Consumer<BodyInfo> listener) {
 	    this.nearBodyChangedListener = listener;
@@ -563,6 +606,7 @@ public class SystemTabPanel extends JPanel {
 
             if (changed) {
                 requestRebuild();
+                fireSessionStateChanged();
             } else {
                 table.repaint();
             }
@@ -598,6 +642,7 @@ public class SystemTabPanel extends JPanel {
 
             // Just repaint; no need to rebuild the model.
             table.repaint();
+            fireSessionStateChanged();
         });
     }
 

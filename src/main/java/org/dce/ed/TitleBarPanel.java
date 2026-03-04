@@ -107,7 +107,7 @@ public class TitleBarPanel extends JPanel {
         leftStatusLabel.setVisible(false);
 
         rightStatusLabel = new JLabel("");
-        rightStatusLabel.setForeground(Color.WHITE);
+        rightStatusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
         rightStatusLabel.setFont(rightStatusLabel.getFont().deriveFont(Font.PLAIN, 13f));
         rightStatusLabel.setBorder(new EmptyBorder(4, 8, 4, 8));
         rightStatusLabel.setHorizontalAlignment(SwingConstants.RIGHT);

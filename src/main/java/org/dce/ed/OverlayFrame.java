@@ -23,6 +23,7 @@ import java.text.NumberFormat;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Consumer;
 import java.util.prefs.Preferences;
 
 import javax.swing.JComponent;
@@ -33,12 +34,13 @@ import javax.swing.border.LineBorder;
 
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.logreader.EliteEventType;
+import org.dce.ed.session.EdoSessionPersistence;
+import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.LiveJournalMonitor;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
-import org.dce.ed.notifications.TextNotificationSender;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
 
@@ -49,7 +51,6 @@ import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef.HWND;
 import com.sun.jna.platform.win32.WinUser;
 
-import jakarta.mail.MessagingException;
 import org.dce.ed.ui.EdoUi;
 
 public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
@@ -68,6 +69,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private static final String PREF_KEY_HEIGHT = "overlay.height";
 
     private static final String PREF_KEY_EXO_CREDITS_TOTAL = "exo.creditsTotal";
+
+    private static final String DEFAULT_TITLE_BAR_TITLE = "Elite Dangerous Overlay";
+
+    /** Cooldown duration after fleet jump countdown expires (seconds). */
+    private static final int CARRIER_JUMP_COOLDOWN_SECONDS = 5 * 60;
 
     private final LineBorder overlayBorder = new LineBorder(
             new java.awt.Color(200, 200, 255, 180),
@@ -99,7 +105,60 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private String carrierJumpTargetSystem;
     private boolean carrierJumpTextNotificationSent;
 
+    /** Cooldown phase (5 min) after fleet jump countdown expires. */
+    private Instant carrierJumpCooldownEndTime;
+    private javax.swing.Timer carrierJumpCooldownTimer;
+
     private long exoCreditsTotal;
+
+    /** Debounced save of session state (500 ms after last tab change). */
+    private final Timer sessionSaveTimer = new Timer(500, e -> saveSessionState());
+
+    /** Single entry point for right-hand status: whichever window is visible gets updates. */
+    private Consumer<String> rightStatusListener = this::setRightStatusTextOnTitleBar;
+
+    public void setRightStatusListener(Consumer<String> listener) {
+        this.rightStatusListener = listener != null ? listener : this::setRightStatusTextOnTitleBar;
+    }
+
+    private void setRightStatusTextOnTitleBar(String text) {
+        if (titleBar != null) titleBar.setRightStatusText(text);
+    }
+
+    private void publishRightStatusText(String text) {
+        rightStatusListener.accept(text);
+    }
+
+    public void refreshRightStatusDisplay() {
+        publishRightStatusText(getRightStatusText());
+    }
+
+    public String getRightStatusText() {
+        if (carrierJumpDepartureTime != null) {
+            long seconds = Math.max(0, carrierJumpDepartureTime.getEpochSecond() - Instant.now().getEpochSecond());
+            long minutes = seconds / 60;
+            long secs = seconds % 60;
+            String countdown;
+            if (minutes >= 60) {
+                long hours = minutes / 60;
+                minutes = minutes % 60;
+                countdown = String.format(Locale.US, "FC jump T-%d:%02d:%02d", hours, minutes, secs);
+            } else {
+                countdown = String.format(Locale.US, "FC jump T-%d:%02d", minutes, secs);
+            }
+            if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
+                countdown += " → " + carrierJumpTargetSystem;
+            }
+            return countdown;
+        }
+        if (carrierJumpCooldownEndTime != null) {
+            long seconds = Math.max(0, carrierJumpCooldownEndTime.getEpochSecond() - Instant.now().getEpochSecond());
+            long minutes = seconds / 60;
+            long secs = seconds % 60;
+            return String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs);
+        }
+        return formatExoCredits(exoCreditsTotal);
+    }
     
     public static OverlayFrame overlayFrame = null;
     
@@ -146,10 +205,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         setResizable(true);
         setMinimumSize(new Dimension(MIN_WIDTH, MIN_HEIGHT));
 
-        // Save bounds on close
+        // Save bounds and session state on close
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
+                saveSessionState();
                 closeOverlay();
             }
         });
@@ -181,6 +241,70 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         installExoCreditsTracker();
         installTabbedPaneJournalListener();
         installLowLimpetStatusUpdater();
+        sessionSaveTimer.setRepeats(false);
+        installSessionPersistence();
+    }
+
+    private void installSessionPersistence() {
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs == null) return;
+        Runnable debouncedSave = () -> {
+            sessionSaveTimer.stop();
+            sessionSaveTimer.start();
+        };
+        tabs.getRouteTabPanel().setSessionStateChangeCallback(debouncedSave);
+        tabs.getSystemTabPanel().setSessionStateChangeCallback(debouncedSave);
+        restoreSessionState();
+    }
+
+    private void saveSessionState() {
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs == null) return;
+        EdoSessionState state = new EdoSessionState();
+        tabs.getRouteTabPanel().fillSessionState(state);
+        tabs.getSystemTabPanel().fillSessionState(state);
+        fillCarrierSessionState(state);
+        EdoSessionPersistence.save(state);
+    }
+
+    private void fillCarrierSessionState(EdoSessionState state) {
+        if (state == null) return;
+        if (carrierJumpDepartureTime != null) {
+            state.setCarrierJumpDepartureTime(carrierJumpDepartureTime.toString());
+        }
+        state.setCarrierJumpTargetSystem(carrierJumpTargetSystem);
+        state.setCarrierJumpTextNotificationSent(carrierJumpTextNotificationSent);
+    }
+
+    private void restoreSessionState() {
+        EdoSessionState state = EdoSessionPersistence.load();
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs == null) return;
+        tabs.getRouteTabPanel().applySessionState(state);
+        tabs.getSystemTabPanel().applySessionState(state);
+        applyCarrierSessionState(state);
+    }
+
+    private void applyCarrierSessionState(EdoSessionState state) {
+        if (state == null || state.getCarrierJumpDepartureTime() == null || state.getCarrierJumpDepartureTime().isBlank()) return;
+        try {
+            Instant departure = Instant.parse(state.getCarrierJumpDepartureTime());
+            if (departure.isAfter(Instant.now())) {
+                carrierJumpDepartureTime = departure;
+                carrierJumpTargetSystem = state.getCarrierJumpTargetSystem();
+                carrierJumpTextNotificationSent = Boolean.TRUE.equals(state.getCarrierJumpTextNotificationSent());
+                setTitleBarText("");
+                if (carrierJumpCountdownTimer != null) {
+                    carrierJumpCountdownTimer.stop();
+                }
+                carrierJumpCountdownTimer = new Timer(500, e -> updateCarrierJumpCountdown());
+                carrierJumpCountdownTimer.setRepeats(true);
+                carrierJumpCountdownTimer.start();
+                updateCarrierJumpCountdown();
+            }
+        } catch (Exception e) {
+            // ignore invalid or old timestamp
+        }
     }
 
     /** Single journal listener that delegates to the current tabbed pane. Prevents duplicate prospector/CSV handling. */
@@ -219,18 +343,6 @@ private void installCarrierJumpTitleUpdater() {
                     String sys = e.getSystemName();
                     SwingUtilities.invokeLater(() -> startCarrierJumpCountdown(dep, sys));
                 }
-                if (OverlayPreferences.isTextNotificationsEnabled()) {
-					try {
-						TextNotificationSender.sendText(
-						        OverlayPreferences.getTextNotificationAddress(),
-						        "EDO",
-						        "Fleet Carrier jumping to " + e.getBody() + " in 15 minutes"
-						);
-					} catch (MessagingException e1) {
-						// TODO Auto-generated catch block
-						e1.printStackTrace();
-					}
-                }
                 return;
             }
 
@@ -240,22 +352,10 @@ private void installCarrierJumpTitleUpdater() {
             }
 
             if (event.getType() == EliteEventType.CARRIER_JUMP) {
-                SwingUtilities.invokeLater(this::clearCarrierJumpCountdown);
-
-                CarrierJumpEvent e = (CarrierJumpEvent) event;
-                
-                if (OverlayPreferences.isTextNotificationsEnabled()) {
-					try {
-						TextNotificationSender.sendText(
-						        OverlayPreferences.getTextNotificationAddress(),
-						        "EDO",
-						        "Fleet Carrier " + e.getStationName() + " arriving at " + e.getBody()
-						);
-					} catch (MessagingException e1) {
-						// TODO Auto-generated catch block
-						e1.printStackTrace();
-					}
-                }
+                SwingUtilities.invokeLater(() -> {
+                    clearCarrierJumpCountdownStateOnly();
+                    startCarrierJumpCooldown();
+                });
             }
         });
     } catch (Exception ex) {
@@ -272,20 +372,17 @@ private void startCarrierJumpCountdown(Instant departureTime, String targetSyste
         carrierJumpCountdownTimer.stop();
     }
 
+    setTitleBarText("");
     carrierJumpCountdownTimer = new javax.swing.Timer(500, e -> updateCarrierJumpCountdown());
     carrierJumpCountdownTimer.setRepeats(true);
     carrierJumpCountdownTimer.start();
 
     updateCarrierJumpCountdown();
+    saveSessionState();
 }
 
 private void updateCarrierJumpCountdown() {
-    if (titleBar == null) {
-        return;
-    }
-
     if (carrierJumpDepartureTime == null) {
-        titleBar.setRightStatusText("");
         return;
     }
 
@@ -310,43 +407,81 @@ private void updateCarrierJumpCountdown() {
         countdown += " → " + carrierJumpTargetSystem;
     }
 
-    titleBar.setRightStatusText(countdown);
+    publishRightStatusText(countdown);
 
     if (Instant.now().isAfter(carrierJumpDepartureTime.plusSeconds(5))) {
         maybeSendCarrierJumpTextNotification();
-        clearCarrierJumpCountdown();
+        clearCarrierJumpCountdownStateOnly();
+        startCarrierJumpCooldown();
     }
 }
 
-private void clearCarrierJumpCountdown() {
+/** Clears only the jump countdown state and timer; does not touch cooldown or right status. */
+private void clearCarrierJumpCountdownStateOnly() {
     carrierJumpDepartureTime = null;
     carrierJumpTargetSystem = null;
     carrierJumpTextNotificationSent = false;
-
     if (carrierJumpCountdownTimer != null) {
         carrierJumpCountdownTimer.stop();
         carrierJumpCountdownTimer = null;
     }
+}
 
+private void startCarrierJumpCooldown() {
+    carrierJumpCooldownEndTime = Instant.now().plusSeconds(CARRIER_JUMP_COOLDOWN_SECONDS);
+    if (carrierJumpCooldownTimer != null) {
+        carrierJumpCooldownTimer.stop();
+    }
+    carrierJumpCooldownTimer = new javax.swing.Timer(500, e -> updateCarrierJumpCooldown());
+    carrierJumpCooldownTimer.setRepeats(true);
+    carrierJumpCooldownTimer.start();
+    updateCarrierJumpCooldown();
+    saveSessionState();
+}
+
+private void updateCarrierJumpCooldown() {
+    if (carrierJumpCooldownEndTime == null) {
+        return;
+    }
+    long seconds = Math.max(0, carrierJumpCooldownEndTime.getEpochSecond() - Instant.now().getEpochSecond());
+    long minutes = seconds / 60;
+    long secs = seconds % 60;
+    publishRightStatusText(String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs));
+    if (Instant.now().compareTo(carrierJumpCooldownEndTime) >= 0) {
+        if (carrierJumpCooldownTimer != null) {
+            carrierJumpCooldownTimer.stop();
+            carrierJumpCooldownTimer = null;
+        }
+        carrierJumpCooldownEndTime = null;
+        setTitleBarText(DEFAULT_TITLE_BAR_TITLE);
+        updateRightStatusDefault();
+        saveSessionState();
+    }
+}
+
+private void clearCarrierJumpCountdown() {
+    clearCarrierJumpCountdownStateOnly();
+    if (carrierJumpCooldownTimer != null) {
+        carrierJumpCooldownTimer.stop();
+        carrierJumpCooldownTimer = null;
+    }
+    carrierJumpCooldownEndTime = null;
+
+    setTitleBarText(DEFAULT_TITLE_BAR_TITLE);
     updateRightStatusDefault();
+    saveSessionState();
 }
 
 private void updateRightStatusDefault() {
-    if (titleBar == null) {
+    if (carrierJumpDepartureTime != null || carrierJumpCooldownEndTime != null) {
         return;
     }
-
-    // Carrier countdown always wins.
-    if (carrierJumpDepartureTime != null) {
-        return;
-    }
-
-    titleBar.setRightStatusText(formatExoCredits(exoCreditsTotal));
+    publishRightStatusText(formatExoCredits(exoCreditsTotal));
 }
 
 private static String formatExoCredits(long credits) {
     if (credits <= 0) {
-        return "Bio: 0 Cr";
+        return "";
     }
 
     double d = credits;
@@ -534,6 +669,7 @@ private void updateLeftStatusLabel() {
 
         if (contentPanel != null) {
             contentPanel.rebuildTabbedPane();
+            installSessionPersistence();
         }
 
         repaint();
