@@ -278,7 +278,7 @@ public final class ExobiologyData {
             }
 
             if (minPressure != null || maxPressure != null) {
-                double p = body.pressure;
+                double p = body.pressure != null ? body.pressure.doubleValue() : Double.NaN;
                 if (!Double.isNaN(p)) {
                     if (minPressure != null && p < minPressure) {
                         return false;
@@ -797,6 +797,12 @@ public SpeciesRuleBuilder gravity(Double min, Double max) {
         	
             this.score = score;
 //            this.reason = reason;
+        }
+
+        /** For Gson deserialization when loading predictions from cache. */
+        @SuppressWarnings("unused")
+        public BioCandidate() {
+            this.score = 0.0;
         }
 
         public String getGenus() {

@@ -85,6 +85,12 @@ public class CachedBody {
 	/** True when Spansh has signals but none Biological; body should be excluded from exobiology lists. */
 	public Boolean spanshExcludeFromExobiology;
 
+	/** Ring type names for this body (e.g. "Icy pristine"). Stored so cached systems show rings in Nearby. */
+	public List<String> ringTypes;
+
+	/** Genus/species names from Spansh landmarks (community-recorded biology). Kept separate from {@link #predictions} (our scan/model prediction). */
+	public List<String> spanshPredictedGenera;
+
 	public int getNumberOfBioSignals() {
 		return numberOfBioSignals;
 	}

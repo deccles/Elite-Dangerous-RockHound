@@ -613,11 +613,25 @@ public final class SystemCache {
                 if (cb.spanshExcludeFromExobiology == null && prev.spanshExcludeFromExobiology != null) {
                     cb.spanshExcludeFromExobiology = prev.spanshExcludeFromExobiology;
                 }
+                if (cb.ringTypes == null && prev.ringTypes != null) {
+                    cb.ringTypes = new ArrayList<>(prev.ringTypes);
+                }
+                if (cb.spanshPredictedGenera == null && prev.spanshPredictedGenera != null) {
+                    cb.spanshPredictedGenera = new ArrayList<>(prev.spanshPredictedGenera);
+                }
+                if (cb.gravityMS == null && prev.gravityMS != null) {
+                    cb.gravityMS = prev.gravityMS;
+                }
+                if (cb.surfaceTempK == null && prev.surfaceTempK != null) {
+                    cb.surfaceTempK = prev.surfaceTempK;
+                }
             }
 
             cb.setNumberOfBioSignals(b.getNumberOfBioSignals());
             if (b.getPredictions() != null && !b.getPredictions().isEmpty()) {
                 cb.predictions = b.getPredictions();
+            } else if (prev != null && prev.predictions != null && !prev.predictions.isEmpty()) {
+                cb.predictions = new ArrayList<>(prev.predictions);
             }
 
             Map<String, Integer> counts = b.getBioSampleCountsSnapshot();

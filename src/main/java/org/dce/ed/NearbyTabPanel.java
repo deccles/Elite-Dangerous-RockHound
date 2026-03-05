@@ -62,6 +62,8 @@ import org.dce.ed.util.SpanshBodyExobiologyInfo;
 import org.dce.ed.util.SpanshLandmark;
 import org.dce.ed.util.SpanshLandmarkCache;
 
+import com.google.gson.Gson;
+
 /**
  * Nearby tab: sphere search around current system, exobiology prediction on landable planets,
  * table of high-value systems. Respects overlay color and transparency (pass-through mode).
@@ -280,7 +282,6 @@ public class NearbyTabPanel extends JPanel {
         }
 
         int radiusLy = OverlayPreferences.getNearbySphereRadiusLy();
-        int maxSystems = OverlayPreferences.getNearbyMaxSystems();
         long minValueCr = (long) (OverlayPreferences.getNearbyMinValueMillionCredits() * 1_000_000);
 
         final String finalCenterName = centerName;
@@ -318,8 +319,8 @@ public class NearbyTabPanel extends JPanel {
                     if (systems == null || systems.length == 0) {
                         return rows;
                     }
-                    // Sort by distance (closest first). Process all systems in order; use cache when available,
-                    // and only "query" (EDSM/Spansh) for up to maxSystems that aren't cached — so 50 cached + next 40 queried = 90 shown.
+                    // Sort by distance (closest first). Process all systems; use cache when available,
+                    // and fetch from EDSM/Spansh for any uncached system so we cache them for next run.
                     Arrays.sort(systems, Comparator.comparingDouble(sys -> sys.distance));
                     final int maxToScan = Math.min(systems.length, 1000);
                     SystemCache cache = SystemCache.getInstance();
@@ -356,10 +357,23 @@ public class NearbyTabPanel extends JPanel {
                         if (cs != null && cs.bodies != null) {
                             fromCache++;
                             double[] starPos = cs.starPos != null ? cs.starPos : new double[3];
+                            if (starPos.length >= 3 && starPos[0] == 0 && starPos[1] == 0 && starPos[2] == 0
+                                    && sys.coords != null) {
+                                starPos = new double[]{sys.coords.x, sys.coords.y, sys.coords.z};
+                            }
+                            int bodiesWithRings = 0;
+                            for (CachedBody cb : cs.bodies) {
+                                if (cb.ringTypes != null) {
+                                    bodiesWithRings++;
+                                    ringTypes.addAll(cb.ringTypes);
+                                }
+                            }
+                            int landableCount = 0;
                             for (CachedBody cb : cs.bodies) {
                                 if (!cb.landable) {
                                     continue;
                                 }
+                                landableCount++;
                                 if (isExcluded(cb)) {
                                     continue;
                                 }
@@ -395,6 +409,9 @@ public class NearbyTabPanel extends JPanel {
                                         }
                                     }
                                 }
+                                if (cb.spanshPredictedGenera != null) {
+                                    predictedGenera.addAll(cb.spanshPredictedGenera);
+                                }
                                 if (maxVal > 0) {
                                     bodyValues.add(new BodyValue(cb.name, maxVal));
                                 }
@@ -402,10 +419,6 @@ public class NearbyTabPanel extends JPanel {
                         } else {
                             queried++;
                             try {
-                                // Only use a query budget for EDSM; Spansh data is from one batch call.
-                                if (edsmQueriesUsed >= maxSystems) {
-                                    continue;
-                                }
                                 BodiesResponse bodiesResp = null;
                                 List<BodiesResponse.Body> spanshBodies = bodiesBySystemFromSpansh != null ? bodiesBySystemFromSpansh.get(sys.name) : null;
                                 if (spanshBodies != null && !spanshBodies.isEmpty() && sys.coords != null) {
@@ -467,6 +480,41 @@ public class NearbyTabPanel extends JPanel {
                                         if (maxVal > 0) {
                                             bodyValues.add(new BodyValue(b.name, maxVal));
                                         }
+                                    }
+                                    // Cache: use full EDSM body data when available so we have rings (stars/gas giants).
+                                    // Spansh only gives landable bodies, so caching Spansh data would drop ring info.
+                                    BodiesResponse bodiesForCache = bodiesResp;
+                                    double[] starPosForCache = starPos;
+                                    if (spanshBodies != null && !spanshBodies.isEmpty() && bodiesResp.bodies == spanshBodies) {
+                                        BodiesResponse edsmForCache = edsmClient.showBodies(sys.name);
+                                        if (edsmForCache != null && edsmForCache.bodies != null && !edsmForCache.bodies.isEmpty()) {
+                                            bodiesForCache = edsmForCache;
+                                            if (edsmForCache.coords != null) {
+                                                double ex = edsmForCache.coords.x != null ? edsmForCache.coords.x : 0;
+                                                double ey = edsmForCache.coords.y != null ? edsmForCache.coords.y : 0;
+                                                double ez = edsmForCache.coords.z != null ? edsmForCache.coords.z : 0;
+                                                starPosForCache = new double[]{ex, ey, ez};
+                                            }
+                                        }
+                                    }
+                                    List<CachedBody> cachedBodies = buildCachedBodiesFromResponse(bodiesForCache, starPosForCache);
+                                    for (CachedBody cb : cachedBodies) {
+                                        SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(sys.name, cb.name);
+                                        if (info != null) {
+                                            cb.spanshLandmarks = info.getLandmarks();
+                                            cb.spanshExcludeFromExobiology = info.isExcludeFromExobiology();
+                                            cb.spanshPredictedGenera = deriveSpanshPredictedGenera(info.getLandmarks());
+                                        }
+                                        // Store predictions at cache time so load-from-cache matches first run (avoids predictFromCachedBody returning empty when starPos etc. differ).
+                                        if (cb.landable && hasAtmosphere(cb)) {
+                                            List<BioCandidate> preds = predictFromCachedBody(cb, starPosForCache, sys.name);
+                                            if (preds != null && !preds.isEmpty()) {
+                                                cb.predictions = preds;
+                                            }
+                                        }
+                                    }
+                                    if (!cachedBodies.isEmpty()) {
+                                        cache.put(0L, sys.name, starPosForCache, bodiesForCache.bodies.size(), null, null, null, cachedBodies);
                                     }
                                 }
                             } catch (Exception e) {
@@ -706,6 +754,74 @@ public class NearbyTabPanel extends JPanel {
         return hasAtmosphereString(a);
     }
 
+    /**
+     * Build a list of CachedBody from an EDSM/Spansh BodiesResponse so we can store it in SystemCache.
+     * Next time the Nearby tab runs, those systems will be "from cache" and we won't re-query EDSM.
+     */
+    private static List<CachedBody> buildCachedBodiesFromResponse(BodiesResponse bodiesResp, double[] starPos) {
+        if (bodiesResp == null || bodiesResp.bodies == null || bodiesResp.bodies.isEmpty()) {
+            return new ArrayList<>();
+        }
+        String systemName = bodiesResp.name != null ? bodiesResp.name : "";
+        List<CachedBody> out = new ArrayList<>(bodiesResp.bodies.size());
+        for (BodiesResponse.Body b : bodiesResp.bodies) {
+            if (b == null || b.name == null) continue;
+            CachedBody cb = new CachedBody();
+            cb.name = b.name;
+            cb.starSystem = systemName;
+            cb.starPos = starPos != null && starPos.length >= 3 ? starPos : new double[]{0, 0, 0};
+            long id = b.id;
+            cb.bodyId = (id >= Integer.MIN_VALUE && id <= Integer.MAX_VALUE) ? (int) id : -1;
+            cb.distanceLs = b.distanceToArrival != null ? b.distanceToArrival : 0;
+            cb.landable = Boolean.TRUE.equals(b.isLandable);
+            cb.atmosphere = b.atmosphereType;
+            cb.atmoOrType = b.atmosphereType;
+            cb.planetClass = b.subType;
+            cb.volcanism = b.volcanismType;
+            cb.surfaceTempK = b.surfaceTemperature;
+            cb.orbitalPeriod = b.orbitalPeriod;
+            cb.surfacePressure = b.getSurfacePressure();
+            if (b.surfaceGravity != null) {
+                cb.gravityMS = b.surfaceGravity;
+            } else if (b.gravity != null) {
+                cb.gravityMS = b.gravity;
+            }
+            if (b.rings != null && !b.rings.isEmpty()) {
+                List<String> rts = new ArrayList<>();
+                for (BodiesResponse.Body.Ring r : b.rings) {
+                    if (r != null && r.type != null && !r.type.trim().isEmpty()) {
+                        rts.add(r.type.trim());
+                    }
+                }
+                if (!rts.isEmpty()) {
+                    cb.ringTypes = rts;
+                }
+            }
+            out.add(cb);
+        }
+        return out;
+    }
+
+    /** Derive genus/subtype names from Spansh landmarks for display. Kept separate from our predictions. */
+    private static List<String> deriveSpanshPredictedGenera(List<SpanshLandmark> landmarks) {
+        if (landmarks == null || landmarks.isEmpty()) {
+            return null;
+        }
+        Set<String> genera = new LinkedHashSet<>();
+        for (SpanshLandmark lm : landmarks) {
+            if (lm == null) continue;
+            String type = lm.getType();
+            if (type != null && !type.trim().isEmpty()) {
+                genera.add(type.trim());
+            }
+            String subtype = lm.getSubtype();
+            if (subtype != null && !subtype.trim().isEmpty()) {
+                genera.add(subtype.trim());
+            }
+        }
+        return genera.isEmpty() ? null : new ArrayList<>(genera);
+    }
+
     private static boolean hasAtmosphereString(String a) {
         if (a == null || a.trim().isEmpty()) {
             return false;
@@ -721,8 +837,14 @@ public class NearbyTabPanel extends JPanel {
         PlanetType pt = ExobiologyData.parsePlanetType(cb.planetClass);
         String atmoRaw = cb.atmoOrType != null ? cb.atmoOrType : (cb.atmosphere != null ? cb.atmosphere : "");
         AtmosphereType at = ExobiologyData.parseAtmosphere(atmoRaw);
-        double gravity = (cb.gravityMS != null && !Double.isNaN(cb.gravityMS)) ? cb.gravityMS / 9.80665 : 0.0;
-        double tempK = cb.surfaceTempK != null ? cb.surfaceTempK : 0.0;
+        // Cache may store EDSM gravity (g, typically 0.04–2) or surfaceGravity (m/s², typically 0.4–30). BodyAttributes expects g.
+        double gravityG = 0.0;
+        if (cb.gravityMS != null && !Double.isNaN(cb.gravityMS) && cb.gravityMS > 0) {
+            gravityG = (cb.gravityMS <= 2.5) ? cb.gravityMS : (cb.gravityMS / 9.80665);
+        }
+        double gravity = gravityG;
+        double tempK = (cb.surfaceTempK != null && !Double.isNaN(cb.surfaceTempK))
+                ? cb.surfaceTempK : 0.0;
         boolean hasVolc = cb.volcanism != null && !cb.volcanism.isEmpty()
                 && !cb.volcanism.toLowerCase(Locale.ROOT).startsWith("no volcanism");
         BodyAttributes attrs = new BodyAttributes(
