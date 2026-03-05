@@ -180,14 +180,14 @@ public class EliteOverlayTabbedPane extends JPanel {
 		cardPanel.setPreferredSize(new Dimension(400, 1000));
 
 		// Create tab content panels
-		this.routeTab = new RouteTabPanel();
+		this.routeTab = new RouteTabPanel(hoverSwitchEnabled);
 		this.systemTab = new SystemTabPanel();
 		this.systemTab.setNearBodyChangedListener(this::handleNearBodyChanged);
 		
 		this.biologyTab = new BiologyTabPanel();
 		this.biologyTab.setSystemTabPanel(systemTab);
 		this.miningTab = new MiningTabPanel(galacticAvgPrices, this::isCurrentlyDocked);
-		this.nearbyTab = new NearbyTabPanel(systemTab);
+		this.nearbyTab = new NearbyTabPanel(systemTab, hoverSwitchEnabled);
 
 		cardPanel.add(routeTab, CARD_ROUTE);
 		cardPanel.add(systemTab, CARD_SYSTEM);

@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.concurrent.ConcurrentHashMap;
@@ -109,6 +110,7 @@ public class RouteTabPanel extends JPanel {
 	private final RouteTableModel tableModel;
 	private SystemTableHoverCopyManager systemTableHoverCopyManager;
 	private final EdsmClient edsmClient;
+	private final BooleanSupplier passThroughEnabledSupplier;
 	// Caches coordinates we resolved from EDSM (used for inserting synthetic rows).
 	private final java.util.Map<String, Double[]> resolvedCoordsCache = new java.util.concurrent.ConcurrentHashMap<>();
 	private final java.util.Set<String> edsmCoordsFetchInProgress = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -197,8 +199,13 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	public RouteTabPanel() {
+		this(null);
+	}
+
+	public RouteTabPanel(BooleanSupplier passThroughEnabledSupplier) {
 		super(new BorderLayout());
 		setOpaque(false);
+		this.passThroughEnabledSupplier = passThroughEnabledSupplier;
 		this.edsmClient = new EdsmClient();
 		headerLabel = new JLabel("Route: (no data)");
 		headerLabel.setForeground(EdoUi.User.MAIN_TEXT);
@@ -418,8 +425,8 @@ public class RouteTabPanel extends JPanel {
 			cols.getColumn(COL_MARKER).setMaxWidth(20);
 			cols.getColumn(COL_MARKER).setPreferredWidth(20);
 		});
-		// Copy-to-clipboard: hover (works in mouse-pass-through mode) and double-click on system name column.
-		systemTableHoverCopyManager = new SystemTableHoverCopyManager(table, COL_SYSTEM);
+		// Copy-to-clipboard: hover only in pass-through mode; double-click always copies.
+		systemTableHoverCopyManager = new SystemTableHoverCopyManager(table, COL_SYSTEM, passThroughEnabledSupplier);
 		systemTableHoverCopyManager.start();
 		table.addMouseListener(new MouseAdapter() {
 			@Override

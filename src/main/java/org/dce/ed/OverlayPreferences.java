@@ -575,7 +575,7 @@ public static Engine getSpeechEngine() {
 
     /** Sphere search radius in ly (default 20). EDSM API caps at 100. */
     public static int getNearbySphereRadiusLy() {
-        String s = PREFS.get(KEY_NEARBY_SPHERE_RADIUS_LY, "20");
+        String s = PREFS.get(KEY_NEARBY_SPHERE_RADIUS_LY, "10");
         try {
             int v = Integer.parseInt(s.trim());
             if (v < 1) {

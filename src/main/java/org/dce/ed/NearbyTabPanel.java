@@ -18,7 +18,14 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JLabel;
@@ -86,12 +93,21 @@ public class NearbyTabPanel extends JPanel {
 
     private static final int COL_SYSTEM = 0;
 
+    /** Max concurrent EDSM/Spansh body queries per batch; results shown in table as each batch completes. */
+    private static final int NEARBY_QUERY_BATCH_SIZE = 6;
+
     private final AtomicBoolean firstShowDone = new AtomicBoolean(false);
     private volatile boolean refreshRequested;
     private SystemTableHoverCopyManager systemTableHoverCopyManager;
+    private final BooleanSupplier passThroughEnabledSupplier;
 
     public NearbyTabPanel(SystemTabPanel systemTabPanel) {
+        this(systemTabPanel, null);
+    }
+
+    public NearbyTabPanel(SystemTabPanel systemTabPanel, BooleanSupplier passThroughEnabledSupplier) {
         this.systemTabPanel = systemTabPanel;
+        this.passThroughEnabledSupplier = passThroughEnabledSupplier;
 
         setLayout(new BorderLayout());
         setOpaque(false);
@@ -104,7 +120,7 @@ public class NearbyTabPanel extends JPanel {
         Font base = OverlayPreferences.getUiFont();
         headerLabel.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize() + 2));
 
-        tableModel = new DefaultTableModel(new Object[]{"System", "Planets", "Exobiology", "Rings", "Est. exobiology (cr)", "ValueCr"}, 0) {
+        tableModel = new DefaultTableModel(new Object[]{"System", "Planets", "Exobiology", "Rings", "Est. exobiology (cr)", "ValueCr", "Distance"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -124,6 +140,9 @@ public class NearbyTabPanel extends JPanel {
         table.getColumnModel().getColumn(5).setMinWidth(0);
         table.getColumnModel().getColumn(5).setMaxWidth(0);
         table.getColumnModel().getColumn(5).setWidth(0);
+        table.getColumnModel().getColumn(6).setMinWidth(0);
+        table.getColumnModel().getColumn(6).setMaxWidth(0);
+        table.getColumnModel().getColumn(6).setWidth(0);
         DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer() {
             {
                 setOpaque(false);
@@ -181,8 +200,8 @@ public class NearbyTabPanel extends JPanel {
             public void columnSelectionChanged(ListSelectionEvent e) {}
         });
 
-        // Copy system name to clipboard: hover (pass-through mode) and double-click on System column; show "Copied" toast.
-        systemTableHoverCopyManager = new SystemTableHoverCopyManager(table, COL_SYSTEM);
+        // Copy system name to clipboard: hover only in pass-through mode; double-click always copies.
+        systemTableHoverCopyManager = new SystemTableHoverCopyManager(table, COL_SYSTEM, passThroughEnabledSupplier);
         systemTableHoverCopyManager.start();
         table.addMouseListener(new MouseAdapter() {
             @Override
@@ -276,7 +295,7 @@ public class NearbyTabPanel extends JPanel {
         if (centerName == null || centerName.trim().isEmpty()) {
             SwingUtilities.invokeLater(() -> {
                 tableModel.setRowCount(0);
-                tableModel.addRow(new Object[]{"—", "No current system", "—", "—", "—", Long.valueOf(0L)});
+                tableModel.addRow(new Object[]{"—", "No current system", "—", "—", "—", Long.valueOf(0L), Double.valueOf(0.0)});
             });
             return;
         }
@@ -286,10 +305,11 @@ public class NearbyTabPanel extends JPanel {
 
         final String finalCenterName = centerName;
 
-        SwingWorker<List<Object[]>, int[]> worker = new SwingWorker<List<Object[]>, int[]>() {
+        SwingWorker<List<Object[]>, Object[]> worker = new SwingWorker<List<Object[]>, Object[]>() {
             @Override
             protected List<Object[]> doInBackground() throws Exception {
                 List<Object[]> rows = new ArrayList<>();
+                Comparator<Object[]> nearbyRowOrder = null;
                 try {
                     double cx = 0, cy = 0, cz = 0;
                     boolean haveCoords = false;
@@ -338,224 +358,77 @@ public class NearbyTabPanel extends JPanel {
                     if (needBodiesFromApi) {
                         bodiesBySystemFromSpansh = fetchSpanshBodiesInSphere(finalCenterName, radiusLy);
                     }
-                    int edsmQueriesUsed = 0;
-                    int sysIndex = 0;
+                    final Map<String, List<BodiesResponse.Body>> spanshBodies = bodiesBySystemFromSpansh;
+                    long minValueCr = (long) (OverlayPreferences.getNearbyMinValueMillionCredits() * 1_000_000);
+                    nearbyRowOrder = Comparator
+                            .comparingInt((Object[] r) -> ((Number) r[5]).longValue() >= minValueCr ? 0 : 1)
+                            .thenComparing((Object[] a, Object[] b) -> {
+                                boolean aGreen = ((Number) a[5]).longValue() >= minValueCr;
+                                boolean bGreen = ((Number) b[5]).longValue() >= minValueCr;
+                                if (aGreen && bGreen) {
+                                    int byVal = Long.compare(((Number) b[5]).longValue(), ((Number) a[5]).longValue());
+                                    if (byVal != 0) return byVal;
+                                    return Double.compare(((Number) a[6]).doubleValue(), ((Number) b[6]).doubleValue());
+                                }
+                                if (!aGreen && !bGreen) {
+                                    return Double.compare(((Number) a[6]).doubleValue(), ((Number) b[6]).doubleValue());
+                                }
+                                return 0;
+                            });
                     int fromCache = 0;
                     int queried = 0;
-                    for (int i = 0; i < maxToScan; i++) {
-                        SphereSystemsResponse sys = systems[i];
-                        if (sys == null || sys.name == null || sys.name.isEmpty()) {
-                            continue;
-                        }
-                        sysIndex++;
-                        setProgress(maxToScan > 0 ? (int) (100.0 * sysIndex / maxToScan) : 0);
-                        publish(new int[]{sysIndex, maxToScan});
-                        CachedSystem cs = cache.get(0L, sys.name);
-                        List<BodyValue> bodyValues = new ArrayList<>();
-                        Set<String> predictedGenera = new LinkedHashSet<>();
-                        Set<String> ringTypes = new LinkedHashSet<>();
-                        if (cs != null && cs.bodies != null) {
-                            fromCache++;
-                            double[] starPos = cs.starPos != null ? cs.starPos : new double[3];
-                            if (starPos.length >= 3 && starPos[0] == 0 && starPos[1] == 0 && starPos[2] == 0
-                                    && sys.coords != null) {
-                                starPos = new double[]{sys.coords.x, sys.coords.y, sys.coords.z};
-                            }
-                            int bodiesWithRings = 0;
-                            for (CachedBody cb : cs.bodies) {
-                                if (cb.ringTypes != null) {
-                                    bodiesWithRings++;
-                                    ringTypes.addAll(cb.ringTypes);
-                                }
-                            }
-                            int landableCount = 0;
-                            for (CachedBody cb : cs.bodies) {
-                                if (!cb.landable) {
+                    ExecutorService executor = Executors.newFixedThreadPool(NEARBY_QUERY_BATCH_SIZE);
+                    try {
+                        for (int start = 0; start < maxToScan; start += NEARBY_QUERY_BATCH_SIZE) {
+                            int batchEnd = Math.min(start + NEARBY_QUERY_BATCH_SIZE, maxToScan);
+                            List<Future<TaskResult>> futures = new ArrayList<>(NEARBY_QUERY_BATCH_SIZE);
+                            for (int j = start; j < batchEnd; j++) {
+                                final SphereSystemsResponse sys = systems[j];
+                                if (sys == null || sys.name == null || sys.name.isEmpty()) {
+                                    futures.add(CompletableFuture.completedFuture(new TaskResult(null, null, false)));
                                     continue;
                                 }
-                                landableCount++;
-                                if (isExcluded(cb)) {
-                                    continue;
-                                }
-                                if (!hasAtmosphere(cb)) {
-                                    continue;
-                                }
-                                List<BioCandidate> preds = cb.predictions != null && !cb.predictions.isEmpty()
-                                        ? cb.predictions
-                                        : predictFromCachedBody(cb, starPos, cs.systemName);
-                                if (preds == null || preds.isEmpty()) {
-                                    continue;
-                                }
-                                if (!Boolean.TRUE.equals(cb.wasFootfalled) && cb.spanshLandmarks == null) {
-                                    SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(cs.systemName, cb.name);
-                                    if (info != null) {
-                                        cb.spanshLandmarks = info.getLandmarks();
-                                        cb.spanshExcludeFromExobiology = info.isExcludeFromExobiology();
+                                futures.add(executor.submit(new Callable<TaskResult>() {
+                                    @Override
+                                    public TaskResult call() {
+                                        return processOneSystem(sys, cache, spanshBodies, edsmClient);
                                     }
-                                }
-                                if (Boolean.TRUE.equals(cb.spanshExcludeFromExobiology)) {
-                                    continue; // Spansh has signals but none Biological — eliminate from exobiology
-                                }
-                                boolean firstBonus = FirstBonusHelper.firstBonusApplies(cb);
-                                long maxVal = 0;
-                                for (BioCandidate bc : preds) {
-                                    if (bc != null) {
-                                        if (bc.getGenus() != null && !bc.getGenus().isEmpty()) {
-                                            predictedGenera.add(bc.getGenus());
-                                        }
-                                        long v = bc.getEstimatedPayout(firstBonus);
-                                        if (v > maxVal) {
-                                            maxVal = v;
-                                        }
+                                }));
+                            }
+                            for (Future<TaskResult> f : futures) {
+                                try {
+                                    TaskResult tr = f.get();
+                                    if (tr.fromCache) fromCache++; else queried++;
+                                    if (tr.cachePayload != null) {
+                                        cache.put(0L, tr.cachePayload.systemName, tr.cachePayload.starPos,
+                                                tr.cachePayload.bodyCount, null, null, null, tr.cachePayload.cachedBodies);
                                     }
-                                }
-                                if (cb.spanshPredictedGenera != null) {
-                                    predictedGenera.addAll(cb.spanshPredictedGenera);
-                                }
-                                if (maxVal > 0) {
-                                    bodyValues.add(new BodyValue(cb.name, maxVal));
+                                    if (tr.row != null) rows.add(tr.row);
+                                } catch (Exception e) {
+                                    // skip
                                 }
                             }
-                        } else {
-                            queried++;
-                            try {
-                                BodiesResponse bodiesResp = null;
-                                List<BodiesResponse.Body> spanshBodies = bodiesBySystemFromSpansh != null ? bodiesBySystemFromSpansh.get(sys.name) : null;
-                                if (spanshBodies != null && !spanshBodies.isEmpty() && sys.coords != null) {
-                                    bodiesResp = new BodiesResponse();
-                                    bodiesResp.name = sys.name;
-                                    bodiesResp.coords = new BodiesResponse.Coords();
-                                    bodiesResp.coords.x = Double.valueOf(sys.coords.x);
-                                    bodiesResp.coords.y = Double.valueOf(sys.coords.y);
-                                    bodiesResp.coords.z = Double.valueOf(sys.coords.z);
-                                    bodiesResp.bodies = spanshBodies;
-                                }
-                                if (bodiesResp == null) {
-                                    bodiesResp = edsmClient.showBodies(sys.name);
-                                    edsmQueriesUsed++;
-                                }
-                                if (bodiesResp != null && bodiesResp.bodies != null) {
-                                    double x = 0, y = 0, z = 0;
-                                    if (bodiesResp.coords != null) {
-                                        x = bodiesResp.coords.x != null ? bodiesResp.coords.x : 0;
-                                        y = bodiesResp.coords.y != null ? bodiesResp.coords.y : 0;
-                                        z = bodiesResp.coords.z != null ? bodiesResp.coords.z : 0;
-                                    }
-                                    double[] starPos = new double[]{x, y, z};
-                                    for (BodiesResponse.Body b : bodiesResp.bodies) {
-                                        if (b != null && b.rings != null && !b.rings.isEmpty()) {
-                                            for (BodiesResponse.Body.Ring r : b.rings) {
-                                                if (r != null && r.type != null && !r.type.trim().isEmpty()) {
-                                                    ringTypes.add(r.type.trim());
-                                                }
-                                            }
-                                        }
-                                        if (b == null || b.isLandable == null || !b.isLandable) {
-                                            continue;
-                                        }
-                                        if (!hasAtmosphereEdsm(b)) {
-                                            continue;
-                                        }
-                                        List<BioCandidate> preds = predictFromEdsmBody(b, bodiesResp, starPos);
-                                        if (preds == null || preds.isEmpty()) {
-                                            continue;
-                                        }
-                                        SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(sys.name, b.name);
-                                        if (info != null && info.isExcludeFromExobiology()) {
-                                            continue; // Spansh has signals but none Biological — eliminate from exobiology
-                                        }
-                                        boolean firstBonus = FirstBonusHelper.firstBonusApplies(null, info != null ? info.getLandmarks() : null);
-                                        long maxVal = 0;
-                                        for (BioCandidate bc : preds) {
-                                            if (bc != null) {
-                                                if (bc.getGenus() != null && !bc.getGenus().isEmpty()) {
-                                                    predictedGenera.add(bc.getGenus());
-                                                }
-                                                long v = bc.getEstimatedPayout(firstBonus);
-                                                if (v > maxVal) {
-                                                    maxVal = v;
-                                                }
-                                            }
-                                        }
-                                        if (maxVal > 0) {
-                                            bodyValues.add(new BodyValue(b.name, maxVal));
-                                        }
-                                    }
-                                    // Cache: use full EDSM body data when available so we have rings (stars/gas giants).
-                                    // Spansh only gives landable bodies, so caching Spansh data would drop ring info.
-                                    BodiesResponse bodiesForCache = bodiesResp;
-                                    double[] starPosForCache = starPos;
-                                    if (spanshBodies != null && !spanshBodies.isEmpty() && bodiesResp.bodies == spanshBodies) {
-                                        BodiesResponse edsmForCache = edsmClient.showBodies(sys.name);
-                                        if (edsmForCache != null && edsmForCache.bodies != null && !edsmForCache.bodies.isEmpty()) {
-                                            bodiesForCache = edsmForCache;
-                                            if (edsmForCache.coords != null) {
-                                                double ex = edsmForCache.coords.x != null ? edsmForCache.coords.x : 0;
-                                                double ey = edsmForCache.coords.y != null ? edsmForCache.coords.y : 0;
-                                                double ez = edsmForCache.coords.z != null ? edsmForCache.coords.z : 0;
-                                                starPosForCache = new double[]{ex, ey, ez};
-                                            }
-                                        }
-                                    }
-                                    List<CachedBody> cachedBodies = buildCachedBodiesFromResponse(bodiesForCache, starPosForCache);
-                                    for (CachedBody cb : cachedBodies) {
-                                        SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(sys.name, cb.name);
-                                        if (info != null) {
-                                            cb.spanshLandmarks = info.getLandmarks();
-                                            cb.spanshExcludeFromExobiology = info.isExcludeFromExobiology();
-                                            cb.spanshPredictedGenera = deriveSpanshPredictedGenera(info.getLandmarks());
-                                        }
-                                        // Store predictions at cache time so load-from-cache matches first run (avoids predictFromCachedBody returning empty when starPos etc. differ).
-                                        if (cb.landable && hasAtmosphere(cb)) {
-                                            List<BioCandidate> preds = predictFromCachedBody(cb, starPosForCache, sys.name);
-                                            if (preds != null && !preds.isEmpty()) {
-                                                cb.predictions = preds;
-                                            }
-                                        }
-                                    }
-                                    if (!cachedBodies.isEmpty()) {
-                                        cache.put(0L, sys.name, starPosForCache, bodiesForCache.bodies.size(), null, null, null, cachedBodies);
-                                    }
-                                }
-                            } catch (Exception e) {
-                                // skip this system
-                            }
+                            rows.sort(nearbyRowOrder);
+                            int current = batchEnd;
+                            setProgress(maxToScan > 0 ? (int) (100.0 * current / maxToScan) : 0);
+                            publish(new Object[]{ Integer.valueOf(current), Integer.valueOf(maxToScan), new ArrayList<>(rows) });
                         }
-                        boolean hasExo = !bodyValues.isEmpty();
-                        boolean hasRings = !ringTypes.isEmpty();
-                        if (!hasExo && !hasRings) {
-                            continue;
+                        System.out.println("Nearby panel: " + fromCache + " systems from cache, " + queried + " queried.");
+                    } finally {
+                        executor.shutdown();
+                        try {
+                            executor.awaitTermination(30, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
                         }
-                        long systemTotal = 0;
-                        List<String> names = new ArrayList<>();
-                        String systemPrefix = (sys.name != null && !sys.name.isEmpty()) ? sys.name.trim() + " " : null;
-                        for (BodyValue bv : bodyValues) {
-                            systemTotal += bv.valueCr;
-                            String displayName = bv.bodyName;
-                            if (systemPrefix != null && displayName != null && displayName.startsWith(systemPrefix)) {
-                                displayName = displayName.substring(systemPrefix.length()).trim();
-                            }
-                            names.add(displayName != null ? displayName : "");
-                        }
-                        String planetsCol = bodyValues.isEmpty() ? "—" : String.join(", ", names);
-                        String exobiologyCol = predictedGenera.isEmpty() ? "—" : String.join(", ", predictedGenera);
-                        String ringsCol = ringTypes.isEmpty() ? "—" : String.join(", ", ringTypes);
-                        String valueCol = bodyValues.isEmpty() ? "—" : String.format(Locale.ROOT, "%,d", systemTotal);
-                        rows.add(new Object[]{
-                                sys.name,
-                                planetsCol,
-                                exobiologyCol,
-                                ringsCol,
-                                valueCol,
-                                Long.valueOf(systemTotal)
-                        });
                     }
-                    System.out.println("Nearby panel: " + fromCache + " systems from cache, " + queried + " queried.");
                     setProgress(100);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
-                rows.sort(Comparator.comparingLong((Object[] row) -> ((Long) row[5]).longValue()).reversed());
+                if (nearbyRowOrder != null) {
+                    rows.sort(nearbyRowOrder);
+                }
                 return rows;
             }
 
@@ -571,7 +444,7 @@ public class NearbyTabPanel extends JPanel {
                     SwingUtilities.invokeLater(() -> {
                         tableModel.setRowCount(0);
                         if (res == null || res.isEmpty()) {
-                            tableModel.addRow(new Object[]{"—", "No systems with exobiology or rings in range", "—", "—", "—", Long.valueOf(0L)});
+                            tableModel.addRow(new Object[]{"—", "No systems with exobiology or rings in range", "—", "—", "—", Long.valueOf(0L), Double.valueOf(0.0)});
                         } else {
                             for (Object[] row : res) {
                                 tableModel.addRow(row);
@@ -582,28 +455,36 @@ public class NearbyTabPanel extends JPanel {
                     Thread.currentThread().interrupt();
                     SwingUtilities.invokeLater(() -> {
                         tableModel.setRowCount(0);
-                        tableModel.addRow(new Object[]{"—", "Interrupted", "—", "—", "—", Long.valueOf(0L)});
+                        tableModel.addRow(new Object[]{"—", "Interrupted", "—", "—", "—", Long.valueOf(0L), Double.valueOf(0.0)});
                     });
                 } catch (ExecutionException e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
                     final String msg = cause != null ? cause.getMessage() : e.getMessage();
                     SwingUtilities.invokeLater(() -> {
                         tableModel.setRowCount(0);
-                        tableModel.addRow(new Object[]{"—", "Error: " + msg, "—", "—", "—", Long.valueOf(0L)});
+                        tableModel.addRow(new Object[]{"—", "Error: " + msg, "—", "—", "—", Long.valueOf(0L), Double.valueOf(0.0)});
                     });
                 }
             }
 
             @Override
-            protected void process(java.util.List<int[]> chunks) {
+            protected void process(java.util.List<Object[]> chunks) {
                 if (chunks.isEmpty()) return;
-                int[] last = chunks.get(chunks.size() - 1);
-                int current = last[0];
-                int total = last[1];
+                Object[] last = chunks.get(chunks.size() - 1);
+                int current = ((Integer) last[0]).intValue();
+                int total = ((Integer) last[1]).intValue();
+                @SuppressWarnings("unchecked")
+                List<Object[]> rowsSoFar = (List<Object[]>) last[2];
                 int pct = total > 0 ? (int) (100.0 * current / total) : 0;
                 progressBar.setValue(pct);
                 progressBar.setString(pct + "%");
                 progressLabel.setText("Scanning... " + current + " / " + total + " systems");
+                tableModel.setRowCount(0);
+                if (rowsSoFar != null && !rowsSoFar.isEmpty()) {
+                    for (Object[] row : rowsSoFar) {
+                        tableModel.addRow(row);
+                    }
+                }
             }
         };
         worker.addPropertyChangeListener(new PropertyChangeListener() {
@@ -904,6 +785,220 @@ public class NearbyTabPanel extends JPanel {
             this.bodyName = bodyName;
             this.valueCr = valueCr;
         }
+    }
+
+    /** Result of processing one system in a worker thread. cachePayload is non-null only for uncached systems (main thread will call cache.put). */
+    private static final class TaskResult {
+        final Object[] row;
+        final CachePayload cachePayload;
+        final boolean fromCache;
+
+        TaskResult(Object[] row, CachePayload cachePayload, boolean fromCache) {
+            this.row = row;
+            this.cachePayload = cachePayload;
+            this.fromCache = fromCache;
+        }
+    }
+
+    /** Data to store in cache; only applied on the main worker thread. */
+    private static final class CachePayload {
+        final String systemName;
+        final double[] starPos;
+        final int bodyCount;
+        final List<CachedBody> cachedBodies;
+
+        CachePayload(String systemName, double[] starPos, int bodyCount, List<CachedBody> cachedBodies) {
+            this.systemName = systemName;
+            this.starPos = starPos;
+            this.bodyCount = bodyCount;
+            this.cachedBodies = cachedBodies;
+        }
+    }
+
+    /**
+     * Process one system (cache hit or EDSM/Spansh fetch). Called from worker threads.
+     * Does not call cache.put; returns CachePayload for the main thread to store.
+     */
+    private static TaskResult processOneSystem(
+            SphereSystemsResponse sys,
+            SystemCache cache,
+            Map<String, List<BodiesResponse.Body>> bodiesBySystemFromSpansh,
+            EdsmClient edsmClient) {
+        List<BodyValue> bodyValues = new ArrayList<>();
+        Map<String, Long> genusToMaxValue = new HashMap<>();
+        Set<String> ringTypes = new LinkedHashSet<>();
+        CachedSystem cs = cache.get(0L, sys.name);
+        if (cs != null && cs.bodies != null) {
+            double[] starPos = cs.starPos != null ? cs.starPos : new double[3];
+            if (starPos.length >= 3 && starPos[0] == 0 && starPos[1] == 0 && starPos[2] == 0 && sys.coords != null) {
+                starPos = new double[]{sys.coords.x, sys.coords.y, sys.coords.z};
+            }
+            for (CachedBody cb : cs.bodies) {
+                if (cb.ringTypes != null) {
+                    ringTypes.addAll(cb.ringTypes);
+                }
+            }
+            for (CachedBody cb : cs.bodies) {
+                if (!cb.landable) continue;
+                if (isExcluded(cb)) continue;
+                if (!hasAtmosphere(cb)) continue;
+                List<BioCandidate> preds = cb.predictions != null && !cb.predictions.isEmpty()
+                        ? cb.predictions : predictFromCachedBody(cb, starPos, cs.systemName);
+                if (preds == null || preds.isEmpty()) continue;
+                if (!Boolean.TRUE.equals(cb.wasFootfalled) && cb.spanshLandmarks == null) {
+                    SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(cs.systemName, cb.name);
+                    if (info != null) {
+                        cb.spanshLandmarks = info.getLandmarks();
+                        cb.spanshExcludeFromExobiology = info.isExcludeFromExobiology();
+                    }
+                }
+                if (Boolean.TRUE.equals(cb.spanshExcludeFromExobiology)) continue;
+                boolean firstBonus = FirstBonusHelper.firstBonusApplies(cb);
+                long maxVal = 0;
+                for (BioCandidate bc : preds) {
+                    if (bc != null) {
+                        String genus = bc.getGenus();
+                        if (genus != null && !genus.isEmpty()) {
+                            long v = bc.getEstimatedPayout(firstBonus);
+                            genusToMaxValue.merge(genus, v, Long::max);
+                            if (v > maxVal) maxVal = v;
+                        }
+                    }
+                }
+                if (cb.spanshPredictedGenera != null) {
+                    for (String g : cb.spanshPredictedGenera) {
+                        if (g != null && !g.isEmpty()) genusToMaxValue.putIfAbsent(g, 0L);
+                    }
+                }
+                if (maxVal > 0) bodyValues.add(new BodyValue(cb.name, maxVal));
+            }
+            Object[] row = buildSystemRow(sys.name, bodyValues, genusToMaxValue, ringTypes, sys.distance);
+            return new TaskResult(row, null, true);
+        }
+        // Uncached: fetch and build row + cache payload (no cache.put here)
+        try {
+            BodiesResponse bodiesResp = null;
+            List<BodiesResponse.Body> spanshBodies = bodiesBySystemFromSpansh != null ? bodiesBySystemFromSpansh.get(sys.name) : null;
+            if (spanshBodies != null && !spanshBodies.isEmpty() && sys.coords != null) {
+                bodiesResp = new BodiesResponse();
+                bodiesResp.name = sys.name;
+                bodiesResp.coords = new BodiesResponse.Coords();
+                bodiesResp.coords.x = Double.valueOf(sys.coords.x);
+                bodiesResp.coords.y = Double.valueOf(sys.coords.y);
+                bodiesResp.coords.z = Double.valueOf(sys.coords.z);
+                bodiesResp.bodies = spanshBodies;
+            }
+            if (bodiesResp == null) {
+                bodiesResp = edsmClient.showBodies(sys.name);
+            }
+            if (bodiesResp == null || bodiesResp.bodies == null) {
+                return new TaskResult(null, null, false);
+            }
+            double x = 0, y = 0, z = 0;
+            if (bodiesResp.coords != null) {
+                x = bodiesResp.coords.x != null ? bodiesResp.coords.x : 0;
+                y = bodiesResp.coords.y != null ? bodiesResp.coords.y : 0;
+                z = bodiesResp.coords.z != null ? bodiesResp.coords.z : 0;
+            }
+            double[] starPos = new double[]{x, y, z};
+            for (BodiesResponse.Body b : bodiesResp.bodies) {
+                if (b != null && b.rings != null && !b.rings.isEmpty()) {
+                    for (BodiesResponse.Body.Ring r : b.rings) {
+                        if (r != null && r.type != null && !r.type.trim().isEmpty())
+                            ringTypes.add(r.type.trim());
+                    }
+                }
+                if (b == null || b.isLandable == null || !b.isLandable) continue;
+                if (!hasAtmosphereEdsm(b)) continue;
+                List<BioCandidate> preds = predictFromEdsmBody(b, bodiesResp, starPos);
+                if (preds == null || preds.isEmpty()) continue;
+                SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(sys.name, b.name);
+                if (info != null && info.isExcludeFromExobiology()) continue;
+                boolean firstBonus = FirstBonusHelper.firstBonusApplies(null, info != null ? info.getLandmarks() : null);
+                long maxVal = 0;
+                for (BioCandidate bc : preds) {
+                    if (bc != null) {
+                        String genus = bc.getGenus();
+                        if (genus != null && !genus.isEmpty()) {
+                            long v = bc.getEstimatedPayout(firstBonus);
+                            genusToMaxValue.merge(genus, v, Long::max);
+                            if (v > maxVal) maxVal = v;
+                        }
+                    }
+                }
+                if (maxVal > 0) bodyValues.add(new BodyValue(b.name, maxVal));
+            }
+            BodiesResponse bodiesForCache = bodiesResp;
+            double[] starPosForCache = starPos;
+            if (spanshBodies != null && !spanshBodies.isEmpty() && bodiesResp.bodies == spanshBodies) {
+                BodiesResponse edsmForCache = edsmClient.showBodies(sys.name);
+                if (edsmForCache != null && edsmForCache.bodies != null && !edsmForCache.bodies.isEmpty()) {
+                    bodiesForCache = edsmForCache;
+                    if (edsmForCache.coords != null) {
+                        double ex = edsmForCache.coords.x != null ? edsmForCache.coords.x : 0;
+                        double ey = edsmForCache.coords.y != null ? edsmForCache.coords.y : 0;
+                        double ez = edsmForCache.coords.z != null ? edsmForCache.coords.z : 0;
+                        starPosForCache = new double[]{ex, ey, ez};
+                    }
+                }
+            }
+            List<CachedBody> cachedBodies = buildCachedBodiesFromResponse(bodiesForCache, starPosForCache);
+            for (CachedBody cb : cachedBodies) {
+                SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(sys.name, cb.name);
+                if (info != null) {
+                    cb.spanshLandmarks = info.getLandmarks();
+                    cb.spanshExcludeFromExobiology = info.isExcludeFromExobiology();
+                    cb.spanshPredictedGenera = deriveSpanshPredictedGenera(info.getLandmarks());
+                }
+                if (cb.landable && hasAtmosphere(cb)) {
+                    List<BioCandidate> preds = predictFromCachedBody(cb, starPosForCache, sys.name);
+                    if (preds != null && !preds.isEmpty()) cb.predictions = preds;
+                }
+            }
+            Object[] row = buildSystemRow(sys.name, bodyValues, genusToMaxValue, ringTypes, sys.distance);
+            CachePayload payload = !cachedBodies.isEmpty()
+                    ? new CachePayload(sys.name, starPosForCache, bodiesForCache.bodies.size(), cachedBodies)
+                    : null;
+            return new TaskResult(row, payload, false);
+        } catch (Exception e) {
+            return new TaskResult(null, null, false);
+        }
+    }
+
+    private static Object[] buildSystemRow(String systemName, List<BodyValue> bodyValues, Map<String, Long> genusToMaxValue, Set<String> ringTypes, double distanceLy) {
+        boolean hasExo = !bodyValues.isEmpty();
+        boolean hasRings = !ringTypes.isEmpty();
+        if (!hasExo && !hasRings) return null;
+        long systemTotal = 0;
+        List<String> names = new ArrayList<>();
+        String systemPrefix = (systemName != null && !systemName.isEmpty()) ? systemName.trim() + " " : null;
+        for (BodyValue bv : bodyValues) {
+            systemTotal += bv.valueCr;
+            String displayName = bv.bodyName;
+            if (systemPrefix != null && displayName != null && displayName.startsWith(systemPrefix))
+                displayName = displayName.substring(systemPrefix.length()).trim();
+            names.add(displayName != null ? displayName : "");
+        }
+        String planetsCol = bodyValues.isEmpty() ? "—" : String.join(", ", names);
+        String exobiologyCol;
+        if (genusToMaxValue == null || genusToMaxValue.isEmpty()) {
+            exobiologyCol = "—";
+        } else {
+            List<String> generaByValue = new ArrayList<>(genusToMaxValue.keySet());
+            generaByValue.sort(Comparator.<String>comparingLong(genusToMaxValue::get).reversed().thenComparing(Comparator.naturalOrder()));
+            exobiologyCol = String.join(", ", generaByValue);
+        }
+        String ringsCol = ringTypes.isEmpty() ? "—" : String.join(", ", ringTypes);
+        String valueCol = bodyValues.isEmpty() ? "—" : String.format(Locale.ROOT, "%,d", systemTotal);
+        return new Object[]{
+                systemName,
+                planetsCol,
+                exobiologyCol,
+                ringsCol,
+                valueCol,
+                Long.valueOf(systemTotal),
+                Double.valueOf(distanceLy)
+        };
     }
 
     public void applyOverlayBackground(Color bg) {

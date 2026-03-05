@@ -19,6 +19,8 @@ import javax.swing.JRootPane;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
 
+import java.util.function.BooleanSupplier;
+
 /**
  * Safely implements "hover for N seconds to copy system name to clipboard"
  * without any global hooks or window mouse events.
@@ -29,6 +31,9 @@ import javax.swing.border.EmptyBorder;
  * When the hover triggers, it:
  *  - Copies the system name to the clipboard
  *  - Shows a small "Copied: <system>" banner centered on the hovered row
+ *
+ * Hover-to-copy is only active when passThroughEnabledSupplier returns true
+ * (overlay in mouse pass-through mode). When false, only double-click copies.
  */
 public class SystemTableHoverCopyManager {
 
@@ -38,15 +43,18 @@ public class SystemTableHoverCopyManager {
 
     private final JTable table;
     private final int systemNameModelColumnIndex;
+    private final BooleanSupplier passThroughEnabledSupplier;
 
     private final Timer pollTimer;
     private final Timer hoverTimer;
 
     private int hoverViewRow = -1;
 
-    public SystemTableHoverCopyManager(JTable table, int systemNameModelColumnIndex) {
+    /** Uses hover copy only when pass-through is enabled; pass null to always allow hover copy. */
+    public SystemTableHoverCopyManager(JTable table, int systemNameModelColumnIndex, BooleanSupplier passThroughEnabledSupplier) {
         this.table = table;
         this.systemNameModelColumnIndex = systemNameModelColumnIndex;
+        this.passThroughEnabledSupplier = passThroughEnabledSupplier;
 
         // Timer to check mouse position periodically
         this.pollTimer = new Timer(POLL_INTERVAL_MS, e -> pollMousePosition());
@@ -54,6 +62,11 @@ public class SystemTableHoverCopyManager {
         // Timer that fires once after HOVER_DELAY_MS over the same row
         this.hoverTimer = new Timer(HOVER_DELAY_MS, e -> copySystemNameIfStillHovering());
         this.hoverTimer.setRepeats(false);
+    }
+
+    /** Backward compatibility: hover copy always active (no pass-through check). */
+    public SystemTableHoverCopyManager(JTable table, int systemNameModelColumnIndex) {
+        this(table, systemNameModelColumnIndex, null);
     }
 
     public void start() {
@@ -67,6 +80,14 @@ public class SystemTableHoverCopyManager {
 
     private void pollMousePosition() {
         if (!table.isShowing()) {
+            hoverTimer.stop();
+            hoverViewRow = -1;
+            table.setToolTipText(null);
+            return;
+        }
+
+        // Hover copy only when overlay is in mouse pass-through mode
+        if (passThroughEnabledSupplier != null && !passThroughEnabledSupplier.getAsBoolean()) {
             hoverTimer.stop();
             hoverViewRow = -1;
             table.setToolTipText(null);
