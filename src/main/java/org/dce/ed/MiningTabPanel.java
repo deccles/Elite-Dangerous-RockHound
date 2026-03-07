@@ -986,9 +986,13 @@ return EdoUi.User.MAIN_TEXT;
 		Set<String> materials = new HashSet<>(lastInventoryTonsAtProspector.keySet());
 		materials.addAll(currentInventory.keySet());
 		appendProspectorCsvRows(ts, currentInventory, materials, null);
+		boolean wasInMiningRun = !lastInventoryTonsAtProspector.isEmpty();
 		lastInventoryTonsAtProspector = new HashMap<>();
 		lastPercentByMaterialAtProspector = new HashMap<>();
-		OverlayPreferences.incrementMiningLogRunCounter();
+		// Only count a new run when we're actually leaving the area (we had prospector state). An asteroid isn't a run.
+		if (wasInMiningRun) {
+			OverlayPreferences.incrementMiningLogRunCounter();
+		}
 	}
 
 	/** Update cached location from Location event (system + body). */
@@ -1055,15 +1059,19 @@ return EdoUi.User.MAIN_TEXT;
 			}
 			double pct = lastPercentByMaterialAtProspector.getOrDefault(material,
 				fallbackPercentByMaterial != null ? fallbackPercentByMaterial.getOrDefault(material, 0.0) : 0.0);
+			// Do not log materials with zero yield (e.g. prospector shot at bad asteroid and we moved on)
+			if (pct <= 0.0) {
+				continue;
+			}
 			double beforeTons = lastInventoryTonsAtProspector.getOrDefault(material, 0.0);
 			double afterTons = currentInventory.getOrDefault(material, 0.0);
 			double difference = afterTons - beforeTons;
 			if (difference <= 0) {
 				continue;
 			}
-			// Add 0.5 to before/after so we approximate material still in refinery
-			double beforeAdjusted = (Double.isNaN(beforeTons) ? 0.0 : beforeTons) + 0.5;
-			double afterAdjusted = (Double.isNaN(afterTons) ? 0.0 : afterTons) + 0.5;
+			// Add 0.5 only when we have material, to approximate amount still in refinery (avoids showing 0.5 "before" when inventory was 0)
+			double beforeAdjusted = Double.isNaN(beforeTons) ? 0.0 : (beforeTons > 0 ? beforeTons + 0.5 : beforeTons);
+			double afterAdjusted = Double.isNaN(afterTons) ? 0.0 : (afterTons > 0 ? afterTons + 0.5 : afterTons);
 			rows.add(new ProspectorLogRow(run, fullBodyName, ts, material, pct, beforeAdjusted, afterAdjusted, difference, commander));
 		}
 		if (rows.isEmpty()) {
