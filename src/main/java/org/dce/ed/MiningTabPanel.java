@@ -127,6 +127,8 @@ public class MiningTabPanel extends JPanel {
 	private int asteroidIdCounter;
 	/** Number of prospector limpets fired (duds) since the last one that generated logged inventory. */
 	private int dudCounter;
+	/** True after we've synced the run counter from the spreadsheet once this session (so next write uses the right run number). */
+	private boolean syncedRunCounterFromBackend;
 
 	/** Current system and body for prospector log rows (updated from LocationEvent / StatusEvent). */
 	private volatile String currentSystemName = "";
@@ -1069,6 +1071,17 @@ return EdoUi.User.MAIN_TEXT;
 		// Only write when undocked (mining happens in the ring, not while docked)
 		if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
 			return false;
+		}
+		// First time we're about to write this session: sync run counter from spreadsheet so we use the next number (e.g. new spreadsheet -> run 1)
+		if (!syncedRunCounterFromBackend) {
+			syncedRunCounterFromBackend = true;
+			try {
+				List<ProspectorLogRow> existing = ProspectorLogBackendFactory.create().loadRows();
+				int maxRun = existing == null || existing.isEmpty() ? 0 : existing.stream().mapToInt(ProspectorLogRow::getRun).max().orElse(0);
+				OverlayPreferences.setMiningLogRunCounter(maxRun + 1);
+			} catch (Exception ignored) {
+				// keep current prefs value if load fails
+			}
 		}
 		String sys = currentSystemName != null ? currentSystemName : "";
 		String body = currentBodyName != null ? currentBodyName : "";
