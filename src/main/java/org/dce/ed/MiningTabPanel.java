@@ -2260,10 +2260,13 @@ String getName() {
 			for (ProspectorLogRow r : rows) {
 				byRun.computeIfAbsent(r.getRun(), k -> new ArrayList<>()).add(r);
 			}
+			// Most recent first: runs descending, then within each run by timestamp descending
 			List<Integer> runOrder = new ArrayList<>(byRun.keySet());
-			runOrder.sort(Comparator.naturalOrder());
+			runOrder.sort(Comparator.reverseOrder());
+			Comparator<Instant> tsDesc = Comparator.nullsLast(Comparator.reverseOrder());
 			for (Integer runNum : runOrder) {
-				List<ProspectorLogRow> runRows = byRun.get(runNum);
+				List<ProspectorLogRow> runRows = new ArrayList<>(byRun.get(runNum));
+				runRows.sort(Comparator.comparing(ProspectorLogRow::getTimestamp, tsDesc));
 				RunSummary summary = computeRunSummary(runNum, runRows, matcher);
 				if (summary != null) {
 					out.add(summary);

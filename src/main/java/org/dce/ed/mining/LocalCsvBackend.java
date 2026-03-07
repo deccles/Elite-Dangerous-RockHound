@@ -18,12 +18,12 @@ import org.dce.ed.MiningTabPanel;
 
 /**
  * Prospector log backend that writes to and reads from a local CSV file.
- * Column order: Run, Timestamp, Type, Percentage, Before Amount, After Amount, Actual, Body, Commander.
- * Legacy 7-column files (timestamp,material,percent,before,after,difference,email) are supported; run is inferred from >10 min gaps.
+ * Column order: Run, Timestamp, Type, Percentage, Before Amount, After Amount, Actual (difference), Body, Commander (9 columns).
+ * Legacy 7-column files are supported on read.
  */
 public final class LocalCsvBackend implements ProspectorLogBackend {
 
-    private static final String HEADER = "run,timestamp,material,percent,before amount,after amount,difference,body,commander";
+    private static final String HEADER = "run,timestamp,material,percent,before amount,after amount,actual,body,commander";
     private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("M/d/yyyy H:mm:ss", Locale.US);
 
     private final Path csvPath;
@@ -57,18 +57,22 @@ public final class LocalCsvBackend implements ProspectorLogBackend {
             ZoneId zone = ZoneId.systemDefault();
             for (ProspectorLogRow r : rows) {
                 String tsStr = r.getTimestamp() != null ? r.getTimestamp().atZone(zone).format(TIMESTAMP_FORMAT) : "";
-                if (tsStr.isEmpty()) {
-                    tsStr = "-";
-                }
+                if (tsStr == null || tsStr.isEmpty()) tsStr = "-";
+                String body = r.getFullBodyName();
+                if (body == null || body.isEmpty()) body = "-";
+                String commander = r.getCommanderName();
+                if (commander == null || commander.isEmpty()) commander = "-";
+                String material = r.getMaterial();
+                if (material == null || material.isEmpty()) material = "-";
                 String line = r.getRun() + ","
                     + MiningTabPanel.csvEscape(tsStr) + ","
-                    + MiningTabPanel.csvEscape(r.getMaterial()) + ","
+                    + MiningTabPanel.csvEscape(material) + ","
                     + formatDouble(r.getPercent()) + ","
                     + formatDouble(r.getBeforeAmount()) + ","
                     + formatDouble(r.getAfterAmount()) + ","
                     + formatDouble(r.getDifference()) + ","
-                    + MiningTabPanel.csvEscape(r.getFullBodyName()) + ","
-                    + MiningTabPanel.csvEscape(r.getCommanderName());
+                    + MiningTabPanel.csvEscape(body) + ","
+                    + MiningTabPanel.csvEscape(commander);
                 Files.writeString(csvPath, line + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             }
         } catch (Exception e) {
@@ -112,13 +116,12 @@ public final class LocalCsvBackend implements ProspectorLogBackend {
                 }
                 out.addAll(inferRunsFromLegacy(rawRows));
             } else {
-                // New 9-column: run,timestamp,material,percent,before amount,after amount,difference,body,commander
+                // New 9-column: run,timestamp,material,percent,before amount,after amount,actual,body,commander
                 String line;
                 while ((line = reader.readLine()) != null) {
+                    if (line.trim().isEmpty()) continue;
                     List<String> cols = parseCsvLine(line);
-                    if (cols.size() < 9) {
-                        continue;
-                    }
+                    if (cols.size() < 9) continue;
                     try {
                         int run = Integer.parseInt(cols.get(0).trim());
                         Instant ts = parseTimestamp(cols.get(1).trim());
@@ -138,6 +141,7 @@ public final class LocalCsvBackend implements ProspectorLogBackend {
         } catch (Exception e) {
             // return what we have so far, or empty
         }
+        out.sort(Comparator.comparing(ProspectorLogRow::getTimestamp, Comparator.nullsLast(Comparator.naturalOrder())));
         return out;
     }
 

@@ -3,7 +3,11 @@ package org.dce.ed;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Frame;
 import java.awt.Font;
+import java.awt.Toolkit;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -28,15 +32,22 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
+import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.JTextArea;
+import javax.swing.KeyStroke;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTable;
 import javax.swing.JViewport;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -219,6 +230,43 @@ public class NearbyTabPanel extends JPanel {
                     return;
                 }
                 systemTableHoverCopyManager.copySystemNameAtViewRow(viewRow);
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleRowContextMenu(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                handleRowContextMenu(e);
+            }
+
+            private void handleRowContextMenu(MouseEvent e) {
+                if (!e.isPopupTrigger()) {
+                    return;
+                }
+                if (passThroughEnabledSupplier != null && passThroughEnabledSupplier.getAsBoolean()) {
+                    return;
+                }
+                int viewRow = table.rowAtPoint(e.getPoint());
+                if (viewRow < 0) {
+                    return;
+                }
+                int modelRow = table.convertRowIndexToModel(viewRow);
+                if (modelRow < 0 || modelRow >= table.getModel().getRowCount()) {
+                    return;
+                }
+                Object val = table.getModel().getValueAt(modelRow, COL_SYSTEM);
+                String systemName = val != null ? val.toString().trim() : null;
+                if (systemName == null || systemName.isEmpty()) {
+                    return;
+                }
+                JPopupMenu menu = new JPopupMenu();
+                JMenuItem item = new JMenuItem("View EDSM / Spansh / prediction data…");
+                item.addActionListener(a -> showRowDataDialog(systemName));
+                menu.add(item);
+                menu.show(table, e.getX(), e.getY());
             }
         });
 
@@ -504,6 +552,120 @@ public class NearbyTabPanel extends JPanel {
         progressBar.setString("0%");
         progressLabel.setText("Scanning... 0 / ? systems");
         worker.execute();
+    }
+
+    /**
+     * Show a modal dialog with EDSM, Spansh, and prediction data for the given system (from cache).
+     * Only used when not in pass-through mode via right-click menu.
+     */
+    private void showRowDataDialog(String systemName) {
+        CachedSystem cs = SystemCache.getInstance().get(0L, systemName);
+        String content;
+        if (cs == null) {
+            content = "No cached data for this system.";
+        } else {
+            content = buildRowDataText(cs);
+        }
+        JTextArea area = new JTextArea(content);
+        area.setEditable(false);
+        area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        area.setLineWrap(false);
+        area.setWrapStyleWord(false);
+        area.setBackground(EdoUi.User.BACKGROUND);
+        area.setForeground(EdoUi.User.MAIN_TEXT);
+        area.setCaretColor(EdoUi.User.MAIN_TEXT);
+
+        JScrollPane sp = new JScrollPane(area);
+        sp.setPreferredSize(new Dimension(900, 600));
+
+        JButton close = new JButton("Close");
+        close.addActionListener(a -> {
+            JDialog d = (JDialog) SwingUtilities.getWindowAncestor(close);
+            if (d != null) d.dispose();
+        });
+
+        JPanel south = new JPanel(new BorderLayout());
+        south.add(close, BorderLayout.EAST);
+
+        JDialog dlg = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "Row data: " + systemName, false);
+        dlg.getContentPane().setLayout(new BorderLayout());
+        dlg.getContentPane().add(sp, BorderLayout.CENTER);
+        dlg.getContentPane().add(south, BorderLayout.SOUTH);
+        dlg.getContentPane().setBackground(EdoUi.User.BACKGROUND);
+
+        dlg.getRootPane().registerKeyboardAction(
+                e -> dlg.dispose(),
+                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+
+        dlg.pack();
+        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+        dlg.setLocation(
+                Math.max(0, (screen.width - dlg.getWidth()) / 2),
+                Math.max(0, (screen.height - dlg.getHeight()) / 2));
+        dlg.setVisible(true);
+        area.setCaretPosition(0);
+    }
+
+    private static String buildRowDataText(CachedSystem cs) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== System ===\n");
+        sb.append("  systemName: ").append(str(cs.systemName)).append("\n");
+        sb.append("  starPos: ");
+        if (cs.starPos != null && cs.starPos.length >= 3) {
+            sb.append(cs.starPos[0]).append(", ").append(cs.starPos[1]).append(", ").append(cs.starPos[2]);
+        } else {
+            sb.append("—");
+        }
+        sb.append("\n");
+        sb.append("  totalBodies: ").append(cs.totalBodies != null ? cs.totalBodies : "—").append("\n");
+        if (cs.bodies == null || cs.bodies.isEmpty()) {
+            sb.append("\n(no bodies in cache)\n");
+            return sb.toString();
+        }
+        for (CachedBody cb : cs.bodies) {
+            sb.append("\n--- Body: ").append(str(cb.name)).append(" ---\n");
+            sb.append("  bodyId: ").append(cb.bodyId).append("  distanceLs: ").append(cb.distanceLs).append("\n");
+            sb.append("EDSM:\n");
+            sb.append("  planetClass: ").append(str(cb.planetClass)).append("\n");
+            sb.append("  atmosphere: ").append(str(cb.atmosphere)).append("  atmoOrType: ").append(str(cb.atmoOrType)).append("\n");
+            sb.append("  gravityMS: ").append(cb.gravityMS != null ? cb.gravityMS : "—").append("  surfaceTempK: ").append(cb.surfaceTempK != null ? cb.surfaceTempK : "—").append("\n");
+            sb.append("  surfacePressure: ").append(cb.surfacePressure != null ? cb.surfacePressure : "—").append("\n");
+            sb.append("  volcanism: ").append(str(cb.volcanism)).append("\n");
+            sb.append("  ringTypes: ").append(cb.ringTypes != null && !cb.ringTypes.isEmpty() ? String.join(", ", cb.ringTypes) : "—").append("\n");
+            sb.append("  landable: ").append(cb.landable).append("\n");
+            sb.append("  discoveryCommander: ").append(str(cb.discoveryCommander)).append("\n");
+            sb.append("  wasDiscovered: ").append(cb.wasDiscovered != null ? cb.wasDiscovered : "—").append("  wasMapped: ").append(cb.wasMapped != null ? cb.wasMapped : "—").append("  wasFootfalled: ").append(cb.wasFootfalled != null ? cb.wasFootfalled : "—").append("\n");
+            sb.append("Spansh:\n");
+            if (cb.spanshLandmarks != null && !cb.spanshLandmarks.isEmpty()) {
+                for (int i = 0; i < cb.spanshLandmarks.size(); i++) {
+                    SpanshLandmark lm = cb.spanshLandmarks.get(i);
+                    sb.append("  landmark ").append(i + 1).append(": type=").append(str(lm.getType())).append(" subtype=").append(str(lm.getSubtype())).append(" lat=").append(lm.getLatitude()).append(" lon=").append(lm.getLongitude()).append("\n");
+                }
+                sb.append("  spanshPredictedGenera: ").append(cb.spanshPredictedGenera != null && !cb.spanshPredictedGenera.isEmpty() ? String.join(", ", cb.spanshPredictedGenera) : "—").append("\n");
+                sb.append("  spanshExcludeFromExobiology: ").append(cb.spanshExcludeFromExobiology != null ? cb.spanshExcludeFromExobiology : "—").append("\n");
+            } else {
+                sb.append("  No Spansh data\n");
+            }
+            sb.append("Predictions:\n");
+            if (cb.predictions != null && !cb.predictions.isEmpty()) {
+                boolean firstBonus = FirstBonusHelper.firstBonusApplies(cb);
+                for (BioCandidate bc : cb.predictions) {
+                    if (bc == null) continue;
+                    long payout = bc.baseValue != null ? bc.getEstimatedPayout(firstBonus) : 0L;
+                    sb.append("  ").append(str(bc.getGenus())).append(" ").append(str(bc.getSpecies())).append("  baseValue=").append(bc.baseValue != null ? bc.baseValue : "—").append("  estimatedPayout=").append(payout).append("  score=").append(bc.getScore()).append("\n");
+                }
+            } else {
+                sb.append("  No predictions\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String str(Object o) {
+        if (o == null) return "—";
+        String s = o.toString().trim();
+        return s.isEmpty() ? "—" : s;
     }
 
     /**

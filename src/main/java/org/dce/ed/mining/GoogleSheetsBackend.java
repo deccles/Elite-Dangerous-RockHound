@@ -68,7 +68,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
             .build();
     }
 
-    /** Sheet range for the first sheet, columns A–I. */
+    /** Sheet range: Run, Timestamp, Type, Percentage, Before Amount, After Amount, Actual, Body, Commander (A–I). */
     private static String rangeA1I() {
         return "A:I";
     }
@@ -87,21 +87,25 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
             ZoneId zone = ZoneId.systemDefault();
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("M/d/yyyy H:mm:ss", Locale.US);
             for (ProspectorLogRow r : rows) {
+                String ts = r.getTimestamp() != null ? r.getTimestamp().atZone(zone).format(fmt) : "-";
+                String body = (r.getFullBodyName() != null && !r.getFullBodyName().isEmpty()) ? r.getFullBodyName() : "-";
+                String commander = (r.getCommanderName() != null && !r.getCommanderName().isEmpty()) ? r.getCommanderName() : "-";
+                String material = (r.getMaterial() != null && !r.getMaterial().isEmpty()) ? r.getMaterial() : "-";
                 List<Object> row = new ArrayList<>();
                 row.add(r.getRun());
-                row.add(r.getTimestamp() != null ? r.getTimestamp().atZone(zone).format(fmt) : "");
-                row.add(r.getMaterial());
+                row.add(ts);
+                row.add(material);
                 row.add(r.getPercent());
                 row.add(r.getBeforeAmount());
                 row.add(r.getAfterAmount());
                 row.add(r.getDifference());
-                row.add(r.getFullBodyName());
-                row.add(r.getCommanderName());
+                row.add(body);
+                row.add(commander);
                 values.add(row);
             }
-            ValueRange body = new ValueRange().setValues(values);
+            ValueRange bodyRange = new ValueRange().setValues(values);
             AppendValuesResponse res = sheets.spreadsheets().values()
-                .append(spreadsheetId, rangeA1I(), body)
+                .append(spreadsheetId, rangeA1I(), bodyRange)
                 .setValueInputOption(VALUE_INPUT_OPTION_USER_ENTERED)
                 .setInsertDataOption("INSERT_ROWS")
                 .execute();
@@ -128,12 +132,10 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                 return Collections.emptyList();
             }
             List<ProspectorLogRow> out = new ArrayList<>();
-            // Skip header row (row 0)
+            // Skip header row (row 0). 9 cols: run,timestamp,material,percent,before,after,actual,body,commander
             for (int i = 1; i < values.size(); i++) {
                 List<Object> row = values.get(i);
-                if (row == null || row.size() < 9) {
-                    continue;
-                }
+                if (row == null || row.size() < 9) continue;
                 try {
                     int run = parseInt(row.get(0), 0);
                     Instant ts = parseTimestamp(str(row.get(1)));
@@ -148,6 +150,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                 } catch (Exception ignored) {
                 }
             }
+            out.sort(java.util.Comparator.comparing(ProspectorLogRow::getTimestamp, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
             return out;
         } catch (Exception e) {
             return Collections.emptyList();
