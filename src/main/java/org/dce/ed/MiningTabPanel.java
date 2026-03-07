@@ -120,6 +120,9 @@ public class MiningTabPanel extends JPanel {
 	/** Last seen proportion (percent) per material from the previous ProspectedAsteroid event; used for CSV so we log the rock's % when the mining actually happened. */
 	private Map<String, Double> lastPercentByMaterialAtProspector = new HashMap<>();
 
+	/** True if we wrote at least one prospector log row since the last FSD jump; used to only increment run counter when something was collected. */
+	private boolean wroteRowsThisRun;
+
 	/** Current system and body for prospector log rows (updated from LocationEvent / StatusEvent). */
 	private volatile String currentSystemName = "";
 	private volatile String currentBodyName = "";
@@ -986,13 +989,13 @@ return EdoUi.User.MAIN_TEXT;
 		Set<String> materials = new HashSet<>(lastInventoryTonsAtProspector.keySet());
 		materials.addAll(currentInventory.keySet());
 		appendProspectorCsvRows(ts, currentInventory, materials, null);
-		boolean wasInMiningRun = !lastInventoryTonsAtProspector.isEmpty();
 		lastInventoryTonsAtProspector = new HashMap<>();
 		lastPercentByMaterialAtProspector = new HashMap<>();
-		// Only count a new run when we're actually leaving the area (we had prospector state). An asteroid isn't a run.
-		if (wasInMiningRun) {
+		// Only count a new run when something was actually collected since the last run (we wrote at least one row)
+		if (wroteRowsThisRun) {
 			OverlayPreferences.incrementMiningLogRunCounter();
 		}
+		wroteRowsThisRun = false;
 	}
 
 	/** Update cached location from Location event (system + body). */
@@ -1035,14 +1038,15 @@ return EdoUi.User.MAIN_TEXT;
 		appendProspectorCsvRows(ts, currentInventory, materials, fallbackPct);
 	}
 
-	/** Write log rows for materials that increased; uses lastInventoryTonsAtProspector and lastPercentByMaterialAtProspector. */
-	private void appendProspectorCsvRows(Instant ts, Map<String, Double> currentInventory, Set<String> materialsToConsider, Map<String, Double> fallbackPercentByMaterial) {
+	/** Write log rows for materials that increased; uses lastInventoryTonsAtProspector and lastPercentByMaterialAtProspector.
+	 * @return true if at least one row was written to the backend */
+	private boolean appendProspectorCsvRows(Instant ts, Map<String, Double> currentInventory, Set<String> materialsToConsider, Map<String, Double> fallbackPercentByMaterial) {
 		if (materialsToConsider == null || materialsToConsider.isEmpty()) {
-			return;
+			return false;
 		}
 		// Only write when undocked (mining happens in the ring, not while docked)
 		if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
-			return;
+			return false;
 		}
 		String sys = currentSystemName != null ? currentSystemName : "";
 		String body = currentBodyName != null ? currentBodyName : "";
@@ -1075,14 +1079,17 @@ return EdoUi.User.MAIN_TEXT;
 			rows.add(new ProspectorLogRow(run, fullBodyName, ts, material, pct, beforeAdjusted, afterAdjusted, difference, commander));
 		}
 		if (rows.isEmpty()) {
-			return;
+			return false;
 		}
 		try {
 			ProspectorLogBackend backend = ProspectorLogBackendFactory.create();
 			backend.appendRows(rows);
 			refreshSpreadsheetFromBackend();
+			wroteRowsThisRun = true;
+			return true;
 		} catch (Exception e) {
 			// don't break UI on log failure
+			return false;
 		}
 	}
 
@@ -2053,6 +2060,7 @@ String getName() {
 		private final ProspectorLogScatterPanel scatterPanel;
 		private final JComboBox<String> modeCombo;
 		private final JComboBox<String> secondaryCombo;
+		private List<ProspectorLogRow> currentRows = new ArrayList<>();
 
 		ProspectorLogScatterWrapperPanel(ProspectorLogScatterPanel scatterPanel) {
 			super(new BorderLayout());
@@ -2078,27 +2086,37 @@ String getName() {
 
 		void setRows(List<ProspectorLogRow> rows) {
 			if (rows == null) rows = List.of();
+			currentRows = new ArrayList<>(rows);
 			scatterPanel.setRows(rows);
-			List<Integer> runs = rows.stream().mapToInt(ProspectorLogRow::getRun).distinct().sorted().boxed().toList();
-			List<String> commanders = rows.stream().map(ProspectorLogRow::getCommanderName).distinct().sorted().toList();
 			String mode = (String) modeCombo.getSelectedItem();
 			modeCombo.setModel(new DefaultComboBoxModel<>(new String[] { MODE_ALL, MODE_BY_RUN, MODE_BY_COMMANDER }));
 			modeCombo.setSelectedItem(mode != null ? mode : MODE_ALL);
+			populateSecondaryComboAndUpdateFilter();
+		}
+
+		/** Populate run/commander combo from currentRows for the selected mode and refresh the scatter filter. */
+		private void populateSecondaryComboAndUpdateFilter() {
+			String mode = (String) modeCombo.getSelectedItem();
 			secondaryCombo.removeAllItems();
 			if (MODE_BY_RUN.equals(mode)) {
+				List<Integer> runs = currentRows.stream().mapToInt(ProspectorLogRow::getRun).distinct().sorted().boxed().toList();
 				for (Integer r : runs) secondaryCombo.addItem(String.valueOf(r));
+				secondaryCombo.setVisible(true);
 				if (!runs.isEmpty()) {
+					secondaryCombo.setSelectedIndex(0);
 					scatterPanel.setSelectedRun(runs.get(0));
-					secondaryCombo.setSelectedIndex(0);
 				}
-				secondaryCombo.setVisible(true);
 			} else if (MODE_BY_COMMANDER.equals(mode)) {
-				for (String c : commanders) secondaryCombo.addItem(c != null ? c : "");
-				if (!commanders.isEmpty()) {
-					scatterPanel.setSelectedCommander(commanders.get(0));
-					secondaryCombo.setSelectedIndex(0);
-				}
+				List<String> commanders = currentRows.stream()
+					.map(ProspectorLogRow::getCommanderName)
+					.filter(c -> c != null && !c.isEmpty())
+					.distinct().sorted().toList();
+				for (String c : commanders) secondaryCombo.addItem(c);
 				secondaryCombo.setVisible(true);
+				if (!commanders.isEmpty()) {
+					secondaryCombo.setSelectedIndex(0);
+					scatterPanel.setSelectedCommander(commanders.get(0));
+				}
 			} else {
 				secondaryCombo.setVisible(false);
 			}
@@ -2111,15 +2129,29 @@ String getName() {
 				: MODE_BY_COMMANDER.equals(mode) ? ProspectorLogScatterPanel.FilterMode.BY_COMMANDER
 				: ProspectorLogScatterPanel.FilterMode.ALL);
 			if (MODE_BY_RUN.equals(mode)) {
+				secondaryCombo.setVisible(true);
+				// When switching from All to By run, secondary combo is empty; populate from current rows
+				if (secondaryCombo.getItemCount() == 0) {
+					List<Integer> runs = currentRows.stream().mapToInt(ProspectorLogRow::getRun).distinct().sorted().boxed().toList();
+					for (Integer r : runs) secondaryCombo.addItem(String.valueOf(r));
+					if (!runs.isEmpty()) secondaryCombo.setSelectedIndex(0);
+				}
 				Object sel = secondaryCombo.getSelectedItem();
 				int run = 1;
 				if (sel != null) try { run = Integer.parseInt(sel.toString()); } catch (NumberFormatException ignored) { }
 				scatterPanel.setSelectedRun(run);
-				secondaryCombo.setVisible(true);
 			} else if (MODE_BY_COMMANDER.equals(mode)) {
+				secondaryCombo.setVisible(true);
+				if (secondaryCombo.getItemCount() == 0) {
+					List<String> commanders = currentRows.stream()
+						.map(ProspectorLogRow::getCommanderName)
+						.filter(c -> c != null && !c.isEmpty())
+						.distinct().sorted().toList();
+					for (String c : commanders) secondaryCombo.addItem(c);
+					if (!commanders.isEmpty()) secondaryCombo.setSelectedIndex(0);
+				}
 				Object sel = secondaryCombo.getSelectedItem();
 				scatterPanel.setSelectedCommander(sel != null ? sel.toString() : "");
-				secondaryCombo.setVisible(true);
 			} else {
 				secondaryCombo.setVisible(false);
 			}
@@ -2183,7 +2215,7 @@ String getName() {
 				case BY_RUN:
 					return rows.stream().filter(r -> r.getRun() == selectedRun).toList();
 				case BY_COMMANDER:
-					return rows.stream().filter(r -> selectedCommander.equals(r.getCommanderName())).toList();
+					return rows.stream().filter(r -> java.util.Objects.equals(selectedCommander, r.getCommanderName())).toList();
 				default:
 					return rows;
 			}
@@ -2193,10 +2225,20 @@ String getName() {
 		protected void paintComponent(Graphics g) {
 			super.paintComponent(g);
 			List<ProspectorLogRow> toPlot = filteredRows();
+			Graphics2D g2 = (Graphics2D) g.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setColor(EdoUi.User.MAIN_TEXT);
 			if (toPlot.isEmpty()) {
+				g2.setFont(g2.getFont().deriveFont(12f));
+				String msg = rows.isEmpty() ? "No data" : "No data for this selection";
+				int w = getWidth();
+				int h = getHeight();
+				FontMetrics fm = g2.getFontMetrics();
+				int tw = fm.stringWidth(msg);
+				g2.drawString(msg, Math.max(0, (w - tw) / 2), (h + fm.getAscent()) / 2 - fm.getDescent());
+				g2.dispose();
 				return;
 			}
-			Graphics2D g2 = (Graphics2D) g.create();
 			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 			g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
 			int w = getWidth();
