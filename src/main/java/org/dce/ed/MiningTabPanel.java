@@ -475,6 +475,7 @@ private final JLayer<JTable> cargoLayer;
 		spreadsheetTable.setDefaultRenderer(Object.class, spreadCellRenderer);
 		spreadsheetTable.setTableHeader(new ProspectorLogTableHeader(spreadsheetTable.getColumnModel()));
 		applyProspectorLogColumnVisibility(spreadsheetTable);
+		applyProspectorLogColumnWidths(spreadsheetTable);
 		JTableHeader spreadHeader = spreadsheetTable.getTableHeader();
 		if (spreadHeader != null) {
 			spreadHeader.setUI(org.dce.ed.ui.TransparentTableHeaderUI.createUI(spreadHeader));
@@ -620,6 +621,33 @@ private final JLayer<JTable> cargoLayer;
 			col.setMaxWidth(0);
 			col.setPreferredWidth(0);
 			col.setWidth(0);
+		}
+	}
+
+	/** Set friendly column widths for the prospector log table so Run summaries have room. */
+	private static void applyProspectorLogColumnWidths(JTable tbl) {
+		if (tbl == null) {
+			return;
+		}
+		TableColumnModel cm = tbl.getColumnModel();
+		if (cm == null || cm.getColumnCount() < 4) {
+			return;
+		}
+		// Column 0: Run / summary line (needs the most space)
+		TableColumn runCol = cm.getColumn(0);
+		runCol.setMinWidth(220);
+		runCol.setPreferredWidth(320);
+
+		// Keep asteroid and time reasonably compact
+		if (cm.getColumnCount() > 1) {
+			TableColumn asteroidCol = cm.getColumn(1);
+			asteroidCol.setMinWidth(36);
+			asteroidCol.setPreferredWidth(42);
+		}
+		if (cm.getColumnCount() > 2) {
+			TableColumn timeCol = cm.getColumn(2);
+			timeCol.setMinWidth(70);
+			timeCol.setPreferredWidth(80);
 		}
 	}
 

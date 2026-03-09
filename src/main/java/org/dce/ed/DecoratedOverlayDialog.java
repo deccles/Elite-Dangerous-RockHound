@@ -167,6 +167,12 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 			String right = lastRightStatusText != null ? lastRightStatusText.trim() : "";
 			String full = right + (limpet ? (right.isEmpty() ? "" : "  |  ") + "Low Limpet Warning!" : "");
 			statusLabel.setText(full);
+			// Highlight low-limpet warning in red, otherwise use the normal menu foreground.
+			if (limpet) {
+				statusLabel.setForeground(EdoUi.User.ERROR);
+			} else {
+				statusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
+			}
 			statusLabel.setVisible(!full.isEmpty());
 		};
 

@@ -32,12 +32,23 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
     private static final Pattern SPREADSHEET_ID_PATTERN = Pattern.compile("/d/([a-zA-Z0-9_-]+)");
     private static final String VALUE_INPUT_OPTION_USER_ENTERED = "USER_ENTERED";
     private static final DateTimeFormatter[] TIMESTAMP_PARSERS = {
+        // Common US-style 24h date-times with and without seconds
         DateTimeFormatter.ofPattern("M/d/yyyy H:mm:ss", Locale.US),
-        DateTimeFormatter.ofPattern("M/d/yyyy H:m:s", Locale.US),
+        DateTimeFormatter.ofPattern("M/d/yyyy H:mm", Locale.US),
         DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm:ss", Locale.US),
+        DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm", Locale.US),
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.US),
+
+        // Day-first variants (some locales / manual edits)
         DateTimeFormatter.ofPattern("d/M/yyyy H:mm:ss", Locale.US),
-        DateTimeFormatter.ofPattern("d/M/yyyy H:m:s", Locale.US),
+        DateTimeFormatter.ofPattern("d/M/yyyy H:mm", Locale.US),
+
+        // 12h clock with AM/PM (if sheet is formatted that way)
+        DateTimeFormatter.ofPattern("M/d/yyyy h:mm:ss a", Locale.US),
+        DateTimeFormatter.ofPattern("M/d/yyyy h:mm a", Locale.US),
+        DateTimeFormatter.ofPattern("d/M/yyyy h:mm:ss a", Locale.US),
+        DateTimeFormatter.ofPattern("d/M/yyyy h:mm a", Locale.US),
     };
 
     private final String spreadsheetId;
