@@ -12,6 +12,8 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.BasicStroke;
+import java.awt.Stroke;
 import java.awt.RenderingHints;
 import java.text.NumberFormat;
 import java.time.Instant;
@@ -2469,6 +2471,61 @@ String getName() {
 				g2.fillOval((int) (x - POINT_RADIUS), (int) (y - POINT_RADIUS), (int) (2 * POINT_RADIUS), (int) (2 * POINT_RADIUS));
 			}
 
+			// Trend lines by commander (best-fit line of Percentage vs Actual)
+			Stroke oldStroke = g2.getStroke();
+			g2.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			if (filterMode == FilterMode.ALL && !commanderOrder.isEmpty()) {
+				for (String cmdr : commanderOrder) {
+					List<ProspectorLogRow> rowsForCommander = toPlot.stream()
+						.filter(r -> java.util.Objects.equals(cmdr, r.getCommanderName()))
+						.toList();
+					Regression reg = computeRegression(rowsForCommander);
+					if (!reg.valid) {
+						continue;
+					}
+					double x1 = minPct;
+					double x2 = maxPct;
+					double y1 = reg.slope * x1 + reg.intercept;
+					double y2 = reg.slope * x2 + reg.intercept;
+					// Clamp to plotted Y range
+					y1 = Math.max(minAct, Math.min(maxAct, y1));
+					y2 = Math.max(minAct, Math.min(maxAct, y2));
+					double nx1 = (maxPct > minPct) ? (x1 - minPct) / (maxPct - minPct) : 0.5;
+					double nx2 = (maxPct > minPct) ? (x2 - minPct) / (maxPct - minPct) : 0.5;
+					double ny1 = (maxAct > minAct) ? 1.0 - (y1 - minAct) / (maxAct - minAct) : 0.5;
+					double ny2 = (maxAct > minAct) ? 1.0 - (y2 - minAct) / (maxAct - minAct) : 0.5;
+					int sx1 = plotX + (int) (nx1 * plotW);
+					int sy1 = plotY + (int) (ny1 * plotH);
+					int sx2 = plotX + (int) (nx2 * plotW);
+					int sy2 = plotY + (int) (ny2 * plotH);
+					Color c = commanderColor.getOrDefault(cmdr, EdoUi.User.VALUABLE);
+					g2.setColor(c);
+					g2.drawLine(sx1, sy1, sx2, sy2);
+				}
+			} else if (filterMode == FilterMode.BY_COMMANDER && selectedCommander != null && !selectedCommander.isEmpty()) {
+				Regression reg = computeRegression(toPlot);
+				if (reg.valid) {
+					double x1 = minPct;
+					double x2 = maxPct;
+					double y1 = reg.slope * x1 + reg.intercept;
+					double y2 = reg.slope * x2 + reg.intercept;
+					y1 = Math.max(minAct, Math.min(maxAct, y1));
+					y2 = Math.max(minAct, Math.min(maxAct, y2));
+					double nx1 = (maxPct > minPct) ? (x1 - minPct) / (maxPct - minPct) : 0.5;
+					double nx2 = (maxPct > minPct) ? (x2 - minPct) / (maxPct - minPct) : 0.5;
+					double ny1 = (maxAct > minAct) ? 1.0 - (y1 - minAct) / (maxAct - minAct) : 0.5;
+					double ny2 = (maxAct > minAct) ? 1.0 - (y2 - minAct) / (maxAct - minAct) : 0.5;
+					int sx1 = plotX + (int) (nx1 * plotW);
+					int sy1 = plotY + (int) (ny1 * plotH);
+					int sx2 = plotX + (int) (nx2 * plotW);
+					int sy2 = plotY + (int) (ny2 * plotH);
+					Color c = commanderColor.getOrDefault(selectedCommander, EdoUi.User.VALUABLE);
+					g2.setColor(c);
+					g2.drawLine(sx1, sy1, sx2, sy2);
+				}
+			}
+			g2.setStroke(oldStroke);
+
 			// Commander legend (only when coloring by commander: mode = ALL)
 			if (!commanderOrder.isEmpty()) {
 				int swatchSize = 10;
@@ -2509,6 +2566,54 @@ String getName() {
 				}
 			}
 			g2.dispose();
+		}
+
+		private static Regression computeRegression(List<ProspectorLogRow> rows) {
+			if (rows == null || rows.size() < 2) {
+				return new Regression(false, 0.0, 0.0);
+			}
+			int n = 0;
+			double sumX = 0.0;
+			double sumY = 0.0;
+			double sumXX = 0.0;
+			double sumXY = 0.0;
+			for (ProspectorLogRow r : rows) {
+				if (r == null) {
+					continue;
+				}
+				double x = r.getPercent();
+				double y = r.getDifference();
+				if (Double.isNaN(x) || Double.isNaN(y)) {
+					continue;
+				}
+				n++;
+				sumX += x;
+				sumY += y;
+				sumXX += x * x;
+				sumXY += x * y;
+			}
+			if (n < 2) {
+				return new Regression(false, 0.0, 0.0);
+			}
+			double denom = n * sumXX - sumX * sumX;
+			if (Math.abs(denom) < 1e-9) {
+				return new Regression(false, 0.0, 0.0);
+			}
+			double slope = (n * sumXY - sumX * sumY) / denom;
+			double intercept = (sumY - slope * sumX) / n;
+			return new Regression(true, slope, intercept);
+		}
+
+		private static final class Regression {
+			final boolean valid;
+			final double slope;
+			final double intercept;
+
+			Regression(boolean valid, double slope, double intercept) {
+				this.valid = valid;
+				this.slope = slope;
+				this.intercept = intercept;
+			}
 		}
 	}
 
