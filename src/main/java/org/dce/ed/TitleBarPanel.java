@@ -22,6 +22,7 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.util.GithubMsiUpdater;
 
 /**
  * Custom "title bar" for the undecorated overlay frame.
@@ -111,6 +112,19 @@ public class TitleBarPanel extends JPanel {
         rightStatusLabel.setFont(rightStatusLabel.getFont().deriveFont(Font.PLAIN, 13f));
         rightStatusLabel.setBorder(new EmptyBorder(4, 8, 4, 8));
         rightStatusLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+        rightStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
+        rightStatusLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                String txt = rightStatusLabel.getText();
+                if (txt != null && txt.contains("New version")) {
+                    GithubMsiUpdater.checkAndUpdate(frame);
+                }
+            }
+        });
 
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 4));
         rightPanel.setOpaque(false);
@@ -234,6 +248,30 @@ public class TitleBarPanel extends JPanel {
         });
     }
 
+    public void setRightStatusText(String text) {
+        if (text == null) {
+            text = "";
+        }
+
+        final String finalText = text;
+        Runnable r = () -> {
+            rightStatusLabel.setText(finalText);
+            if (!finalText.isBlank() && finalText.contains("New version")) {
+                rightStatusLabel.setForeground(EdoUi.User.SUCCESS);
+                rightStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            } else {
+                rightStatusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
+                rightStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
+            }
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
     /**
      * Hide/show the title bar controls when pass-through mode changes.
      * When pass-through is enabled, both the close and gear icons are hidden.
@@ -352,19 +390,6 @@ public class TitleBarPanel extends JPanel {
             } finally {
                 g2.dispose();
             }
-        }
-    }
-
-    public void setRightStatusText(String text) {
-        if (text == null) {
-            text = "";
-        }
-
-        final String finalText = text;
-        if (SwingUtilities.isEventDispatchThread()) {
-            rightStatusLabel.setText(finalText);
-        } else {
-            SwingUtilities.invokeLater(() -> rightStatusLabel.setText(finalText));
         }
     }
 }

@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.function.Consumer;
 
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -43,6 +44,21 @@ public final class GithubMsiUpdater {
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(20);
 
     private GithubMsiUpdater() {
+    }
+
+    /** Result object for non-interactive update checks (status bar). */
+    public static final class UpdateCheckResult {
+        public final String currentVersion;
+        public final String latestVersion;
+        public final String msiName;
+        public final String msiUrl;
+
+        public UpdateCheckResult(String currentVersion, String latestVersion, String msiName, String msiUrl) {
+            this.currentVersion = currentVersion;
+            this.latestVersion = latestVersion;
+            this.msiName = msiName;
+            this.msiUrl = msiUrl;
+        }
     }
 
     public static void checkAndUpdate(Component parent) {
@@ -148,6 +164,67 @@ public final class GithubMsiUpdater {
             }
         };
 
+        worker.execute();
+    }
+
+    /**
+     * Background update check intended for status-bar display.
+     * - Never shows dialogs.
+     * - If an installable newer version exists and currentVersion is known, calls callback with details.
+     * - Otherwise calls callback with null.
+     */
+    public static void checkForStatusBar(Component parent, Consumer<UpdateCheckResult> callback) {
+        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            private String currentVersion;
+            private String latestVersion;
+            private String msiName;
+            private String msiUrl;
+            private Exception failure;
+
+            @Override
+            protected Void doInBackground() {
+                try {
+                    currentVersion = readCurrentVersion();
+                    JsonObject latest = fetchLatestReleaseJson();
+                    latestVersion = readVersionFromTag(latest);
+                    JsonObject msiAsset = findMsiAsset(latest);
+                    if (msiAsset != null) {
+                        msiName = getString(msiAsset, "name");
+                        msiUrl = getString(msiAsset, "browser_download_url");
+                    }
+                } catch (Exception ex) {
+                    failure = ex;
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                if (callback == null) {
+                    return;
+                }
+                if (failure != null) {
+                    callback.accept(null);
+                    return;
+                }
+                // Need latest version and MSI.
+                if (latestVersion == null || latestVersion.isBlank() || msiUrl == null || msiUrl.isBlank()) {
+                    callback.accept(null);
+                    return;
+                }
+                // If current version is unknown (dev/IDE), don't show update.
+                if (currentVersion == null || currentVersion.isBlank() || "(unknown)".equals(currentVersion)) {
+                    callback.accept(null);
+                    return;
+                }
+                // Only signal when newer.
+                if (compareVersions(latestVersion, currentVersion) <= 0) {
+                    callback.accept(null);
+                    return;
+                }
+                callback.accept(new UpdateCheckResult(currentVersion, latestVersion, msiName, msiUrl));
+            }
+        };
         worker.execute();
     }
 

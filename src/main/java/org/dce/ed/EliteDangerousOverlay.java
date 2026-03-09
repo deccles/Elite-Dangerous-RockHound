@@ -13,6 +13,9 @@ import java.util.prefs.Preferences;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.Timer;
+
+import java.time.LocalTime;
 
 import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.tts.PollyTtsCached;
@@ -66,7 +69,43 @@ public class EliteDangerousOverlay implements NativeKeyListener {
         UIManager.put("TitlePane.foreground", EdoUi.User.MAIN_TEXT);
         
         AppIconUtil.applyAppIcon(passThroughFrame, "/org/dce/ed/edsm/locate_icon.png");
+        // Normal interactive startup check (dialog-based).
         GithubMsiUpdater.checkForUpdatesOnStartup(passThroughFrame);
+        // Background check for status bar hint (immediate).
+        GithubMsiUpdater.checkForStatusBar(passThroughFrame,
+            result -> {
+                if (result != null) {
+                    passThroughFrame.setUpdateAvailableVersion(result.latestVersion);
+                }
+            });
+
+        // Periodic background check every 20 minutes on the clock (00, 20, 40).
+        startPeriodicUpdateChecks();
+    }
+
+    private void startPeriodicUpdateChecks() {
+        // Fire once per minute; only actually hit GitHub at minutes 0, 20, 40.
+        final int[] lastMinuteChecked = { -1 };
+        Timer t = new Timer(60_000, e -> {
+            LocalTime now = LocalTime.now();
+            int minute = now.getMinute();
+            if (minute % 20 != 0) {
+                return;
+            }
+            if (minute == lastMinuteChecked[0]) {
+                return;
+            }
+            lastMinuteChecked[0] = minute;
+            GithubMsiUpdater.checkForStatusBar(passThroughFrame,
+                result -> {
+                    if (result != null) {
+                        passThroughFrame.setUpdateAvailableVersion(result.latestVersion);
+                    }
+                });
+        });
+        t.setRepeats(true);
+        t.setInitialDelay(60_000);
+        t.start();
     }
 
     public static void main(String[] args) throws IOException {

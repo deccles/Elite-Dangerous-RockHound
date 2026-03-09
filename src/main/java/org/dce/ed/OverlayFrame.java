@@ -118,6 +118,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     /** Debounced save of session state (500 ms after last tab change). */
     private final Timer sessionSaveTimer = new Timer(500, e -> saveSessionState());
 
+    /** Available update version for status bar; null when none. */
+    private volatile String updateAvailableVersion;
+
     /** Single entry point for right-hand status: whichever window is visible gets updates. */
     private Consumer<String> rightStatusListener = this::setRightStatusTextOnTitleBar;
 
@@ -137,7 +140,13 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         publishRightStatusText(getRightStatusText());
     }
 
+    public void setUpdateAvailableVersion(String latestVersion) {
+        this.updateAvailableVersion = (latestVersion != null && !latestVersion.isBlank()) ? latestVersion : null;
+        refreshRightStatusDisplay();
+    }
+
     public String getRightStatusText() {
+        String base;
         if (carrierJumpDepartureTime != null) {
             long seconds = Math.max(0, carrierJumpDepartureTime.getEpochSecond() - Instant.now().getEpochSecond());
             long minutes = seconds / 60;
@@ -153,15 +162,26 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
                 countdown += " → " + carrierJumpTargetSystem;
             }
-            return countdown;
+            base = countdown;
         }
-        if (carrierJumpCooldownEndTime != null) {
+        else if (carrierJumpCooldownEndTime != null) {
             long seconds = Math.max(0, carrierJumpCooldownEndTime.getEpochSecond() - Instant.now().getEpochSecond());
             long minutes = seconds / 60;
             long secs = seconds % 60;
-            return String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs);
+            base = String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs);
+        } else {
+            base = formatExoCredits(exoCreditsTotal);
         }
-        return formatExoCredits(exoCreditsTotal);
+
+        // Append update hint if available
+        if (updateAvailableVersion != null && !updateAvailableVersion.isBlank()) {
+            String hint = "New version " + updateAvailableVersion + " available";
+            if (base == null || base.isBlank()) {
+                return hint;
+            }
+            return base + " | " + hint;
+        }
+        return base;
     }
     
     public static OverlayFrame overlayFrame = null;

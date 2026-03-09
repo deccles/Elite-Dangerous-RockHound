@@ -187,6 +187,13 @@ public class EliteOverlayTabbedPane extends JPanel {
 		this.biologyTab = new BiologyTabPanel();
 		this.biologyTab.setSystemTabPanel(systemTab);
 		this.miningTab = new MiningTabPanel(galacticAvgPrices, this::isCurrentlyDocked);
+		// Treat docking as the end of a mining "trip": when we transition to docked,
+		// flush any pending mining gains and advance the run counter if needed.
+		addDockedStateListener(docked -> {
+			if (docked) {
+				miningTab.onDocked();
+			}
+		});
 		this.nearbyTab = new NearbyTabPanel(systemTab, hoverSwitchEnabled);
 
 		cardPanel.add(routeTab, CARD_ROUTE);

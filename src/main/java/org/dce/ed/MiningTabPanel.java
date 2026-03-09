@@ -12,6 +12,7 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.BasicStroke;
 import java.awt.Stroke;
 import java.awt.RenderingHints;
@@ -36,8 +37,10 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultComboBoxModel;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JList;
 import javax.swing.JLabel;
 import javax.swing.JLayer;
 import javax.swing.JPanel;
@@ -48,6 +51,7 @@ import javax.swing.JViewport;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.ListCellRenderer;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
@@ -73,6 +77,8 @@ import org.dce.ed.mining.ProspectorLogRow;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.edsm.UtilTable;
+import org.dce.ed.ui.SystemTableHoverCopyManager;
 import org.dce.ed.ui.TransparentTableHeaderUI;
 
 import com.google.gson.JsonArray;
@@ -115,6 +121,7 @@ public class MiningTabPanel extends JPanel {
 	private final JPanel spreadsheetCardPanel;
 	private static final int SPREADSHEET_REFRESH_MS = 45_000;
 	private final Timer spreadsheetRefreshTimer;
+	private SystemTableHoverCopyManager miningSystemCopyManager;
 
 	private final Map<String, Long> lastCargoTonsByName = new HashMap<>();
 
@@ -451,6 +458,51 @@ private final JLayer<JTable> cargoLayer;
 			public boolean isCellEditable(int row, int column) { return false; }
 			@Override
 			public boolean editCellAt(int row, int column, java.util.EventObject e) { return false; }
+
+			@Override
+			protected void paintComponent(Graphics g) {
+				Graphics2D g2 = (Graphics2D) g.create();
+				try {
+					g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
+					g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+					super.paintComponent(g2);
+
+					// Draw run summary rows as a single row-spanning label after normal painting.
+					if (spreadsheetModel != null) {
+						int rows = getRowCount();
+						for (int viewRow = 0; viewRow < rows; viewRow++) {
+							if (!spreadsheetModel.isSummaryRow(viewRow)) continue;
+							RunSummary rs = spreadsheetModel.getSummaryAt(viewRow);
+							if (rs == null) continue;
+							String text = rs.formatSummary();
+
+							Rectangle cellRect = getCellRect(viewRow, 0, true);
+							Rectangle rowRect = getCellRect(viewRow, 0, true);
+							rowRect.width = getWidth();
+
+							Rectangle clip = g2.getClipBounds();
+							if (clip != null && !clip.intersects(rowRect)) {
+								continue;
+							}
+
+							Graphics2D rg = (Graphics2D) g2.create();
+							try {
+								rg.setClip(rowRect);
+								rg.setFont(getFont().deriveFont(Font.BOLD, getFont().getSize2D() + 2f));
+								rg.setColor(EdoUi.User.MAIN_TEXT);
+								FontMetrics fm = rg.getFontMetrics();
+								int x = cellRect.x + 4;
+								int y = rowRect.y + (rowRect.height + fm.getAscent()) / 2 - 2;
+								rg.drawString(text, x, y);
+							} finally {
+								rg.dispose();
+							}
+						}
+					}
+				} finally {
+					g2.dispose();
+				}
+			}
 		};
 		spreadsheetTable.setDefaultEditor(Object.class, null);
 		spreadsheetTable.setFocusable(false);
@@ -458,16 +510,33 @@ private final JLayer<JTable> cargoLayer;
 		spreadsheetTable.setOpaque(false);
 		spreadsheetTable.setBackground(EdoUi.Internal.TRANSPARENT);
 		spreadsheetTable.setForeground(EdoUi.User.MAIN_TEXT);
+		spreadsheetTable.setShowGrid(false);
+		spreadsheetTable.setShowHorizontalLines(false);
+		spreadsheetTable.setShowVerticalLines(false);
+		spreadsheetTable.setIntercellSpacing(new java.awt.Dimension(0, 0));
+		spreadsheetTable.setGridColor(EdoUi.Internal.TRANSPARENT);
 		DefaultTableCellRenderer spreadCellRenderer = new DefaultTableCellRenderer() {
 			@Override
 			public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
 				Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-				if (c instanceof JComponent) {
-					((JComponent) c).setOpaque(false);
+				if (c instanceof JComponent jc) {
+					jc.setOpaque(false);
+				}
+				if (c instanceof JLabel lbl) {
+					// Right-justify numeric prospector columns: Percentage (4), Tons (7), Duds (9)
+					if (column == 4 || column == 7 || column == 9) {
+						lbl.setHorizontalAlignment(SwingConstants.RIGHT);
+					} else {
+						lbl.setHorizontalAlignment(SwingConstants.LEFT);
+					}
+					// Add a bit of space before Commander column so Duds/System/Body and Commander don't touch.
+					if (column == 12) {
+						lbl.setBorder(new EmptyBorder(0, 6, 0, 0));
+					}
 				}
 				c.setBackground(EdoUi.Internal.TRANSPARENT);
 				if (spreadsheetModel != null && spreadsheetModel.isSummaryRow(row)) {
-					c.setFont(c.getFont().deriveFont(Font.BOLD).deriveFont(c.getFont().getSize2D() + 1f));
+					c.setFont(c.getFont().deriveFont(Font.BOLD).deriveFont(c.getFont().getSize2D() + 2f));
 				}
 				return c;
 			}
@@ -475,7 +544,8 @@ private final JLayer<JTable> cargoLayer;
 		spreadsheetTable.setDefaultRenderer(Object.class, spreadCellRenderer);
 		spreadsheetTable.setTableHeader(new ProspectorLogTableHeader(spreadsheetTable.getColumnModel()));
 		applyProspectorLogColumnVisibility(spreadsheetTable);
-		applyProspectorLogColumnWidths(spreadsheetTable);
+		// Let UtilTable auto-size columns based on content and headers.
+		UtilTable.autoSizeTableColumns(spreadsheetTable);
 		JTableHeader spreadHeader = spreadsheetTable.getTableHeader();
 		if (spreadHeader != null) {
 			spreadHeader.setUI(org.dce.ed.ui.TransparentTableHeaderUI.createUI(spreadHeader));
@@ -502,6 +572,27 @@ private final JLayer<JTable> cargoLayer;
 			spreadHeaderViewport.setBorder(null);
 		}
 		configureOverlayScroller(spreadsheetScroller);
+		// Install system-name copy behavior on the System column (model index 10).
+		miningSystemCopyManager = new SystemTableHoverCopyManager(spreadsheetTable, 10, isDockedSupplier);
+		miningSystemCopyManager.start();
+		spreadsheetTable.addMouseListener(new java.awt.event.MouseAdapter() {
+			@Override
+			public void mouseClicked(java.awt.event.MouseEvent e) {
+				if (e.getClickCount() != 2) {
+					return;
+				}
+				int viewRow = spreadsheetTable.rowAtPoint(e.getPoint());
+				int viewCol = spreadsheetTable.columnAtPoint(e.getPoint());
+				if (viewRow < 0 || viewCol < 0) {
+					return;
+				}
+				int modelCol = spreadsheetTable.convertColumnIndexToModel(viewCol);
+				if (modelCol != 10) {
+					return;
+				}
+				miningSystemCopyManager.copySystemNameAtViewRow(viewRow);
+			}
+		});
 		spreadsheetScroller.setAlignmentX(Component.LEFT_ALIGNMENT);
 		spreadsheetScatterPanel = new ProspectorLogScatterPanel();
 		spreadsheetScatterPanel.setOpaque(false);
@@ -624,36 +715,7 @@ private final JLayer<JTable> cargoLayer;
 		}
 	}
 
-	/** Set friendly column widths for the prospector log table so Run summaries have room. */
-	private static void applyProspectorLogColumnWidths(JTable tbl) {
-		if (tbl == null) {
-			return;
-		}
-		TableColumnModel cm = tbl.getColumnModel();
-		if (cm == null || cm.getColumnCount() < 4) {
-			return;
-		}
-		// Column 0: Run / summary line (needs the most space)
-		TableColumn runCol = cm.getColumn(0);
-		runCol.setMinWidth(220);
-		runCol.setPreferredWidth(320);
-
-		// Keep asteroid and time reasonably compact
-		if (cm.getColumnCount() > 1) {
-			TableColumn asteroidCol = cm.getColumn(1);
-			asteroidCol.setMinWidth(36);
-			asteroidCol.setPreferredWidth(42);
-		}
-		if (cm.getColumnCount() > 2) {
-			TableColumn timeCol = cm.getColumn(2);
-			timeCol.setMinWidth(70);
-			timeCol.setPreferredWidth(80);
-		}
-	}
-
-
-
-private static final int GREEN_THRESHOLD_AVG_CR_PER_TON = 4_000_000;
+	private static final int GREEN_THRESHOLD_AVG_CR_PER_TON = 4_000_000;
 	private Color resolveRowForeground(JTable tbl, int viewRow) {
 		if (tbl == null || viewRow < 0) {
 			return EdoUi.User.MAIN_TEXT;
@@ -1034,11 +1096,12 @@ return EdoUi.User.MAIN_TEXT;
 	}
 
 	/**
-	 * Called on FSD jump: flush any pending mining gains to CSV (using last-seen percent), then reset
-	 * so the next prospector scan is treated like the first (new area).
+	 * Called when docking is detected: this now defines the end of a "trip" for mining runs.
+	 * We flush any pending gains to CSV (using last-seen percent) and, if anything was mined,
+	 * advance the global run counter and reset asteroid IDs for the next trip.
 	 */
-	public void onStartJump(StartJumpEvent event) {
-		Instant ts = (event != null && event.getTimestamp() != null) ? event.getTimestamp() : Instant.now();
+	public void onDocked() {
+		Instant ts = Instant.now();
 		CargoMonitor.Snapshot snap = CargoMonitor.getInstance().getSnapshot();
 		Map<String, Double> currentInventory = buildInventoryTonsFromCargo(snap != null ? snap.getCargoJson() : null);
 		Set<String> materials = new HashSet<>(lastInventoryTonsAtProspector.keySet());
@@ -1052,6 +1115,16 @@ return EdoUi.User.MAIN_TEXT;
 			asteroidIdCounter = 0;
 		}
 		wroteRowsThisRun = false;
+	}
+
+	/**
+	 * Historically we treated the start of an FSD jump as the end of a run.
+	 * Runs are now defined as "from the first time we shoot a prospector limpet to the next dock",
+	 * so FSD jumps no longer advance the run counter. We keep this hook for future use,
+	 * but it intentionally does nothing.
+	 */
+	public void onStartJump(StartJumpEvent event) {
+		// no-op
 	}
 
 	/** Format asteroid index as A, B, ..., Z, AA, AB, ... */
@@ -1134,37 +1207,53 @@ return EdoUi.User.MAIN_TEXT;
 		if (materialsToConsider == null || materialsToConsider.isEmpty()) {
 			return false;
 		}
-		// Only write when undocked (mining happens in the ring, not while docked)
-		if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
+		// Only write prospector-originated rows when undocked (mining happens in the ring, not while docked).
+		// For the final flush on docking (event == null), we always allow writing so the run closes correctly.
+		if (event != null && isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
 			return false;
 		}
 		String commander = OverlayPreferences.getMiningLogCommanderName();
 		if (commander == null || commander.isBlank()) {
 			commander = "-";
 		}
-		final String commanderForRun = commander;
-		// First time we're about to write this session: sync run counter from spreadsheet so we use the next number
-		// Run numbers are now per-commander when a commander name is set.
+		// First time we're about to write this session: sync run counter from the sheet.
+		// We prefer to continue an in-progress run for this commander if we find rows
+		// with the current run number; otherwise we advance to at least (maxRun + 1)
+		// so runs remain unique across commanders.
 		if (!syncedRunCounterFromBackend) {
 			syncedRunCounterFromBackend = true;
 			try {
 				List<ProspectorLogRow> existing = ProspectorLogBackendFactory.create().loadRows();
+				int currentRunPref = OverlayPreferences.getMiningLogRunCounter();
 				int maxRun = 0;
+				boolean hasRowsForCommanderAndCurrentRun = false;
 				if (existing != null && !existing.isEmpty()) {
-					if ("-".equals(commanderForRun)) {
-						maxRun = existing.stream()
-							.mapToInt(ProspectorLogRow::getRun)
-							.max()
-							.orElse(0);
-					} else {
-						maxRun = existing.stream()
-							.filter(r -> commanderForRun.equalsIgnoreCase(r.getCommanderName()))
-							.mapToInt(ProspectorLogRow::getRun)
-							.max()
-							.orElse(0);
+					for (ProspectorLogRow r : existing) {
+						if (r == null) {
+							continue;
+						}
+						int rRun = r.getRun();
+						if (rRun > maxRun) {
+							maxRun = rRun;
+						}
+						if (!hasRowsForCommanderAndCurrentRun && rRun == currentRunPref) {
+							String rowCommander = r.getCommanderName();
+							if (rowCommander == null || rowCommander.isBlank()) {
+								rowCommander = "-";
+							}
+							if (rowCommander.equals(commander)) {
+								hasRowsForCommanderAndCurrentRun = true;
+							}
+						}
 					}
 				}
-				OverlayPreferences.setMiningLogRunCounter(maxRun + 1);
+				// If we already have rows for this commander/run, assume we're mid-run and
+				// keep the current run number. Otherwise, bump to at least maxRun + 1 so we
+				// don't collide with existing runs.
+				if (!hasRowsForCommanderAndCurrentRun) {
+					int nextRun = Math.max(currentRunPref, maxRun + 1);
+					OverlayPreferences.setMiningLogRunCounter(nextRun);
+				}
 			} catch (Exception ignored) {
 				// keep current prefs value if load fails
 			}
@@ -2253,16 +2342,39 @@ String getName() {
 			modeCombo = new JComboBox<>(new String[] { MODE_ALL, MODE_BY_RUN, MODE_BY_COMMANDER });
 			modeCombo.setOpaque(false);
 			modeCombo.setBackground(EdoUi.Internal.TRANSPARENT);
+			modeCombo.setForeground(EdoUi.User.MAIN_TEXT);
+			modeCombo.setRenderer((ListCellRenderer<? super String>) new DefaultListCellRenderer() {
+				@Override
+				public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+					Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+					c.setForeground(EdoUi.User.MAIN_TEXT);
+					c.setBackground(EdoUi.Internal.TRANSPARENT);
+					return c;
+				}
+			});
+
 			secondaryCombo = new JComboBox<>();
 			secondaryCombo.setOpaque(false);
 			secondaryCombo.setBackground(EdoUi.Internal.TRANSPARENT);
+			secondaryCombo.setForeground(EdoUi.User.MAIN_TEXT);
+			secondaryCombo.setRenderer((ListCellRenderer<? super String>) new DefaultListCellRenderer() {
+				@Override
+				public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+					Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+					c.setForeground(EdoUi.User.MAIN_TEXT);
+					c.setBackground(EdoUi.Internal.TRANSPARENT);
+					return c;
+				}
+			});
 			secondaryCombo.setVisible(false);
 			modeCombo.addActionListener(e -> onModeChanged());
 			secondaryCombo.addActionListener(e -> onSecondaryChanged());
 			JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
 			top.setOpaque(false);
 			top.setBackground(EdoUi.Internal.TRANSPARENT);
-			top.add(new JLabel("View:"));
+			JLabel viewLabel = new JLabel("View:");
+			viewLabel.setForeground(EdoUi.User.MAIN_TEXT);
+			top.add(viewLabel);
 			top.add(modeCombo);
 			top.add(secondaryCombo);
 			add(top, BorderLayout.NORTH);
@@ -2284,12 +2396,25 @@ String getName() {
 			String mode = (String) modeCombo.getSelectedItem();
 			secondaryCombo.removeAllItems();
 			if (MODE_BY_RUN.equals(mode)) {
-				List<Integer> runs = currentRows.stream().mapToInt(ProspectorLogRow::getRun).distinct().sorted().boxed().toList();
-				for (Integer r : runs) secondaryCombo.addItem(String.valueOf(r));
+				// Distinct (commander, run) combinations.
+				List<String> labels = currentRows.stream()
+					.filter(r -> r != null)
+					.map(r -> {
+						int run = r.getRun();
+						String commander = r.getCommanderName();
+						if (commander == null || commander.isBlank()) {
+							commander = "-";
+						}
+						return commander + " – Run " + run;
+					})
+					.distinct()
+					.sorted(String.CASE_INSENSITIVE_ORDER)
+					.toList();
+				for (String label : labels) secondaryCombo.addItem(label);
 				secondaryCombo.setVisible(true);
-				if (!runs.isEmpty()) {
+				if (!labels.isEmpty()) {
 					secondaryCombo.setSelectedIndex(0);
-					scatterPanel.setSelectedRun(runs.get(0));
+					applySelectedRunLabel(labels.get(0));
 				}
 			} else if (MODE_BY_COMMANDER.equals(mode)) {
 				List<String> commanders = currentRows.stream()
@@ -2317,14 +2442,24 @@ String getName() {
 				secondaryCombo.setVisible(true);
 				// When switching from All to By run, secondary combo is empty; populate from current rows
 				if (secondaryCombo.getItemCount() == 0) {
-					List<Integer> runs = currentRows.stream().mapToInt(ProspectorLogRow::getRun).distinct().sorted().boxed().toList();
-					for (Integer r : runs) secondaryCombo.addItem(String.valueOf(r));
-					if (!runs.isEmpty()) secondaryCombo.setSelectedIndex(0);
+					List<String> labels = currentRows.stream()
+						.filter(r -> r != null)
+						.map(r -> {
+							int run = r.getRun();
+							String commander = r.getCommanderName();
+							if (commander == null || commander.isBlank()) {
+								commander = "-";
+							}
+							return commander + " – Run " + run;
+						})
+						.distinct()
+						.sorted(String.CASE_INSENSITIVE_ORDER)
+						.toList();
+					for (String label : labels) secondaryCombo.addItem(label);
+					if (!labels.isEmpty()) secondaryCombo.setSelectedIndex(0);
 				}
 				Object sel = secondaryCombo.getSelectedItem();
-				int run = 1;
-				if (sel != null) try { run = Integer.parseInt(sel.toString()); } catch (NumberFormatException ignored) { }
-				scatterPanel.setSelectedRun(run);
+				applySelectedRunLabel(sel);
 			} else if (MODE_BY_COMMANDER.equals(mode)) {
 				secondaryCombo.setVisible(true);
 				if (secondaryCombo.getItemCount() == 0) {
@@ -2346,11 +2481,31 @@ String getName() {
 			String mode = (String) modeCombo.getSelectedItem();
 			if (MODE_BY_RUN.equals(mode)) {
 				Object sel = secondaryCombo.getSelectedItem();
-				if (sel != null) try { scatterPanel.setSelectedRun(Integer.parseInt(sel.toString())); } catch (NumberFormatException ignored) { }
+				applySelectedRunLabel(sel);
 			} else if (MODE_BY_COMMANDER.equals(mode)) {
 				Object sel = secondaryCombo.getSelectedItem();
 				scatterPanel.setSelectedCommander(sel != null ? sel.toString() : "");
 			}
+		}
+
+		private void applySelectedRunLabel(Object sel) {
+			if (sel == null) {
+				return;
+			}
+			String s = sel.toString();
+			int sep = s.indexOf(" – Run ");
+			if (sep <= 0) {
+				return;
+			}
+			String commander = s.substring(0, sep).trim();
+			String runPart = s.substring(sep + " – Run ".length()).trim();
+			int run = 1;
+			try {
+				run = Integer.parseInt(runPart);
+			} catch (NumberFormatException ignored) {
+			}
+			scatterPanel.setSelectedCommander(commander);
+			scatterPanel.setSelectedRun(run);
 		}
 	}
 
@@ -2402,7 +2557,13 @@ String getName() {
 			if (rows.isEmpty()) return rows;
 			switch (filterMode) {
 				case BY_RUN:
-					return rows.stream().filter(r -> r.getRun() == selectedRun).toList();
+					return rows.stream()
+						.filter(r -> r.getRun() == selectedRun
+							&& java.util.Objects.equals(
+								selectedCommander == null || selectedCommander.isEmpty() ? selectedCommander
+									: selectedCommander,
+								r.getCommanderName()))
+						.toList();
 				case BY_COMMANDER:
 					return rows.stream().filter(r -> java.util.Objects.equals(selectedCommander, r.getCommanderName())).toList();
 				default:
@@ -2649,7 +2810,7 @@ String getName() {
 	private static final class ProspectorLogTableModel extends AbstractTableModel {
 		private static final DateTimeFormatter TS_FMT = DateTimeFormatter.ofPattern("h:mma", Locale.US);
 		private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("M/d/yyyy", Locale.US);
-		private static final String[] COLUMNS = { "Run", "Asteroid", "Time", "Type", "Percentage", "Before Amount", "After Amount", "Actual", "Core", "Body", "Duds", "Commander" };
+		private static final String[] COLUMNS = { "Run", "Asteroid", "Time", "Type", "Percentage", "Before Amount", "After Amount", "Tons", "Core", "Duds", "System", "Body", "Commander" };
 		private List<Object> displayRows = new ArrayList<>();
 
 		void setRows(List<ProspectorLogRow> rows, MaterialNameMatcher matcher) {
@@ -2662,18 +2823,30 @@ String getName() {
 			if (rows.isEmpty()) {
 				return out;
 			}
-			Map<Integer, List<ProspectorLogRow>> byRun = new HashMap<>();
+			// Group by (commander, run) so different commanders sharing a run number get their own block + summary.
+			Map<RunKey, List<ProspectorLogRow>> byRun = new HashMap<>();
 			for (ProspectorLogRow r : rows) {
-				byRun.computeIfAbsent(r.getRun(), k -> new ArrayList<>()).add(r);
+				if (r == null) {
+					continue;
+				}
+				int run = r.getRun();
+				String commander = r.getCommanderName();
+				if (commander == null || commander.isBlank()) {
+					commander = "-";
+				}
+				RunKey key = new RunKey(run, commander);
+				byRun.computeIfAbsent(key, k -> new ArrayList<>()).add(r);
 			}
-			// Most recent first: runs descending, then within each run by timestamp descending
-			List<Integer> runOrder = new ArrayList<>(byRun.keySet());
-			runOrder.sort(Comparator.reverseOrder());
+			// Most recent first: runs descending, then within each (run, commander) by commander and timestamp descending
+			List<RunKey> runOrder = new ArrayList<>(byRun.keySet());
+			runOrder.sort(Comparator
+				.comparingInt((RunKey k) -> k.run).reversed()
+				.thenComparing(k -> k.commander, String.CASE_INSENSITIVE_ORDER));
 			Comparator<Instant> tsDesc = Comparator.nullsLast(Comparator.reverseOrder());
-			for (Integer runNum : runOrder) {
-				List<ProspectorLogRow> runRows = new ArrayList<>(byRun.get(runNum));
+			for (RunKey key : runOrder) {
+				List<ProspectorLogRow> runRows = new ArrayList<>(byRun.get(key));
 				runRows.sort(Comparator.comparing(ProspectorLogRow::getTimestamp, tsDesc));
-				RunSummary summary = computeRunSummary(runNum, runRows, matcher);
+				RunSummary summary = computeRunSummary(key, runRows, matcher);
 				if (summary != null) {
 					out.add(summary);
 				}
@@ -2682,7 +2855,7 @@ String getName() {
 			return out;
 		}
 
-		private static RunSummary computeRunSummary(int runNum, List<ProspectorLogRow> runRows, MaterialNameMatcher matcher) {
+		private static RunSummary computeRunSummary(RunKey key, List<ProspectorLogRow> runRows, MaterialNameMatcher matcher) {
 			if (runRows == null || runRows.isEmpty()) return null;
 			Instant first = null, last = null;
 			double totalTons = 0.0;
@@ -2706,7 +2879,7 @@ String getName() {
 			double tonsPerHour = durationHours > 0 ? totalTons / durationHours : 0.0;
 			double creditsPerHour = durationHours > 0 ? totalCredits / durationHours : 0.0;
 			String dateStr = first != null ? first.atZone(ZoneId.systemDefault()).format(DATE_FMT) : "";
-			return new RunSummary(runNum, dateStr, tonsPerHour, creditsPerHour);
+			return new RunSummary(key.run, key.commander, dateStr, tonsPerHour, creditsPerHour);
 		}
 
 		boolean isSummaryRow(int rowIndex) {
@@ -2733,8 +2906,9 @@ String getName() {
 		public Object getValueAt(int rowIndex, int columnIndex) {
 			if (rowIndex < 0 || rowIndex >= displayRows.size()) return "";
 			Object item = displayRows.get(rowIndex);
-			if (item instanceof RunSummary s) {
-				return columnIndex == 0 ? s.formatSummary() : "";
+			if (item instanceof RunSummary) {
+				// Summary rows are drawn manually in the table's paintComponent; cells stay logically empty.
+				return "";
 			}
 			ProspectorLogRow r = (ProspectorLogRow) item;
 			switch (columnIndex) {
@@ -2749,26 +2923,91 @@ String getName() {
 				case 4: return String.format(Locale.US, "%.2f", r.getPercent());
 				case 5: return String.format(Locale.US, "%.2f", r.getBeforeAmount());
 				case 6: return String.format(Locale.US, "%.2f", r.getAfterAmount());
-				case 7: return String.format(Locale.US, "%.2f", r.getDifference());
+				// Tons: display as whole tons (no decimal places)
+				case 7: return String.format(Locale.US, "%d", Math.round(r.getDifference()));
 				case 8:
 					String core = r.getCoreType();
 					return (core != null && !core.isEmpty() && !"-".equals(core)) ? core : "";
-				case 9: return r.getFullBodyName();
-				case 10: return r.getDuds() == 0 ? "" : r.getDuds();
-				case 11: return r.getCommanderName();
+				case 9: return r.getDuds() == 0 ? "" : r.getDuds();
+				case 10: {
+					String[] sb = splitSystemAndBodyForDisplay(r.getFullBodyName());
+					return sb[0];
+				}
+				case 11: {
+					String[] sb = splitSystemAndBodyForDisplay(r.getFullBodyName());
+					return sb[1];
+				}
+				case 12: return r.getCommanderName();
 				default: return "";
 			}
+		}
+
+		RunSummary getSummaryAt(int rowIndex) {
+			if (rowIndex < 0 || rowIndex >= displayRows.size()) return null;
+			Object item = displayRows.get(rowIndex);
+			return (item instanceof RunSummary) ? (RunSummary) item : null;
+		}
+		private static String[] splitSystemAndBodyForDisplay(String fullBodyName) {
+			String system = "";
+			String body = "";
+			if (fullBodyName == null) {
+				return new String[] {"", ""};
+			}
+			String s = fullBodyName.trim();
+			if (s.isEmpty()) {
+				return new String[] {"", ""};
+			}
+			int idx = s.indexOf(" > ");
+			if (idx >= 0) {
+				system = s.substring(0, idx).trim();
+				body = s.substring(idx + 3).trim();
+			} else {
+				body = s;
+			}
+			if (!system.isEmpty() && body.startsWith(system)) {
+				body = body.substring(system.length()).trim();
+			}
+			if (body.endsWith(" Ring")) {
+				body = body.substring(0, body.length() - " Ring".length()).trim();
+			}
+			return new String[] {system, body};
+		}
+	}
+
+	/** Key for grouping prospector log rows by (run, commander). */
+	private static final class RunKey {
+		final int run;
+		final String commander;
+
+		RunKey(int run, String commander) {
+			this.run = run;
+			this.commander = commander;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			if (this == o) return true;
+			if (!(o instanceof RunKey)) return false;
+			RunKey other = (RunKey) o;
+			return run == other.run && java.util.Objects.equals(commander, other.commander);
+		}
+
+		@Override
+		public int hashCode() {
+			return java.util.Objects.hash(run, commander);
 		}
 	}
 
 	private static final class RunSummary {
 		private final int runNumber;
+		private final String commanderName;
 		private final String dateStr;
 		private final double tonsPerHour;
 		private final double creditsPerHour;
 
-		RunSummary(int runNumber, String dateStr, double tonsPerHour, double creditsPerHour) {
+		RunSummary(int runNumber, String commanderName, String dateStr, double tonsPerHour, double creditsPerHour) {
 			this.runNumber = runNumber;
+			this.commanderName = commanderName != null ? commanderName : "";
 			this.dateStr = dateStr != null ? dateStr : "";
 			this.tonsPerHour = tonsPerHour;
 			this.creditsPerHour = creditsPerHour;
@@ -2784,7 +3023,8 @@ String getName() {
 				crHr = String.format(Locale.US, "%.0f cr/hr", creditsPerHour);
 			}
 			String datePart = dateStr.isEmpty() ? "" : dateStr + " · ";
-			return String.format(Locale.US, "Run %d · %s%.1f t/hr · %s", runNumber, datePart, tonsPerHour, crHr);
+			String commanderPart = (commanderName == null || commanderName.isBlank()) ? "" : commanderName + " · ";
+			return String.format(Locale.US, "Run %d · %s%s%.1f t/hr · %s", runNumber, commanderPart, datePart, tonsPerHour, crHr);
 		}
 	}
 }

@@ -8,12 +8,19 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.dce.ed.OverlayPreferences;
+
+import java.awt.Component;
+import javax.swing.JOptionPane;
+import javax.swing.SwingWorker;
 
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
@@ -83,9 +90,31 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
             .build();
     }
 
-    /** Sheet range: Run, Asteroid, Timestamp, Type, %, Before, After, Actual, Core, Body, Duds, Commander (A–L). */
+    /** Sheet range: Run, Asteroid, Timestamp, Type, %, Before, After, Actual, Core, Duds, System, Body, Commander (A–M). */
     private static String rangeA1L() {
-        return "A:L";
+        return "A:M";
+    }
+
+    /**
+     * Renumber prospector runs in the configured Google Sheet so that:
+     * - Run numbers are globally unique (1, 2, 3, ...) across all commanders.
+     * - Blocks of rows that previously shared the same (run, commander) stay together.
+     * - Those blocks are sorted from earliest to latest by their first timestamp.
+     *
+     * This reads all rows, computes new run numbers, optionally reorders the blocks by time,
+     * and writes the full A:L range back to the sheet.
+     */
+    public static void renumberRunsAndSortUsingPreferences(Component parent) {
+        String url = OverlayPreferences.getMiningGoogleSheetsUrl();
+        if (url == null || url.isBlank()) {
+            JOptionPane.showMessageDialog(parent,
+                "Set a Google Sheets URL in the Mining preferences first.",
+                "No Google Sheet configured",
+                JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        GoogleSheetsBackend backend = new GoogleSheetsBackend(url);
+        backend.renumberRunsAndSort(parent);
     }
 
     @Override
@@ -103,24 +132,28 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("M/d/yyyy H:mm:ss", Locale.US);
             for (ProspectorLogRow r : rows) {
                 String ts = r.getTimestamp() != null ? r.getTimestamp().atZone(zone).format(fmt) : "-";
-                String body = (r.getFullBodyName() != null && !r.getFullBodyName().isEmpty()) ? r.getFullBodyName() : "-";
+                String fullBody = (r.getFullBodyName() != null && !r.getFullBodyName().isEmpty()) ? r.getFullBodyName() : "-";
+                String[] sysBody = splitSystemAndBody(fullBody);
+                String system = sysBody[0].isEmpty() ? "-" : sysBody[0];
+                String body = sysBody[1].isEmpty() ? "-" : sysBody[1];
                 String commander = (r.getCommanderName() != null && !r.getCommanderName().isEmpty()) ? r.getCommanderName() : "-";
                 String material = (r.getMaterial() != null && !r.getMaterial().isEmpty()) ? r.getMaterial() : "-";
                 String asteroid = (r.getAsteroidId() != null && !r.getAsteroidId().isEmpty()) ? r.getAsteroidId() : "-";
                 String core = (r.getCoreType() != null && !r.getCoreType().isEmpty()) ? r.getCoreType() : "-";
                 List<Object> row = new ArrayList<>();
-                row.add(r.getRun());
-                row.add(asteroid);
-                row.add(ts);
-                row.add(material);
-                row.add(r.getPercent());
-                row.add(r.getBeforeAmount());
-                row.add(r.getAfterAmount());
-                row.add(r.getDifference());
-                row.add(core);
-                row.add(body);
-                row.add(r.getDuds());
-                row.add(commander);
+                row.add(r.getRun());          // 0 Run
+                row.add(asteroid);            // 1 Asteroid
+                row.add(ts);                  // 2 Timestamp
+                row.add(material);            // 3 Type
+                row.add(r.getPercent());      // 4 %
+                row.add(r.getBeforeAmount()); // 5 Before
+                row.add(r.getAfterAmount());  // 6 After
+                row.add(r.getDifference());   // 7 Actual/Tons
+                row.add(core);                // 8 Core
+                row.add(r.getDuds());         // 9 Duds
+                row.add(system);              // 10 System
+                row.add(body);                // 11 Body
+                row.add(commander);           // 12 Commander
                 values.add(row);
             }
             ValueRange bodyRange = new ValueRange().setValues(values);
@@ -152,13 +185,16 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                 return Collections.emptyList();
             }
             List<ProspectorLogRow> out = new ArrayList<>();
-            // Skip header. 12 cols: run,asteroid,timestamp,material,percent,before,after,actual,core,body,duds,commander. Legacy 9 supported.
+            // Skip header.
+            // New layout: 13 cols: run,asteroid,timestamp,material,percent,before,after,actual,core,duds,system,body,commander.
+            // Legacy 12/9 column layouts are still supported for older sheets.
             for (int i = 1; i < values.size(); i++) {
                 List<Object> row = values.get(i);
                 if (row == null || row.size() < 9) continue;
                 try {
                     int run = parseInt(row.get(0), 0);
-                    if (row.size() >= 12) {
+                    if (row.size() >= 13) {
+                        // New layout A–M
                         String asteroidId = str(row.get(1));
                         Instant ts = parseTimestamp(str(row.get(2)));
                         String material = str(row.get(3));
@@ -167,9 +203,26 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                         double after = parseDouble(row.get(6), 0.0);
                         double diff = parseDouble(row.get(7), 0.0);
                         String core = str(row.get(8));
-                        String fullBodyName = str(row.get(9));
+                        int duds = parseInt(row.get(9), 0);
+                        String system = str(row.get(10));
+                        String body = str(row.get(11));
+                        String commander = str(row.get(12));
+                        String fullBodyName = buildFullBodyName(system, body);
+                        out.add(new ProspectorLogRow(run, asteroidId, fullBodyName, ts, material, percent, before, after, diff, commander, core, duds));
+                    } else if (row.size() >= 12) {
+                        // Legacy 12-col layout (no separate System column, Body only)
+                        String asteroidId = str(row.get(1));
+                        Instant ts = parseTimestamp(str(row.get(2)));
+                        String material = str(row.get(3));
+                        double percent = parseDouble(row.get(4), 0.0);
+                        double before = parseDouble(row.get(5), 0.0);
+                        double after = parseDouble(row.get(6), 0.0);
+                        double diff = parseDouble(row.get(7), 0.0);
+                        String core = str(row.get(8));
+                        String body = str(row.get(9));
                         int duds = parseInt(row.get(10), 0);
                         String commander = str(row.get(11));
+                        String fullBodyName = buildFullBodyName("", body);
                         out.add(new ProspectorLogRow(run, asteroidId, fullBodyName, ts, material, percent, before, after, diff, commander, core, duds));
                     } else {
                         Instant ts = parseTimestamp(str(row.get(1)));
@@ -190,6 +243,156 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
         } catch (Exception e) {
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Background task: renumber and sort prospector runs, then report result to the user.
+     */
+    public void renumberRunsAndSort(Component parent) {
+        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            private Exception failure;
+            private int groupsUpdated;
+            private int rowsUpdated;
+
+            @Override
+            protected Void doInBackground() {
+                try {
+                    int[] result = renumberRunsAndSortInternal();
+                    groupsUpdated = result[0];
+                    rowsUpdated = result[1];
+                } catch (Exception ex) {
+                    failure = ex;
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                if (failure != null) {
+                    JOptionPane.showMessageDialog(parent,
+                        "Unable to fix mining runs:\n" + failure.getMessage(),
+                        "Mining Sheet Update Failed",
+                        JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                if (rowsUpdated == 0) {
+                    JOptionPane.showMessageDialog(parent,
+                        "No mining rows were found to update.",
+                        "Mining Sheet",
+                        JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                JOptionPane.showMessageDialog(parent,
+                    String.format(Locale.US,
+                        "Updated %d run group(s), %d row(s).\nRuns are now unique and sorted from earliest to latest.",
+                        groupsUpdated, rowsUpdated),
+                    "Mining Sheet Updated",
+                    JOptionPane.INFORMATION_MESSAGE);
+            }
+        };
+        worker.execute();
+    }
+
+    /**
+     * Core renumber/sort logic. Returns [groupCount, rowCount].
+     */
+    private int[] renumberRunsAndSortInternal() throws IOException, GeneralSecurityException {
+        if (spreadsheetId == null || spreadsheetId.isBlank()) {
+            return new int[] {0, 0};
+        }
+        Sheets sheets = createSheetsService();
+        if (sheets == null) {
+            return new int[] {0, 0};
+        }
+
+        ValueRange response = sheets.spreadsheets().values()
+            .get(spreadsheetId, rangeA1L())
+            .execute();
+        List<List<Object>> values = response.getValues();
+        if (values == null || values.size() <= 1) {
+            return new int[] {0, 0};
+        }
+
+        List<Object> header = values.get(0);
+        List<DataRow> dataRows = new ArrayList<>();
+
+        // Collect all data rows with their parsed timestamp/run/commander.
+        for (int i = 1; i < values.size(); i++) {
+            List<Object> row = values.get(i);
+            if (row == null || row.isEmpty()) {
+                continue;
+            }
+            int run = parseInt(row.size() > 0 ? row.get(0) : null, 0);
+            String commander = row.size() > 11 ? str(row.get(11)) : "";
+            String tsStr = row.size() > 2 ? str(row.get(2)) : "";
+            Instant ts = parseTimestamp(tsStr);
+            dataRows.add(new DataRow(i, run, commander, ts, row));
+        }
+
+        if (dataRows.isEmpty()) {
+            return new int[] {0, 0};
+        }
+
+        // Group by (oldRun, commander).
+        Map<GroupKey, List<DataRow>> groups = new HashMap<>();
+        for (DataRow r : dataRows) {
+            GroupKey key = new GroupKey(r.oldRun, r.commander);
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(r);
+        }
+
+        // Compute earliest timestamp per group.
+        List<Group> groupList = new ArrayList<>();
+        for (Map.Entry<GroupKey, List<DataRow>> e : groups.entrySet()) {
+            Instant earliest = null;
+            for (DataRow r : e.getValue()) {
+                if (r.timestamp == null) continue;
+                if (earliest == null || r.timestamp.isBefore(earliest)) {
+                    earliest = r.timestamp;
+                }
+            }
+            groupList.add(new Group(e.getKey(), e.getValue(), earliest));
+        }
+
+        // Sort groups by earliest timestamp ascending, then by oldRun, then commander.
+        groupList.sort(Comparator
+            .comparing((Group g) -> g.earliest, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(g -> g.key.oldRun)
+            .thenComparing(g -> g.key.commander, String.CASE_INSENSITIVE_ORDER));
+
+        // Within each group, sort rows by timestamp ascending to keep blocks tidy.
+        for (Group g : groupList) {
+            g.rows.sort(Comparator
+                .comparing((DataRow r) -> r.timestamp, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparingInt(r -> r.originalIndex));
+        }
+
+        // Assign new globally unique run numbers per group.
+        int nextRun = 1;
+        List<List<Object>> newDataRows = new ArrayList<>();
+        for (Group g : groupList) {
+            int newRun = nextRun++;
+            for (DataRow r : g.rows) {
+                // Ensure row has at least one column for Run.
+                while (r.cells.size() < 1) {
+                    r.cells.add("");
+                }
+                r.cells.set(0, newRun);
+                newDataRows.add(r.cells);
+            }
+        }
+
+        // Rebuild values: header + sorted/renumbered data rows.
+        List<List<Object>> updated = new ArrayList<>();
+        updated.add(header);
+        updated.addAll(newDataRows);
+
+        ValueRange body = new ValueRange().setValues(updated);
+        sheets.spreadsheets().values()
+            .update(spreadsheetId, rangeA1L(), body)
+            .setValueInputOption(VALUE_INPUT_OPTION_USER_ENTERED)
+            .execute();
+
+        return new int[] {groupList.size(), newDataRows.size()};
     }
 
     private static String str(Object o) {
@@ -230,5 +433,101 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
             }
         }
         return null;
+    }
+
+    // Split a combined \"system > body\" string into [system, body], with some cleanup.
+    private static String[] splitSystemAndBody(String fullBodyName) {
+        String system = "";
+        String body = "";
+        if (fullBodyName == null) {
+            return new String[] {"", ""};
+        }
+        String s = fullBodyName.trim();
+        if (s.isEmpty()) {
+            return new String[] {"", ""};
+        }
+        int idx = s.indexOf(" > ");
+        if (idx >= 0) {
+            system = s.substring(0, idx).trim();
+            body = s.substring(idx + 3).trim();
+        } else {
+            body = s;
+        }
+        // If the body still starts with the system name, strip it.
+        if (!system.isEmpty() && body.startsWith(system)) {
+            body = body.substring(system.length()).trim();
+        }
+        // Drop trailing \"Ring\" suffix to get just the orbital identifier (e.g. \"6 B\").
+        if (body.endsWith(" Ring")) {
+            body = body.substring(0, body.length() - " Ring".length()).trim();
+        }
+        return new String[] {system, body};
+    }
+
+    private static String buildFullBodyName(String system, String body) {
+        String sys = system != null ? system.trim() : "";
+        String b = body != null ? body.trim() : "";
+        if (sys.isEmpty() && b.isEmpty()) {
+            return "";
+        }
+        if (sys.isEmpty()) {
+            return b;
+        }
+        if (b.isEmpty()) {
+            return sys;
+        }
+        return sys + " > " + b;
+    }
+
+    // Helper types for renumbering/sorting
+    private static final class DataRow {
+        final int originalIndex;
+        final int oldRun;
+        final String commander;
+        final Instant timestamp;
+        final List<Object> cells;
+
+        DataRow(int originalIndex, int oldRun, String commander, Instant timestamp, List<Object> cells) {
+            this.originalIndex = originalIndex;
+            this.oldRun = oldRun;
+            this.commander = commander != null ? commander : "";
+            this.timestamp = timestamp;
+            this.cells = new ArrayList<>(cells);
+        }
+    }
+
+    private static final class GroupKey {
+        final int oldRun;
+        final String commander;
+
+        GroupKey(int oldRun, String commander) {
+            this.oldRun = oldRun;
+            this.commander = commander != null ? commander : "";
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof GroupKey)) return false;
+            GroupKey other = (GroupKey) o;
+            return oldRun == other.oldRun && java.util.Objects.equals(commander, other.commander);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(oldRun, commander);
+        }
+    }
+
+    private static final class Group {
+        final GroupKey key;
+        final List<DataRow> rows;
+        final Instant earliest;
+
+        Group(GroupKey key, List<DataRow> rows, Instant earliest) {
+            this.key = key;
+            this.rows = rows;
+            this.earliest = earliest;
+        }
     }
 }

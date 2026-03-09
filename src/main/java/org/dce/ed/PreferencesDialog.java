@@ -48,6 +48,7 @@ import org.dce.ed.ui.ShowConsoleAction;
 import org.dce.ed.util.EdsmQueryTool;
 import org.dce.ed.tts.VoicePackManager;
 import org.dce.ed.util.GithubMsiUpdater;
+import org.dce.ed.mining.GoogleSheetsBackend;
 
 /**
  * Preferences dialog for the overlay.
@@ -910,6 +911,9 @@ public class PreferencesDialog extends JDialog {
         JButton checkForUpdatesButton = new JButton("Check for Updates");
         checkForUpdatesButton.addActionListener(e -> GithubMsiUpdater.checkAndUpdate(this));
 
+        JButton fixMiningRunsButton = new JButton("Fix mining runs in Google Sheet");
+        fixMiningRunsButton.addActionListener(e -> GoogleSheetsBackend.renumberRunsAndSortUsingPreferences(this));
+
         // --- Text notifications (email-to-SMS gateways like vtext.com) ---
         JPanel textNotifPanel = new JPanel(new GridBagLayout());
         textNotifPanel.setOpaque(false);
@@ -965,6 +969,9 @@ public class PreferencesDialog extends JDialog {
 
         gbc.gridy++;
         content.add(checkForUpdatesButton, gbc);
+
+        gbc.gridy++;
+        content.add(fixMiningRunsButton, gbc);
 
         gbc.gridy++;
         content.add(textNotifPanel, gbc);
