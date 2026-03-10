@@ -74,6 +74,7 @@ import org.dce.ed.market.MaterialNameMatcher;
 import org.dce.ed.mining.ProspectorLogBackend;
 import org.dce.ed.mining.ProspectorLogBackendFactory;
 import org.dce.ed.mining.ProspectorLogRow;
+import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
@@ -128,10 +129,16 @@ public class MiningTabPanel extends JPanel {
 	/** Inventory tons by commodity (display name) at the time of the previous ProspectedAsteroid event. */
 	private Map<String, Double> lastInventoryTonsAtProspector = new HashMap<>();
 
+	/** Last cargo snapshot used for mining-log comparison (per material display name). */
+	private Map<String, Double> lastCargoTonsForLogging = new HashMap<>();
+
+	/** Baseline cargo tons at the start of the current asteroid for each material. */
+	private Map<String, Double> asteroidBaselineTons = new HashMap<>();
+
 	/** Last seen proportion (percent) per material from the previous ProspectedAsteroid event; used for CSV so we log the rock's % when the mining actually happened. */
 	private Map<String, Double> lastPercentByMaterialAtProspector = new HashMap<>();
 
-	/** True if we wrote at least one prospector log row since the last FSD jump; used to only increment run counter when something was collected. */
+	/** True if we wrote at least one prospector log row since the last dock; used to decide whether there was activity in this trip (for UI/asteroid reset purposes). */
 	private boolean wroteRowsThisRun;
 
 	/** Next asteroid ID index (0 = A, 1 = B, ..., 26 = AA, ...). Reset when run increments. */
@@ -144,6 +151,18 @@ public class MiningTabPanel extends JPanel {
 	/** Current system and body for prospector log rows (updated from LocationEvent / StatusEvent). */
 	private volatile String currentSystemName = "";
 	private volatile String currentBodyName = "";
+
+	/** True once we've seen a prospector this trip; enables cargo-driven logging. */
+	private boolean miningLoggingArmed;
+
+	/** True if the current asteroid already has a row; controls update vs new row behavior. */
+	private boolean haveActiveAsteroid;
+
+	/** Run number currently in use for cargo-driven logging in this system/body; 0 means \"not yet chosen\". */
+	private int activeRun;
+
+	/** True after we left the ring (FSD or location change); next mining write should start a new run. */
+	private boolean nextMiningStartsNewRun;
 
 	private final TableScanState prospectorScan;
 private final TableScanState cargoScan;
@@ -928,6 +947,7 @@ return EdoUi.User.MAIN_TEXT;
 		try {
 			if (snap == null || snap.getCargoJson() == null) {
 				cargoModel.setRows(List.of());
+				lastCargoTonsForLogging = new HashMap<>();
 				return;
 			}
 
@@ -936,6 +956,9 @@ return EdoUi.User.MAIN_TEXT;
 			Set<Integer> changedModelRows = computeChangedInventoryModelRows(rows);
 			cargoModel.setRows(withTotalRow(rows));
 			cargoScan.startInventoryScan(cargoLayer, changedModelRows);
+
+			// Also drive mining-log cargo tracking.
+			onCargoChanged(cargoObj);
 		} catch (Exception ignored) {
 		}
 	}
@@ -1096,11 +1119,137 @@ return EdoUi.User.MAIN_TEXT;
 	}
 
 	/**
+	 * Handle a cargo change for mining logging: detect positive deltas and either create
+	 * or update rows for the current asteroid, depending on whether we've already logged
+	 * gains since the last prospector boundary.
+	 */
+	private void onCargoChanged(JsonObject cargoObj) {
+		// Only log when armed by a prospector and when undocked.
+		if (!miningLoggingArmed) {
+			return;
+		}
+		if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
+			return;
+		}
+		Map<String, Double> current = buildInventoryTonsFromCargo(cargoObj);
+		if (lastCargoTonsForLogging == null || lastCargoTonsForLogging.isEmpty()) {
+			lastCargoTonsForLogging = new HashMap<>(current);
+			return;
+		}
+
+		// Compute positive deltas.
+		Set<String> materials = new HashSet<>();
+		materials.addAll(lastCargoTonsForLogging.keySet());
+		materials.addAll(current.keySet());
+
+		Map<String, Double> deltas = new HashMap<>();
+		for (String m : materials) {
+			double before = lastCargoTonsForLogging.getOrDefault(m, 0.0);
+			double after = current.getOrDefault(m, 0.0);
+			double diff = after - before;
+			if (diff > 0) {
+				deltas.put(m, diff);
+			}
+		}
+		if (deltas.isEmpty()) {
+			lastCargoTonsForLogging = new HashMap<>(current);
+			return;
+		}
+
+		Instant ts = Instant.now();
+		String commander = OverlayPreferences.getMiningLogCommanderName();
+		if (commander == null || commander.isBlank()) {
+			commander = "-";
+		}
+		String sys = currentSystemName != null ? currentSystemName : "";
+		String body = currentBodyName != null ? currentBodyName : "";
+		String fullBodyName = sys.isEmpty() && body.isEmpty() ? "" : (sys.isEmpty() ? body : (body.isEmpty() ? sys : sys + " > " + body));
+		// Choose a run number once per system/body and reuse it for the rest of the trip so
+		// repeated cargo gains update the same run instead of starting new ones.
+		if (activeRun <= 0) {
+			activeRun = computeRunNumberForWrite(commander, sys, body, nextMiningStartsNewRun);
+			if (nextMiningStartsNewRun) {
+				nextMiningStartsNewRun = false;
+			}
+		}
+		int run = activeRun;
+
+		// Determine asteroid ID: first gain after a boundary starts at current counter;
+		// subsequent gains before the next prospector reuse the same asteroid letter.
+		if (!haveActiveAsteroid) {
+			if (asteroidIdCounter < 0) {
+				asteroidIdCounter = 0;
+			}
+		}
+		String asteroidId = formatAsteroidId(asteroidIdCounter);
+
+		List<ProspectorLogRow> rows = new ArrayList<>();
+		for (Map.Entry<String, Double> e : deltas.entrySet()) {
+			String material = e.getKey();
+			if (material == null || material.isBlank()) {
+				material = "-";
+			}
+			double afterTons = current.getOrDefault(material, 0.0);
+			double baseline = asteroidBaselineTons.getOrDefault(material, lastCargoTonsForLogging.getOrDefault(material, 0.0));
+			asteroidBaselineTons.put(material, baseline);
+
+			double beforeTons = baseline;
+			double difference = afterTons - beforeTons;
+			if (difference <= 0) {
+				continue;
+			}
+
+			double pct = lastPercentByMaterialAtProspector.getOrDefault(material, 0.0);
+			if (Double.isNaN(pct) || pct < 0.0) {
+				pct = 0.0;
+			}
+
+			// Add 0.5 only when we have material, to approximate refinery.
+			double beforeAdjusted = Double.isNaN(beforeTons) ? 0.0 : (beforeTons > 0 ? beforeTons + 0.5 : beforeTons);
+			double afterAdjusted = Double.isNaN(afterTons) ? 0.0 : (afterTons > 0 ? afterTons + 0.5 : afterTons);
+
+			String coreType = "";
+			int duds = dudCounter;
+
+			rows.add(new ProspectorLogRow(run, asteroidId, fullBodyName, ts, material, pct, beforeAdjusted, afterAdjusted, difference, commander, coreType, duds));
+		}
+
+		if (!rows.isEmpty()) {
+			try {
+				ProspectorLogBackend backend = ProspectorLogBackendFactory.create();
+				if (backend instanceof GoogleSheetsBackend sheetsBackend) {
+					sheetsBackend.upsertRows(rows);
+				} else {
+					backend.appendRows(rows);
+				}
+				refreshSpreadsheetFromBackend();
+				wroteRowsThisRun = true;
+				haveActiveAsteroid = true;
+			} catch (Exception ignored) {
+			}
+		}
+
+		lastCargoTonsForLogging = new HashMap<>(current);
+	}
+
+	/**
 	 * Called when docking is detected: this now defines the end of a "trip" for mining runs.
-	 * We flush any pending gains to CSV (using last-seen percent) and, if anything was mined,
-	 * advance the global run counter and reset asteroid IDs for the next trip.
+	 * We flush any pending gains to CSV (using last-seen percent) so the last asteroid is recorded,
+	 * but only if we have a previous prospector snapshot for this trip. Then we reset asteroid IDs
+	 * so the next trip starts at A and clear cargo-driven logging state.
 	 */
 	public void onDocked() {
+		// If we've never seen a prospector event in this trip, there is nothing to flush; avoid
+		// logging fake "0 -> X" gains when docking with pre-existing cargo.
+		if (lastInventoryTonsAtProspector == null || lastInventoryTonsAtProspector.isEmpty()) {
+			asteroidIdCounter = 0;
+			wroteRowsThisRun = false;
+			miningLoggingArmed = false;
+			haveActiveAsteroid = false;
+			asteroidBaselineTons = new HashMap<>();
+			lastCargoTonsForLogging = new HashMap<>();
+			return;
+		}
 		Instant ts = Instant.now();
 		CargoMonitor.Snapshot snap = CargoMonitor.getInstance().getSnapshot();
 		Map<String, Double> currentInventory = buildInventoryTonsFromCargo(snap != null ? snap.getCargoJson() : null);
@@ -1109,11 +1258,7 @@ return EdoUi.User.MAIN_TEXT;
 		appendProspectorCsvRows(ts, currentInventory, materials, null, null);
 		lastInventoryTonsAtProspector = new HashMap<>();
 		lastPercentByMaterialAtProspector = new HashMap<>();
-		// Only count a new run when something was actually collected since the last run (we wrote at least one row)
-		if (wroteRowsThisRun) {
-			OverlayPreferences.incrementMiningLogRunCounter();
-			asteroidIdCounter = 0;
-		}
+		asteroidIdCounter = 0;
 		wroteRowsThisRun = false;
 	}
 
@@ -1124,7 +1269,84 @@ return EdoUi.User.MAIN_TEXT;
 	 * but it intentionally does nothing.
 	 */
 	public void onStartJump(StartJumpEvent event) {
-		// no-op
+		// Leaving via FSD: next time we mine (even back at same ring) start a new run.
+		nextMiningStartsNewRun = true;
+	}
+
+	/**
+	 * Compute the run number for a new set of log rows, based on existing sheet data.
+	 * Runs are grouped by commander and (system, body); we continue the last run for this
+	 * commander if the most recent row has the same system/body, otherwise we start a new run.
+	 * @param forceNewRun if true, always return lastRunForCommander+1 (e.g. after FSD away and back).
+	 */
+	private int computeRunNumberForWrite(String commander, String system, String body, boolean forceNewRun) {
+		int lastRunForCommander = 0;
+		int lastRunForCommanderAtLocation = 0;
+		Instant latestTsForCommander = null;
+		Instant latestTsForCommanderAtLocation = null;
+		try {
+			List<ProspectorLogRow> existing = ProspectorLogBackendFactory.create().loadRows();
+			if (existing != null && !existing.isEmpty()) {
+				for (ProspectorLogRow r : existing) {
+					if (r == null) {
+						continue;
+					}
+					String rowCommander = r.getCommanderName();
+					if (rowCommander == null || rowCommander.isBlank()) {
+						rowCommander = "-";
+					}
+					if (!rowCommander.equals(commander)) {
+						continue;
+					}
+					int rRun = r.getRun();
+					if (rRun > lastRunForCommander) {
+						lastRunForCommander = rRun;
+					}
+					Instant ts = r.getTimestamp();
+					if (ts == null) {
+						continue;
+					}
+					// Determine row system/body for comparison by splitting fullBodyName.
+					String fb = r.getFullBodyName();
+					String rowSystem = "";
+					String rowBody = "";
+					if (fb != null && !fb.isBlank()) {
+						String[] parts = fb.split(">");
+						if (parts.length == 2) {
+							rowSystem = parts[0].trim();
+							rowBody = parts[1].trim();
+						} else {
+							rowBody = fb.trim();
+						}
+					}
+					boolean sameLocation = java.util.Objects.equals(rowSystem, system) && java.util.Objects.equals(rowBody, body);
+					if (sameLocation) {
+						if (latestTsForCommanderAtLocation == null || ts.isAfter(latestTsForCommanderAtLocation)) {
+							latestTsForCommanderAtLocation = ts;
+							lastRunForCommanderAtLocation = rRun;
+						}
+					}
+					if (latestTsForCommander == null || ts.isAfter(latestTsForCommander)) {
+						latestTsForCommander = ts;
+					}
+				}
+			}
+		} catch (Exception ignored) {
+			// fall through to defaults below
+		}
+		if (lastRunForCommander == 0) {
+			return 1;
+		}
+		// After leaving the ring and returning, start a new run.
+		if (forceNewRun) {
+			return lastRunForCommander + 1;
+		}
+		// If we have any rows for this commander at this exact system/body, continue that run.
+		if (lastRunForCommanderAtLocation > 0) {
+			return lastRunForCommanderAtLocation;
+		}
+		// Otherwise start a new run for this commander.
+		return lastRunForCommander + 1;
 	}
 
 	/** Format asteroid index as A, B, ..., Z, AA, AB, ... */
@@ -1146,8 +1368,22 @@ return EdoUi.User.MAIN_TEXT;
 		}
 		String sys = event.getStarSystem();
 		String body = event.getBody();
-		currentSystemName = (sys != null) ? sys : "";
-		currentBodyName = (body != null) ? body : "";
+		String newSystem = (sys != null) ? sys : "";
+		String newBody = (body != null) ? body : "";
+		// If we changed bodies or systems, reset run/asteroid state so the next cargo
+		// gain starts a fresh run/asteroid in the new location.
+		if (!java.util.Objects.equals(currentSystemName, newSystem) ||
+			!java.util.Objects.equals(currentBodyName, newBody)) {
+			activeRun = 0;
+			asteroidIdCounter = 0;
+			haveActiveAsteroid = false;
+			asteroidBaselineTons = new HashMap<>();
+			lastCargoTonsForLogging = new HashMap<>();
+			// Left previous location; next mining (even if we return to same ring) starts a new run.
+			nextMiningStartsNewRun = true;
+		}
+		currentSystemName = newSystem;
+		currentBodyName = newBody;
 	}
 
 	/** Update cached body name from Status event. */
@@ -1216,52 +1452,12 @@ return EdoUi.User.MAIN_TEXT;
 		if (commander == null || commander.isBlank()) {
 			commander = "-";
 		}
-		// First time we're about to write this session: sync run counter from the sheet.
-		// We prefer to continue an in-progress run for this commander if we find rows
-		// with the current run number; otherwise we advance to at least (maxRun + 1)
-		// so runs remain unique across commanders.
-		if (!syncedRunCounterFromBackend) {
-			syncedRunCounterFromBackend = true;
-			try {
-				List<ProspectorLogRow> existing = ProspectorLogBackendFactory.create().loadRows();
-				int currentRunPref = OverlayPreferences.getMiningLogRunCounter();
-				int maxRun = 0;
-				boolean hasRowsForCommanderAndCurrentRun = false;
-				if (existing != null && !existing.isEmpty()) {
-					for (ProspectorLogRow r : existing) {
-						if (r == null) {
-							continue;
-						}
-						int rRun = r.getRun();
-						if (rRun > maxRun) {
-							maxRun = rRun;
-						}
-						if (!hasRowsForCommanderAndCurrentRun && rRun == currentRunPref) {
-							String rowCommander = r.getCommanderName();
-							if (rowCommander == null || rowCommander.isBlank()) {
-								rowCommander = "-";
-							}
-							if (rowCommander.equals(commander)) {
-								hasRowsForCommanderAndCurrentRun = true;
-							}
-						}
-					}
-				}
-				// If we already have rows for this commander/run, assume we're mid-run and
-				// keep the current run number. Otherwise, bump to at least maxRun + 1 so we
-				// don't collide with existing runs.
-				if (!hasRowsForCommanderAndCurrentRun) {
-					int nextRun = Math.max(currentRunPref, maxRun + 1);
-					OverlayPreferences.setMiningLogRunCounter(nextRun);
-				}
-			} catch (Exception ignored) {
-				// keep current prefs value if load fails
-			}
-		}
 		String sys = currentSystemName != null ? currentSystemName : "";
 		String body = currentBodyName != null ? currentBodyName : "";
 		String fullBodyName = sys.isEmpty() && body.isEmpty() ? "" : (sys.isEmpty() ? body : (body.isEmpty() ? sys : sys + " > " + body));
-		int run = OverlayPreferences.getMiningLogRunCounter();
+
+		// Determine run number from existing sheet rows for this commander and system/body.
+		int run = computeRunNumberForWrite(commander, sys, body, false);
 		String asteroidId = "";
 		String coreType = "";
 		int duds = 0;
@@ -1300,7 +1496,11 @@ return EdoUi.User.MAIN_TEXT;
 		}
 		try {
 			ProspectorLogBackend backend = ProspectorLogBackendFactory.create();
-			backend.appendRows(rows);
+			if (backend instanceof GoogleSheetsBackend sheetsBackend) {
+				sheetsBackend.upsertRows(rows);
+			} else {
+				backend.appendRows(rows);
+			}
 			refreshSpreadsheetFromBackend();
 			wroteRowsThisRun = true;
 			return true;
@@ -1596,15 +1796,19 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 			return;
 		}
 
-		// Snapshot current cargo so we can log inventory deltas since last ProspectorEvent (CargoMonitor already polls)
+		// Prospector events now act as asteroid boundaries and update percent estimates,
+		// but do not directly write spreadsheet rows. Cargo changes drive logging.
+		miningLoggingArmed = true;
+		// Moving to a new asteroid: advance the letter so the next cargo gain creates a new row.
+		if (haveActiveAsteroid) {
+			asteroidIdCounter++;
+		}
+		asteroidBaselineTons = new HashMap<>();
+		haveActiveAsteroid = false;
+
+		// Snapshot current cargo so we can log inventory deltas at dock flush if needed.
 		CargoMonitor.Snapshot cargoSnap = CargoMonitor.getInstance().getSnapshot();
 		Map<String, Double> currentInventory = buildInventoryTonsFromCargo(cargoSnap != null ? cargoSnap.getCargoJson() : null);
-
-		boolean isFirstProspector = lastInventoryTonsAtProspector.isEmpty();
-		if (!isFirstProspector) {
-			appendProspectorCsv(event, currentInventory);
-		}
-		// Update saved values from current inventory and this scan (first time: seed from inventory instead of zero)
 		lastInventoryTonsAtProspector = new HashMap<>(currentInventory);
 		Map<String, Double> nextPercent = new HashMap<>();
 		for (MaterialProportion mp : event.getMaterials()) {

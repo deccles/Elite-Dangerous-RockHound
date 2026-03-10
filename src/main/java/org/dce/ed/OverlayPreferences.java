@@ -95,7 +95,8 @@ public final class OverlayPreferences {
     private static final String KEY_MINING_GOOGLE_CLIENT_ID = "mining.googleSheets.clientId";
     private static final String KEY_MINING_GOOGLE_CLIENT_SECRET = "mining.googleSheets.clientSecret";
     private static final String KEY_MINING_GOOGLE_REFRESH_TOKEN = "mining.googleSheets.refreshToken";
-    private static final String KEY_MINING_LOG_RUN_COUNTER = "mining.log.runCounter"; // incremented on FSD jump
+    // Deprecated: mining run counter is now derived from sheet data (commander + system/body).
+    private static final String KEY_MINING_LOG_RUN_COUNTER = "mining.log.runCounter";
     private static final String KEY_MINING_LOG_COMMANDER_NAME = "mining.log.commanderName";
 
     // Mining value estimation (Mining tab)
@@ -536,7 +537,8 @@ public static Engine getSpeechEngine() {
     }
 
     /**
-     * Run counter for prospector log; incremented on each FSD jump.
+     * Deprecated: mining run counter is now derived from sheet data (commander + system/body).
+     * The stored value is retained only for backward compatibility and is no longer updated.
      */
     public static int getMiningLogRunCounter() {
         int v = PREFS.getInt(KEY_MINING_LOG_RUN_COUNTER, 1);
@@ -547,13 +549,9 @@ public static Engine getSpeechEngine() {
         PREFS.putInt(KEY_MINING_LOG_RUN_COUNTER, run < 1 ? 1 : run);
     }
 
-    /**
-     * Increment the run counter and return the new value (for use after FSD jump).
-     */
+    /** @deprecated Mining run counter is now derived from sheet data. This method is a no-op wrapper. */
     public static int incrementMiningLogRunCounter() {
-        int next = getMiningLogRunCounter() + 1;
-        setMiningLogRunCounter(next);
-        return next;
+        return getMiningLogRunCounter();
     }
 
     /**

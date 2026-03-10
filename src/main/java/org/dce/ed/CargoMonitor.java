@@ -147,6 +147,17 @@ public class CargoMonitor {
 		}
 	}
 
+	/**
+	 * Debug/testing hook: allow callers (e.g. MiningDebugHarness) to inject a synthetic
+	 * cargo snapshot without touching the real Cargo.json on disk.
+	 *
+	 * This is intended for development use only.
+	 */
+	public void setDebugSnapshot(JsonObject cargoObj) {
+		long now = System.currentTimeMillis();
+		updateSnapshot(null, now, cargoObj);
+	}
+
 	private static JsonObject readJsonObject(Path file) {
 		if (file == null) {
 			return null;

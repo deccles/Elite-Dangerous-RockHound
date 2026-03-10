@@ -167,6 +167,123 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
         }
     }
 
+    /**
+     * Insert or update prospector rows keyed by (run, asteroid, material, commander, system, body).
+     * If a matching row already exists, it is updated in-place; otherwise a new row is appended.
+     */
+    public void upsertRows(List<ProspectorLogRow> rows) {
+        if (rows == null || rows.isEmpty() || spreadsheetId.isEmpty()) {
+            return;
+        }
+        try {
+            Sheets sheets = createSheetsService();
+            if (sheets == null) {
+                return;
+            }
+            ValueRange response = sheets.spreadsheets().values()
+                .get(spreadsheetId, rangeA1L())
+                .execute();
+            List<List<Object>> values = response.getValues();
+            if (values == null || values.isEmpty()) {
+                // No existing header; fall back to simple append.
+                appendRows(rows);
+                return;
+            }
+
+            // Ensure header for new layout; if not, we fall back to append-only semantics.
+            List<Object> header = values.get(0);
+            if (header == null || header.size() < 13) {
+                appendRows(rows);
+                return;
+            }
+
+            ZoneId zone = ZoneId.systemDefault();
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("M/d/yyyy H:mm:ss", Locale.US);
+
+            for (ProspectorLogRow r : rows) {
+                if (r == null) {
+                    continue;
+                }
+                String ts = r.getTimestamp() != null ? r.getTimestamp().atZone(zone).format(fmt) : "-";
+                String fullBody = (r.getFullBodyName() != null && !r.getFullBodyName().isEmpty()) ? r.getFullBodyName() : "-";
+                String[] sysBody = splitSystemAndBody(fullBody);
+                String system = sysBody[0].isEmpty() ? "-" : sysBody[0];
+                String body = sysBody[1].isEmpty() ? "-" : sysBody[1];
+                String commander = (r.getCommanderName() != null && !r.getCommanderName().isEmpty()) ? r.getCommanderName() : "-";
+                String material = (r.getMaterial() != null && !r.getMaterial().isEmpty()) ? r.getMaterial() : "-";
+                String asteroid = (r.getAsteroidId() != null && !r.getAsteroidId().isEmpty()) ? r.getAsteroidId() : "-";
+                String core = (r.getCoreType() != null && !r.getCoreType().isEmpty()) ? r.getCoreType() : "-";
+
+                boolean updated = false;
+                // Search for an existing row with the same logical key.
+                for (int i = 1; i < values.size(); i++) {
+                    List<Object> row = values.get(i);
+                    if (row == null || row.size() < 13) {
+                        continue;
+                    }
+                    int existingRun = parseInt(row.get(0), 0);
+                    String existingAsteroid = str(row.get(1));
+                    String existingMaterial = str(row.get(3));
+                    String existingSystem = str(row.get(10));
+                    String existingBody = str(row.get(11));
+                    String existingCommander = str(row.get(12));
+
+                    if (existingRun == r.getRun()
+                        && existingAsteroid.equals(asteroid)
+                        && existingMaterial.equals(material)
+                        && existingSystem.equals(system)
+                        && existingBody.equals(body)
+                        && existingCommander.equals(commander)) {
+
+                        // Update this row in-place.
+                        row.set(0, r.getRun());
+                        row.set(1, asteroid);
+                        row.set(2, ts);
+                        row.set(3, material);
+                        row.set(4, r.getPercent());
+                        row.set(5, r.getBeforeAmount());
+                        row.set(6, r.getAfterAmount());
+                        row.set(7, r.getDifference());
+                        row.set(8, core);
+                        row.set(9, r.getDuds());
+                        row.set(10, system);
+                        row.set(11, body);
+                        row.set(12, commander);
+                        updated = true;
+                        break;
+                    }
+                }
+
+                if (!updated) {
+                    // Append as a new row.
+                    List<Object> newRow = new ArrayList<>();
+                    newRow.add(r.getRun());          // 0 Run
+                    newRow.add(asteroid);            // 1 Asteroid
+                    newRow.add(ts);                  // 2 Timestamp
+                    newRow.add(material);            // 3 Type
+                    newRow.add(r.getPercent());      // 4 %
+                    newRow.add(r.getBeforeAmount()); // 5 Before
+                    newRow.add(r.getAfterAmount());  // 6 After
+                    newRow.add(r.getDifference());   // 7 Actual/Tons
+                    newRow.add(core);                // 8 Core
+                    newRow.add(r.getDuds());         // 9 Duds
+                    newRow.add(system);              // 10 System
+                    newRow.add(body);                // 11 Body
+                    newRow.add(commander);           // 12 Commander
+                    values.add(newRow);
+                }
+            }
+
+            ValueRange bodyRange = new ValueRange().setValues(values);
+            sheets.spreadsheets().values()
+                .update(spreadsheetId, rangeA1L(), bodyRange)
+                .setValueInputOption(VALUE_INPUT_OPTION_USER_ENTERED)
+                .execute();
+        } catch (Exception e) {
+            // don't break UI; caller may log
+        }
+    }
+
     @Override
     public List<ProspectorLogRow> loadRows() {
         if (spreadsheetId.isEmpty()) {
