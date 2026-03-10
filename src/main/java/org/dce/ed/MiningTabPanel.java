@@ -1,6 +1,7 @@
 package org.dce.ed;
 
 import java.awt.AlphaComposite;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
@@ -13,9 +14,10 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
-import java.awt.BasicStroke;
-import java.awt.Stroke;
 import java.awt.RenderingHints;
+import java.awt.Stroke;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.text.NumberFormat;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -32,6 +34,7 @@ import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
+import javax.swing.AbstractButton;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -40,18 +43,18 @@ import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
-import javax.swing.JList;
 import javax.swing.JLabel;
 import javax.swing.JLayer;
+import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JToggleButton;
 import javax.swing.JViewport;
+import javax.swing.ListCellRenderer;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
-import javax.swing.ListCellRenderer;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
@@ -63,6 +66,7 @@ import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 
+import org.dce.ed.edsm.UtilTable;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent.MaterialProportion;
@@ -71,14 +75,13 @@ import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.logreader.event.SupercruiseExitEvent;
 import org.dce.ed.market.GalacticAveragePrices;
 import org.dce.ed.market.MaterialNameMatcher;
+import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.mining.ProspectorLogBackend;
 import org.dce.ed.mining.ProspectorLogBackendFactory;
 import org.dce.ed.mining.ProspectorLogRow;
-import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
-import org.dce.ed.edsm.UtilTable;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
 import org.dce.ed.ui.TransparentTableHeaderUI;
 
@@ -635,6 +638,9 @@ private final JLayer<JTable> cargoLayer;
 		spreadsheetViewGroup.add(scatterViewBtn);
 		tableViewBtn.addActionListener(e -> ((CardLayout) spreadsheetCardPanel.getLayout()).show(spreadsheetCardPanel, "table"));
 		scatterViewBtn.addActionListener(e -> ((CardLayout) spreadsheetCardPanel.getLayout()).show(spreadsheetCardPanel, "scatter"));
+		// Hover-to-switch between Table and Scatter views (works in pass-through mode via global mouse polling).
+		SpreadsheetViewHoverPoller.register(tableViewBtn, 500, () -> tableViewBtn.doClick());
+		SpreadsheetViewHoverPoller.register(scatterViewBtn, 500, () -> scatterViewBtn.doClick());
 		JPanel spreadsheetToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
 		spreadsheetToolbar.setOpaque(false);
 		spreadsheetToolbar.add(tableViewBtn);
@@ -1280,6 +1286,7 @@ return EdoUi.User.MAIN_TEXT;
 	 * @param forceNewRun if true, always return lastRunForCommander+1 (e.g. after FSD away and back).
 	 */
 	private int computeRunNumberForWrite(String commander, String system, String body, boolean forceNewRun) {
+		int lastRunGlobal = 0;
 		int lastRunForCommander = 0;
 		int lastRunForCommanderAtLocation = 0;
 		Instant latestTsForCommander = null;
@@ -1291,6 +1298,10 @@ return EdoUi.User.MAIN_TEXT;
 					if (r == null) {
 						continue;
 					}
+					int rRun = r.getRun();
+					if (rRun > lastRunGlobal) {
+						lastRunGlobal = rRun;
+					}
 					String rowCommander = r.getCommanderName();
 					if (rowCommander == null || rowCommander.isBlank()) {
 						rowCommander = "-";
@@ -1298,7 +1309,6 @@ return EdoUi.User.MAIN_TEXT;
 					if (!rowCommander.equals(commander)) {
 						continue;
 					}
-					int rRun = r.getRun();
 					if (rRun > lastRunForCommander) {
 						lastRunForCommander = rRun;
 					}
@@ -1334,19 +1344,19 @@ return EdoUi.User.MAIN_TEXT;
 		} catch (Exception ignored) {
 			// fall through to defaults below
 		}
-		if (lastRunForCommander == 0) {
+		if (lastRunGlobal == 0) {
 			return 1;
 		}
 		// After leaving the ring and returning, start a new run.
 		if (forceNewRun) {
-			return lastRunForCommander + 1;
+			return lastRunGlobal + 1;
 		}
 		// If we have any rows for this commander at this exact system/body, continue that run.
 		if (lastRunForCommanderAtLocation > 0) {
 			return lastRunForCommanderAtLocation;
 		}
-		// Otherwise start a new run for this commander.
-		return lastRunForCommander + 1;
+		// Otherwise start a new globally unique run.
+		return lastRunGlobal + 1;
 	}
 
 	/** Format asteroid index as A, B, ..., Z, AA, AB, ... */
@@ -2713,8 +2723,19 @@ String getName() {
 		}
 	}
 
-	/** Scatter plot panel: X = Percentage (%), Y = Actual yield (t). Supports filter by run/commander and color by commander. */
+	/** Scatter plot panel: X = Percentage (%), Y = Tons yield (t). Supports filter by run/commander and color by commander. */
 	private static final class ProspectorLogScatterPanel extends JPanel {
+		private static final class PointInfo {
+			final int x;
+			final int y;
+			final ProspectorLogRow row;
+
+			PointInfo(int x, int y, ProspectorLogRow row) {
+				this.x = x;
+				this.y = y;
+				this.row = row;
+			}
+		}
 		private static final int PAD_LEFT = 42;
 		private static final int PAD_BOTTOM = 32;
 		private static final int PAD_RIGHT = 16;
@@ -2736,6 +2757,23 @@ String getName() {
 		private FilterMode filterMode = FilterMode.ALL;
 		private int selectedRun = 1;
 		private String selectedCommander = "";
+		private List<PointInfo> pointInfos = new ArrayList<>();
+		private ProspectorLogRow hoverRow;
+		private final javax.swing.Timer hoverPollTimer;
+
+		ProspectorLogScatterPanel() {
+			// Normal Swing mouse events (non pass-through)
+			addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+				@Override
+				public void mouseMoved(java.awt.event.MouseEvent e) {
+					handleMouseMoved(e.getX(), e.getY());
+				}
+			});
+			// Global hover poller so hover works even in OS pass-through mode
+			hoverPollTimer = new javax.swing.Timer(40, e -> pollGlobalMouse());
+			hoverPollTimer.setRepeats(true);
+			hoverPollTimer.start();
+		}
 
 		void setRows(List<ProspectorLogRow> rows) {
 			this.rows = (rows != null) ? new ArrayList<>(rows) : new ArrayList<>();
@@ -2779,6 +2817,7 @@ String getName() {
 		protected void paintComponent(Graphics g) {
 			super.paintComponent(g);
 			List<ProspectorLogRow> toPlot = filteredRows();
+			pointInfos.clear();
 			Graphics2D g2 = (Graphics2D) g.create();
 			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 			g2.setColor(EdoUi.User.MAIN_TEXT);
@@ -2823,18 +2862,26 @@ String getName() {
 			FontMetrics fm = g2.getFontMetrics();
 			// X axis label with unit (below plot)
 			String xLabel = "Percentage (%)";
-			g2.drawString(xLabel, plotX + plotW / 2 - fm.stringWidth(xLabel) / 2, h - 4);
-			// X tick labels
+			int xLabelY = h - 4;
+			g2.drawString(xLabel, plotX + plotW / 2 - fm.stringWidth(xLabel) / 2, xLabelY);
+			// X tick labels (slightly above the axis label to avoid overlap)
 			for (int i = 0; i < TICK_LABELS; i++) {
 				double frac = (TICK_LABELS <= 1) ? 0.5 : (double) i / (TICK_LABELS - 1);
 				double val = minPct + frac * (maxPct - minPct);
 				String tick = (val == (long) val) ? String.valueOf((long) val) : String.format(Locale.US, "%.1f", val);
 				int tx = plotX + (int) (frac * plotW);
-				g2.drawString(tick, tx - fm.stringWidth(tick) / 2, h - 6);
+				g2.drawString(tick, tx - fm.stringWidth(tick) / 2, h - 18);
 			}
-			// Y axis label with unit (left, above plot)
-			String yLabel = "Actual (t)";
-			g2.drawString(yLabel, plotX, plotY - 4);
+			// Y axis label with unit (vertical text on the left)
+			String yLabel = "Tons (t)";
+			java.awt.geom.AffineTransform oldTx = g2.getTransform();
+			g2.rotate(-Math.PI / 2.0);
+			int yCenter = plotY + plotH / 2;
+			int yLabelWidth = fm.stringWidth(yLabel);
+			int xRot = -(yCenter + yLabelWidth / 2);
+			int yRot = Math.max(10, plotX - 20);
+			g2.drawString(yLabel, xRot, yRot);
+			g2.setTransform(oldTx);
 			// Y tick labels (left of plot)
 			for (int i = 0; i < TICK_LABELS; i++) {
 				double frac = (TICK_LABELS <= 1) ? 0.5 : (double) i / (TICK_LABELS - 1);
@@ -2862,6 +2909,7 @@ String getName() {
 				int x = plotX + (int) (nx * plotW);
 				int y = plotY + (int) (ny * plotH);
 				g2.fillOval((int) (x - POINT_RADIUS), (int) (y - POINT_RADIUS), (int) (2 * POINT_RADIUS), (int) (2 * POINT_RADIUS));
+				pointInfos.add(new PointInfo(x, y, r));
 			}
 
 			// Trend lines by commander (best-fit line of Percentage vs Actual)
@@ -2958,7 +3006,137 @@ String getName() {
 					entryY += lineHeight;
 				}
 			}
+
+			// Optionally highlight hovered point and draw inline tooltip
+			if (hoverRow != null && !pointInfos.isEmpty()) {
+				PointInfo hovered = null;
+				for (PointInfo pi : pointInfos) {
+					if (pi.row == hoverRow) {
+						hovered = pi;
+						break;
+					}
+				}
+				if (hovered != null) {
+					// Highlight ring
+					g2.setColor(Color.WHITE);
+					int r = (int) (POINT_RADIUS + 2);
+					g2.drawOval(hovered.x - r, hovered.y - r, 2 * r, 2 * r);
+
+					// Tooltip contents
+					int run = hoverRow.getRun();
+					String asteroid = hoverRow.getAsteroidId();
+					if (asteroid == null || asteroid.isBlank()) {
+						asteroid = "-";
+					}
+					double pct = hoverRow.getPercent();
+					double tons = hoverRow.getDifference();
+					String commander = hoverRow.getCommanderName();
+					if (commander == null || commander.isBlank()) {
+						commander = "-";
+					}
+					String line1 = String.format(Locale.US, "%d %s", run, asteroid);
+					String line2 = String.format(Locale.US, "%.1f%% %d tons", pct, Math.round(tons));
+					String line3 = commander;
+
+					String[] lines = { line1, line2, line3 };
+					g2.setFont(g2.getFont().deriveFont(10f));
+					FontMetrics tfm = g2.getFontMetrics();
+					int maxWidth = 0;
+					for (String s : lines) {
+						maxWidth = Math.max(maxWidth, tfm.stringWidth(s));
+					}
+					int lineHeight = tfm.getHeight();
+					int boxPadding = 4;
+					int boxW = maxWidth + boxPadding * 2;
+					int boxH = lineHeight * lines.length + boxPadding * 2;
+
+					int boxX = hovered.x + 8;
+					int boxY = hovered.y - boxH - 8;
+					// Clamp box inside plot area
+					if (boxX + boxW > plotX + plotW) {
+						boxX = plotX + plotW - boxW - 2;
+					}
+					if (boxY < plotY) {
+						boxY = hovered.y + 8;
+						if (boxY + boxH > plotY + plotH) {
+							boxY = plotY + plotH - boxH - 2;
+						}
+					}
+
+					g2.setColor(new Color(0, 0, 0, 200));
+					g2.fillRect(boxX, boxY, boxW, boxH);
+					g2.setColor(EdoUi.User.MAIN_TEXT);
+					g2.drawRect(boxX, boxY, boxW, boxH);
+
+					int textX = boxX + boxPadding;
+					int textY = boxY + boxPadding + tfm.getAscent();
+					for (String s : lines) {
+						g2.drawString(s, textX, textY);
+						textY += lineHeight;
+					}
+				}
+			}
 			g2.dispose();
+		}
+
+		private void handleMouseMoved(int mx, int my) {
+			if (pointInfos.isEmpty()) {
+				hoverRow = null;
+				repaint();
+				return;
+			}
+			final double hitRadius = 6.0;
+			PointInfo closest = null;
+			double closestDistSq = hitRadius * hitRadius;
+			for (PointInfo pi : pointInfos) {
+				double dx = mx - pi.x;
+				double dy = my - pi.y;
+				double distSq = dx * dx + dy * dy;
+				if (distSq <= closestDistSq) {
+					closestDistSq = distSq;
+					closest = pi;
+				}
+			}
+			if (closest != null) {
+				hoverRow = closest.row;
+				repaint();
+			} else {
+				hoverRow = null;
+				repaint();
+			}
+		}
+
+		private void pollGlobalMouse() {
+			if (!isShowing() || pointInfos.isEmpty()) {
+				return;
+			}
+			java.awt.PointerInfo info = java.awt.MouseInfo.getPointerInfo();
+			if (info == null) {
+				return;
+			}
+			java.awt.Point mouseOnScreen = info.getLocation();
+			java.awt.Point panelLoc;
+			try {
+				panelLoc = getLocationOnScreen();
+			} catch (IllegalStateException ex) {
+				return;
+			}
+			java.awt.Rectangle bounds = new java.awt.Rectangle(
+				panelLoc.x,
+				panelLoc.y,
+				getWidth(),
+				getHeight()
+			);
+			if (!bounds.contains(mouseOnScreen)) {
+				if (hoverRow != null) {
+					hoverRow = null;
+					repaint();
+				}
+				return;
+			}
+			int mx = mouseOnScreen.x - panelLoc.x;
+			int my = mouseOnScreen.y - panelLoc.y;
+			handleMouseMoved(mx, my);
 		}
 
 		private static Regression computeRegression(List<ProspectorLogRow> rows) {
@@ -3006,6 +3184,110 @@ String getName() {
 				this.valid = valid;
 				this.slope = slope;
 				this.intercept = intercept;
+			}
+		}
+	}
+
+	/**
+	 * Global hover poller for the Mining tab's Table/Scatter view buttons.
+	 * Uses OS-level mouse position so it works even when the overlay window
+	 * is in mouse pass-through mode.
+	 */
+	private static final class SpreadsheetViewHoverPoller implements ActionListener {
+
+		private static final int POLL_INTERVAL_MS = 40;
+
+		private static final List<Entry> entries = new ArrayList<>();
+		private static final javax.swing.Timer pollTimer;
+
+		static {
+			SpreadsheetViewHoverPoller listener = new SpreadsheetViewHoverPoller();
+			pollTimer = new javax.swing.Timer(POLL_INTERVAL_MS, listener);
+			pollTimer.start();
+		}
+
+		private static final class Entry {
+			final AbstractButton button;
+			final int delayMs;
+			final Runnable action;
+
+			long hoverStartMs = -1L;
+			boolean firedForCurrentHover = false;
+
+			Entry(AbstractButton button, int delayMs, Runnable action) {
+				this.button = button;
+				this.delayMs = delayMs;
+				this.action = action;
+			}
+		}
+
+		static void register(AbstractButton button, int delayMs, Runnable action) {
+			if (button == null || action == null) {
+				return;
+			}
+			entries.add(new Entry(button, delayMs, action));
+		}
+
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			if (entries.isEmpty()) {
+				return;
+			}
+
+			java.awt.PointerInfo pointerInfo = java.awt.MouseInfo.getPointerInfo();
+			if (pointerInfo == null) {
+				resetAll();
+				return;
+			}
+
+			java.awt.Point mouseOnScreen = pointerInfo.getLocation();
+			long now = System.currentTimeMillis();
+
+			for (Entry entry : entries) {
+				AbstractButton button = entry.button;
+				if (button == null || !button.isShowing()) {
+					entry.hoverStartMs = -1L;
+					entry.firedForCurrentHover = false;
+					continue;
+				}
+
+				java.awt.Point buttonLoc;
+				try {
+					buttonLoc = button.getLocationOnScreen();
+				} catch (IllegalStateException ex) {
+					entry.hoverStartMs = -1L;
+					entry.firedForCurrentHover = false;
+					continue;
+				}
+
+				java.awt.Rectangle bounds = new java.awt.Rectangle(
+					buttonLoc.x,
+					buttonLoc.y,
+					button.getWidth(),
+					button.getHeight()
+				);
+
+				if (bounds.contains(mouseOnScreen)) {
+					if (entry.hoverStartMs < 0L) {
+						entry.hoverStartMs = now;
+						entry.firedForCurrentHover = false;
+					} else if (!entry.firedForCurrentHover && now - entry.hoverStartMs >= entry.delayMs) {
+						if (entry.action != null) {
+							SwingUtilities.invokeLater(entry.action);
+						}
+						entry.firedForCurrentHover = true;
+					}
+				} else {
+					entry.hoverStartMs = -1L;
+					entry.firedForCurrentHover = false;
+				}
+			}
+		}
+
+		private static void resetAll() {
+			for (Entry entry : entries) {
+				entry.hoverStartMs = -1L;
+				entry.firedForCurrentHover = false;
 			}
 		}
 	}
