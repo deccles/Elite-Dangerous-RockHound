@@ -132,10 +132,10 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("M/d/yyyy H:mm:ss", Locale.US);
             for (ProspectorLogRow r : rows) {
                 String ts = r.getTimestamp() != null ? r.getTimestamp().atZone(zone).format(fmt) : "-";
-                String fullBody = (r.getFullBodyName() != null && !r.getFullBodyName().isEmpty()) ? r.getFullBodyName() : "-";
+                String fullBody = (r.getFullBodyName() != null) ? r.getFullBodyName() : "";
                 String[] sysBody = splitSystemAndBody(fullBody);
-                String system = sysBody[0].isEmpty() ? "-" : sysBody[0];
-                String body = sysBody[1].isEmpty() ? "-" : sysBody[1];
+                String system = sysBody[0];
+                String body = sysBody[1];
                 String commander = (r.getCommanderName() != null && !r.getCommanderName().isEmpty()) ? r.getCommanderName() : "-";
                 String material = (r.getMaterial() != null && !r.getMaterial().isEmpty()) ? r.getMaterial() : "-";
                 String asteroid = (r.getAsteroidId() != null && !r.getAsteroidId().isEmpty()) ? r.getAsteroidId() : "-";

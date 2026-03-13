@@ -1368,6 +1368,7 @@ return EdoUi.User.MAIN_TEXT;
 		int lastRunGlobal = 0;
 		int lastRunForCommander = 0;
 		int lastRunForCommanderAtLocation = 0;
+		int activeRunForCommander = 0;
 		Instant latestTsForCommander = null;
 		Instant latestTsForCommanderAtLocation = null;
 		try {
@@ -1394,6 +1395,12 @@ return EdoUi.User.MAIN_TEXT;
 					Instant ts = r.getTimestamp();
 					if (ts == null) {
 						continue;
+					}
+					// Track any in-progress run for this commander (start set, no end).
+					if (r.getRunStartTime() != null && r.getRunEndTime() == null) {
+						if (rRun > activeRunForCommander) {
+							activeRunForCommander = rRun;
+						}
 					}
 					// Determine row system/body for comparison by splitting fullBodyName.
 					String fb = r.getFullBodyName();
@@ -1425,6 +1432,11 @@ return EdoUi.User.MAIN_TEXT;
 		}
 		if (lastRunGlobal == 0) {
 			return 1;
+		}
+		// If this commander already has an active run (start set, no end), always continue it.
+		// This guarantees at most one active run per commander at a time, regardless of location.
+		if (activeRunForCommander > 0) {
+			return activeRunForCommander;
 		}
 		// After leaving the ring and returning, start a new run.
 		if (forceNewRun) {
@@ -2731,7 +2743,7 @@ String getName() {
 		}
 
 		private void updateScatterRunSummaryLines() {
-			// Scatter's Run line should reflect the latest active run (same rule as the table),
+			// Scatter's Run line(s) should reflect all active runs (same rule as the table),
 			// regardless of current scatter filter or commander selection.
 			// #region agent log
 			MiningTabPanel.agentDebugLog(
@@ -2741,7 +2753,7 @@ String getName() {
 			);
 			// #endregion
 			List<RunSummary> summaries = ProspectorLogTableModel
-				.getLatestActiveRunSummary(currentRows, matcher);
+				.getActiveRunSummaries(currentRows, matcher);
 			// #region agent log
 			MiningTabPanel.agentDebugLog(
 				"H1",
@@ -3641,12 +3653,11 @@ String getName() {
 			return lines;
 		}
 
-		/** Latest active run summary across all commanders, using the same rules as the table:
+		/** All active run summaries across all commanders, using the same rules as the table:
 		 *  - Group by (run, commander).
 		 *  - A run is active if its canonical row (the one with a run start time) has no end time.
-		 *  - Among all active runs, choose the one with the highest run number.
 		 */
-		static List<RunSummary> getLatestActiveRunSummary(List<ProspectorLogRow> rows, MaterialNameMatcher matcher) {
+		static List<RunSummary> getActiveRunSummaries(List<ProspectorLogRow> rows, MaterialNameMatcher matcher) {
 			if (rows == null || rows.isEmpty()) return List.of();
 			Map<RunKey, List<ProspectorLogRow>> byRun = new HashMap<>();
 			for (ProspectorLogRow r : rows) {
@@ -3657,12 +3668,24 @@ String getName() {
 			}
 			if (byRun.isEmpty()) return List.of();
 
-			Comparator<Instant> tsDesc = Comparator.nullsLast(Comparator.reverseOrder());
 			Instant now = Instant.now();
-			List<RunSummary> activeSummaries = new ArrayList<>();
+			// Aggregate active runs per commander so the scatter/table run line shows
+			// a single combined performance line for each commander.
+			class CommanderAgg {
+				Instant start;
+				Instant end;
+				double totalTons;
+				double totalCredits;
+				int maxRunNumber;
+			}
+			Map<String, CommanderAgg> byCommander = new HashMap<>();
 
 			for (Map.Entry<RunKey, List<ProspectorLogRow>> e : byRun.entrySet()) {
 				List<ProspectorLogRow> runRows = new ArrayList<>(e.getValue());
+				if (runRows.isEmpty()) continue;
+
+				// Determine canonical row, totals, and span for this run.
+				Instant firstTs = null, lastTs = null;
 				ProspectorLogRow canonical = runRows.stream()
 					.filter(r -> r.getRunStartTime() != null)
 					.findFirst()
@@ -3670,33 +3693,96 @@ String getName() {
 				if (canonical == null || canonical.getRunEndTime() != null) {
 					continue;
 				}
-				runRows.sort(Comparator.comparing(ProspectorLogRow::getTimestamp, tsDesc));
-				RunSummary summary = computeRunSummary(e.getKey(), runRows, matcher, now);
-				if (summary != null) {
-					activeSummaries.add(summary);
+				double totalTons = 0.0;
+				double totalCredits = 0.0;
+				for (ProspectorLogRow r : runRows) {
+					Instant ts = r.getTimestamp();
+					if (ts != null) {
+						if (firstTs == null || ts.isBefore(firstTs)) firstTs = ts;
+						if (lastTs == null || ts.isAfter(lastTs)) lastTs = ts;
+					}
+					double diff = r.getDifference();
+					totalTons += diff;
+					if (matcher != null) {
+						int price = matcher.lookupAvgSell(r.getMaterial(), r.getMaterial());
+						totalCredits += diff * price;
+					}
+				}
+				Instant start = (canonical.getRunStartTime() != null) ? canonical.getRunStartTime() : firstTs;
+				Instant end = now;
+				if (start == null || end == null || end.isBefore(start)) {
+					continue;
+				}
+
+				String commander = e.getKey().commander;
+				CommanderAgg agg = byCommander.computeIfAbsent(commander, k -> new CommanderAgg());
+				if (agg.start == null || start.isBefore(agg.start)) {
+					agg.start = start;
+				}
+				if (agg.end == null || end.isAfter(agg.end)) {
+					agg.end = end;
+				}
+				agg.totalTons += totalTons;
+				agg.totalCredits += totalCredits;
+				if (e.getKey().run > agg.maxRunNumber) {
+					agg.maxRunNumber = e.getKey().run;
 				}
 			}
 
-			if (activeSummaries.isEmpty()) {
+			if (byCommander.isEmpty()) {
 				MiningTabPanel.agentDebugLog(
 					"H2",
-					"ProspectorLogTableModel.getLatestActiveRunSummary",
+					"ProspectorLogTableModel.getActiveRunSummaries",
 					"noActiveRuns"
 				);
 				return List.of();
 			}
 
-			RunSummary latest = activeSummaries.stream()
-				.max(Comparator.comparingInt(rs -> rs.runNumber))
-				.orElse(null);
-			if (latest == null) return List.of();
+			List<RunSummary> activeSummaries = new ArrayList<>();
+			for (Map.Entry<String, CommanderAgg> e : byCommander.entrySet()) {
+				String commander = e.getKey();
+				CommanderAgg agg = e.getValue();
+				if (agg.start == null || agg.end == null || agg.end.isBefore(agg.start)) {
+					continue;
+				}
+				double durationHours = (agg.end.toEpochMilli() - agg.start.toEpochMilli()) / (1000.0 * 3600.0);
+				if (durationHours <= 0.0) {
+					continue;
+				}
+				double tonsPerHour = agg.totalTons / durationHours;
+				double creditsPerHour = agg.totalCredits / durationHours;
+				String dateStr = agg.start.atZone(ZoneId.systemDefault()).format(DATE_FMT);
+				activeSummaries.add(new RunSummary(agg.maxRunNumber, commander, dateStr, tonsPerHour, creditsPerHour));
+			}
 
-			MiningTabPanel.agentDebugLog(
-				"H2",
-				"ProspectorLogTableModel.getLatestActiveRunSummary",
-				"chosenRun=" + latest.runNumber + " cmdr=" + latest.commanderName
-			);
-			return List.of(latest);
+			if (activeSummaries.isEmpty()) {
+				MiningTabPanel.agentDebugLog(
+					"H2",
+					"ProspectorLogTableModel.getActiveRunSummaries",
+					"noActiveRuns"
+				);
+				return List.of();
+			}
+
+			// Sort so the player's commander (from preferences) is always listed first,
+			// then other commanders by run number descending. This keeps \"my\" run
+			// line visually on top in both the table and scatter views.
+			String playerCommander = OverlayPreferences.getMiningLogCommanderName();
+			activeSummaries.sort((a, b) -> {
+				boolean aIsPlayer = playerCommander != null
+					&& !playerCommander.isBlank()
+					&& a.commanderName.equalsIgnoreCase(playerCommander);
+				boolean bIsPlayer = playerCommander != null
+					&& !playerCommander.isBlank()
+					&& b.commanderName.equalsIgnoreCase(playerCommander);
+				if (aIsPlayer != bIsPlayer) {
+					return aIsPlayer ? -1 : 1;
+				}
+				// Within each group, newest (highest run number) first.
+				return Integer.compare(b.runNumber, a.runNumber);
+			});
+
+			return activeSummaries;
 		}
 
 		boolean isSummaryRow(int rowIndex) {
@@ -3841,7 +3927,16 @@ String getName() {
 			}
 			String datePart = dateStr.isEmpty() ? "" : dateStr + " · ";
 			String commanderPart = (commanderName == null || commanderName.isBlank()) ? "" : commanderName + " · ";
-			return String.format(Locale.US, "Run %d · %s%s%.1f t/hr · %s", runNumber, commanderPart, datePart, tonsPerHour, crHr);
+			// Align numeric columns (t/hr and cr/hr) across commanders using fixed-width fields.
+			return String.format(
+				Locale.US,
+				"Run %d · %s%s%7.1f t/hr · %12s",
+				runNumber,
+				commanderPart,
+				datePart,
+				tonsPerHour,
+				crHr
+			);
 		}
 	}
 
