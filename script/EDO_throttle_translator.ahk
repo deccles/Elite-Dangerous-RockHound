@@ -64,7 +64,7 @@ global guiAssumeUntilTick := 0
 ; -------------------------
 ; Indicators
 ; -------------------------
-global showXltIndicator := true
+global showXltIndicator := false
 global xltTipId := 1
 global xltTipX := A_ScreenWidth - 200
 global xltTipY := 10
