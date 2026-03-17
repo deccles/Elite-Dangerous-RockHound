@@ -2109,7 +2109,11 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		 }
 
 		 String norm = GalacticAveragePrices.normalizeMaterialKey(s);
-		 if ("lowtemperaturediamonds".equals(norm)) {
+		 // Handle journal/localized variants that differ only by pluralization.
+		 // Examples seen in the wild:
+		 //  - "LowTemperatureDiamonds"
+		 //  - "Low Temperature Diamond"
+		 if ("lowtemperaturediamonds".equals(norm) || "lowtemperaturediamond".equals(norm)) {
 			 return "Low Temperature Diamonds";
 		 }
 		 if ("opal".equals(norm)) {
