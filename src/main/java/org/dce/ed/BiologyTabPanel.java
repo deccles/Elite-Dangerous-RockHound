@@ -514,6 +514,7 @@ private static List<BioRow> buildRows(BodyInfo body) {
             List<BioRow> rows,
             Map<String, BioCandidate> candByKey) {
 
+        // Genus names we are confident actually exist on this body.
         Set<String> knownGenus = new HashSet<>();
 
         if (body.getObservedGenusPrefixes() != null) {
@@ -539,68 +540,119 @@ private static List<BioRow> buildRows(BodyInfo body) {
             }
         }
 
-        Map<String, BioRow> winnerByGenus = new HashMap<>();
-
+        // Group rows by genus so we can decide how to represent each genus.
+        Map<String, List<BioRow>> byGenus = new HashMap<>();
+        List<BioRow> noGenus = new ArrayList<>();
         for (BioRow r : rows) {
             if (r.genusKey == null || r.genusKey.isBlank()) {
-                continue;
-            }
-            if (!knownGenus.contains(r.genusKey)) {
-                continue;
-            }
-
-            BioRow cur = winnerByGenus.get(r.genusKey);
-            if (cur == null) {
-                winnerByGenus.put(r.genusKey, r);
-                continue;
-            }
-
-            int cmp = Integer.compare(r.sampleCount, cur.sampleCount);
-            if (cmp != 0) {
-                if (cmp > 0) {
-                    winnerByGenus.put(r.genusKey, r);
-                }
-                continue;
-            }
-
-            boolean rObs = isObservedDisplayName(body, r.displayName);
-            boolean cObs = isObservedDisplayName(body, cur.displayName);
-            if (rObs != cObs) {
-                if (rObs) {
-                    winnerByGenus.put(r.genusKey, r);
-                }
-                continue;
-            }
-
-            double rs = scoreFor(r, candByKey);
-            double cs = scoreFor(cur, candByKey);
-            if (rs != cs) {
-                if (rs > cs) {
-                    winnerByGenus.put(r.genusKey, r);
-                }
-                continue;
-            }
-
-            if (r.displayName.compareToIgnoreCase(cur.displayName) < 0) {
-                winnerByGenus.put(r.genusKey, r);
+                noGenus.add(r);
+            } else {
+                byGenus.computeIfAbsent(r.genusKey, k -> new ArrayList<>()).add(r);
             }
         }
 
         List<BioRow> keep = new ArrayList<>(rows.size());
-        for (BioRow r : rows) {
-            if (r.genusKey == null || r.genusKey.isBlank()) {
-                keep.add(r);
+
+        // Always keep rows that don't have a genus key.
+        keep.addAll(noGenus);
+
+        for (Map.Entry<String, List<BioRow>> e : byGenus.entrySet()) {
+            String genusKey = e.getKey();
+            List<BioRow> genusRows = e.getValue();
+
+            // If this genus is not "known", keep all predictions as-is.
+            if (!knownGenus.contains(genusKey)) {
+                keep.addAll(genusRows);
                 continue;
             }
 
-            if (!knownGenus.contains(r.genusKey)) {
-                keep.add(r);
-                continue;
+            boolean anySamples = false;
+            boolean anyObservedSpecies = false;
+            for (BioRow r : genusRows) {
+                if (r.sampleCount > 0) {
+                    anySamples = true;
+                }
+                if (isObservedDisplayName(body, r.displayName)) {
+                    anyObservedSpecies = true;
+                }
             }
 
-            BioRow win = winnerByGenus.get(r.genusKey);
-            if (win == r) {
-                keep.add(r);
+            // If DSS shows the genus but we haven't confirmed a species yet (no samples, no
+            // observed species) and there are multiple candidate species, show a single
+            // generic genus row like "Osseus" instead of picking one species.
+            if (genusRows.size() > 1 && !anySamples && !anyObservedSpecies) {
+                // Pick the best-scoring candidate as the backing data for credits, etc.
+                BioRow best = null;
+                double bestScore = Double.NEGATIVE_INFINITY;
+                for (BioRow r : genusRows) {
+                    double s = scoreFor(r, candByKey);
+                    if (best == null || s > bestScore) {
+                        best = r;
+                        bestScore = s;
+                    }
+                }
+
+                if (best != null) {
+                    BioRow genusRow = new BioRow(genusDisplayName(genusKey));
+                    genusRow.genusKey = genusKey;
+                    genusRow.sampleCount = 0;
+                    genusRow.requiredMeters = best.requiredMeters;
+                    genusRow.creditsText = best.creditsText;
+                    genusRow.points = Collections.emptyList();
+
+                    // Ensure credits lookup works for the genus row by mapping the genus key
+                    // to the best candidate.
+                    BioCandidate bestCand = candByKey.get(canonicalBioKey(best.displayName));
+                    if (bestCand != null) {
+                        candByKey.put(canonicalBioKey(genusRow.displayName), bestCand);
+                    }
+
+                    keep.add(genusRow);
+                    continue;
+                }
+            }
+
+            // Otherwise, fall back to the original "winner by genus" behaviour.
+            BioRow winner = null;
+            for (BioRow r : genusRows) {
+                if (winner == null) {
+                    winner = r;
+                    continue;
+                }
+
+                int cmp = Integer.compare(r.sampleCount, winner.sampleCount);
+                if (cmp != 0) {
+                    if (cmp > 0) {
+                        winner = r;
+                    }
+                    continue;
+                }
+
+                boolean rObs = isObservedDisplayName(body, r.displayName);
+                boolean wObs = isObservedDisplayName(body, winner.displayName);
+                if (rObs != wObs) {
+                    if (rObs) {
+                        winner = r;
+                    }
+                    continue;
+                }
+
+                double rs = scoreFor(r, candByKey);
+                double ws = scoreFor(winner, candByKey);
+                if (rs != ws) {
+                    if (rs > ws) {
+                        winner = r;
+                    }
+                    continue;
+                }
+
+                if (r.displayName.compareToIgnoreCase(winner.displayName) < 0) {
+                    winner = r;
+                }
+            }
+
+            if (winner != null) {
+                keep.add(winner);
             }
         }
 
@@ -608,6 +660,20 @@ private static List<BioRow> buildRows(BodyInfo body) {
         rows.addAll(keep);
     }
 
+    private static String genusDisplayName(String genusKey) {
+        if (genusKey == null) {
+            return "";
+        }
+        String g = genusKey.trim();
+        if (g.isEmpty()) {
+            return "";
+        }
+        if (g.length() == 1) {
+            return g.toUpperCase(Locale.ROOT);
+        }
+        return Character.toUpperCase(g.charAt(0)) + g.substring(1);
+    }
+    
 
     private static boolean isObservedDisplayName(BodyInfo body, String displayName) {
         if (body.getObservedBioDisplayNames() == null) {
