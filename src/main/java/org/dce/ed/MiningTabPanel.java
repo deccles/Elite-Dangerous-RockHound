@@ -1530,8 +1530,8 @@ return EdoUi.User.MAIN_TEXT;
 		}
 		String body = event.getBodyName();
 		if (body == null || body.isBlank()) {
-			System.out.println("[EDO][Mining] StatusEvent produced blank body; previous body="
-					+ currentBodyName);
+//			System.out.println("[EDO][Mining] StatusEvent produced blank body; previous body="
+//					+ currentBodyName);
 			// Reflect the "no body" state while preserving lastNonEmptyBodyName.
 			currentBodyName = "";
 			return;

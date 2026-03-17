@@ -118,14 +118,24 @@ public class SystemTableHoverCopyManager {
         }
 
         int viewRow = table.rowAtPoint(tablePoint);
-        if (viewRow < 0) {
+        int viewCol = table.columnAtPoint(tablePoint);
+        if (viewRow < 0 || viewCol < 0) {
             hoverTimer.stop();
             hoverViewRow = -1;
             table.setToolTipText(null);
             return;
         }
 
-        // If we moved to a different row, restart the hover timer
+        // Only trigger hover copy when the mouse is over the System column cell.
+        int modelCol = table.convertColumnIndexToModel(viewCol);
+        if (modelCol != systemNameModelColumnIndex) {
+            hoverTimer.stop();
+            hoverViewRow = -1;
+            table.setToolTipText(null);
+            return;
+        }
+
+        // If we moved to a different eligible row, restart the hover timer
         if (viewRow != hoverViewRow) {
             hoverViewRow = viewRow;
             hoverTimer.restart();

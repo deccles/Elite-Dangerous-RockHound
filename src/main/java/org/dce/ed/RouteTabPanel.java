@@ -109,6 +109,7 @@ public class RouteTabPanel extends JPanel {
 	private JScrollPane routeScrollPane;
 	private final RouteTableModel tableModel;
 	private SystemTableHoverCopyManager systemTableHoverCopyManager;
+	private StatusHoverPopupManager statusHoverPopupManager;
 	private final EdsmClient edsmClient;
 	private final BooleanSupplier passThroughEnabledSupplier;
 	// Caches coordinates we resolved from EDSM (used for inserting synthetic rows).
@@ -428,6 +429,10 @@ public class RouteTabPanel extends JPanel {
 		// Copy-to-clipboard: hover only in pass-through mode; double-click always copies.
 		systemTableHoverCopyManager = new SystemTableHoverCopyManager(table, COL_SYSTEM, passThroughEnabledSupplier);
 		systemTableHoverCopyManager.start();
+		// Status hover popup: works in both pass-through and non-pass-through modes,
+		// and only when hovering directly over the status symbol column.
+		statusHoverPopupManager = new StatusHoverPopupManager();
+		statusHoverPopupManager.start();
 		table.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mouseClicked(MouseEvent e) {
@@ -1322,6 +1327,7 @@ public class RouteTabPanel extends JPanel {
 	}
 	
 	private final Map<Long, ScanStatus> lastKnownScanStatusByAddress = new ConcurrentHashMap<>();
+	private final Map<Long, EdsmScanSummary> edsmSummaryByAddress = new ConcurrentHashMap<>();
 
 	private void rememberScanStatus(RouteEntry entry, ScanStatus status) {
 		if (entry == null) {
@@ -1363,6 +1369,16 @@ public class RouteTabPanel extends JPanel {
 					e.status = remembered;
 				}
 			}
+		}
+	}
+
+	private static final class EdsmScanSummary {
+		final Integer bodyCount;
+		final Integer returnedBodies;
+
+		EdsmScanSummary(Integer bodyCount, Integer returnedBodies) {
+			this.bodyCount = bodyCount;
+			this.returnedBodies = returnedBodies;
 		}
 	}
 
@@ -1420,6 +1436,11 @@ public class RouteTabPanel extends JPanel {
 			if (bodies != null && bodies.bodies != null) {
 				int returnedBodies = bodies.bodies.size();
 				boolean hasBodies = returnedBodies > 0;
+				Integer bodyCount = Integer.valueOf(bodies.bodyCount);
+				if (entry.systemAddress != 0L) {
+					edsmSummaryByAddress.put(Long.valueOf(entry.systemAddress),
+							new EdsmScanSummary(bodyCount, Integer.valueOf(returnedBodies)));
+				}
 				if (hasBodies) {
 					if (bodies.bodyCount != returnedBodies) {
 						newStatus = v
@@ -2008,6 +2029,253 @@ public class RouteTabPanel extends JPanel {
 			int y = getHeight() - 1;
 			g2.drawLine(0, y, getWidth(), y);
 			g2.dispose();
+		}
+	}
+
+	private String buildStatusHoverHtml(RouteEntry entry) {
+		if (entry == null) {
+			return null;
+		}
+
+		// Journal / local cache summary
+		String journalStatus = "Unknown";
+		String journalBodies = "0";
+		SystemCache cache = SystemCache.getInstance();
+		CachedSystem cs = cache.get(entry.systemAddress, entry.systemName);
+		if (cs != null) {
+			SystemState tmp = new SystemState();
+			cache.loadInto(tmp, cs);
+			Integer totalBodies = tmp.getTotalBodies();
+			int knownBodies = tmp.getBodies().size();
+			Boolean all = tmp.getAllBodiesFound();
+			if (Boolean.TRUE.equals(all)) {
+				journalStatus = "Complete";
+			} else if (knownBodies > 0) {
+				journalStatus = "In progress";
+			}
+			if (totalBodies != null && totalBodies.intValue() > 0) {
+				journalBodies = Integer.toString(totalBodies.intValue());
+			} else {
+				journalBodies = Integer.toString(knownBodies);
+			}
+		}
+
+		// EDSM summary (only based on cached results from previous EDSM calls)
+		String edsmStatus = "Unknown";
+		String edsmBodies = "—";
+		if (entry.systemAddress != 0L) {
+			EdsmScanSummary s = edsmSummaryByAddress.get(Long.valueOf(entry.systemAddress));
+			if (s != null) {
+				Integer bc = s.bodyCount;
+				Integer ret = s.returnedBodies;
+				// Prefer "observed/expected" form when we know both.
+				if (bc != null && bc.intValue() > 0 && ret != null && ret.intValue() >= 0) {
+					edsmBodies = ret.intValue() + " / " + bc.intValue();
+				} else if (bc != null && bc.intValue() > 0) {
+					edsmBodies = "— / " + bc.intValue();
+				} else if (ret != null && ret.intValue() > 0) {
+					edsmBodies = Integer.toString(ret.intValue());
+				}
+				if (ret != null && ret.intValue() > 0) {
+					if (bc != null && !bc.equals(ret)) {
+						edsmStatus = "Body count mismatch";
+					} else {
+						edsmStatus = "Complete";
+					}
+				}
+			}
+		}
+
+		return "<html>"
+				+ "<b>Status:</b> " + escapeHtml(entry.status != null ? entry.status.name() : "Unknown") + "<br>"
+				+ "<br>"
+				+ "<b>Journal</b><br>"
+				+ "Status: " + escapeHtml(journalStatus) + "<br>"
+				+ "Body count: " + escapeHtml(journalBodies) + "<br>"
+				+ "<br>"
+				+ "<b>EDSM</b><br>"
+				+ "Status: " + escapeHtml(edsmStatus) + "<br>"
+				+ "Body count: " + escapeHtml(edsmBodies)
+				+ "</html>";
+	}
+
+	private static String escapeHtml(String s) {
+		if (s == null) {
+			return "";
+		}
+		return s.replace("&", "&amp;")
+				.replace("<", "&lt;")
+				.replace(">", "&gt;");
+	}
+	private class StatusHoverPopupManager {
+		private static final int POLL_INTERVAL_MS = 100;
+		private static final int HOVER_DELAY_MS = 400;
+
+		private final javax.swing.Timer pollTimer =
+				new javax.swing.Timer(POLL_INTERVAL_MS, e -> pollMousePosition());
+		private final javax.swing.Timer hoverTimer =
+				new javax.swing.Timer(HOVER_DELAY_MS, e -> showPopupIfStillHovering());
+
+		private int hoverViewRow = -1;
+		private javax.swing.JComponent currentPopup;
+
+		void start() {
+			pollTimer.start();
+		}
+
+		void stop() {
+			pollTimer.stop();
+			hoverTimer.stop();
+			hidePopup();
+			hoverViewRow = -1;
+		}
+
+		private void pollMousePosition() {
+			if (table == null || !table.isShowing()) {
+				hoverTimer.stop();
+				hoverViewRow = -1;
+				hidePopup();
+				return;
+			}
+
+			java.awt.PointerInfo info = java.awt.MouseInfo.getPointerInfo();
+			if (info == null) {
+				hoverTimer.stop();
+				hoverViewRow = -1;
+				hidePopup();
+				return;
+			}
+
+			java.awt.Point screenPoint = info.getLocation();
+			java.awt.Point tablePoint = new java.awt.Point(screenPoint);
+			SwingUtilities.convertPointFromScreen(tablePoint, table);
+
+			if (tablePoint.x < 0 || tablePoint.y < 0
+					|| tablePoint.x >= table.getWidth()
+					|| tablePoint.y >= table.getHeight()) {
+				hoverTimer.stop();
+				hoverViewRow = -1;
+				hidePopup();
+				return;
+			}
+
+			int viewRow = table.rowAtPoint(tablePoint);
+			int viewCol = table.columnAtPoint(tablePoint);
+			if (viewRow < 0 || viewCol < 0) {
+				hoverTimer.stop();
+				hoverViewRow = -1;
+				hidePopup();
+				return;
+			}
+
+			int statusViewCol = table.convertColumnIndexToView(COL_STATUS);
+			if (viewCol != statusViewCol) {
+				hoverTimer.stop();
+				hoverViewRow = -1;
+				hidePopup();
+				return;
+			}
+
+			if (viewRow != hoverViewRow) {
+				hoverViewRow = viewRow;
+				hoverTimer.restart();
+			}
+		}
+
+		private void showPopupIfStillHovering() {
+			if (hoverViewRow < 0 || table == null || !table.isShowing()) {
+				return;
+			}
+			showPopupForRow(hoverViewRow);
+		}
+
+		private void showPopupForRow(int viewRow) {
+			if (viewRow < 0 || viewRow >= table.getRowCount()) {
+				return;
+			}
+
+			RouteEntry entry;
+			try {
+				entry = tableModel.getEntries(table.convertRowIndexToModel(viewRow));
+			} catch (Exception ex) {
+				return;
+			}
+			if (entry == null) {
+				return;
+			}
+
+			String html = buildStatusHoverHtml(entry);
+			if (html == null || html.isBlank()) {
+				return;
+			}
+
+			java.awt.Window window = SwingUtilities.getWindowAncestor(table);
+			if (!(window instanceof javax.swing.JFrame)) {
+				return;
+			}
+
+			javax.swing.JFrame frame = (javax.swing.JFrame) window;
+			javax.swing.JRootPane rootPane = frame.getRootPane();
+			javax.swing.JLayeredPane layeredPane = rootPane.getLayeredPane();
+
+			hidePopup();
+
+			javax.swing.JLabel label = new javax.swing.JLabel(html);
+			label.setOpaque(true);
+			label.setBackground(EdoUi.Internal.BLACK_ALPHA_180);
+			label.setForeground(EdoUi.User.MAIN_TEXT);
+			// Outer stroke uses the same orange accent as the rest of the UI,
+			// inner padding keeps the text away from the border.
+			javax.swing.border.Border padding = new EmptyBorder(4, 8, 4, 8);
+			javax.swing.border.Border outline =
+					javax.swing.BorderFactory.createLineBorder(EdoUi.ED_ORANGE_TRANS, 1, true);
+			label.setBorder(javax.swing.BorderFactory.createCompoundBorder(outline, padding));
+
+			label.setSize(label.getPreferredSize());
+			java.awt.Rectangle cellRect = table.getCellRect(viewRow, table.convertColumnIndexToView(COL_STATUS), true);
+			java.awt.Point cellCenter = new java.awt.Point(
+					cellRect.x + cellRect.width / 2,
+					cellRect.y + cellRect.height / 2);
+			SwingUtilities.convertPointToScreen(cellCenter, table);
+			java.awt.Point layeredPoint = new java.awt.Point(cellCenter);
+			SwingUtilities.convertPointFromScreen(layeredPoint, layeredPane);
+
+			int x = layeredPoint.x + cellRect.width / 2 + 8;
+			int y = layeredPoint.y - label.getHeight() / 2;
+
+			// Clamp inside the layered pane so the popup never goes off-screen.
+			int minX = 4;
+			int minY = 4;
+			int maxX = Math.max(minX, layeredPane.getWidth() - label.getWidth() - 4);
+			int maxY = Math.max(minY, layeredPane.getHeight() - label.getHeight() - 4);
+			if (x > maxX) {
+				// If we hit the right edge, flip to the left side of the cell.
+				x = layeredPoint.x - label.getWidth() - 8;
+			}
+			x = Math.max(minX, Math.min(x, maxX));
+			y = Math.max(minY, Math.min(y, maxY));
+
+			label.setLocation(x, y);
+			layeredPane.add(label, javax.swing.JLayeredPane.POPUP_LAYER);
+			layeredPane.revalidate();
+			layeredPane.repaint();
+
+			currentPopup = label;
+		}
+
+		private void hidePopup() {
+			if (currentPopup == null) {
+				return;
+			}
+			java.awt.Component c = currentPopup;
+			currentPopup = null;
+			java.awt.Container parent = c.getParent();
+			if (parent instanceof javax.swing.JLayeredPane) {
+				javax.swing.JLayeredPane lp = (javax.swing.JLayeredPane) parent;
+				lp.remove(c);
+				lp.revalidate();
+				lp.repaint();
+			}
 		}
 	}
 	private class SystemNameRenderer extends DefaultTableCellRenderer {
