@@ -542,6 +542,9 @@ public class RouteTabPanel extends JPanel {
 			rebuildDisplayedEntries();
 		}
 		if (event instanceof CarrierJumpEvent jump) {
+		    if (!shouldUpdateOnCarrierJump(jump)) {
+		    	return;
+		    }
 		    setCurrentSystemName(jump.getStarSystem());
 		    this.currentSystemAddress = jump.getSystemAddress();
 		    this.currentStarPos = jump.getStarPos();
@@ -672,6 +675,16 @@ public class RouteTabPanel extends JPanel {
 		}
 		fireSessionStateChanged();
 	}
+
+	/**
+	 * Whether this tab should update its “current system” marker/path on carrier jumps.
+	 * <p>
+	 * Default behavior: only update when the player is docked on the carrier.
+	 * FleetCarrierTabPanel overrides this to always update.
+	 */
+	protected boolean shouldUpdateOnCarrierJump(CarrierJumpEvent jump) {
+		return jump != null && jump.isDocked();
+	}
 	private void setCurrentSystemIfEmpty(String systemName, long systemAddress) {
 		if (tableModel.getRowCount() > 0) {
 			return; // route exists, nothing to do
@@ -705,6 +718,87 @@ public class RouteTabPanel extends JPanel {
 			}
 		}
 		return -1;
+	}
+
+	/**
+	 * Copies the system name of the next hop in {@link #baseRouteEntries} after the provided current system address.
+	 * Uses the existing copy-to-clipboard + “Copied: …” toast rendering via {@link SystemTableHoverCopyManager}.
+	 */
+	protected void copyNextSystemFromBaseRoute(long currentSystemAddressOverride) {
+		if (table == null || tableModel == null) {
+			return;
+		}
+		if (systemTableHoverCopyManager == null) {
+			return;
+		}
+		if (baseRouteEntries == null || baseRouteEntries.isEmpty()) {
+			return;
+		}
+		if (currentSystemAddressOverride == 0L) {
+			return;
+		}
+
+		int curIdx = -1;
+		for (int i = 0; i < baseRouteEntries.size(); i++) {
+			RouteEntry e = baseRouteEntries.get(i);
+			if (e == null) {
+				continue;
+			}
+			if (e.systemAddress == currentSystemAddressOverride) {
+				curIdx = i;
+				break;
+			}
+		}
+		if (curIdx < 0) {
+			return;
+		}
+		int nextIdx = curIdx + 1;
+		if (nextIdx < 0 || nextIdx >= baseRouteEntries.size()) {
+			return; // no next system
+		}
+		RouteEntry next = baseRouteEntries.get(nextIdx);
+		if (next == null || next.isBodyRow) {
+			return;
+		}
+
+		long nextAddr = next.systemAddress;
+		String nextName = next.systemName;
+
+		int modelRow = -1;
+		for (int i = 0; i < tableModel.getRowCount(); i++) {
+			RouteEntry e = tableModel.getEntries(i);
+			if (e == null || e.isBodyRow) {
+				continue;
+			}
+			if (nextAddr != 0L && e.systemAddress == nextAddr) {
+				modelRow = i;
+				break;
+			}
+		}
+		if (modelRow < 0 && nextName != null && !nextName.isBlank()) {
+			for (int i = 0; i < tableModel.getRowCount(); i++) {
+				RouteEntry e = tableModel.getEntries(i);
+				if (e == null || e.isBodyRow) {
+					continue;
+				}
+				if (nextName.equals(e.systemName)) {
+					modelRow = i;
+					break;
+				}
+			}
+		}
+		if (modelRow < 0) {
+			return;
+		}
+
+		int viewRow = table.convertRowIndexToView(modelRow);
+		systemTableHoverCopyManager.copySystemNameAtViewRow(viewRow);
+	}
+
+	protected void setHeaderLabelText(String text) {
+		if (headerLabel != null) {
+			headerLabel.setText(text);
+		}
 	}
 	public void setDistanceSumMode(boolean sum) {
 		tableModel.setSumDistances(sum);
@@ -748,6 +842,60 @@ public class RouteTabPanel extends JPanel {
 		// whenever current/destination changes.
 		baseRouteEntries = deepCopy(entries);
 		rebuildDisplayedEntries();
+	}
+
+	/**
+	 * Imports a Spansh fleet-carrier route JSON into this tab.
+	 * <p>
+	 * Does not read/overwrite {@code NavRoute.json}. It only updates this panel's in-memory route backing list.
+	 */
+	public boolean importSpanshFleetCarrierRouteFile(Path file) {
+		if (file == null || !Files.isRegularFile(file)) {
+			setHeaderLabelText("Error reading Spansh JSON (missing file).");
+			baseRouteEntries = new ArrayList<>();
+			tableModel.setEntries(new ArrayList<>());
+			return false;
+		}
+
+		List<RouteEntry> entries;
+		try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+			JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
+			entries = parseSpanshFleetCarrierRouteFromJson(root);
+		} catch (Exception e) {
+			e.printStackTrace();
+			setHeaderLabelText("Error reading Spansh JSON");
+			baseRouteEntries = new ArrayList<>();
+			tableModel.setEntries(new ArrayList<>());
+			return false;
+		}
+
+		if (entries == null || entries.isEmpty()) {
+			setHeaderLabelText("No jumps found in Spansh JSON.");
+			baseRouteEntries = new ArrayList<>();
+			tableModel.setEntries(new ArrayList<>());
+			return false;
+		}
+
+		// Clear target/destination state so synthetic rows don't appear based on other contexts.
+		targetSystemName = null;
+		targetSystemAddress = 0L;
+		destinationSystemAddress = null;
+		destinationBodyId = null;
+		destinationName = null;
+		pendingJumpSystemName = null;
+		pendingJumpLockedName = null;
+		pendingJumpLockedAddress = 0L;
+		inHyperspace = false;
+		jumpFlashOn = true;
+		if (jumpFlashTimer != null && jumpFlashTimer.isRunning()) {
+			jumpFlashTimer.stop();
+		}
+
+		setHeaderLabelText("Route: " + entries.size() + " systems");
+		baseRouteEntries = deepCopy(entries);
+		rebuildDisplayedEntries();
+		fireSessionStateChanged();
+		return true;
 	}
 
 	/**
@@ -812,6 +960,95 @@ public class RouteTabPanel extends JPanel {
 		}
 		return entries;
 	}
+
+	/**
+	 * Parses Spansh fleet-carrier export JSON.
+	 * <p>
+	 * Spansh exports usually store jumps under one of:
+	 * <ul>
+	 *   <li>`result.jumps`</li>
+	 *   <li>`parameters.jumps`</li>
+	 *   <li>fallback: top-level `jumps`</li>
+	 * </ul>
+	 * into a list of {@link RouteEntry} objects.
+	 */
+	static List<RouteEntry> parseSpanshFleetCarrierRouteFromJson(JsonObject root) {
+		List<RouteEntry> entries = new ArrayList<>();
+
+		JsonArray jumps = null;
+		if (root != null) {
+			if (root.has("jumps") && root.get("jumps").isJsonArray()) {
+				jumps = root.getAsJsonArray("jumps");
+			} else if (root.has("result") && root.get("result").isJsonObject()) {
+				JsonObject result = root.getAsJsonObject("result");
+				if (result.has("jumps") && result.get("jumps").isJsonArray()) {
+					jumps = result.getAsJsonArray("jumps");
+				}
+			} else if (root.has("parameters") && root.get("parameters").isJsonObject()) {
+				JsonObject parameters = root.getAsJsonObject("parameters");
+				if (parameters.has("jumps") && parameters.get("jumps").isJsonArray()) {
+					jumps = parameters.getAsJsonArray("jumps");
+				}
+			}
+		}
+
+		if (jumps == null) {
+			return entries;
+		}
+		List<double[]> coords = new ArrayList<>();
+
+		for (JsonElement elem : jumps) {
+			if (!elem.isJsonObject()) {
+				continue;
+			}
+			JsonObject obj = elem.getAsJsonObject();
+
+			String systemName = safeString(obj, "name");
+			long systemAddress = safeLong(obj, "id64");
+
+			Double x = safeDouble(obj, "x");
+			Double y = safeDouble(obj, "y");
+			Double z = safeDouble(obj, "z");
+
+			RouteEntry entry = new RouteEntry();
+			entry.index = entries.size();
+			entry.systemName = systemName;
+			entry.systemAddress = systemAddress;
+			entry.starClass = "";
+			entry.status = ScanStatus.UNKNOWN;
+
+			entry.x = x;
+			entry.y = y;
+			entry.z = z;
+
+			if (x != null && y != null && z != null) {
+				coords.add(new double[] { x.doubleValue(), y.doubleValue(), z.doubleValue() });
+			} else {
+				coords.add(null);
+			}
+			entries.add(entry);
+		}
+
+		// Compute per-leg distances (Ly) from the StarPos coordinates.
+		for (int i = 0; i < entries.size(); i++) {
+			if (i == 0) {
+				entries.get(i).distanceLy = null; // origin system
+			} else {
+				double[] prev = coords.get(i - 1);
+				double[] cur = coords.get(i);
+				if (prev == null || cur == null) {
+					entries.get(i).distanceLy = null;
+				} else {
+					double dx = cur[0] - prev[0];
+					double dy = cur[1] - prev[1];
+					double dz = cur[2] - prev[2];
+					entries.get(i).distanceLy = Math.sqrt(dx * dx + dy * dy + dz * dz);
+				}
+			}
+		}
+		return entries;
+	}
+
 	private void rebuildDisplayedEntries() {
 		List<RouteEntry> working = deepCopy(baseRouteEntries);
 		applyRememberedScanStatuses(working);
@@ -1566,9 +1803,34 @@ public class RouteTabPanel extends JPanel {
 	private static long safeLong(JsonObject obj, String key) {
 		JsonElement el = obj.get(key);
 		try {
-			return (el != null && !el.isJsonNull()) ? el.getAsLong() : 0L;
+			if (el == null || el.isJsonNull()) {
+				return 0L;
+			}
+			// Some JSON exports encode numeric ids as strings.
+			if (el.isJsonPrimitive() && el.getAsJsonPrimitive().isString()) {
+				String s = el.getAsString();
+				if (s == null || s.isBlank()) {
+					return 0L;
+				}
+				return Long.parseLong(s.trim());
+			}
+			return el.getAsLong();
 		} catch (Exception e) {
 			return 0L;
+		}
+	}
+	private static Double safeDouble(JsonObject obj, String key) {
+		if (obj == null || key == null) {
+			return null;
+		}
+		JsonElement el = obj.get(key);
+		if (el == null || el.isJsonNull()) {
+			return null;
+		}
+		try {
+			return el.getAsDouble();
+		} catch (Exception e) {
+			return null;
 		}
 	}
 	/**

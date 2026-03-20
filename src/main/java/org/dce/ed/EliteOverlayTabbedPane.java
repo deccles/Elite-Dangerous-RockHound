@@ -16,9 +16,11 @@ import java.awt.PointerInfo;
 import java.awt.Rectangle;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.io.File;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -37,6 +39,7 @@ import javax.swing.JButton;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.TransferHandler;
 
 import org.dce.ed.OverlayPreferences.MiningLimpetReminderMode;
 import org.dce.ed.logreader.EliteEventType;
@@ -83,6 +86,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private static final String CARD_BIOLOGY = "BIOLOGY";
 	private static final String CARD_MINING = "MINING";
 	private static final String CARD_NEARBY = "NEARBY";
+	private static final String CARD_FLEET_CARRIER = "FLEET_CARRIER";
 	private static final String CARD_LOG = "LOG";
 
 	private static final int TAB_HOVER_DELAY_MS = 500;	private static final Color TAB_WHITE = EdoUi.Internal.WHITE_ALPHA_230;
@@ -102,6 +106,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private final BiologyTabPanel biologyTab;
 	private final MiningTabPanel miningTab;
 	private final NearbyTabPanel nearbyTab;
+	private final FleetCarrierTabPanel fleetCarrierTab;
 
 	private static final TtsSprintf tts = new TtsSprintf(new PollyTtsCached());
 
@@ -114,6 +119,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private JButton biologyButton;
 	private JButton miningButton;
 	private JButton nearbyButton;
+	private JButton fleetCarrierButton;
 
 	public EliteOverlayTabbedPane() {
 		this(() -> true);
@@ -138,18 +144,21 @@ public class EliteOverlayTabbedPane extends JPanel {
 		biologyButton = createTabButton("Biology");
 		miningButton = createTabButton("Mining");
 		nearbyButton = createTabButton("Nearby");
+		fleetCarrierButton = createTabButton("Fleet Carrier");
 
 		group.add(routeButton);
 		group.add(systemButton);
 		group.add(biologyButton);
 		group.add(miningButton);
 		group.add(nearbyButton);
+		group.add(fleetCarrierButton);
 
 		tabBar.add(routeButton);
 		tabBar.add(systemButton);
 		tabBar.add(biologyButton);
 		tabBar.add(miningButton);
 		tabBar.add(nearbyButton);
+		tabBar.add(fleetCarrierButton);
 
 		// ----- Card area with the actual tab contents -----
 		cardLayout = new CardLayout();
@@ -195,12 +204,14 @@ public class EliteOverlayTabbedPane extends JPanel {
 			}
 		});
 		this.nearbyTab = new NearbyTabPanel(systemTab, hoverSwitchEnabled);
+		this.fleetCarrierTab = new FleetCarrierTabPanel(hoverSwitchEnabled);
 
 		cardPanel.add(routeTab, CARD_ROUTE);
 		cardPanel.add(systemTab, CARD_SYSTEM);
 		cardPanel.add(biologyTab, CARD_BIOLOGY);
 		cardPanel.add(miningTab, CARD_MINING);
 		cardPanel.add(nearbyTab, CARD_NEARBY);
+		cardPanel.add(fleetCarrierTab, CARD_FLEET_CARRIER);
 
 		systemButton.setSelected(true);
 		applyTabButtonStyle(routeButton);
@@ -208,6 +219,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(biologyButton);
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(nearbyButton);
+		applyTabButtonStyle(fleetCarrierButton);
 		systemTab.refreshFromCache();
 
 		// Wire up buttons to show cards
@@ -247,12 +259,20 @@ public class EliteOverlayTabbedPane extends JPanel {
 			}
 		});
 
+		fleetCarrierButton.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				selectTab(CARD_FLEET_CARRIER, fleetCarrierButton);
+			}
+		});
+
 		// Hover-to-switch: resting over a tab for a short time activates it
 		installHoverSwitch(routeButton, TAB_HOVER_DELAY_MS, () -> routeButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(systemButton, TAB_HOVER_DELAY_MS, () -> systemButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(biologyButton, TAB_HOVER_DELAY_MS, () -> biologyButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(miningButton, TAB_HOVER_DELAY_MS, () -> miningButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(nearbyButton, TAB_HOVER_DELAY_MS, () -> nearbyButton.doClick(), hoverSwitchEnabled);
+		installHoverSwitch(fleetCarrierButton, TAB_HOVER_DELAY_MS, () -> fleetCarrierButton.doClick(), hoverSwitchEnabled);
 
 
 		// Select Route tab by default
@@ -270,6 +290,71 @@ public class EliteOverlayTabbedPane extends JPanel {
 		watcherThread.start();
 
 		add(cardPanel, BorderLayout.CENTER);
+
+		// Drag & drop Spansh fleet-carrier JSON import (drop anywhere on the overlay).
+		// Mouse pass-through mode typically prevents receiving drag events, so we decline drops there.
+		TransferHandler fcDropHandler = new TransferHandler() {
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public boolean canImport(TransferSupport support) {
+				if (support == null || !support.isDrop()) {
+					return false;
+				}
+
+				// In pass-through mode, ignore drops (overlay often won't receive DnD events anyway).
+				if (hoverSwitchEnabled != null && hoverSwitchEnabled.getAsBoolean()) {
+					return false;
+				}
+
+				return support.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
+			}
+
+			@Override
+			public boolean importData(TransferSupport support) {
+				if (!canImport(support)) {
+					return false;
+				}
+
+				try {
+					@SuppressWarnings("unchecked")
+					List<File> files = (List<File>) support.getTransferable().getTransferData(DataFlavor.javaFileListFlavor);
+					if (files == null || files.isEmpty()) {
+						return false;
+					}
+
+					Path dropped = null;
+					for (File f : files) {
+						if (f == null) {
+							continue;
+						}
+						String name = f.getName();
+						if (name != null && name.toLowerCase(Locale.US).endsWith(".json")) {
+							dropped = f.toPath();
+							break;
+						}
+					}
+					if (dropped == null) {
+						return false;
+					}
+
+					final Path droppedFinal = dropped;
+					SwingUtilities.invokeLater(() -> {
+						selectTab(CARD_FLEET_CARRIER, fleetCarrierButton);
+						fleetCarrierTab.importSpanshFleetCarrierRouteFile(droppedFinal);
+					});
+
+					return true;
+				} catch (Exception e) {
+					e.printStackTrace();
+					return false;
+				}
+			}
+		};
+
+		this.setTransferHandler(fcDropHandler);
+		this.tabBar.setTransferHandler(fcDropHandler);
+		this.cardPanel.setTransferHandler(fcDropHandler);
 	}
 
 	/**
@@ -303,6 +388,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		systemTab.handleLogEvent(event);
 		routeTab.handleLogEvent(event);
 		biologyTab.handleLogEvent(event);
+		fleetCarrierTab.handleLogEvent(event);
 
 		if (event instanceof FsdJumpEvent) {
 			FsdJumpEvent e = (FsdJumpEvent) event;
@@ -673,12 +759,16 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (nearbyButton != null) {
 			nearbyButton.setSelected(selectedButton == nearbyButton);
 		}
+		if (fleetCarrierButton != null) {
+			fleetCarrierButton.setSelected(selectedButton == fleetCarrierButton);
+		}
 
 		applyTabButtonStyle(routeButton);
 		applyTabButtonStyle(systemButton);
 		applyTabButtonStyle(biologyButton);
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(nearbyButton);
+		applyTabButtonStyle(fleetCarrierButton);
 		
 		cardLayout.show(cardPanel, cardName);
 	}
@@ -895,9 +985,13 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(biologyButton);
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(nearbyButton);
+		applyTabButtonStyle(fleetCarrierButton);
 
 		if (nearbyTab != null) {
 			nearbyTab.applyOverlayBackground(bgWithAlpha);
+		}
+		if (fleetCarrierTab != null) {
+			fleetCarrierTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
 		}
 
 		revalidate();
@@ -1110,6 +1204,7 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 	public void applyUiFontPreferences() {
 		systemTab.applyUiFontPreferences();
 		routeTab.applyUiFontPreferences();
+		fleetCarrierTab.applyUiFontPreferences();
 		biologyTab.applyUiFontPreferences();
 		miningTab.applyUiFontPreferences();
 		nearbyTab.applyUiFontPreferences();
@@ -1120,6 +1215,7 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 	public void applyUiFont(Font font) {
 		systemTab.applyUiFont(font);
 		routeTab.applyUiFont(font);
+		fleetCarrierTab.applyUiFont(font);
 		biologyTab.applyUiFont(font);
 		miningTab.applyUiFont(font);
 		nearbyTab.applyUiFont(font);
