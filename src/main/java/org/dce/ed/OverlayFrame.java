@@ -78,6 +78,14 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 
     /** Cooldown duration after fleet jump countdown expires (seconds). */
     private static final int CARRIER_JUMP_COOLDOWN_SECONDS = 5 * 60;
+    /**
+     * Empirical correction: observed cooldown end is ~10 seconds earlier than the raw
+     * "5 minutes" window derived from the journal reference timestamp.
+     * If this changes with future game/journal behavior, this constant is the tuning knob.
+     */
+    private static final int CARRIER_JUMP_COOLDOWN_END_CORRECTION_SECONDS = -10;
+    private static final int CARRIER_JUMP_COOLDOWN_SECONDS_EFFECTIVE =
+            CARRIER_JUMP_COOLDOWN_SECONDS + CARRIER_JUMP_COOLDOWN_END_CORRECTION_SECONDS;
 
     private final LineBorder overlayBorder = new LineBorder(
             new java.awt.Color(200, 200, 255, 180),
@@ -377,10 +385,24 @@ private void installCarrierJumpTitleUpdater() {
                 return;
             }
 
-            if (event.getType() == EliteEventType.CARRIER_JUMP) {
+            if (event.getType() == EliteEventType.CARRIER_JUMP && event instanceof CarrierJumpEvent jump) {
+                // `CarrierStats` tends to arrive after `CarrierJump`.
+                // If our countdown-based heuristic started cooldown late, we may currently
+                // be showing too much remaining time. Resync backwards here using the
+                // earlier `CarrierJump` timestamp (Docked=true) without extending it.
+                Instant jumpTs = event.getTimestamp();
                 SwingUtilities.invokeLater(() -> {
                     clearCarrierJumpCountdownStateOnly();
-                    startCarrierJumpCooldown();
+                    if (!jump.isDocked() || jumpTs == null) {
+                        return;
+                    }
+
+                    Instant newEndTime = jumpTs.plusSeconds(CARRIER_JUMP_COOLDOWN_SECONDS_EFFECTIVE);
+                    boolean shouldResync = (carrierJumpCooldownEndTime == null)
+                            || newEndTime.isBefore(carrierJumpCooldownEndTime);
+                    if (shouldResync) {
+                        startCarrierJumpCooldown(jumpTs);
+                    }
                 });
             }
         });
@@ -412,7 +434,9 @@ private void updateCarrierJumpCountdown() {
         return;
     }
 
-    long seconds = carrierJumpDepartureTime.getEpochSecond() - Instant.now().getEpochSecond();
+    Instant jumpCompleteTime = carrierJumpDepartureTime;
+
+    long seconds = jumpCompleteTime.getEpochSecond() - Instant.now().getEpochSecond();
     if (seconds < 0) {
         seconds = 0;
     }
@@ -435,10 +459,12 @@ private void updateCarrierJumpCountdown() {
 
     publishRightStatusText(countdown);
 
-    if (Instant.now().isAfter(carrierJumpDepartureTime.plusSeconds(5))) {
+    if (carrierJumpCooldownEndTime == null && Instant.now().isAfter(jumpCompleteTime.plusSeconds(5))) {
         maybeSendCarrierJumpTextNotification();
+        // Start cooldown based on when the jump was scheduled to complete, not when we detect it.
+        // This avoids showing a slightly-extended remaining time when logs are delayed.
         clearCarrierJumpCountdownStateOnly();
-        startCarrierJumpCooldown();
+        startCarrierJumpCooldown(jumpCompleteTime);
     }
 }
 
@@ -454,7 +480,12 @@ private void clearCarrierJumpCountdownStateOnly() {
 }
 
 private void startCarrierJumpCooldown() {
-    carrierJumpCooldownEndTime = Instant.now().plusSeconds(CARRIER_JUMP_COOLDOWN_SECONDS);
+    startCarrierJumpCooldown(Instant.now());
+}
+
+private void startCarrierJumpCooldown(Instant startTime) {
+    Instant effectiveStart = startTime != null ? startTime : Instant.now();
+    carrierJumpCooldownEndTime = effectiveStart.plusSeconds(CARRIER_JUMP_COOLDOWN_SECONDS_EFFECTIVE);
     if (carrierJumpCooldownTimer != null) {
         carrierJumpCooldownTimer.stop();
     }
