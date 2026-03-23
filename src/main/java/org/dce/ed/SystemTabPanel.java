@@ -84,6 +84,7 @@ public class SystemTabPanel extends JPanel {
     // Bio column icons (painted, no external resources) - scaled from current UI font.
     private Icon bioLeafIcon = new LeafIcon(18, 18);
     private Icon bioDollarIcon = new DollarIcon(16, 16);
+    private Icon bioGeoIcon = new RingedPlanetIcon(16, 16);
 
     private static final long BIO_DOLLAR_THRESHOLD = 20_000_000L;
     // NEW: semi-transparent orange for separators, similar to RouteTabPanel
@@ -929,11 +930,35 @@ public class SystemTabPanel extends JPanel {
                 return c;
             }
 
-            // Only override the main (non-detail) body rows. Detail rows keep their text.
+            // Detail rows: prepend icons before genus/ring text.
             if (r.detail) {
-                c.setIcon(null);
+                Icon icon = null;
+                int stackedWidth = (bioLeafIcon != null ? bioLeafIcon.getIconWidth() : 0)
+                        + 1
+                        + (bioDollarIcon != null ? bioDollarIcon.getIconWidth() : 0);
+                int slotWidth = Math.max(stackedWidth, bioGeoIcon != null ? bioGeoIcon.getIconWidth() : 0);
+                if (!r.destinationRow) {
+                    if (r.isRingDetail()) {
+                        icon = bioGeoIcon;
+                    } else if (r.bioText != null && !r.bioText.isBlank()) {
+                        HorizontalIconStack stack = new HorizontalIconStack(-6);
+                        stack.add(bioLeafIcon);
+                        BodyInfo parent = state.getBodies().get(Integer.valueOf(r.parentId));
+                        if (parent != null) {
+                            boolean excludeFromExobiology = Boolean.TRUE.equals(parent.getSpanshExcludeFromExobiology());
+                            long maxPredictedBioValue = excludeFromExobiology ? Long.MIN_VALUE : getMaxPredictedBioValue(parent);
+                            if (maxPredictedBioValue >= BIO_DOLLAR_THRESHOLD) {
+                                stack.add(bioDollarIcon);
+                            }
+                        }
+                        icon = stack.getIconWidth() > 0 ? stack : bioLeafIcon;
+                    }
+                }
+                c.setIcon(icon != null ? new FixedWidthIcon(icon, slotWidth) : null);
                 c.setText(value != null ? String.valueOf(value) : "");
                 c.setHorizontalAlignment(SwingConstants.LEFT);
+                c.setHorizontalTextPosition(SwingConstants.RIGHT);
+                c.setIconTextGap(-4);
                 return c;
             }
 
@@ -946,26 +971,13 @@ public class SystemTabPanel extends JPanel {
 
             boolean excludeFromExobiology = Boolean.TRUE.equals(b.getSpanshExcludeFromExobiology());
             boolean hasBio = !excludeFromExobiology && b.hasBio();
-            boolean hasGeo = b.hasGeo();
 
-            long maxPredictedBioValue = excludeFromExobiology ? Long.MIN_VALUE : getMaxPredictedBioValue(b);
-            boolean showDollar = maxPredictedBioValue >= BIO_DOLLAR_THRESHOLD;
-
-// Icon stack: leaf, then optional dollar.
-            HorizontalIconStack stack = null;
-            if (hasBio) {
-                stack = new HorizontalIconStack(4);
-                stack.add(bioLeafIcon);
-                if (showDollar) {
-                    stack.add(bioDollarIcon);
-                }
-            }
-
-            c.setIcon(stack);
+            // Bio column keeps text/count only; icons are shown in Atmo/Body column.
+            c.setIcon(null);
             c.setHorizontalAlignment(SwingConstants.LEFT);
 
-            // Geo label is only shown when geo exists. Keep it minimal.
-            String text = hasGeo ? "Geo" : "";
+            // Keep text minimal when iconography already conveys type.
+            String text = "";
 
             // If we are showing the $ indicator, also show the bio signal count as "(n)" after the icons.
             // This is populated from FSSBodySignals / SAASignalsFound.
@@ -1072,6 +1084,34 @@ return c;
                     xx += gap;
                 }
             }
+        }
+    }
+
+    private static final class FixedWidthIcon implements Icon {
+        private final Icon delegate;
+        private final int width;
+
+        FixedWidthIcon(Icon delegate, int width) {
+            this.delegate = delegate;
+            this.width = Math.max(0, width);
+        }
+
+        @Override
+        public int getIconWidth() {
+            return width;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return delegate != null ? delegate.getIconHeight() : 0;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            if (delegate == null) {
+                return;
+            }
+            delegate.paintIcon(c, g, x, y);
         }
     }
 
@@ -1321,31 +1361,157 @@ return c;
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-                int pad = 1;
-                int cx = x + pad;
-                int cy = y + pad;
-                int cw = w - pad * 2;
-                int ch = h - pad * 2;
+                double ix = x + 1.0;
+                double iy = y + 1.0;
+                double iw = Math.max(8.0, w - 2.0);
+                double ih = Math.max(8.0, h - 2.0);
 
-                Color gold = EdoUi.User.VALUABLE;
-                Color goldDark = EdoUi.Internal.BROWN_DARK;
+                Color bagFill = new Color(194, 154, 72, 235);
+                Color bagDark = new Color(128, 95, 36, 220);
+                Color tie = new Color(88, 62, 24, 235);
 
-                g2.setColor(EdoUi.withAlpha(gold, 220));
-                g2.fillOval(cx, cy, cw, ch);
+                // Main bag body.
+                Path2D bag = new Path2D.Double();
+                bag.moveTo(ix + iw * 0.50, iy + ih * 0.30);
+                bag.curveTo(ix + iw * 0.28, iy + ih * 0.34, ix + iw * 0.18, iy + ih * 0.56, ix + iw * 0.26, iy + ih * 0.77);
+                bag.curveTo(ix + iw * 0.34, iy + ih * 0.93, ix + iw * 0.66, iy + ih * 0.93, ix + iw * 0.74, iy + ih * 0.77);
+                bag.curveTo(ix + iw * 0.82, iy + ih * 0.56, ix + iw * 0.72, iy + ih * 0.34, ix + iw * 0.50, iy + ih * 0.30);
+                bag.closePath();
+                g2.setColor(bagFill);
+                g2.fill(bag);
+                g2.setColor(bagDark);
+                g2.setStroke(new BasicStroke(Math.max(0.8f, (float) (w * 0.06f)), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.draw(bag);
 
-                g2.setColor(goldDark);
-                g2.setStroke(new BasicStroke(1.0f));
-                g2.drawOval(cx, cy, cw, ch);
+                // Inverted triangle "flap" above the tie (user requested shape cue).
+                Path2D flap = new Path2D.Double();
+                flap.moveTo(ix + iw * 0.35, iy + ih * 0.14);
+                flap.lineTo(ix + iw * 0.65, iy + ih * 0.14);
+                flap.lineTo(ix + iw * 0.50, iy + ih * 0.28);
+                flap.closePath();
+                g2.setColor(EdoUi.withAlpha(new Color(222, 186, 102), 230));
+                g2.fill(flap);
+                g2.setColor(bagDark);
+                g2.draw(flap);
 
-                // Dollar sign
-                g2.setColor(EdoUi.Internal.BROWN_DARKER);
+                // Tie band directly under the flap.
+                g2.setColor(tie);
+                g2.setStroke(new BasicStroke(Math.max(0.9f, (float) (w * 0.08f))));
+                g2.draw(new java.awt.geom.Line2D.Double(ix + iw * 0.34, iy + ih * 0.30, ix + iw * 0.66, iy + ih * 0.30));
+                g2.fill(new java.awt.geom.Ellipse2D.Double(ix + iw * 0.45, iy + ih * 0.27, iw * 0.10, ih * 0.08));
+
+                // Visible $ mark on the body.
+                g2.setColor(new Color(84, 56, 18, 235));
                 Font f = c != null ? c.getFont() : new Font("Dialog", Font.BOLD, 12);
-                g2.setFont(f.deriveFont(Font.BOLD, 11f));
+                g2.setFont(f.deriveFont(Font.BOLD, Math.max(8f, (float) (h * 0.46f))));
                 FontMetrics fm = g2.getFontMetrics();
                 String s = "$";
-                int tx = x + (w - fm.stringWidth(s)) / 2;
-                int ty = y + (h - fm.getHeight()) / 2 + fm.getAscent() - 1;
+                int tx = (int) Math.round(ix + (iw - fm.stringWidth(s)) * 0.50);
+                int ty = (int) Math.round(iy + ih * 0.70);
                 g2.drawString(s, tx, ty);
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+
+    private static final class RingedPlanetIcon implements Icon {
+        private final int w;
+        private final int h;
+
+        RingedPlanetIcon(int w, int h) {
+            this.w = w;
+            this.h = h;
+        }
+
+        @Override
+        public int getIconWidth() {
+            return w;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return h;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                double ix = x + 1.0;
+                double iy = y + 1.0;
+                double iw = Math.max(8.0, w - 2.0);
+                double ih = Math.max(8.0, h - 2.0);
+
+                Color planetFill = new Color(70, 130, 210, 235);   // blue
+                Color planetShadow = new Color(35, 76, 140, 210);  // darker blue edge/shade
+                Color ringColor = new Color(220, 72, 72, 220);     // red
+                Color ringShadow = new Color(130, 35, 35, 200);    // darker red edge
+
+                // Shared center: keep planet centered inside the ring.
+                double cx = ix + iw * 0.50;
+                double cy = iy + ih * 0.50;
+
+                // Planet body geometry (centered on ring center).
+                double planetD = Math.min(iw, ih) * 0.62;
+                double planetX = cx - planetD * 0.50;
+                double planetY = cy - planetD * 0.50;
+                java.awt.geom.Ellipse2D planetCircle = new java.awt.geom.Ellipse2D.Double(planetX, planetY, planetD, planetD);
+
+                // Build ring as a true annulus (outer ellipse minus inner ellipse), then rotate.
+                double ringW = iw * 0.98;
+                double ringH = ih * 0.42;
+                double ringThickness = Math.max(1.2, Math.min(iw, ih) * 0.10);
+                java.awt.geom.Ellipse2D outer = new java.awt.geom.Ellipse2D.Double(
+                        cx - ringW * 0.50, cy - ringH * 0.50, ringW, ringH);
+                java.awt.geom.Ellipse2D inner = new java.awt.geom.Ellipse2D.Double(
+                        cx - (ringW - ringThickness * 2.0) * 0.50,
+                        cy - (ringH - ringThickness * 2.0) * 0.50,
+                        Math.max(1.0, ringW - ringThickness * 2.0),
+                        Math.max(1.0, ringH - ringThickness * 2.0));
+                java.awt.geom.Area ringArea = new java.awt.geom.Area(outer);
+                ringArea.subtract(new java.awt.geom.Area(inner));
+                java.awt.geom.AffineTransform ringTx = java.awt.geom.AffineTransform.getRotateInstance(
+                        Math.toRadians(-22), cx, cy);
+                ringArea.transform(ringTx);
+
+                // Split into back/front halves, then layer around the planet.
+                java.awt.geom.Area frontHalf = new java.awt.geom.Area(new java.awt.geom.Rectangle2D.Double(
+                        cx - ringW * 0.75, cy, ringW * 1.50, ringH * 1.20));
+                java.awt.geom.Area backHalf = new java.awt.geom.Area(new java.awt.geom.Rectangle2D.Double(
+                        cx - ringW * 0.75, cy - ringH * 1.20, ringW * 1.50, ringH * 1.20));
+                frontHalf.transform(ringTx);
+                backHalf.transform(ringTx);
+                java.awt.geom.Area ringFront = new java.awt.geom.Area(ringArea);
+                ringFront.intersect(frontHalf);
+                java.awt.geom.Area ringBack = new java.awt.geom.Area(ringArea);
+                ringBack.intersect(backHalf);
+
+                // Back half first (behind planet).
+                g2.setColor(ringShadow);
+                g2.fill(ringBack);
+                g2.setColor(ringColor);
+                g2.setStroke(new BasicStroke(Math.max(0.55f, (float) (ringThickness * 0.16f)), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.draw(ringBack);
+
+                // Planet body on top.
+                g2.setColor(planetFill);
+                g2.fill(planetCircle);
+                g2.setColor(planetShadow);
+                g2.setStroke(new BasicStroke(Math.max(0.8f, (float) (w * 0.05))));
+                g2.draw(planetCircle);
+                g2.setColor(EdoUi.withAlpha(new Color(164, 207, 255), 170));
+                g2.fill(new java.awt.geom.Ellipse2D.Double(
+                        planetX + planetD * 0.16, planetY + planetD * 0.14, planetD * 0.30, planetD * 0.22));
+
+                // Front half last (in front of planet).
+                g2.setColor(ringColor);
+                g2.fill(ringFront);
+                g2.setColor(ringShadow);
+                g2.setStroke(new BasicStroke(Math.max(0.55f, (float) (ringThickness * 0.16f)), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.draw(ringFront);
             } finally {
                 g2.dispose();
             }
@@ -1999,7 +2165,10 @@ static class Row {
         FontMetrics fm = table.getFontMetrics(font);
         int iconHeight = Math.max(
                 bioLeafIcon != null ? bioLeafIcon.getIconHeight() : 0,
-                bioDollarIcon != null ? bioDollarIcon.getIconHeight() : 0
+                Math.max(
+                        bioDollarIcon != null ? bioDollarIcon.getIconHeight() : 0,
+                        bioGeoIcon != null ? bioGeoIcon.getIconHeight() : 0
+                )
         );
         int textHeight = fm.getAscent() + fm.getDescent();
         int h = Math.max(textHeight, iconHeight) + verticalPaddingPx;
@@ -2012,9 +2181,11 @@ static class Row {
     private void refreshBioIcons() {
         int fontSize = (uiFont != null) ? uiFont.getSize() : 14;
         int leafSize = Math.max(14, Math.round(fontSize * 1.15f));
-        int dollarSize = Math.max(12, Math.round(fontSize * 1.00f));
+        int dollarSize = Math.max(16, Math.round(fontSize * 1.45f));
+        int geoSize = Math.max(14, Math.round(fontSize * 1.35f));
         bioLeafIcon = new LeafIcon(leafSize, leafSize);
         bioDollarIcon = new DollarIcon(dollarSize, dollarSize);
+        bioGeoIcon = new RingedPlanetIcon(geoSize, geoSize);
     }
 
 
