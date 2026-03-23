@@ -56,11 +56,11 @@ public class EliteDangerousOverlay implements NativeKeyListener {
         OverlayPreferences.applyThemeToEdoUi();
 
         this.prefs = Preferences.userNodeForPackage(EliteDangerousOverlay.class);
-        this.passThroughMode = true;
+        this.passThroughMode = prefs.getBoolean(PREF_START_IN_PASSTHROUGH, false);
         this.contentPanel = new OverlayContentPanel(() -> passThroughMode);
 
         this.passThroughFrame = new OverlayFrame(contentPanel);
-        this.passThroughFrame.setPassThroughEnabled(true);
+        this.passThroughFrame.setPassThroughEnabled(this.passThroughMode);
 
         this.decoratedDialog = new DecoratedOverlayDialog(passThroughFrame, contentPanel, clientKey);
         this.decoratedDialog.setOnRequestSwitchToPassThrough(() -> SwingUtilities.invokeLater(() -> setPassThroughMode(true)));
@@ -167,19 +167,22 @@ public class EliteDangerousOverlay implements NativeKeyListener {
     }
 
     private void start() {
-        passThroughFrame.showOverlay();
+        if (passThroughMode) {
+            // Start directly in pass-through frame mode.
+            passThroughFrame.showOverlay();
+            prewarmDecoratedDialog();
+        } else {
+            // Start directly in decorated non-pass-through mode (no startup mode flip).
+            java.awt.Rectangle bounds = passThroughFrame.getBounds();
+            passThroughFrame.setPassThroughEnabled(false);
 
-        boolean startInPassThrough = prefs.getBoolean(PREF_START_IN_PASSTHROUGH, false);
-
-        // Now that the native HWND exists, actually apply click-through if desired.
-        passThroughFrame.setPassThroughEnabled(startInPassThrough);
-
-        // Pre-warm the decorated window so the first F9 toggle doesn't jump.
-        prewarmDecoratedDialog();
-
-        // Default behavior: start in normal (decorated) window mode.
-        if (!startInPassThrough) {
-            SwingUtilities.invokeLater(() -> setPassThroughMode(false));
+            decoratedDialog.setBounds(bounds);
+            decoratedDialog.attachContent();
+            passThroughFrame.setRightStatusListener(decoratedDialog::setRightStatusText);
+            passThroughFrame.refreshRightStatusDisplay();
+            decoratedDialog.applyOverlayBackgroundFromPreferences(false);
+            decoratedDialog.setVisible(true);
+            decoratedDialog.toFront();
         }
 
         // Save bounds and clean up on close
@@ -223,88 +226,50 @@ public class EliteDangerousOverlay implements NativeKeyListener {
 
     	java.awt.Window fromWindow = this.passThroughMode ? passThroughFrame : decoratedDialog;
     	java.awt.Window toWindow = enablePassThrough ? passThroughFrame : decoratedDialog;
-
-    	// 1) Prep + show the target window first (reduces compositor "blank" / pop).
-    	toWindow.setBounds(bounds);
-
-    	if (toWindow == passThroughFrame) {
-    		passThroughFrame.setPassThroughEnabled(true);
-    	}
-
-    	// Avoid white flash: configure background + styles before first paint
-    	toWindow.setVisible(false);
-
-    	// Hide first paint to avoid a brief default (white) background flash.
-    	// We restore opacity immediately after the window is realized.
-    	boolean usedOpacityHack = false;
-    	if (!enablePassThrough) {
-    		try {
-    			toWindow.setOpacity(0.0f);
-    			usedOpacityHack = true;
-    		} catch (Exception ignored) {
-    		}
-    	}
-
-    	if (toWindow instanceof OverlayFrame) {
-    		((OverlayFrame) toWindow).prepareForShow(enablePassThrough);
-    	}
-
-    	toWindow.setVisible(true);
-    	toWindow.toFront();
-    	toWindow.requestFocus();
-
-    	if (usedOpacityHack) {
-    		javax.swing.SwingUtilities.invokeLater(() -> {
-    			try {
-    				toWindow.setOpacity(1.0f);
-    			} catch (Exception ignored) {
-    			}
-    		});
-    	}
-
-
-    	// 2) Reparent content with minimal churn.
-    	contentPanel.setVisible(false);
-
     	if (contentPanel.getParent() != null) {
     		contentPanel.getParent().remove(contentPanel);
     	}
 
-    	if (toWindow == passThroughFrame) {
+    	if (enablePassThrough) {
+    		// Prepare pass-through frame fully before showing.
+    		passThroughFrame.setBounds(bounds);
+    		passThroughFrame.setPassThroughEnabled(true);
+    		passThroughFrame.prepareForShow(true);
     		passThroughFrame.add(contentPanel, java.awt.BorderLayout.CENTER);
     		passThroughFrame.setRightStatusListener(null);
     		passThroughFrame.refreshRightStatusDisplay();
+    		passThroughFrame.applyOverlayBackgroundFromPreferences(true);
+    		passThroughFrame.applyUiFontPreferences();
+    		passThroughFrame.validate();
+    		passThroughFrame.repaint();
+    		passThroughFrame.setVisible(true);
+    		passThroughFrame.toFront();
+    		passThroughFrame.requestFocus();
+    		fromWindow.setVisible(false);
     	} else {
-    		// attachContent() should remove+add contentPanel into the decorated frame.
+    		// Prepare decorated dialog fully while hidden, then show once.
     		passThroughFrame.setPassThroughEnabled(false);
-    		passThroughFrame.setVisible(false);
 
-    		decoratedDialog.setBounds(bounds);      // set bounds FIRST
-    		decoratedDialog.attachContent();        // then attach content
+    		decoratedDialog.setBounds(bounds);
+    		decoratedDialog.attachContent();
     		passThroughFrame.setRightStatusListener(decoratedDialog::setRightStatusText);
     		passThroughFrame.refreshRightStatusDisplay();
-    		decoratedDialog.applyOverlayBackgroundFromPreferences(false);
+    		decoratedDialog.prepareForShow();
+    		decoratedDialog.showTransitionShield();
     		decoratedDialog.setVisible(true);
-    		decoratedDialog.toFront();
+            // Keep pass-through frame on top until decorated is fully ready.
+            passThroughFrame.toFront();
+    		javax.swing.SwingUtilities.invokeLater(() -> {
+                decoratedDialog.toFront();
+                decoratedDialog.requestFocus();
+                fromWindow.setVisible(false);
+                javax.swing.SwingUtilities.invokeLater(() -> decoratedDialog.hideTransitionShield());
+    		});
     	}
-
-    	contentPanel.setVisible(true);
-
-    	// 3) Apply visuals after attach (prevents a flash of old background/font).
-    	if (toWindow instanceof OverlayUiPreviewHost) {
-    		OverlayUiPreviewHost host = (OverlayUiPreviewHost) toWindow;
-    		host.applyOverlayBackgroundFromPreferences(enablePassThrough);
-    		host.applyUiFontPreferences();
-    	}
-
-    	toWindow.validate();
-    	toWindow.repaint();
-
-    	// 4) Hide the old window last (avoid flicker).
-    	fromWindow.setVisible(false);
 
     	// 5) Final state.
     	this.passThroughMode = enablePassThrough;
+        prefs.putBoolean(PREF_START_IN_PASSTHROUGH, enablePassThrough);
 
     	// If we're switching to the decorated window, make sure pass-through is disabled.
     	if (!enablePassThrough) {

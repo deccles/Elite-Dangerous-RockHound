@@ -8,6 +8,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
 import javax.swing.Box;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
@@ -56,6 +57,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 	private JLabel statusLabel;
 	private volatile CargoMonitor.Snapshot lastCargoSnapshot;
 	private String lastRightStatusText = "";
+	private JComponent transitionShield;
 
 	/**
 	 * Minimal DWM binding.
@@ -144,6 +146,57 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		// Initial paint.
 		lastCargoSnapshot = CargoMonitor.getInstance().getSnapshot();
 		updateStatusLabel();
+	}
+
+	/**
+	 * Show a temporary dark shield while switching windows to mask compositor flashes.
+	 */
+	public void showTransitionShield() {
+		if (transitionShield == null) {
+			transitionShield = new javax.swing.JPanel();
+			transitionShield.setOpaque(true);
+			transitionShield.setBackground(EdoUi.User.BACKGROUND != null ? EdoUi.User.BACKGROUND : Color.BLACK);
+		}
+		javax.swing.JLayeredPane lp = getLayeredPane();
+		if (lp == null) {
+			return;
+		}
+		int w = Math.max(getWidth(), 1);
+		int h = Math.max(getHeight(), 1);
+		transitionShield.setBounds(0, 0, w, h);
+		if (transitionShield.getParent() != lp) {
+			lp.add(transitionShield, javax.swing.JLayeredPane.DRAG_LAYER);
+		}
+		transitionShield.setVisible(true);
+		lp.revalidate();
+		lp.repaint();
+	}
+
+	public void hideTransitionShield() {
+		if (transitionShield == null) {
+			return;
+		}
+		if (transitionShield.getParent() != null) {
+			transitionShield.getParent().remove(transitionShield);
+		}
+		transitionShield.setVisible(false);
+		repaint();
+	}
+
+	/**
+	 * Prepare decorated window visuals before first show to avoid bright default paints.
+	 */
+	public void prepareForShow() {
+		try {
+			Color base = EdoUi.User.BACKGROUND != null ? EdoUi.User.BACKGROUND : Color.BLACK;
+			getContentPane().setBackground(base);
+			getRootPane().setBackground(base);
+			applyOverlayBackgroundFromPreferences(false);
+			applyUiFontPreferences();
+			validate();
+			repaint();
+		} catch (Exception ignored) {
+		}
 	}
 
 	/** Called by OverlayFrame when this dialog is the visible status display (single entry point). */

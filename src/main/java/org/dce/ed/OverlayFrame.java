@@ -688,7 +688,8 @@ private void updateLeftStatusLabel() {
                 System.err.println("Failed to obtain native window pointer for overlay window.");
             } else {
                 hwnd = new HWND(ptr);
-                applyPassThrough(false);
+                // Respect the configured startup pass-through state instead of forcing non-pass-through.
+                applyPassThrough(this.passThroughEnabled);
                 System.out.println(
                         "Overlay size: " + getWidth() + "x" + getHeight()
                                 + " at (" + getX() + "," + getY() + ")"
