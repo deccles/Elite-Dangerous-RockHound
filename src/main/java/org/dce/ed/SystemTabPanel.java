@@ -85,6 +85,7 @@ public class SystemTabPanel extends JPanel {
     private Icon bioLeafIcon = new LeafIcon(18, 18);
     private Icon bioDollarIcon = new DollarIcon(16, 16);
     private Icon bioGeoIcon = new RingedPlanetIcon(16, 16);
+    private Icon landSneakerIcon = new SneakerIcon(16, 10);
 
     private static final long BIO_DOLLAR_THRESHOLD = 20_000_000L;
     // NEW: semi-transparent orange for separators, similar to RouteTabPanel
@@ -353,11 +354,54 @@ public class SystemTabPanel extends JPanel {
                 return c;
             }
         };
+        DefaultTableCellRenderer landRenderer = new DefaultTableCellRenderer() {
+            {
+                setOpaque(false);
+                setHorizontalAlignment(SwingConstants.CENTER);
+                setForeground(EdoUi.User.MAIN_TEXT);
+            }
+            @Override
+            public Component getTableCellRendererComponent(JTable table,
+                                                           Object value,
+                                                           boolean isSelected,
+                                                           boolean hasFocus,
+                                                           int row,
+                                                           int column) {
+                JLabel c = (JLabel) super.getTableCellRendererComponent(table,
+                                                                        "",
+                                                                        isSelected,
+                                                                        hasFocus,
+                                                                        row,
+                                                                        column);
+                Row r = tableModel.getRowAt(row);
+                if (isSelected) {
+                    c.setForeground(Color.BLACK);
+                } else if (r != null && r.detail && r.isRingDetail()) {
+                    c.setForeground(EdoUi.Internal.GRAY_180);
+                } else {
+                    c.setForeground(EdoUi.User.MAIN_TEXT);
+                }
+                if (c instanceof JComponent) {
+                    ((JComponent) c).setOpaque(false);
+                }
+                c.setBackground(EdoUi.Internal.TRANSPARENT);
+                boolean showSneaker = false;
+                if (r != null && !r.detail && r.body != null) {
+                    showSneaker = r.body.isLandable();
+                }
+                c.setIcon(showSneaker ? landSneakerIcon : null);
+                c.setText("");
+                c.setHorizontalTextPosition(SwingConstants.RIGHT);
+                c.setIconTextGap(0);
+                return c;
+            }
+        };
 
         // Column index 3 is "Value"
         table.getColumnModel().getColumn(2).setCellRenderer(new BioCellRenderer());
 
         table.getColumnModel().getColumn(3).setCellRenderer(valueRightRenderer);
+        table.getColumnModel().getColumn(4).setCellRenderer(landRenderer);
 
         JScrollPane scrollPane = new JScrollPane(table);
         scrollPane.setBorder(null);
@@ -1627,6 +1671,125 @@ public class SystemTabPanel extends JPanel {
         }
     }
 
+    private static final class SneakerIcon implements Icon {
+        private final int w;
+        private final int h;
+
+        SneakerIcon(int w, int h) {
+            this.w = w;
+            this.h = h;
+        }
+
+        @Override
+        public int getIconWidth() {
+            return w;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return h;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                double ix = x + 0.5;
+                double iy = y + 0.5;
+                double iw = Math.max(8.0, w - 1.0);
+                double ih = Math.max(6.0, h - 1.0);
+
+                Color upper = new Color(206, 44, 44, 245);
+                Color upperShade = new Color(164, 30, 30, 220);
+                Color outline = new Color(50, 50, 50, 235);
+                Color sole = new Color(252, 252, 252, 250);
+                Color trim = new Color(150, 150, 150, 230);
+                Color stripe = new Color(35, 35, 35, 245);
+                Color lace = new Color(238, 238, 238, 245);
+
+                // Exaggerated Chuck-style high-top silhouette for readability.
+                Path2D shoe = new Path2D.Double();
+                shoe.moveTo(ix + iw * 0.05, iy + ih * 0.72); // heel bottom (closer to sole)
+                shoe.lineTo(ix + iw * 0.06, iy + ih * 0.10); // high collar back (taller)
+                shoe.lineTo(ix + iw * 0.34, iy + ih * 0.11); // collar top (flat/high)
+                shoe.lineTo(ix + iw * 0.42, iy + ih * 0.40); // lace throat
+                shoe.lineTo(ix + iw * 0.72, iy + ih * 0.42); // vamp
+                shoe.curveTo(ix + iw * 0.95, iy + ih * 0.44, ix + iw * 1.00, iy + ih * 0.62, ix + iw * 0.87, iy + ih * 0.72);
+                shoe.lineTo(ix + iw * 0.75, iy + ih * 0.73);
+                shoe.lineTo(ix + iw * 0.05, iy + ih * 0.73);
+                shoe.closePath();
+
+                g2.setColor(upper);
+                g2.fill(shoe);
+                g2.setColor(outline);
+                g2.setStroke(new BasicStroke(1.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.draw(shoe);
+                g2.setColor(EdoUi.withAlpha(upperShade, 180));
+                g2.draw(new java.awt.geom.Line2D.Double(ix + iw * 0.16, iy + ih * 0.22, ix + iw * 0.30, iy + ih * 0.70));
+
+                // Rubber toe cap: 90deg corner + quarter-arc to the right.
+                Path2D toeCap = new Path2D.Double();
+                double toeLeft = ix + iw * 0.74;
+                double toeTop = iy + ih * 0.52;
+                double toeBottom = iy + ih * 0.76;
+                double toeRight = ix + iw * 0.95;
+                toeCap.moveTo(toeLeft, toeBottom);
+                toeCap.lineTo(toeLeft, toeTop); // vertical edge (90deg corner)
+                toeCap.lineTo(ix + iw * 0.86, toeTop); // top flat
+                toeCap.curveTo(
+                        ix + iw * 0.93, toeTop,      // arc control 1
+                        toeRight, iy + ih * 0.59,    // arc control 2
+                        toeRight, toeBottom          // arc end
+                );
+                toeCap.closePath();
+                g2.setColor(sole);
+                g2.fill(toeCap);
+                g2.setColor(trim);
+                g2.draw(toeCap);
+
+                // Sole and foxing stripe.
+                int sx = (int) Math.round(ix + iw * 0.03);
+                int sy = (int) Math.round(iy + ih * 0.73);
+                int sw = (int) Math.round(iw * 0.92);
+                int sh = Math.max(2, (int) Math.round(ih * 0.15));
+                g2.setColor(sole);
+                g2.fillRoundRect(sx, sy, sw, sh, 3, 3);
+                g2.setColor(trim);
+                g2.drawRoundRect(sx, sy, sw, sh, 3, 3);
+                g2.setColor(stripe);
+                g2.setStroke(new BasicStroke(0.9f));
+                g2.draw(new java.awt.geom.Line2D.Double(ix + iw * 0.10, iy + ih * 0.81, ix + iw * 0.84, iy + ih * 0.81));
+                g2.setColor(outline);
+                g2.setStroke(new BasicStroke(0.75f));
+                g2.draw(new java.awt.geom.Line2D.Double(ix + iw * 0.10, iy + ih * 0.83, ix + iw * 0.84, iy + ih * 0.83));
+
+                // Circular ankle patch + eyelets.
+                double patchD = Math.min(iw, ih) * 0.21;
+                java.awt.geom.Ellipse2D patchOuter = new java.awt.geom.Ellipse2D.Double(ix + iw * 0.15, iy + ih * 0.22, patchD, patchD);
+                java.awt.geom.Ellipse2D patchInner = new java.awt.geom.Ellipse2D.Double(ix + iw * 0.19, iy + ih * 0.26, patchD * 0.58, patchD * 0.58);
+                g2.setColor(sole);
+                g2.fill(patchOuter);
+                g2.setColor(trim);
+                g2.draw(patchOuter);
+                g2.setColor(new Color(58, 84, 170, 235));
+                g2.fill(patchInner);
+                for (int i = 0; i < 4; i++) {
+                    double ex = ix + iw * (0.42 + i * 0.07);
+                    double ey = iy + ih * 0.49;
+                    g2.fill(new java.awt.geom.Ellipse2D.Double(ex, ey, iw * 0.025, ih * 0.05));
+                }
+                g2.setColor(lace);
+                g2.setStroke(new BasicStroke(0.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.draw(new java.awt.geom.Line2D.Double(ix + iw * 0.43, iy + ih * 0.47, ix + iw * 0.53, iy + ih * 0.39));
+                g2.draw(new java.awt.geom.Line2D.Double(ix + iw * 0.50, iy + ih * 0.50, ix + iw * 0.60, iy + ih * 0.42));
+                g2.draw(new java.awt.geom.Line2D.Double(ix + iw * 0.57, iy + ih * 0.53, ix + iw * 0.67, iy + ih * 0.45));
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+
 static class Row {
         final BodyInfo body;
         final boolean detail;
@@ -2292,9 +2455,12 @@ static class Row {
         int leafSize = Math.max(14, Math.round(fontSize * 1.15f));
         int dollarSize = Math.max(16, Math.round(fontSize * 1.45f));
         int geoSize = Math.max(14, Math.round(fontSize * 1.35f));
+        int sneakerW = Math.max(20, Math.round(fontSize * 1.55f));
+        int sneakerH = Math.max(12, Math.round(fontSize * 0.90f));
         bioLeafIcon = new CachedIcon(new LeafIcon(leafSize, leafSize));
         bioDollarIcon = new CachedIcon(new DollarIcon(dollarSize, dollarSize));
         bioGeoIcon = new CachedIcon(new RingedPlanetIcon(geoSize, geoSize));
+        landSneakerIcon = new CachedIcon(new SneakerIcon(sneakerW, sneakerH));
     }
 
 
