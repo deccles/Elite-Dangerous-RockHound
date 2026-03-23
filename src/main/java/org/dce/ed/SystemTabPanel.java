@@ -1097,7 +1097,7 @@ return c;
         private final Color fillColor = new Color(81, 189, 87);
         private final Color highlightColor = new Color(135, 228, 137);
         private final Color outlineColor = EdoUi.Internal.BLACK_ALPHA_180;
-        private final Color veinColor = new Color(20, 70, 24, 220);
+        private final Color veinColor = new Color(51, 130, 56, 220);
         private final Color stemColor = new Color(113, 76, 44);
         private final Color accentLineColor = new Color(194, 156, 112, 220);
 
@@ -1178,37 +1178,33 @@ return c;
 
                 // Lower-right offshoot vein:
                 // root stays at the same central branch point; endpoint trends toward tip.
-                g2.setStroke(new BasicStroke(0.75f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g2.draw(new QuadCurve2D.Double(
+                drawTaperedVein(g2,
                     ix + iw * 0.44, iy + ih * 0.56, // offshoot root (aligned to central vein)
                     ix + iw * 0.57, iy + ih * 0.67, // lower offshoot control
                     ix + iw * 0.72, iy + ih * 0.58  // lower offshoot termination (right/lower)
-                ));
+                );
 
                 // Upper-right offshoot vein:
                 // same root as lower offshoot, terminating above it toward the tip.
-                g2.setColor(veinColor);
-                g2.setStroke(new BasicStroke(0.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g2.draw(new QuadCurve2D.Double(
+                drawTaperedVein(g2,
                     ix + iw * 0.44, iy + ih * 0.56, // offshoot root (shared, aligned to central vein)
                     ix + iw * 0.43, iy + ih * 0.34, // upper offshoot control (mid-height, shifted further left)
                     ix + iw * 0.58, iy + ih * 0.24  // upper offshoot termination (near top, more vertical)
-                ));
+                );
 
                 // Secondary (short) offshoot veins:
                 // start about halfway between the primary offshoot root and stem root,
                 // and use roughly half-length / half-curve versions of the two primary branches.
-                g2.setStroke(new BasicStroke(0.65f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g2.draw(new QuadCurve2D.Double(
+                drawTaperedVein(g2,
                     ix + iw * 0.30, iy + ih * 0.70, // secondary shared root (shifted ~25% toward stem)
                     ix + iw * 0.43, iy + ih * 0.78, // lower secondary control
                     ix + iw * 0.53, iy + ih * 0.75  // lower secondary termination (near lower edge)
-                ));
-                g2.draw(new QuadCurve2D.Double(
+                );
+                drawTaperedVein(g2,
                     ix + iw * 0.30, iy + ih * 0.70, // secondary shared root (shifted ~25% toward stem)
                     ix + iw * 0.25, iy + ih * 0.51, // upper secondary control (shifted with root)
                     ix + iw * 0.37, iy + ih * 0.37  // upper secondary termination (shifted with root)
-                ));
+                );
 
                 // Tiny dark connector near base (kept from earlier style passes).
                 g2.draw(new Line2D.Double(
@@ -1236,6 +1232,67 @@ return c;
             } finally {
                 g2.dispose();
             }
+        }
+
+        private void drawTaperedVein(Graphics2D g2,
+                                     double x0, double y0,
+                                     double cx, double cy,
+                                     double x1, double y1) {
+            // Continuous taper along the full curve: wide at root -> narrow at tip.
+            final int segments = 12;
+            // Scale taper geometry with icon size so small-font icons don't look too chunky.
+            final double iconScale = Math.max(0.65, Math.min(1.8, Math.min(getIconWidth(), getIconHeight()) / 18.0));
+            final double taperScale = Math.pow(iconScale, 1.2);
+            final double rootHalfWidth = 1.15 * taperScale;
+            final double tipHalfWidth = Math.max(0.04, 0.06 * taperScale);
+            final double tipAdvance = 1.15 * taperScale;
+
+            double[] lx = new double[segments + 1];
+            double[] ly = new double[segments + 1];
+            double[] rx = new double[segments + 1];
+            double[] ry = new double[segments + 1];
+            double lastUx = 1.0;
+            double lastUy = 0.0;
+
+            for (int i = 0; i <= segments; i++) {
+                double t = i / (double) segments;
+                double omt = 1.0 - t;
+                double px = omt * omt * x0 + 2.0 * omt * t * cx + t * t * x1;
+                double py = omt * omt * y0 + 2.0 * omt * t * cy + t * t * y1;
+
+                double dx = 2.0 * omt * (cx - x0) + 2.0 * t * (x1 - cx);
+                double dy = 2.0 * omt * (cy - y0) + 2.0 * t * (y1 - cy);
+                double dl = Math.sqrt(dx * dx + dy * dy);
+                if (dl > 1e-6) {
+                    lastUx = dx / dl;
+                    lastUy = dy / dl;
+                }
+
+                double nx = -lastUy;
+                double ny = lastUx;
+                double hw = rootHalfWidth + (tipHalfWidth - rootHalfWidth) * t;
+                lx[i] = px + nx * hw;
+                ly[i] = py + ny * hw;
+                rx[i] = px - nx * hw;
+                ry[i] = py - ny * hw;
+            }
+
+            double tipX = x1 + lastUx * tipAdvance;
+            double tipY = y1 + lastUy * tipAdvance;
+
+            Path2D tapered = new Path2D.Double();
+            tapered.moveTo(lx[0], ly[0]);
+            for (int i = 1; i <= segments; i++) {
+                tapered.lineTo(lx[i], ly[i]);
+            }
+            tapered.lineTo(tipX, tipY);
+            for (int i = segments; i >= 0; i--) {
+                tapered.lineTo(rx[i], ry[i]);
+            }
+            tapered.closePath();
+
+            g2.setColor(veinColor);
+            g2.fill(tapered);
         }
     }
 
