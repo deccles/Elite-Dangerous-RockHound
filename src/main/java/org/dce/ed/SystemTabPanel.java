@@ -479,7 +479,8 @@ public class SystemTabPanel extends JPanel {
             bioCol.setMinWidth(bioMinWidth);
         }
 
-        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        // Fill horizontal space: fixed-ish leading columns, last column stretches with viewport.
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
     }
 
     // ---------------------------------------------------------------------
