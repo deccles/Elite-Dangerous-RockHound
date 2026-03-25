@@ -87,7 +87,6 @@ public class SystemTabPanel extends JPanel {
     private Icon bioGeoIcon = new RingedPlanetIcon(16, 16);
     private Icon landSneakerIcon = new SneakerIcon(16, 10);
 
-    private static final long BIO_DOLLAR_THRESHOLD = 20_000_000L;
     // NEW: semi-transparent orange for separators, similar to RouteTabPanel
     // NEW: shared ED font (similar to Route tab)
         private Font uiFont = OverlayPreferences.getUiFont();
@@ -519,11 +518,12 @@ public class SystemTabPanel extends JPanel {
         	TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
         	
         	if (e.getKind() == PredictionKind.INITIAL) {
-        		if (highestPayout >= BIO_DOLLAR_THRESHOLD) {
+        		if (highestPayout >= OverlayPreferences.getBioValuableThresholdCredits()) {
+        			long speakCredits = TtsSprintf.roundCreditsForSpeech(highestPayout);
         			ttsSprintf.speakf("{n} species discovered on planetary body {body} with estimated value of {credits} credits",
         					candidates.size(),
         					e.getBodyName(),
-        					highestPayout);
+        					speakCredits);
         		} else {
         			ttsSprintf.speakf("{n} species discovered on planetary body {body}",
         					candidates.size(),
@@ -996,7 +996,7 @@ public class SystemTabPanel extends JPanel {
                             boolean excludeFromExobiology = Boolean.TRUE.equals(parent.getSpanshExcludeFromExobiology());
                             // Renderer path: keep this lightweight and never trigger remote fetches.
                             long maxPredictedBioValue = excludeFromExobiology ? Long.MIN_VALUE : getMaxPredictedBioValueNoFetch(parent);
-                            if (maxPredictedBioValue >= BIO_DOLLAR_THRESHOLD) {
+                            if (maxPredictedBioValue >= OverlayPreferences.getBioValuableThresholdCredits()) {
                                 stack.add(bioDollarIcon);
                             }
                         }

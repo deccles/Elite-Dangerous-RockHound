@@ -4,8 +4,6 @@ import java.awt.Color;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.List;
 import java.util.prefs.Preferences;
 
 import org.dce.ed.logreader.EliteLogFileLocator;
@@ -52,37 +50,13 @@ public final class OverlayPreferences {
     private static final String KEY_SPEECH_SAMPLE_RATE = "speech.sampleRate"; // PCM sample rate in Hz (as string)
 
 
-    // --- Text notifications (email-to-SMS gateways like vtext.com) ---
-    private static final String KEY_TEXT_NOTIFICATIONS_ENABLED = "textNotifications.enabled";
-    private static final String KEY_TEXT_NOTIFICATIONS_ADDRESS = "textNotifications.address"; // e.g. 5551234567@vtext.com
     private static final String KEY_NON_OVERLAY_ALWAYS_ON_TOP = "window.nonOverlay.alwaysOnTop"; // Decorated window (non-overlay mode)
 
-
-    // ----------------------------
-    // Text notifications (email-to-SMS)
-    // ----------------------------
-
-    public static boolean isTextNotificationsEnabled() {
-        return PREFS.getBoolean(KEY_TEXT_NOTIFICATIONS_ENABLED, false);
-    }
-
-    public static void setTextNotificationsEnabled(boolean enabled) {
-        PREFS.putBoolean(KEY_TEXT_NOTIFICATIONS_ENABLED, enabled);
-    }
-
-    public static List<String> getTextNotificationAddress() {
-        String names = PREFS.get(KEY_TEXT_NOTIFICATIONS_ADDRESS, "");
-        String[] split = names.split(",");
-        List<String> namesList = Arrays.asList(split);
-        return namesList;
-    }
-
-    public static void setTextNotificationAddress(String address) {
-        if (address == null) {
-            address = "";
-        }
-        PREFS.put(KEY_TEXT_NOTIFICATIONS_ADDRESS, address.trim());
-    }
+    private static final String KEY_OVERLAY_TAB_ROUTE_VISIBLE = "overlay.tab.route.visible";
+    private static final String KEY_OVERLAY_TAB_SYSTEM_VISIBLE = "overlay.tab.system.visible";
+    private static final String KEY_OVERLAY_TAB_BIOLOGY_VISIBLE = "overlay.tab.biology.visible";
+    private static final String KEY_OVERLAY_TAB_MINING_VISIBLE = "overlay.tab.mining.visible";
+    private static final String KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE = "overlay.tab.fleetCarrier.visible";
 
     // --- Mining / Prospector ---
     private static final String KEY_MINING_PROSPECTOR_MATERIALS = "mining.prospector.materials"; // comma-separated
@@ -116,6 +90,9 @@ public final class OverlayPreferences {
     private static final String KEY_NEARBY_SPHERE_RADIUS_LY = "nearby.sphereRadiusLy";
     private static final String KEY_NEARBY_MIN_VALUE_MILLION_CREDITS = "nearby.minValueMillionCredits";
     private static final String KEY_NEARBY_MAX_SYSTEMS = "nearby.maxSystems";
+
+    /** System tab: min predicted exobiology value (million credits) for dollar icon + credit TTS (default 10). */
+    private static final String KEY_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS = "exobiology.valuableThresholdMillionCredits";
 
     // Reuse the same prefs node as OverlayFrame so everything is in one place.
     private static final Preferences PREFS = Preferences.userNodeForPackage(OverlayFrame.class);
@@ -196,6 +173,46 @@ public final class OverlayPreferences {
  public static void setNonOverlayAlwaysOnTop(boolean alwaysOnTop) {
      PREFS.putBoolean(KEY_NON_OVERLAY_ALWAYS_ON_TOP, alwaysOnTop);
  }
+
+    public static boolean isOverlayTabRouteVisible() {
+        return PREFS.getBoolean(KEY_OVERLAY_TAB_ROUTE_VISIBLE, true);
+    }
+
+    public static void setOverlayTabRouteVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_ROUTE_VISIBLE, visible);
+    }
+
+    public static boolean isOverlayTabSystemVisible() {
+        return PREFS.getBoolean(KEY_OVERLAY_TAB_SYSTEM_VISIBLE, true);
+    }
+
+    public static void setOverlayTabSystemVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_SYSTEM_VISIBLE, visible);
+    }
+
+    public static boolean isOverlayTabBiologyVisible() {
+        return PREFS.getBoolean(KEY_OVERLAY_TAB_BIOLOGY_VISIBLE, true);
+    }
+
+    public static void setOverlayTabBiologyVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_BIOLOGY_VISIBLE, visible);
+    }
+
+    public static boolean isOverlayTabMiningVisible() {
+        return PREFS.getBoolean(KEY_OVERLAY_TAB_MINING_VISIBLE, true);
+    }
+
+    public static void setOverlayTabMiningVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_MINING_VISIBLE, visible);
+    }
+
+    public static boolean isOverlayTabFleetCarrierVisible() {
+        return PREFS.getBoolean(KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE, true);
+    }
+
+    public static void setOverlayTabFleetCarrierVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE, visible);
+    }
 
     public static int getPassThroughTransparencyPercent() {
         ensureOverlayBackgroundMigratedIfNeeded();
@@ -674,6 +691,36 @@ public static Engine getSpeechEngine() {
             v = 0.0;
         }
         PREFS.put(KEY_NEARBY_MIN_VALUE_MILLION_CREDITS, Double.toString(v));
+    }
+
+    /**
+     * Minimum predicted exobiology value (million credits) for the System tab dollar icon and for speaking
+     * estimated credits on initial bio prediction. Default 10.
+     */
+    public static double getBioValuableThresholdMillionCredits() {
+        String s = PREFS.get(KEY_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS, "10");
+        try {
+            double v = Double.parseDouble(s.trim());
+            if (v < 0.0) {
+                v = 0.0;
+            }
+            return v;
+        } catch (Exception e) {
+            return 10.0;
+        }
+    }
+
+    public static void setBioValuableThresholdMillionCredits(double millionCredits) {
+        double v = millionCredits;
+        if (v < 0.0) {
+            v = 0.0;
+        }
+        PREFS.put(KEY_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS, Double.toString(v));
+    }
+
+    /** Same as {@link #getBioValuableThresholdMillionCredits()} in credits (rounded to nearest credit). */
+    public static long getBioValuableThresholdCredits() {
+        return Math.round(getBioValuableThresholdMillionCredits() * 1_000_000.0);
     }
 
     // --- UI Font (System / Route / Biology) ---

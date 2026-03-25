@@ -11,9 +11,6 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Window;
 import java.io.File;
-import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -41,14 +38,9 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
-import org.dce.ed.exobiology.audit.ExoPredictionDebuggerMain;
 import org.dce.ed.mining.GoogleSheetsAuth;
 import org.dce.ed.ui.EdoUi;
-import org.dce.ed.ui.ShowConsoleAction;
-import org.dce.ed.util.EdsmQueryTool;
 import org.dce.ed.tts.VoicePackManager;
-import org.dce.ed.util.GithubMsiUpdater;
-import org.dce.ed.mining.GoogleSheetsBackend;
 
 /**
  * Preferences dialog for the overlay.
@@ -119,13 +111,16 @@ public class PreferencesDialog extends JDialog {
 	private JSpinner miningTonsHighSpinner;
 	private JSpinner miningTonsCoreSpinner;
 
-	// Text notifications
-	private JCheckBox textNotificationsEnabledCheckBox;
-	private JTextField textNotificationAddressField;
+	private JCheckBox overlayTabRouteVisibleCheckBox;
+	private JCheckBox overlayTabSystemVisibleCheckBox;
+	private JCheckBox overlayTabBiologyVisibleCheckBox;
+	private JCheckBox overlayTabMiningVisibleCheckBox;
+	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
 
 	private JSpinner nearbySphereRadiusSpinner;
 	private JSpinner nearbyMaxSystemsSpinner;
 	private JSpinner nearbyMinValueMillionSpinner;
+	private JSpinner bioValuableThresholdMillionSpinner;
 
 	private boolean okPressed;
 	private final Font originalUiFont;
@@ -170,13 +165,13 @@ public class PreferencesDialog extends JDialog {
 		setMinimumSize(new Dimension(560, 380));
 
 		JTabbedPane tabs = new JTabbedPane();
-		tabs.addTab("Overlay", createOverlayPanel());
-		tabs.addTab("Logging", createLoggingPanel());
-		tabs.addTab("Speech", createSpeechPanel());
-		tabs.addTab("Fonts", createFontsPanel());
 		tabs.addTab("Colors", createColorsPanel());
+		tabs.addTab("Exobiology", createExobiologyPanel());
+		tabs.addTab("Fonts", createFontsPanel());
+		tabs.addTab("Logging", createLoggingPanel());
 		tabs.addTab("Mining", createMiningPanel());
-		tabs.addTab("Tools", createToolsPanel());
+		tabs.addTab("Overlay", createOverlayPanel());
+		tabs.addTab("Speech", createSpeechPanel());
 
 		add(tabs, BorderLayout.CENTER);
 		add(createButtonPanel(), BorderLayout.SOUTH);
@@ -272,6 +267,48 @@ public class PreferencesDialog extends JDialog {
 		gbc.gridwidth = 1;
 
 		content.add(hotkeyPanel, outer);
+
+		outer.gridy++;
+		JPanel tabsPanel = new JPanel(new GridBagLayout());
+		tabsPanel.setOpaque(false);
+		tabsPanel.setBorder(BorderFactory.createTitledBorder("Visible tabs"));
+
+		GridBagConstraints tgc = new GridBagConstraints();
+		tgc.gridx = 0;
+		tgc.gridy = 0;
+		tgc.anchor = GridBagConstraints.WEST;
+		tgc.insets = new Insets(2, 4, 2, 4);
+
+		overlayTabRouteVisibleCheckBox = new JCheckBox("Route");
+		overlayTabRouteVisibleCheckBox.setOpaque(false);
+		overlayTabRouteVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabRouteVisible());
+		tabsPanel.add(overlayTabRouteVisibleCheckBox, tgc);
+
+		tgc.gridy++;
+		overlayTabSystemVisibleCheckBox = new JCheckBox("System");
+		overlayTabSystemVisibleCheckBox.setOpaque(false);
+		overlayTabSystemVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabSystemVisible());
+		tabsPanel.add(overlayTabSystemVisibleCheckBox, tgc);
+
+		tgc.gridy++;
+		overlayTabBiologyVisibleCheckBox = new JCheckBox("Biology");
+		overlayTabBiologyVisibleCheckBox.setOpaque(false);
+		overlayTabBiologyVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabBiologyVisible());
+		tabsPanel.add(overlayTabBiologyVisibleCheckBox, tgc);
+
+		tgc.gridy++;
+		overlayTabMiningVisibleCheckBox = new JCheckBox("Mining");
+		overlayTabMiningVisibleCheckBox.setOpaque(false);
+		overlayTabMiningVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabMiningVisible());
+		tabsPanel.add(overlayTabMiningVisibleCheckBox, tgc);
+
+		tgc.gridy++;
+		overlayTabFleetCarrierVisibleCheckBox = new JCheckBox("Fleet Carrier");
+		overlayTabFleetCarrierVisibleCheckBox.setOpaque(false);
+		overlayTabFleetCarrierVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabFleetCarrierVisible());
+		tabsPanel.add(overlayTabFleetCarrierVisibleCheckBox, tgc);
+
+		content.add(tabsPanel, outer);
 
 		panel.add(content, BorderLayout.NORTH);
 		return panel;
@@ -900,7 +937,7 @@ public class PreferencesDialog extends JDialog {
 		return panel;
 	}
 
-	private JPanel createToolsPanel() {
+	private JPanel createExobiologyPanel() {
 		JPanel panel = new JPanel(new BorderLayout());
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 		panel.setOpaque(false);
@@ -914,103 +951,10 @@ public class PreferencesDialog extends JDialog {
 		gbc.anchor = GridBagConstraints.NORTHWEST;
 		gbc.insets = new Insets(6, 6, 6, 6);
 
-		JButton launchLogMonitorButton = new JButton("Journal Monitor");
-		launchLogMonitorButton.addActionListener(e -> launchJournalMonitor());
-
-		JButton launchEdsmQueryToolsButton = new JButton("Run EDSM Query Tools");
-		launchEdsmQueryToolsButton.addActionListener(e -> launchEdsmQueryTools());
-
-		JButton launchExoPredictionDebuggerButton = new JButton("Exo Prediction Debugger");
-		launchExoPredictionDebuggerButton.addActionListener(e -> launchExoPredictionDebugger());
-
-		JButton showConsole = new JButton("Show console");
-		showConsole.addActionListener(new ShowConsoleAction());
-
-		JButton checkForUpdatesButton = new JButton("Check for Updates");
-		checkForUpdatesButton.addActionListener(e -> GithubMsiUpdater.checkAndUpdate(this));
-
-		JButton fixMiningRunsButton = new JButton("Fix mining runs in Google Sheet");
-		fixMiningRunsButton.addActionListener(e -> GoogleSheetsBackend.renumberRunsAndSortUsingPreferences(this));
-
-		String cmdrName = OverlayPreferences.getMiningLogCommanderName();
-		String backfillLabel;
-		if (cmdrName == null || cmdrName.isBlank()) {
-			backfillLabel = "Backfill mining run times from journals";
-		} else {
-			backfillLabel = String.format("Backfill mining run times from %s's journals", cmdrName);
-		}
-		JButton backfillMiningRunsButton = new JButton(backfillLabel);
-		backfillMiningRunsButton.addActionListener(e -> org.dce.ed.tools.RunTimesBackfill.backfillUsingPreferences(this));
-
-		// --- Text notifications (email-to-SMS gateways like vtext.com) ---
-		JPanel textNotifPanel = new JPanel(new GridBagLayout());
-		textNotifPanel.setOpaque(false);
-		textNotifPanel.setBorder(BorderFactory.createTitledBorder("Text notifications"));
-
-		GridBagConstraints tgbc = new GridBagConstraints();
-		tgbc.gridx = 0;
-		tgbc.gridy = 0;
-		tgbc.anchor = GridBagConstraints.WEST;
-		tgbc.insets = new Insets(4, 4, 4, 4);
-
-		JLabel enableTextLabel = new JLabel("Enable text notifications:");
-		textNotifPanel.add(enableTextLabel, tgbc);
-
-		tgbc.gridx = 1;
-		textNotificationsEnabledCheckBox = new JCheckBox();
-		textNotificationsEnabledCheckBox.setOpaque(false);
-		textNotificationsEnabledCheckBox.setSelected(OverlayPreferences.isTextNotificationsEnabled());
-		textNotifPanel.add(textNotificationsEnabledCheckBox, tgbc);
-
-		tgbc.gridx = 0;
-		tgbc.gridy++;
-		JLabel addressLabel = new JLabel("Text address:");
-		textNotifPanel.add(addressLabel, tgbc);
-
-		tgbc.gridx = 1;
-		textNotificationAddressField = new JTextField(24);
-
-		List<String> textNotificationAddress = OverlayPreferences.getTextNotificationAddress();
-		textNotificationAddressField.setText(textNotificationAddress 
-				.stream()
-				.filter(Objects::nonNull)
-				.collect(Collectors.joining(", ")));
-		textNotifPanel.add(textNotificationAddressField, tgbc);
-
-		Runnable updateTextEnabled = () -> {
-			boolean enabled = textNotificationsEnabledCheckBox.isSelected();
-			textNotificationAddressField.setEnabled(enabled);
-		};
-		textNotificationsEnabledCheckBox.addActionListener(e -> updateTextEnabled.run());
-		updateTextEnabled.run();
-
-		content.add(launchLogMonitorButton, gbc);
-
-		gbc.gridy++;
-		content.add(launchEdsmQueryToolsButton, gbc);
-
-		gbc.gridy++;
-		content.add(launchExoPredictionDebuggerButton, gbc);
-
-		gbc.gridy++;
-		content.add(showConsole, gbc);
-
-		gbc.gridy++;
-		content.add(checkForUpdatesButton, gbc);
-
-		gbc.gridy++;
-		content.add(fixMiningRunsButton, gbc);
-
-		gbc.gridy++;
-		content.add(backfillMiningRunsButton, gbc);
-
-		gbc.gridy++;
-		content.add(textNotifPanel, gbc);
-
 		// --- Nearby tab (exobiology sphere search) ---
 		JPanel nearbyPanel = new JPanel(new GridBagLayout());
 		nearbyPanel.setOpaque(false);
-		nearbyPanel.setBorder(BorderFactory.createTitledBorder("Nearby tab (exobiology)"));
+		nearbyPanel.setBorder(BorderFactory.createTitledBorder("Nearby tab (sphere search)"));
 
 		GridBagConstraints npc = new GridBagConstraints();
 		npc.gridx = 0;
@@ -1043,8 +987,28 @@ public class PreferencesDialog extends JDialog {
 		((JSpinner.DefaultEditor) nearbyMinValueMillionSpinner.getEditor()).getTextField().setColumns(6);
 		nearbyPanel.add(nearbyMinValueMillionSpinner, npc);
 
-		gbc.gridy++;
 		content.add(nearbyPanel, gbc);
+
+		gbc.gridy++;
+		JPanel systemExoPanel = new JPanel(new GridBagLayout());
+		systemExoPanel.setOpaque(false);
+		systemExoPanel.setBorder(BorderFactory.createTitledBorder("System tab"));
+
+		GridBagConstraints sec = new GridBagConstraints();
+		sec.gridx = 0;
+		sec.gridy = 0;
+		sec.anchor = GridBagConstraints.WEST;
+		sec.insets = new Insets(4, 4, 4, 4);
+
+		systemExoPanel.add(new JLabel("Valuable bio threshold (million credits):"), sec);
+		sec.gridx = 1;
+		bioValuableThresholdMillionSpinner = new JSpinner(new SpinnerNumberModel(
+				OverlayPreferences.getBioValuableThresholdMillionCredits(), 0.0, 1000.0, 0.5));
+		((JSpinner.DefaultEditor) bioValuableThresholdMillionSpinner.getEditor()).getTextField().setColumns(6);
+		systemExoPanel.add(bioValuableThresholdMillionSpinner, sec);
+
+		gbc.weighty = 0.0;
+		content.add(systemExoPanel, gbc);
 
 		gbc.gridy++;
 		gbc.weighty = 1.0;
@@ -1053,55 +1017,6 @@ public class PreferencesDialog extends JDialog {
 		panel.add(content, BorderLayout.NORTH);
 		return panel;
 	}
-
-	private void launchJournalMonitor() {
-		// Prefer StandaloneLogMonitor if you have it; fall back to StandaloneLogViewer (which exists in this project).
-		SwingUtilities.invokeLater(() -> {
-			try {
-				Class<?> clazz = Class.forName("org.dce.ed.StandaloneLogMonitor");
-				clazz.getMethod("main", String[].class).invoke(null, (Object) new String[0]);
-				return;
-			} catch (Exception ignore) {
-				// fall through
-			}
-
-			try {
-				StandaloneLogViewer.main(new String[0]);
-			} catch (Exception ex) {
-				JOptionPane.showMessageDialog(this,
-						"Unable to launch the standalone log monitor:\n" + ex.getMessage(),
-						"Launch Error",
-						JOptionPane.ERROR_MESSAGE);
-			}
-		});
-	}
-
-	private void launchEdsmQueryTools() {
-		SwingUtilities.invokeLater(() -> {
-			try {
-				new EdsmQueryTool().setVisible(true);
-			} catch (Exception ex) {
-				JOptionPane.showMessageDialog(this,
-						"Unable to launch EDSM Query Tools:\n" + ex.getMessage(),
-						"Launch Error",
-						JOptionPane.ERROR_MESSAGE);
-			}
-		});
-	}
-
-	private void launchExoPredictionDebugger() {
-		SwingUtilities.invokeLater(() -> {
-			try {
-				ExoPredictionDebuggerMain.main(new String[0]);
-			} catch (Exception ex) {
-				JOptionPane.showMessageDialog(this,
-						"Unable to launch Exo Prediction Debugger:\n" + ex.getMessage(),
-						"Launch Error",
-						JOptionPane.ERROR_MESSAGE);
-			}
-		});
-	}
-
 
 	private void updatePreviewLabelFont() {
 		Font f = buildSelectedUiFont();
@@ -1408,6 +1323,22 @@ public class PreferencesDialog extends JDialog {
             OverlayPreferences.setNonOverlayAlwaysOnTop(nonOverlayAlwaysOnTopCheckBox.isSelected());
         }
 
+        if (overlayTabRouteVisibleCheckBox != null) {
+            boolean r = overlayTabRouteVisibleCheckBox.isSelected();
+            boolean s = overlayTabSystemVisibleCheckBox != null && overlayTabSystemVisibleCheckBox.isSelected();
+            boolean b = overlayTabBiologyVisibleCheckBox != null && overlayTabBiologyVisibleCheckBox.isSelected();
+            boolean m = overlayTabMiningVisibleCheckBox != null && overlayTabMiningVisibleCheckBox.isSelected();
+            boolean f = overlayTabFleetCarrierVisibleCheckBox != null && overlayTabFleetCarrierVisibleCheckBox.isSelected();
+            if (!r && !s && !b && !m && !f) {
+                r = s = b = m = f = true;
+            }
+            OverlayPreferences.setOverlayTabRouteVisible(r);
+            OverlayPreferences.setOverlayTabSystemVisible(s);
+            OverlayPreferences.setOverlayTabBiologyVisible(b);
+            OverlayPreferences.setOverlayTabMiningVisible(m);
+            OverlayPreferences.setOverlayTabFleetCarrierVisible(f);
+        }
+
         // Logging tab
         if (autoDetectCheckBox != null && customPathField != null) {
             boolean auto = autoDetectCheckBox.isSelected();
@@ -1596,14 +1527,6 @@ public class PreferencesDialog extends JDialog {
             }
         }
 
-        // Text notifications
-        if (textNotificationsEnabledCheckBox != null) {
-            OverlayPreferences.setTextNotificationsEnabled(textNotificationsEnabledCheckBox.isSelected());
-        }
-        if (textNotificationAddressField != null) {
-            OverlayPreferences.setTextNotificationAddress(textNotificationAddressField.getText());
-        }
-
         if (nearbySphereRadiusSpinner != null) {
             try {
                 int r = ((Number) nearbySphereRadiusSpinner.getValue()).intValue();
@@ -1625,6 +1548,15 @@ public class PreferencesDialog extends JDialog {
             try {
                 double v = ((Number) nearbyMinValueMillionSpinner.getValue()).doubleValue();
                 OverlayPreferences.setNearbyMinValueMillionCredits(v);
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+
+        if (bioValuableThresholdMillionSpinner != null) {
+            try {
+                double v = ((Number) bioValuableThresholdMillionSpinner.getValue()).doubleValue();
+                OverlayPreferences.setBioValuableThresholdMillionCredits(v);
             } catch (Exception e) {
                 // ignore
             }

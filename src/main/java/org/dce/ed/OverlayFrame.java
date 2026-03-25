@@ -120,7 +120,6 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private javax.swing.Timer carrierJumpCountdownTimer;
     private Instant carrierJumpDepartureTime;
     private String carrierJumpTargetSystem;
-    private boolean carrierJumpTextNotificationSent;
 
     /** Cooldown phase (5 min) after fleet jump countdown expires. */
     private Instant carrierJumpCooldownEndTime;
@@ -357,7 +356,6 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             state.setCarrierJumpDepartureTime(carrierJumpDepartureTime.toString());
         }
         state.setCarrierJumpTargetSystem(carrierJumpTargetSystem);
-        state.setCarrierJumpTextNotificationSent(carrierJumpTextNotificationSent);
     }
 
     private void restoreSessionState() {
@@ -377,7 +375,6 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             if (departure.isAfter(Instant.now())) {
                 carrierJumpDepartureTime = departure;
                 carrierJumpTargetSystem = state.getCarrierJumpTargetSystem();
-                carrierJumpTextNotificationSent = Boolean.TRUE.equals(state.getCarrierJumpTextNotificationSent());
                 setTitleBarText("");
                 if (carrierJumpCountdownTimer != null) {
                     carrierJumpCountdownTimer.stop();
@@ -465,7 +462,6 @@ private void installCarrierJumpTitleUpdater() {
 private void startCarrierJumpCountdown(Instant departureTime, String targetSystem) {
     carrierJumpDepartureTime = departureTime;
     carrierJumpTargetSystem = targetSystem;
-    carrierJumpTextNotificationSent = false;
 
     if (carrierJumpCountdownTimer != null) {
         carrierJumpCountdownTimer.stop();
@@ -511,7 +507,6 @@ private void updateCarrierJumpCountdown() {
     publishRightStatusText(countdown);
 
     if (carrierJumpCooldownEndTime == null && Instant.now().isAfter(jumpCompleteTime.plusSeconds(5))) {
-        maybeSendCarrierJumpTextNotification();
         // Start cooldown based on when the jump was scheduled to complete, not when we detect it.
         // This avoids showing a slightly-extended remaining time when logs are delayed.
         clearCarrierJumpCountdownStateOnly();
@@ -523,7 +518,6 @@ private void updateCarrierJumpCountdown() {
 private void clearCarrierJumpCountdownStateOnly() {
     carrierJumpDepartureTime = null;
     carrierJumpTargetSystem = null;
-    carrierJumpTextNotificationSent = false;
     if (carrierJumpCountdownTimer != null) {
         carrierJumpCountdownTimer.stop();
         carrierJumpCountdownTimer = null;
@@ -1265,29 +1259,6 @@ private void updateLeftStatusLabel() {
         return obj.has(field) && !obj.get(field).isJsonNull()
                 ? obj.get(field).getAsInt()
                 : defaultValue;
-    }
-
-    private void maybeSendCarrierJumpTextNotification() {
-//        if (!OverlayPreferences.isTextNotificationsEnabled()) {
-//            return;
-//        }
-//
-//        List<String> address = OverlayPreferences.getTextNotificationAddress();
-//
-//        Thread t = new Thread(() -> {
-//            try {
-//                TextNotificationSender.sendText(
-//                        address,
-//                        "EDO",
-//                        "Fleet Carrier jumping"
-//                );
-//            } catch (Exception ex) {
-//                ex.printStackTrace();
-//            }
-//        }, "edo-text-notify");
-//
-//        t.setDaemon(true);
-//        t.start();
     }
 
 }

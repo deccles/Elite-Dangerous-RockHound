@@ -533,6 +533,32 @@ public class TtsSprintf {
 
         return expandCreditsCompact(n);
     }
+
+    /**
+     * Rounds a credit amount for speech so Polly does not read huge exact integers.
+     * At or above one million: nearest million; otherwise nearest 100k / 10k / 1k as appropriate.
+     */
+    public static long roundCreditsForSpeech(long credits) {
+        if (credits == 0) {
+            return 0;
+        }
+        long sign = credits < 0 ? -1 : 1;
+        long n = Math.abs(credits);
+        long rounded;
+        if (n >= 1_000_000L) {
+            rounded = (n + 500_000L) / 1_000_000L * 1_000_000L;
+        } else if (n >= 100_000L) {
+            rounded = (n + 50_000L) / 100_000L * 100_000L;
+        } else if (n >= 10_000L) {
+            rounded = (n + 5_000L) / 10_000L * 10_000L;
+        } else if (n >= 1_000L) {
+            rounded = (n + 500L) / 1_000L * 1_000L;
+        } else {
+            rounded = n;
+        }
+        return sign * rounded;
+    }
+
     private static List<String> expandCreditsCompact(long n) {
         if (n == 0) {
             return List.of("0");

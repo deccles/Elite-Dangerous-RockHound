@@ -273,6 +273,11 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		});
 		overlayMenu.add(prefs);
 
+		JMenu toolsMenu = new JMenu("Tools");
+		toolsMenu.setForeground(EdoUi.Internal.MENU_ACCENT);
+		addSortedToolsMenuItems(toolsMenu);
+		overlayMenu.add(toolsMenu);
+
 		JPopupMenu popup = overlayMenu.getPopupMenu();
 		popup.setOpaque(true);
 		popup.setBackground(MENU_POPUP_BG);
@@ -294,6 +299,61 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		item.setOpaque(true);
 		item.setBackground(MENU_POPUP_BG);
 		item.setForeground(MENU_POPUP_FG);
+	}
+
+	private void styleMenuTree(JMenuItem node) {
+		if (node == null) {
+			return;
+		}
+		styleMenuItem(node);
+		if (node instanceof JMenu) {
+			JMenu sub = (JMenu) node;
+			JPopupMenu subPopup = sub.getPopupMenu();
+			if (subPopup != null) {
+				subPopup.setOpaque(true);
+				subPopup.setBackground(MENU_POPUP_BG);
+			}
+			for (int i = 0; i < sub.getItemCount(); i++) {
+				styleMenuTree(sub.getItem(i));
+			}
+		}
+	}
+
+	private void addSortedToolsMenuItems(JMenu toolsMenu) {
+		JMenuItem backfill = new JMenuItem(OverlayToolsLaunchers.backfillMiningRunTimesMenuLabel());
+		styleMenuItem(backfill);
+		backfill.addActionListener(e -> OverlayToolsLaunchers.backfillMiningRunTimes(this));
+		toolsMenu.add(backfill);
+
+		JMenuItem updates = new JMenuItem("Check for Updates");
+		styleMenuItem(updates);
+		updates.addActionListener(e -> OverlayToolsLaunchers.checkForUpdates(this));
+		toolsMenu.add(updates);
+
+		JMenuItem exoDbg = new JMenuItem("Exo Prediction Debugger");
+		styleMenuItem(exoDbg);
+		exoDbg.addActionListener(e -> OverlayToolsLaunchers.launchExoPredictionDebugger(this));
+		toolsMenu.add(exoDbg);
+
+		JMenuItem fixRuns = new JMenuItem("Fix mining runs in Google Sheet");
+		styleMenuItem(fixRuns);
+		fixRuns.addActionListener(e -> OverlayToolsLaunchers.fixMiningRunsInGoogleSheet(this));
+		toolsMenu.add(fixRuns);
+
+		JMenuItem journal = new JMenuItem("Journal Monitor");
+		styleMenuItem(journal);
+		journal.addActionListener(e -> OverlayToolsLaunchers.launchJournalMonitor(this));
+		toolsMenu.add(journal);
+
+		JMenuItem edsm = new JMenuItem("Run EDSM Query Tools");
+		styleMenuItem(edsm);
+		edsm.addActionListener(e -> OverlayToolsLaunchers.launchEdsmQueryTools(this));
+		toolsMenu.add(edsm);
+
+		JMenuItem console = new JMenuItem("Show console");
+		styleMenuItem(console);
+		console.addActionListener(e -> OverlayToolsLaunchers.showConsole());
+		toolsMenu.add(console);
 	}
 
 	private void applyDarkTitleBarIfSupported() {
@@ -446,10 +506,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 
 					int itemCount = m.getItemCount();
 					for (int j = 0; j < itemCount; j++) {
-						JMenuItem it = m.getItem(j);
-						if (it != null) {
-							styleMenuItem(it);
-						}
+						styleMenuTree(m.getItem(j));
 					}
 				}
 			}

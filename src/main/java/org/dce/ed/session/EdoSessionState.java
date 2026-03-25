@@ -27,7 +27,6 @@ public final class EdoSessionState {
     /** ISO-8601 instant when carrier jump completes. */
     private String carrierJumpDepartureTime;
     private String carrierJumpTargetSystem;
-    private Boolean carrierJumpTextNotificationSent;
 
     // --- System tab (target/near body, intermediate destination) ---
     private Integer targetBodyId;
@@ -154,14 +153,6 @@ public final class EdoSessionState {
 
     public void setCarrierJumpTargetSystem(String carrierJumpTargetSystem) {
         this.carrierJumpTargetSystem = carrierJumpTargetSystem;
-    }
-
-    public Boolean getCarrierJumpTextNotificationSent() {
-        return carrierJumpTextNotificationSent;
-    }
-
-    public void setCarrierJumpTextNotificationSent(Boolean carrierJumpTextNotificationSent) {
-        this.carrierJumpTextNotificationSent = carrierJumpTextNotificationSent;
     }
 
     public Integer getTargetBodyId() {

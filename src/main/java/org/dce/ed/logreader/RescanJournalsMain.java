@@ -223,17 +223,14 @@ public class RescanJournalsMain {
 				if (dep != null && dep.isAfter(Instant.now())) {
 					sessionState.setCarrierJumpDepartureTime(dep.toString());
 					sessionState.setCarrierJumpTargetSystem(req.getSystemName());
-					sessionState.setCarrierJumpTextNotificationSent(false);
 				} else {
 					sessionState.setCarrierJumpDepartureTime(null);
 					sessionState.setCarrierJumpTargetSystem(null);
-					sessionState.setCarrierJumpTextNotificationSent(null);
 				}
 			} else {
 				// CarrierJump or CarrierJumpCancelled: clear countdown.
 				sessionState.setCarrierJumpDepartureTime(null);
 				sessionState.setCarrierJumpTargetSystem(null);
-				sessionState.setCarrierJumpTextNotificationSent(null);
 			}
 			EdoSessionPersistence.save(sessionState);
 		}
