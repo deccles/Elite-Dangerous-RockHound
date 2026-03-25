@@ -10,11 +10,12 @@ import java.util.List;
 import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.StatusEvent;
+import org.dce.ed.route.RouteTargetState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for {@link RouteTargetState}: side-trip clearing, FSD target, and NavRoute clear.
+ * Unit tests for {@link org.dce.ed.route.RouteTargetState}: side-trip clearing, FSD target, and NavRoute clear.
  */
 class RouteTargetStateTest {
 
@@ -26,6 +27,16 @@ class RouteTargetStateTest {
     void setUp() {
         state = new RouteTargetState();
         parser = new EliteLogParser();
+    }
+
+    @Test
+    void restoreFromPersistence_roundTripsTargetAndDestination() {
+        state.restoreFromPersistence("Tgt", 42L, 1L, 7, "Body A");
+        assertEquals("Tgt", state.getTargetSystemName());
+        assertEquals(42L, state.getTargetSystemAddress());
+        assertEquals(1L, state.getDestinationSystemAddress().longValue());
+        assertEquals(7, state.getDestinationBodyId().intValue());
+        assertEquals("Body A", state.getDestinationName());
     }
 
     @Test

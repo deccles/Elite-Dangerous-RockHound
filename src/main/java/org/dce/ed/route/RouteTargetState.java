@@ -1,4 +1,4 @@
-package org.dce.ed;
+package org.dce.ed.route;
 
 import java.util.List;
 
@@ -7,8 +7,7 @@ import org.dce.ed.logreader.event.StatusEvent;
 
 /**
  * Holds route target and destination state driven by journal events.
- * Encapsulates "side-trip clearing" logic so it can be unit tested.
- * Used by {@link RouteTabPanel}; UI and file I/O remain in the panel.
+ * Encapsulates side-trip clearing logic. Used by {@link RouteSession}; UI and file I/O stay in the tab panel.
  */
 public final class RouteTargetState {
 
@@ -18,10 +17,10 @@ public final class RouteTargetState {
     private Integer destinationBodyId = null;
     private String destinationName = null;
 
-    /** True when the last apply cleared the target (side-trip clear). */
     private boolean clearedSideTrip = false;
 
-    public record RouteSystemRef(String systemName, long systemAddress) {}
+    public record RouteSystemRef(String systemName, long systemAddress) {
+    }
 
     public String getTargetSystemName() {
         return targetSystemName;
@@ -43,12 +42,10 @@ public final class RouteTargetState {
         return destinationName;
     }
 
-    /** True if the last {@link #applyStatusEvent} cleared the target (side-trip). */
     public boolean wasSideTripCleared() {
         return clearedSideTrip;
     }
 
-    /** Clears target and destination (e.g. on NavRouteClear). */
     public void applyNavRouteClear() {
         targetSystemName = null;
         targetSystemAddress = 0L;
@@ -58,7 +55,25 @@ public final class RouteTargetState {
         clearedSideTrip = false;
     }
 
-    /** Updates target from FSD target event when not in hyperspace and jump timer not running. */
+    /** Restore target/destination fields from persisted overlay session (not used for NavRoute clear). */
+    public void restoreFromPersistence(String targetName, Long targetAddr,
+            Long destSystemAddr, Integer destBodyId, String destName) {
+        if (targetName != null) {
+            targetSystemName = targetName;
+        } else {
+            targetSystemName = null;
+        }
+        if (targetAddr != null) {
+            targetSystemAddress = targetAddr.longValue();
+        } else {
+            targetSystemAddress = 0L;
+        }
+        destinationSystemAddress = destSystemAddr;
+        destinationBodyId = destBodyId;
+        destinationName = destName;
+        clearedSideTrip = false;
+    }
+
     public void applyFsdTargetEvent(FsdTargetEvent e, boolean inHyperspace, boolean timerRunning) {
         clearedSideTrip = false;
         if (inHyperspace || timerRunning) {
@@ -76,13 +91,7 @@ public final class RouteTargetState {
     }
 
     /**
-     * Updates destination from Status and applies side-trip clearing:
-     * if Status destination is blank or refers to a system on the route,
-     * clear any off-route target.
-     *
-     * @param e         Status event
-     * @param baseRoute Route systems (name + address) for "on route" check
-     * @return true if the target was cleared (caller should rebuild and return early)
+     * @return true if the target was cleared (caller may rebuild and return early without firing session)
      */
     public boolean applyStatusEvent(StatusEvent e, List<RouteSystemRef> baseRoute) {
         clearedSideTrip = false;

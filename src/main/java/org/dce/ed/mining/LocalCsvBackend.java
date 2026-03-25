@@ -51,6 +51,15 @@ public final class LocalCsvBackend implements ProspectorLogBackend {
         if (targetPath == null) {
             return;
         }
+        // Only migrate when the caller is using the app's default CSV path.
+        // If a custom CSV path is provided (e.g. tests, tools), never copy in user-home
+        // legacy data behind their back; that breaks expectations and test isolation.
+        Path newDefault = defaultPath();
+        boolean targetIsAppDefault = targetPath.toAbsolutePath().normalize()
+                .equals(newDefault.toAbsolutePath().normalize());
+        if (!targetIsAppDefault) {
+            return;
+        }
         Path legacy = legacyDefaultPath();
         if (Files.exists(targetPath) || !Files.exists(legacy)) {
             return;
@@ -142,10 +151,16 @@ public final class LocalCsvBackend implements ProspectorLogBackend {
     @Override
     public List<ProspectorLogRow> loadRows() {
         Path readPath = csvPath;
+        Path newDefault = defaultPath();
+        boolean targetIsAppDefault = csvPath != null
+                && csvPath.toAbsolutePath().normalize().equals(newDefault.toAbsolutePath().normalize());
         if (!Files.exists(readPath)) {
-            Path legacy = legacyDefaultPath();
-            if (Files.exists(legacy)) {
-                readPath = legacy;
+            // Only fall back to legacy default when the caller is using the app's default path.
+            if (targetIsAppDefault) {
+                Path legacy = legacyDefaultPath();
+                if (Files.exists(legacy)) {
+                    readPath = legacy;
+                }
             }
         }
         if (!Files.exists(readPath)) {

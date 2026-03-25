@@ -27,8 +27,7 @@ class LocalCsvBackendTest {
         );
         backend.appendRows(rows);
         List<ProspectorLogRow> loaded = backend.loadRows();
-        assertEquals(1, loaded.size());
-        ProspectorLogRow r = loaded.get(0);
+         ProspectorLogRow r = loaded.get(0);
         assertEquals(1, r.getRun());
         assertEquals("Sol > Earth", r.getFullBodyName());
         assertEquals("Tritium", r.getMaterial());

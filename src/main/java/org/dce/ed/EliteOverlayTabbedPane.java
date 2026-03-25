@@ -376,6 +376,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 	/**
 	 * Process a journal event (called by the single app-level listener in OverlayFrame).
 	 * This ensures exactly one handler runs per event regardless of pane rebuilds.
+	 * <p>
+	 * Threading: invoked on the same thread as {@link org.dce.ed.logreader.LiveJournalMonitor#dispatch}
+	 * (the {@code Elite-LiveJournalMonitor} worker), not automatically on the EDT.
 	 */
 	public void processJournalEvent(EliteLogEvent event) {
 		this.handleLogEvent(event);

@@ -319,6 +319,10 @@ public final class OverlayPreferences {
     // ----------------------------
 
     public static boolean isSpeechEnabled() {
+        // Deterministic tests: disable speech/TTS side effects during `mvn test`.
+        if (Boolean.getBoolean("edo.test.disableSpeech")) {
+            return false;
+        }
         return PREFS.getBoolean(KEY_SPEECH_ENABLED, false);
     }
 

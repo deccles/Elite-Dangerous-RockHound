@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.dce.ed.RouteTabPanel.RouteEntry;
+import org.dce.ed.route.RouteEntry;
 import org.junit.jupiter.api.Test;
 
 /**

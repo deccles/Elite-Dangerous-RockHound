@@ -63,9 +63,15 @@ import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
 import org.dce.ed.ui.EdoUi.User;
 import org.dce.ed.util.EdsmClient;
+import org.dce.ed.route.RouteEntry;
+import org.dce.ed.route.RouteGeometry;
+import org.dce.ed.route.RouteJournalApplyOutcome;
+import org.dce.ed.route.RouteMarkerKind;
+import org.dce.ed.route.RouteNavRouteJson;
+import org.dce.ed.route.RouteScanStatus;
+import org.dce.ed.route.RouteDisplaySnapshot;
+import org.dce.ed.route.RouteSession;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -116,27 +122,36 @@ public class RouteTabPanel extends JPanel {
 	// Caches coordinates we resolved from EDSM (used for inserting synthetic rows).
 	private final java.util.Map<String, Double[]> resolvedCoordsCache = new java.util.concurrent.ConcurrentHashMap<>();
 	private final java.util.Set<String> edsmCoordsFetchInProgress = java.util.concurrent.ConcurrentHashMap.newKeySet();
-	private String currentSystemName = null;
-	private long currentSystemAddress = 0L;
-	private double[] currentStarPos = null;
-	private String pendingJumpSystemName = null;
-	// Latched pending-jump destination (so Status destination changes during hyperspace don't move the marker).
-	private String pendingJumpLockedName = null;
-	private long pendingJumpLockedAddress = 0L;
-	private boolean inHyperspace = false;
-	private String targetSystemName = null;
-	private long targetSystemAddress = 0L;
-	// Destination can be either a system (FSD target), or a body in the current system.
-	private Long destinationSystemAddress = null;
-	private Integer destinationBodyId = null;
-	private String destinationName = null;
-	// Last raw navroute entries (no synthetic rows). We rebuild the displayed list from this.
-	private List<RouteEntry> baseRouteEntries = new ArrayList<>();
 	private boolean jumpFlashOn = true;
 	private final Timer jumpFlashTimer = new Timer(500, e -> {
 		jumpFlashOn = !jumpFlashOn;
 		table.repaint();
 	});
+	private final org.dce.ed.route.RouteJumpFlashHandle routeJumpFlashHandle = new org.dce.ed.route.RouteJumpFlashHandle() {
+		@Override
+		public boolean isTimerRunning() {
+			return jumpFlashTimer.isRunning();
+		}
+		@Override
+		public void startTimer() {
+			jumpFlashOn = true;
+			jumpFlashTimer.start();
+		}
+		@Override
+		public void stopTimer() {
+			jumpFlashTimer.stop();
+			jumpFlashOn = true;
+		}
+	};
+	private final RouteSession routeSession = new RouteSession(routeJumpFlashHandle, this::shouldUpdateOnCarrierJump);
+
+	private final Map<Long, RouteScanStatus> lastKnownScanStatusByAddress = new ConcurrentHashMap<>();
+	private final Map<Long, EdsmScanSummary> edsmSummaryByAddress = new ConcurrentHashMap<>();
+
+	/** Same-package test access (not part of public API). */
+	RouteSession routeSessionForTests() {
+		return routeSession;
+	}
 
 	/** Optional callback when route state changes (for debounced session persist). */
 	private Runnable sessionStateChangeCallback;
@@ -153,49 +168,22 @@ public class RouteTabPanel extends JPanel {
 
 	/** Fill route-related fields of the given session state (for save). */
 	public void fillSessionState(EdoSessionState state) {
-		if (state == null) return;
-		state.setCurrentSystemName(currentSystemName);
-		state.setCurrentSystemAddress(currentSystemAddress != 0L ? Long.valueOf(currentSystemAddress) : null);
-		state.setCurrentStarPos(currentStarPos != null && currentStarPos.length > 0 ? currentStarPos : null);
-		state.setTargetSystemName(targetSystemName);
-		state.setTargetSystemAddress(targetSystemAddress != 0L ? Long.valueOf(targetSystemAddress) : null);
-		state.setDestinationSystemAddress(destinationSystemAddress);
-		state.setDestinationBodyId(destinationBodyId);
-		state.setDestinationName(destinationName);
-		state.setPendingJumpLockedName(pendingJumpLockedName);
-		state.setPendingJumpLockedAddress(pendingJumpLockedAddress != 0L ? Long.valueOf(pendingJumpLockedAddress) : null);
-		state.setInHyperspace(inHyperspace);
+		if (state == null) {
+			return;
+		}
+		RoutePersistenceAdapter.fillEdoSession(state, routeSession.toPersistenceSnapshot());
 	}
 
 	/** Apply persisted route state (for restore on startup). */
 	public void applySessionState(EdoSessionState state) {
-		if (state == null) return;
+		if (state == null) {
+			return;
+		}
+		routeSession.applyPersistenceSnapshot(RoutePersistenceAdapter.fromEdoSession(state));
 		if (state.getCurrentSystemName() != null) {
 			setCurrentSystemName(state.getCurrentSystemName());
-		}
-		if (state.getCurrentSystemAddress() != null) {
-			currentSystemAddress = state.getCurrentSystemAddress().longValue();
-		}
-		if (state.getCurrentStarPos() != null && state.getCurrentStarPos().length >= 3) {
-			currentStarPos = state.getCurrentStarPos();
-		}
-		if (state.getTargetSystemName() != null) {
-			targetSystemName = state.getTargetSystemName();
-		} else {
-			targetSystemName = null;
-		}
-		if (state.getTargetSystemAddress() != null) {
-			targetSystemAddress = state.getTargetSystemAddress().longValue();
-		} else {
-			targetSystemAddress = 0L;
-		}
-		destinationSystemAddress = state.getDestinationSystemAddress();
-		destinationBodyId = state.getDestinationBodyId();
-		destinationName = state.getDestinationName();
-		pendingJumpLockedName = state.getPendingJumpLockedName();
-		pendingJumpLockedAddress = (state.getPendingJumpLockedAddress() != null) ? state.getPendingJumpLockedAddress().longValue() : 0L;
-		if (state.getInHyperspace() != null) {
-			inHyperspace = state.getInHyperspace().booleanValue();
+		} else if (routeSession.getCurrentSystemName() != null) {
+			tableModel.setCurrentSystemName(routeSession.getCurrentSystemName());
 		}
 		rebuildDisplayedEntries();
 	}
@@ -471,208 +459,19 @@ public class RouteTabPanel extends JPanel {
 			reloadFromNavRouteFile();
 		}
 		if (event instanceof NavRouteClearEvent) {
-			// Route cleared: no active FSD target anymore
-			targetSystemName = null;
-			targetSystemAddress = 0L;
-			// Clear Status.json destination state too; otherwise we can display stale synthetic rows.
-			destinationSystemAddress = null;
-			destinationBodyId = null;
-			destinationName = null;
-			baseRouteEntries.clear();
-			pendingJumpSystemName = null;
-			pendingJumpLockedName = null;
-			pendingJumpLockedAddress = 0L;
-			inHyperspace = false;
-			if (jumpFlashTimer != null && jumpFlashTimer.isRunning()) {
-				jumpFlashTimer.stop();
-			}
-			jumpFlashOn = true;
+			routeSession.clearAfterNavRouteClearEvent();
 			rebuildDisplayedEntries();
 			table.repaint();
 		}
-		if (event instanceof FsdTargetEvent target) {
-			// Elite can emit FSDTarget updates during the hyperspace animation (often for the *next* hop).
-			// We must not let that override the blinking pending-jump marker or shift the hollow triangle.
-			if (inHyperspace || jumpFlashTimer.isRunning()) {
-				return;
-			}
-
-			// FSD target selected or cleared: remember (or clear) the target system for the crosshair
-			String newName = target.getName();
-			long newAddr = target.getSystemAddress();
-
-			if (newName == null || newName.isBlank() || newAddr == 0L) {
-				targetSystemName = null;
-				targetSystemAddress = 0L;
-			} else {
-				targetSystemName = newName;
-				targetSystemAddress = newAddr;
-			}
-
-			rebuildDisplayedEntries();
-		}
-
-		if (event instanceof LocationEvent loc) {
-			setCurrentSystemName(loc.getStarSystem());
-			currentSystemAddress = loc.getSystemAddress();
-			currentStarPos = loc.getStarPos();
-			pendingJumpSystemName = null;
-			pendingJumpLockedName = null;
-			pendingJumpLockedAddress = 0L;
-			inHyperspace = false;
-			rebuildDisplayedEntries();
-		}
-		if (event instanceof FsdJumpEvent jump) {
-			setCurrentSystemName(jump.getStarSystem());
-			Long currentSystemAddress = jump.getSystemAddress();
-			this.currentSystemAddress = currentSystemAddress != null ? currentSystemAddress.longValue() : 0L;
-			this.currentStarPos = jump.getStarPos();
-
-			pendingJumpSystemName = null;
-			pendingJumpLockedName = null;
-			pendingJumpLockedAddress = 0L;
-			inHyperspace = false;
-
-			if (jumpFlashTimer != null && jumpFlashTimer.isRunning()) {
-				jumpFlashTimer.stop();
-			}
-			jumpFlashOn = true;
-			pendingJumpSystemName = null;
-			
-			setCurrentSystemIfEmpty(getCurrentSystemName(), currentSystemAddress);
-			rebuildDisplayedEntries();
-		}
-		if (event instanceof CarrierJumpEvent jump) {
-		    if (!shouldUpdateOnCarrierJump(jump)) {
-		    	return;
-		    }
-		    setCurrentSystemName(jump.getStarSystem());
-		    this.currentSystemAddress = jump.getSystemAddress();
-		    this.currentStarPos = jump.getStarPos();
-
-		    pendingJumpSystemName = null;
-		    pendingJumpLockedName = null;
-		    pendingJumpLockedAddress = 0L;
-		    inHyperspace = false;
-
-		    if (jumpFlashTimer != null && jumpFlashTimer.isRunning()) {
-		        jumpFlashTimer.stop();
-		    }
-		    jumpFlashOn = true;
-
-		    rebuildDisplayedEntries();
-		}
-		if (event instanceof CarrierLocationEvent loc) {
-		    // Some sessions (especially when docked/on-foot in a carrier) may emit CarrierLocation but not Location.
-		    setCurrentSystemName(loc.getStarSystem());
-		    this.currentSystemAddress = loc.getSystemAddress();
-
-		    pendingJumpSystemName = null;
-		    pendingJumpLockedName = null;
-		    pendingJumpLockedAddress = 0L;
-		    inHyperspace = false;
-
-		    rebuildDisplayedEntries();
-		}
-
 		if (event instanceof FssAllBodiesFoundEvent) {
-			FssAllBodiesFoundEvent fss = (FssAllBodiesFoundEvent)event;
-
 			reloadFromNavRouteFile();
 		}
-		if (event instanceof StatusEvent sj) {
-			StatusEvent se = (StatusEvent)sj;
-			boolean hyperdriveCharging = se.isFsdHyperdriveCharging();
-			boolean inHyperspaceNow = se.isFsdJump();
-			inHyperspace = inHyperspaceNow;
-			boolean preJumpCharging = hyperdriveCharging && !inHyperspaceNow;
-			boolean timerRunning = jumpFlashTimer.isRunning();
-
-			// Remember destination fields (they may refer to either a target system or a body).
-			destinationSystemAddress = se.getDestinationSystem();
-			destinationBodyId = se.getDestinationBody();
-			if (destinationBodyId != null && destinationBodyId.intValue() == 0) {
-			    destinationBodyId = null;
-			}
-			destinationName = se.getDestinationDisplayName();
-
-			// Side-trip clearing:
-			// When the side-trip target is cleared in-game, Status 'Destination' typically snaps back to the plotted route
-			// (next hop or final destination), and Elite may not emit a dedicated "target cleared" journal event.
-			// If Status destination is blank OR refers to a system on the plotted route, drop any latched off-route FsdTarget.
-			String statusDestName = destinationName;
-			boolean clearedSideTrip = false;
-
-			if (statusDestName == null || statusDestName.isBlank()) {
-				if (targetSystemName != null) {
-					targetSystemName = null;
-					targetSystemAddress = 0L;
-					clearedSideTrip = true;
-				}
-			} else {
-				boolean statusDestIsOnRoute = false;
-				boolean targetIsOnRoute = false;
-
-				if (baseRouteEntries != null && !baseRouteEntries.isEmpty()) {
-					for (RouteEntry e : baseRouteEntries) {
-						if (e == null) {
-							continue;
-						}
-
-						if (statusDestName.equals(e.systemName)) {
-							statusDestIsOnRoute = true;
-						}
-
-						if (targetSystemName != null && !targetSystemName.isBlank()) {
-							if (targetSystemName.equals(e.systemName)) {
-								targetIsOnRoute = true;
-							}
-						}
-
-						if (targetSystemAddress != 0L && e.systemAddress != 0L) {
-							if (e.systemAddress == targetSystemAddress) {
-								targetIsOnRoute = true;
-							}
-						}
-
-						if (statusDestIsOnRoute && targetIsOnRoute) {
-							break;
-						}
-					}
-				}
-
-				if (statusDestIsOnRoute) {
-					// Only clear the latched target if it was an *off-route* side-trip target.
-					if (targetSystemName != null && !targetIsOnRoute) {
-						targetSystemName = null;
-						targetSystemAddress = 0L;
-						clearedSideTrip = true;
-					}
-				}
-			}
-
-			if (clearedSideTrip) {
-				rebuildDisplayedEntries();
-				return;
-			}
-			if (preJumpCharging && !timerRunning) {
-				// Latch the destination at the moment charging begins. Status destination can change mid-jump.
-				pendingJumpLockedName = destinationName;
-				pendingJumpLockedAddress = (destinationSystemAddress != null) ? destinationSystemAddress.longValue() : 0L;
-				pendingJumpSystemName = se.getDestinationDisplayName();
-				jumpFlashOn = true;
-				jumpFlashTimer.start();
-			}
-			if (!preJumpCharging && !inHyperspaceNow && timerRunning) {
-				// Charging was canceled (or we returned to normal space without an FSDJump).
-				jumpFlashTimer.stop();
-				pendingJumpSystemName = null;
-				pendingJumpLockedName = null;
-				pendingJumpLockedAddress = 0L;
-				jumpFlashOn = true;
-			}
-
+		RouteJournalApplyOutcome outcome = routeSession.applySecondaryJournalEvent(event);
+		if (outcome.refreshDisplayedRows()) {
 			rebuildDisplayedEntries();
+		}
+		if (outcome.exitHandleLogWithoutSessionPersist()) {
+			return;
 		}
 		fireSessionStateChanged();
 	}
@@ -697,13 +496,7 @@ public class RouteTabPanel extends JPanel {
 		if (jumpFlashTimer == null) {
 			return;
 		}
-		pendingJumpLockedName = (destName != null && !destName.isBlank()) ? destName : null;
-		pendingJumpLockedAddress = destAddress;
-		pendingJumpSystemName = pendingJumpLockedName;
-		jumpFlashOn = true;
-		if (!jumpFlashTimer.isRunning()) {
-			jumpFlashTimer.start();
-		}
+		routeSession.startCarrierPendingJumpBlink(destName, destAddress);
 		rebuildDisplayedEntries();
 		fireSessionStateChanged();
 	}
@@ -712,40 +505,9 @@ public class RouteTabPanel extends JPanel {
 	 * Stop the pending-jump blink (e.g. carrier jump cancelled before departure).
 	 */
 	protected void stopPendingJumpBlink() {
-		if (jumpFlashTimer != null && jumpFlashTimer.isRunning()) {
-			jumpFlashTimer.stop();
-		}
-		pendingJumpSystemName = null;
-		pendingJumpLockedName = null;
-		pendingJumpLockedAddress = 0L;
-		jumpFlashOn = true;
+		routeSession.stopCarrierPendingJumpBlink();
 		rebuildDisplayedEntries();
 		fireSessionStateChanged();
-	}
-
-	private void setCurrentSystemIfEmpty(String systemName, long systemAddress) {
-		if (tableModel.getRowCount() > 0) {
-			return; // route exists, nothing to do
-		}
-		RouteEntry entry = new RouteEntry(
-				0,                    // index
-				systemName,
-				systemAddress,
-				"?",                  // class until EDSM loads
-				0.0,                   // Ly
-				ScanStatus.UNKNOWN       // use whatever your enum is
-				);
-		//        int index;
-		//        String systemName;
-		//        long systemAddress;
-		//        String starClass;
-		//        Double distanceLy;
-		//        ScanStatus status;
-
-		List<RouteEntry> list = new ArrayList<>();
-		list.add(entry);
-		tableModel.setEntries(list);
-		tableModel.fireTableDataChanged();
 	}
 
 	int getRowForSystem(String systemName) {
@@ -769,6 +531,7 @@ public class RouteTabPanel extends JPanel {
 		if (systemTableHoverCopyManager == null) {
 			return;
 		}
+		List<RouteEntry> baseRouteEntries = routeSession.getBaseRouteEntries();
 		if (baseRouteEntries == null || baseRouteEntries.isEmpty()) {
 			return;
 		}
@@ -857,16 +620,10 @@ public class RouteTabPanel extends JPanel {
 			tableModel.setEntries(new ArrayList<>());
 			return;
 		}
-		targetSystemName = null;
-		targetSystemAddress = 0L;
-		destinationSystemAddress = null;
-		destinationBodyId = null;
-		destinationName = null;
-
 		List<RouteEntry> entries;
 		try (Reader reader = Files.newBufferedReader(navRoute, StandardCharsets.UTF_8)) {
 			JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-			entries = parseNavRouteFromJson(root);
+			entries = RouteNavRouteJson.parseNavRouteFromJson(root);
 		} catch (Exception e) {
 			e.printStackTrace();
 			headerLabel.setText("Error reading NavRoute.json");
@@ -876,9 +633,7 @@ public class RouteTabPanel extends JPanel {
 		headerLabel.setText(entries.isEmpty()
 				? "No plotted route."
 						: "Route: " + entries.size() + " systems");
-		// Save the raw NavRoute entries (no synthetic rows). We'll rebuild the displayed list
-		// whenever current/destination changes.
-		baseRouteEntries = deepCopy(entries);
+		routeSession.applyNavRouteReloadParsed(entries);
 		rebuildDisplayedEntries();
 	}
 
@@ -890,7 +645,7 @@ public class RouteTabPanel extends JPanel {
 	public boolean importSpanshFleetCarrierRouteFile(Path file) {
 		if (file == null || !Files.isRegularFile(file)) {
 			setHeaderLabelText("Error reading Spansh JSON (missing file).");
-			baseRouteEntries = new ArrayList<>();
+			routeSession.applyNavRouteReloadParsed(new ArrayList<>());
 			tableModel.setEntries(new ArrayList<>());
 			return false;
 		}
@@ -898,39 +653,29 @@ public class RouteTabPanel extends JPanel {
 		List<RouteEntry> entries;
 		try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
 			JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-			entries = parseSpanshFleetCarrierRouteFromJson(root);
+			entries = RouteNavRouteJson.parseSpanshFleetCarrierRouteFromJson(root);
 		} catch (Exception e) {
 			e.printStackTrace();
 			setHeaderLabelText("Error reading Spansh JSON");
-			baseRouteEntries = new ArrayList<>();
+			routeSession.applyNavRouteReloadParsed(new ArrayList<>());
 			tableModel.setEntries(new ArrayList<>());
 			return false;
 		}
 
 		if (entries == null || entries.isEmpty()) {
 			setHeaderLabelText("No jumps found in Spansh JSON.");
-			baseRouteEntries = new ArrayList<>();
+			routeSession.applyNavRouteReloadParsed(new ArrayList<>());
 			tableModel.setEntries(new ArrayList<>());
 			return false;
 		}
 
-		// Clear target/destination state so synthetic rows don't appear based on other contexts.
-		targetSystemName = null;
-		targetSystemAddress = 0L;
-		destinationSystemAddress = null;
-		destinationBodyId = null;
-		destinationName = null;
-		pendingJumpSystemName = null;
-		pendingJumpLockedName = null;
-		pendingJumpLockedAddress = 0L;
-		inHyperspace = false;
 		jumpFlashOn = true;
 		if (jumpFlashTimer != null && jumpFlashTimer.isRunning()) {
 			jumpFlashTimer.stop();
 		}
 
 		setHeaderLabelText("Route: " + entries.size() + " systems");
-		baseRouteEntries = deepCopy(entries);
+		routeSession.applySpanshImport(entries);
 		rebuildDisplayedEntries();
 		fireSessionStateChanged();
 		return true;
@@ -941,62 +686,7 @@ public class RouteTabPanel extends JPanel {
 	 * Package-visible for unit tests.
 	 */
 	static List<RouteEntry> parseNavRouteFromJson(JsonObject root) {
-		List<RouteEntry> entries = new ArrayList<>();
-		if (root == null || !root.has("Route") || !root.get("Route").isJsonArray()) {
-			return entries;
-		}
-		JsonArray route = root.getAsJsonArray("Route");
-		List<double[]> coords = new ArrayList<>();
-		for (JsonElement elem : route) {
-			if (!elem.isJsonObject()) {
-				continue;
-			}
-			JsonObject obj = elem.getAsJsonObject();
-			String systemName    = safeString(obj, "StarSystem");
-			long systemAddress   = safeLong(obj, "SystemAddress");
-			String starClass     = safeString(obj, "StarClass");
-			JsonArray pos        = obj.getAsJsonArray("StarPos");
-			RouteEntry entry = new RouteEntry();
-			entry.index = entries.size();
-			entry.systemName    = systemName;
-			entry.systemAddress = systemAddress;
-			entry.starClass     = starClass;
-			entry.status        = ScanStatus.UNKNOWN;
-			entries.add(entry);
-			if (pos != null && pos.size() == 3) {
-				double x = pos.get(0).getAsDouble();
-				double y = pos.get(1).getAsDouble();
-				double z = pos.get(2).getAsDouble();
-				entry.x = Double.valueOf(x);
-				entry.y = Double.valueOf(y);
-				entry.z = Double.valueOf(z);
-				coords.add(new double[] { x, y, z });
-			} else {
-				entry.x = null;
-				entry.y = null;
-				entry.z = null;
-				coords.add(null);
-			}
-		}
-		// Compute per-jump distances (Ly) from the StarPos coordinates
-		for (int i = 0; i < entries.size(); i++) {
-			if (i == 0) {
-				entries.get(i).distanceLy = null; // origin system
-			} else {
-				double[] prev = coords.get(i - 1);
-				double[] cur  = coords.get(i);
-				if (prev == null || cur == null) {
-					entries.get(i).distanceLy = null;
-				} else {
-					double dx = cur[0] - prev[0];
-					double dy = cur[1] - prev[1];
-					double dz = cur[2] - prev[2];
-					double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-					entries.get(i).distanceLy = dist;
-				}
-			}
-		}
-		return entries;
+		return RouteNavRouteJson.parseNavRouteFromJson(root);
 	}
 
 	/**
@@ -1011,98 +701,52 @@ public class RouteTabPanel extends JPanel {
 	 * into a list of {@link RouteEntry} objects.
 	 */
 	static List<RouteEntry> parseSpanshFleetCarrierRouteFromJson(JsonObject root) {
-		List<RouteEntry> entries = new ArrayList<>();
-
-		JsonArray jumps = null;
-		if (root != null) {
-			if (root.has("jumps") && root.get("jumps").isJsonArray()) {
-				jumps = root.getAsJsonArray("jumps");
-			} else if (root.has("result") && root.get("result").isJsonObject()) {
-				JsonObject result = root.getAsJsonObject("result");
-				if (result.has("jumps") && result.get("jumps").isJsonArray()) {
-					jumps = result.getAsJsonArray("jumps");
-				}
-			} else if (root.has("parameters") && root.get("parameters").isJsonObject()) {
-				JsonObject parameters = root.getAsJsonObject("parameters");
-				if (parameters.has("jumps") && parameters.get("jumps").isJsonArray()) {
-					jumps = parameters.getAsJsonArray("jumps");
-				}
-			}
-		}
-
-		if (jumps == null) {
-			return entries;
-		}
-		List<double[]> coords = new ArrayList<>();
-
-		for (JsonElement elem : jumps) {
-			if (!elem.isJsonObject()) {
-				continue;
-			}
-			JsonObject obj = elem.getAsJsonObject();
-
-			String systemName = safeString(obj, "name");
-			long systemAddress = safeLong(obj, "id64");
-
-			Double x = safeDouble(obj, "x");
-			Double y = safeDouble(obj, "y");
-			Double z = safeDouble(obj, "z");
-
-			RouteEntry entry = new RouteEntry();
-			entry.index = entries.size();
-			entry.systemName = systemName;
-			entry.systemAddress = systemAddress;
-			entry.starClass = "";
-			entry.status = ScanStatus.UNKNOWN;
-
-			entry.x = x;
-			entry.y = y;
-			entry.z = z;
-
-			if (x != null && y != null && z != null) {
-				coords.add(new double[] { x.doubleValue(), y.doubleValue(), z.doubleValue() });
-			} else {
-				coords.add(null);
-			}
-			entries.add(entry);
-		}
-
-		// Compute per-leg distances (Ly) from the StarPos coordinates.
-		for (int i = 0; i < entries.size(); i++) {
-			if (i == 0) {
-				entries.get(i).distanceLy = null; // origin system
-			} else {
-				double[] prev = coords.get(i - 1);
-				double[] cur = coords.get(i);
-				if (prev == null || cur == null) {
-					entries.get(i).distanceLy = null;
-				} else {
-					double dx = cur[0] - prev[0];
-					double dy = cur[1] - prev[1];
-					double dz = cur[2] - prev[2];
-					entries.get(i).distanceLy = Math.sqrt(dx * dx + dy * dy + dz * dz);
-				}
-			}
-		}
-		return entries;
+		return RouteNavRouteJson.parseSpanshFleetCarrierRouteFromJson(root);
 	}
 
 	private void rebuildDisplayedEntries() {
-		List<RouteEntry> working = deepCopy(baseRouteEntries);
-		applyRememberedScanStatuses(working);
-		
-		applySyntheticCurrentRow(working);
-		applySyntheticTargetRow(working);
-		applySyntheticDestinationBodyRow(working);
-		recomputeLegDistances(working);
-		renumberDisplayIndexes(working);
-		applyMarkerKinds(working);
-		tableModel.setEntries(working);
-		// Only run EDSM for visible rows; scroll to keep current at ~TARGET_CURRENT_ROW_OFFSET (after layout).
+		RouteDisplaySnapshot snap = routeSession.buildDisplaySnapshot(this::applyRememberedScanStatuses, this::resolveSystemCoords);
+		tableModel.setEntries(snap.displayedEntries());
+		maybeScheduleTargetCoordsFetch(snap.displayedEntries());
 		SwingUtilities.invokeLater(() -> {
 			startEdsmUpdatesForVisibleRows();
 			scrollToKeepCurrentRowAtOffset();
 		});
+	}
+
+	private void maybeScheduleTargetCoordsFetch(List<RouteEntry> displayed) {
+		String targetSystemName = routeSession.getTargetState().getTargetSystemName();
+		if (targetSystemName == null || targetSystemName.isBlank()) {
+			return;
+		}
+		for (RouteEntry e : displayed) {
+			if (e == null || !e.isSynthetic || e.isBodyRow) {
+				continue;
+			}
+			if (!targetSystemName.equals(e.systemName)) {
+				continue;
+			}
+			if (e.x != null) {
+				return;
+			}
+			final String targetName = targetSystemName;
+			if (edsmCoordsFetchInProgress.add(targetName)) {
+				Thread t = new Thread(() -> {
+					try {
+						Double[] fetched = resolveSystemCoordsFromEdsm(targetName);
+						if (fetched == null) {
+							return;
+						}
+						SwingUtilities.invokeLater(() -> rebuildDisplayedEntries());
+					} finally {
+						edsmCoordsFetchInProgress.remove(targetName);
+					}
+				}, "RouteTargetCoords-" + targetName);
+				t.setDaemon(true);
+				t.start();
+			}
+			break;
+		}
 	}
 
 	/** Call on EDT. Starts EDSM status updates only for rows currently visible in the viewport. */
@@ -1123,7 +767,7 @@ public class RouteTabPanel extends JPanel {
 			if (entry == null || entry.isBodyRow) {
 				continue;
 			}
-			if (entry.status != null && entry.status != ScanStatus.UNKNOWN) {
+			if (entry.status != null && entry.status != RouteScanStatus.UNKNOWN) {
 				continue;
 			}
 			final int r = row;
@@ -1229,389 +873,33 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	static List<RouteEntry> deepCopy(List<RouteEntry> entries) {
-		List<RouteEntry> out = new ArrayList<>();
-		if (entries == null) {
-			return out;
-		}
-		for (RouteEntry e : entries) {
-			if (e == null) {
-				continue;
-			}
-			out.add(e.copy());
-		}
-		return out;
+		return RouteGeometry.deepCopy(entries);
 	}
-	private void applySyntheticCurrentRow(List<RouteEntry> entries) {
-		String curName = getCurrentSystemName();
-		if (curName == null || curName.isBlank()) {
-			return;
-		}
-		if (findSystemRow(entries, curName, currentSystemAddress) >= 0) {
-			return;
-		}
-		Double[] coords = resolveSystemCoords(curName, currentSystemAddress, currentStarPos);
-		RouteEntry synthetic = RouteEntry.syntheticSystem(curName, currentSystemAddress, coords, MarkerKind.CURRENT);
-		int insertAt = bestInsertionIndexByCoords(entries, coords);
-		entries.add(insertAt, synthetic);
-	}
-	private void applySyntheticTargetRow(List<RouteEntry> entries) {
-		if (targetSystemName == null || targetSystemName.isBlank()) {
-			return;
-		}
-		if (findSystemRow(entries, targetSystemName, targetSystemAddress) >= 0) {
-			return;
-		}
-		// For targets we may not know coordinates yet; try cache first, then kick off an async EDSM lookup.
-		Double[] coords = resolveSystemCoords(targetSystemName, targetSystemAddress, null);
-		RouteEntry synthetic = RouteEntry.syntheticSystem(targetSystemName, targetSystemAddress, coords, MarkerKind.TARGET);
-		int insertAt = bestInsertionIndexByCoords(entries, coords);
-		entries.add(insertAt, synthetic);
-		if (coords == null && targetSystemName != null) {
-			final String targetName = targetSystemName;
-			if (edsmCoordsFetchInProgress.add(targetName)) {
-				Thread t = new Thread(() -> {
-					try {
-						Double[] fetched = resolveSystemCoordsFromEdsm(targetName);
-						if (fetched == null) {
-							return;
-						}
-						SwingUtilities.invokeLater(() -> {
-							// Rebuild again now that we have coordinates; this will relocate the row to a better position.
-							// (Also avoids mutating the table model list in-place from a background thread.)
-							rebuildDisplayedEntries();
-						});
-					} finally {
-						edsmCoordsFetchInProgress.remove(targetName);
-					}
-				}, "RouteTargetCoords-" + targetName);
-				t.setDaemon(true);
-				t.start();
-			}
-		}
-	}
-	private void applySyntheticDestinationBodyRow(List<RouteEntry> entries) {
-		if (destinationName == null || destinationName.isBlank()) {
-			return;
-		}
-		if (destinationBodyId == null) {
-			return; // not a body destination
-		}
-		// We only add a synthetic *body* row when Status.json tells us which system the body is in.
-		// If we don't have a system address, it's too easy to accidentally display an extra row for a
-		// totally unrelated target (or for the plotted destination system).
-		if (destinationSystemAddress == null) {
-			return;
-		}
-		// If the destination name is already being treated as a system target, don't also add a body row.
-		if (targetSystemName != null && destinationName.equals(targetSystemName)) {
-			return;
-		}
-		// If the destination name is the system name, treat it as a system target (handled elsewhere).
-		if (destinationName.equals(getCurrentSystemName())) {
-			return;
-		}
-		// Avoid duplicates on rebuild.
-		for (RouteEntry e : entries) {
-			if (e != null && e.isBodyRow && destinationName.equals(e.systemName)) {
-				return;
-			}
-		}
-		int currentRow = findSystemRow(entries, getCurrentSystemName(), currentSystemAddress);
-		// Prefer the address from the actual row (it might exist even if currentSystemAddress is still 0).
-		long resolvedCurrentAddress = 0L;
-		if (currentRow >= 0) {
-			RouteEntry cur = entries.get(currentRow);
-			if (cur != null) {
-				resolvedCurrentAddress = cur.systemAddress;
-			}
-		}
-		if (resolvedCurrentAddress == 0L) {
-			resolvedCurrentAddress = currentSystemAddress;
-		}
-		// Enforce "same system" for a body destination.
-		if (resolvedCurrentAddress != 0L) {
-			if (destinationSystemAddress.longValue() != resolvedCurrentAddress) {
-				return;
-			}
-		}
-		int insertAt = (currentRow >= 0) ? currentRow + 1 : 0;
-		RouteEntry body = RouteEntry.syntheticBody(destinationName);
-		body.indentLevel = 1;
-		body.markerKind = MarkerKind.TARGET; // empty triangle
-		entries.add(Math.min(insertAt, entries.size()), body);
-	}
+
 	static int findSystemRow(List<RouteEntry> entries, String systemName, long systemAddress) {
-		if (entries == null) {
-			return -1;
-		}
-		for (int i = 0; i < entries.size(); i++) {
-			RouteEntry e = entries.get(i);
-			if (e == null || e.isBodyRow) {
-				continue;
-			}
-			if (systemAddress != 0L && e.systemAddress == systemAddress) {
-				return i;
-			}
-			if (systemName != null && systemName.equals(e.systemName)) {
-				return i;
-			}
-		}
-		return -1;
+		return RouteGeometry.findSystemRow(entries, systemName, systemAddress);
 	}
+
 	static int bestInsertionIndexByCoords(List<RouteEntry> entries, Double[] coords) {
-		if (entries == null || entries.isEmpty()) {
-			return 0;
-		}
-		if (coords == null || coords[0] == null || coords[1] == null || coords[2] == null) {
-			return entries.size();
-		}
-		double[] p = new double[] { coords[0].doubleValue(), coords[1].doubleValue(), coords[2].doubleValue() };
-		// Find the closest segment in 3D between consecutive entries that have coords.
-		double best = Double.POSITIVE_INFINITY;
-		int bestAfter = entries.size();
-		for (int i = 0; i < entries.size() - 1; i++) {
-			RouteEntry a = entries.get(i);
-			RouteEntry b = entries.get(i + 1);
-			if (a == null || b == null || a.isBodyRow || b.isBodyRow) {
-				continue;
-			}
-			if (a.x == null || a.y == null || a.z == null || b.x == null || b.y == null || b.z == null) {
-				continue;
-			}
-			double[] v = new double[] { a.x.doubleValue(), a.y.doubleValue(), a.z.doubleValue() };
-			double[] w = new double[] { b.x.doubleValue(), b.y.doubleValue(), b.z.doubleValue() };
-			double d = pointToSegmentDistanceSquared(p, v, w);
-			if (d < best) {
-				best = d;
-				bestAfter = i + 1;
-			}
-		}
-		// If we never found any segment with coords, fall back to the end.
-		return bestAfter;
+		return RouteGeometry.bestInsertionIndexByCoords(entries, coords);
 	}
-	private static double pointToSegmentDistanceSquared(double[] p, double[] v, double[] w) {
-		double[] vw = new double[] { w[0] - v[0], w[1] - v[1], w[2] - v[2] };
-		double[] vp = new double[] { p[0] - v[0], p[1] - v[1], p[2] - v[2] };
-		double c1 = vp[0] * vw[0] + vp[1] * vw[1] + vp[2] * vw[2];
-		if (c1 <= 0) {
-			return squaredDistance(p, v);
-		}
-		double c2 = vw[0] * vw[0] + vw[1] * vw[1] + vw[2] * vw[2];
-		if (c2 <= c1) {
-			return squaredDistance(p, w);
-		}
-		double t = c1 / c2;
-		double[] proj = new double[] { v[0] + t * vw[0], v[1] + t * vw[1], v[2] + t * vw[2] };
-		return squaredDistance(p, proj);
-	}
-	private static double squaredDistance(double[] a, double[] b) {
-		double dx = a[0] - b[0];
-		double dy = a[1] - b[1];
-		double dz = a[2] - b[2];
-		return dx * dx + dy * dy + dz * dz;
-	}
+
 	static void recomputeLegDistances(List<RouteEntry> entries) {
-		if (entries == null) {
-			return;
-		}
-		for (int i = 0; i < entries.size(); i++) {
-			RouteEntry cur = entries.get(i);
-			if (cur == null || cur.isBodyRow) {
-				continue;
-			}
-			if (i == 0) {
-				cur.distanceLy = null;
-				continue;
-			}
-			RouteEntry prev = entries.get(i - 1);
-			if (prev == null || prev.isBodyRow) {
-				cur.distanceLy = null;
-				continue;
-			}
-			if (prev.x == null || prev.y == null || prev.z == null
-					|| cur.x == null || cur.y == null || cur.z == null) {
-				cur.distanceLy = null;
-				continue;
-			}
-			double dx = cur.x.doubleValue() - prev.x.doubleValue();
-			double dy = cur.y.doubleValue() - prev.y.doubleValue();
-			double dz = cur.z.doubleValue() - prev.z.doubleValue();
-			cur.distanceLy = Math.sqrt(dx * dx + dy * dy + dz * dz);
-		}
+		RouteGeometry.recomputeLegDistances(entries);
 	}
+
 	static void renumberDisplayIndexes(List<RouteEntry> entries) {
-		int n = 1;
-		for (RouteEntry e : entries) {
-			if (e == null) {
-				continue;
-			}
-			if (e.isSynthetic || e.isBodyRow) {
-				e.displayIndex = null;
-				continue;
-			}
-			e.displayIndex = Integer.valueOf(n);
-			n++;
-		}
-	}
-	private void applyMarkerKinds(List<RouteEntry> entries) {
-		if (entries == null) {
-			return;
-		}
-
-		String currentName = getCurrentSystemName();
-
-		// Clear marker kinds first (body rows manage their own markerKind).
-		for (RouteEntry e : entries) {
-			if (e == null) {
-				continue;
-			}
-			if (e.isBodyRow) {
-				continue;
-			}
-			e.markerKind = MarkerKind.NONE;
-		}
-
-		// Mark current system row.
-		int currentRow = findSystemRow(entries, currentName, currentSystemAddress);
-		if (currentRow >= 0) {
-			RouteEntry cur = entries.get(currentRow);
-			if (cur != null && !cur.isBodyRow) {
-				cur.markerKind = MarkerKind.CURRENT;
-			}
-		}
-
-		// Identify the next plotted hop (first non-synthetic, non-body row after current).
-		RouteEntry nextHop = null;
-		if (currentRow >= 0) {
-			for (int i = currentRow + 1; i < entries.size(); i++) {
-				RouteEntry e = entries.get(i);
-				if (e == null) {
-					continue;
-				}
-				if (e.isBodyRow) {
-					continue;
-				}
-				if (e.isSynthetic) {
-					continue;
-				}
-				nextHop = e;
-				break;
-			}
-		}
-
-		// Side-trip target overrides the normal next-hop marker.
-		boolean hasSideTripTarget = (targetSystemName != null && !targetSystemName.isBlank());
-
-		long resolvedCurrentAddress = 0L;
-		if (currentRow >= 0) {
-			RouteEntry cur = entries.get(currentRow);
-			if (cur != null) {
-				resolvedCurrentAddress = cur.systemAddress;
-			}
-		}
-		if (resolvedCurrentAddress == 0L) {
-			resolvedCurrentAddress = currentSystemAddress;
-		}
-
-		boolean hasLocalBodyDestination = false;
-		if (destinationBodyId != null && destinationSystemAddress != null && resolvedCurrentAddress != 0L) {
-			if (destinationSystemAddress.longValue() == resolvedCurrentAddress) {
-				hasLocalBodyDestination = true;
-			}
-		}
-
-		// While charging, the most reliable "next jump" is Status.json's destination system (if any).
-		boolean charging = jumpFlashTimer.isRunning();
-		RouteEntry pending = null;
-
-		if (!hasSideTripTarget) {
-			if (charging && destinationBodyId == null) {
-				String destNameForPending = pendingJumpLockedName;
-				long destAddrForPending = pendingJumpLockedAddress;
-
-				if (destNameForPending == null || destNameForPending.isBlank()) {
-					destNameForPending = destinationName;
-				}
-				if (destAddrForPending == 0L && destinationSystemAddress != null) {
-					destAddrForPending = destinationSystemAddress.longValue();
-				}
-
-				// Only try to use the Status destination if it looks like a real system target.
-				if (destAddrForPending != 0L || (destNameForPending != null && !destNameForPending.isBlank())) {
-					int destRow = findSystemRow(entries, destNameForPending, destAddrForPending);
-					if (destRow >= 0 && destRow != currentRow) {
-						RouteEntry e = entries.get(destRow);
-						if (e != null && !e.isBodyRow) {
-							pending = e;
-						}
-					}
-				}
-			}
-
-			// Fallback to the plotted route's next hop.
-			// If we have a LOCAL body destination selected, the empty triangle belongs ONLY to that body row.
-			if (pending == null && nextHop != null && !hasLocalBodyDestination) {
-				pending = nextHop;
-			}
-
-			if (pending != null) {
-				pending.markerKind = MarkerKind.PENDING_JUMP;
-			}
-		}
-
-		// Mark side-trip target system row. If we are charging, blink it as the pending jump.
-		if (hasSideTripTarget) {
-			for (RouteEntry e : entries) {
-				if (!matchesTarget(e)) {
-					continue;
-				}
-				if (e.markerKind == MarkerKind.NONE) {
-					if (charging) {
-						e.markerKind = MarkerKind.PENDING_JUMP;
-					} else {
-						e.markerKind = MarkerKind.TARGET;
-					}
-				}
-				break;
-			}
-		}
-
+		RouteGeometry.renumberDisplayIndexes(entries);
 	}
 
-	private boolean matchesTarget(RouteEntry e) {
-		if (e == null) {
-			return false;
-		}
-		if (e.isBodyRow) {
-			return false;
-		}
-
-		if (targetSystemAddress != 0L && e.systemAddress != 0L) {
-			if (e.systemAddress == targetSystemAddress) {
-				return true;
-			}
-		}
-
-		if (targetSystemName != null && !targetSystemName.isBlank() && e.systemName != null) {
-			if (targetSystemName.equals(e.systemName)) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-	
-	private final Map<Long, ScanStatus> lastKnownScanStatusByAddress = new ConcurrentHashMap<>();
-	private final Map<Long, EdsmScanSummary> edsmSummaryByAddress = new ConcurrentHashMap<>();
-
-	private void rememberScanStatus(RouteEntry entry, ScanStatus status) {
+	private void rememberScanStatus(RouteEntry entry, RouteScanStatus status) {
 		if (entry == null) {
 			return;
 		}
 		if (entry.systemAddress == 0L) {
 			return;
 		}
-		if (status == null || status == ScanStatus.UNKNOWN) {
+		if (status == null || status == RouteScanStatus.UNKNOWN) {
 			return;
 		}
 		lastKnownScanStatusByAddress.put(entry.systemAddress, status);
@@ -1630,17 +918,17 @@ public class RouteTabPanel extends JPanel {
 			}
 
 			// Prefer LOCAL scan state first (if known).
-			ScanStatus local = getLocalScanStatus(e);
-			if (local != ScanStatus.UNKNOWN) {
+			RouteScanStatus local = getLocalScanStatus(e);
+			if (local != RouteScanStatus.UNKNOWN) {
 				e.status = local;
 				rememberScanStatus(e, local);
 				continue;
 			}
 
 			// If we already knew something, don't reset back to UNKNOWN.
-			if (e.status == null || e.status == ScanStatus.UNKNOWN) {
-				ScanStatus remembered = lastKnownScanStatusByAddress.get(e.systemAddress);
-				if (remembered != null && remembered != ScanStatus.UNKNOWN) {
+			if (e.status == null || e.status == RouteScanStatus.UNKNOWN) {
+				RouteScanStatus remembered = lastKnownScanStatusByAddress.get(e.systemAddress);
+				if (remembered != null && remembered != RouteScanStatus.UNKNOWN) {
 					e.status = remembered;
 				}
 			}
@@ -1697,8 +985,8 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		// Prefer LOCAL scan state first (this matches in-game "Bodies: N of N Complete")
-		ScanStatus local = getLocalScanStatus(entry);
-		if (local != ScanStatus.UNKNOWN) {
+		RouteScanStatus local = getLocalScanStatus(entry);
+		if (local != RouteScanStatus.UNKNOWN) {
 			entry.status = local;
 			rememberScanStatus(entry, local);
 			SwingUtilities.invokeLater(() -> tableModel.fireRowChanged(row));
@@ -1707,7 +995,7 @@ public class RouteTabPanel extends JPanel {
 		boolean v = isVisited(entry);
 		try {
 			BodiesResponse bodies = edsmClient.showBodies(entry.systemName);
-			ScanStatus newStatus = ScanStatus.UNKNOWN;
+			RouteScanStatus newStatus = RouteScanStatus.UNKNOWN;
 			if (bodies != null && bodies.bodies != null) {
 				int returnedBodies = bodies.bodies.size();
 				boolean hasBodies = returnedBodies > 0;
@@ -1719,25 +1007,25 @@ public class RouteTabPanel extends JPanel {
 				if (hasBodies) {
 					if (bodies.bodyCount != returnedBodies) {
 						newStatus = v
-								? ScanStatus.BODYCOUNT_MISMATCH_VISITED
-										: ScanStatus.BODYCOUNT_MISMATCH_NOT_VISITED;
+								? RouteScanStatus.BODYCOUNT_MISMATCH_VISITED
+										: RouteScanStatus.BODYCOUNT_MISMATCH_NOT_VISITED;
 					} else {
 						newStatus = v
-								? ScanStatus.FULLY_DISCOVERED_VISITED
-										: ScanStatus.FULLY_DISCOVERED_NOT_VISITED;
+								? RouteScanStatus.FULLY_DISCOVERED_VISITED
+										: RouteScanStatus.FULLY_DISCOVERED_NOT_VISITED;
 					}
 				} else {
-					newStatus = ScanStatus.UNKNOWN;
+					newStatus = RouteScanStatus.UNKNOWN;
 				}
 			}
-			if (newStatus != ScanStatus.UNKNOWN) {
+			if (newStatus != RouteScanStatus.UNKNOWN) {
 				entry.status = newStatus;
 				rememberScanStatus(entry, newStatus);
 				SwingUtilities.invokeLater(() -> tableModel.fireRowChanged(row));
 			} else {
 				// Don't downgrade a known status back to UNKNOWN.
-				if (entry.status == null || entry.status == ScanStatus.UNKNOWN) {
-					entry.status = ScanStatus.UNKNOWN;
+				if (entry.status == null || entry.status == RouteScanStatus.UNKNOWN) {
+					entry.status = RouteScanStatus.UNKNOWN;
 					SwingUtilities.invokeLater(() -> tableModel.fireRowChanged(row));
 				}
 			}
@@ -1746,32 +1034,32 @@ public class RouteTabPanel extends JPanel {
 			e.printStackTrace();
 		}
 	}
-	private ScanStatus getLocalScanStatus(RouteEntry entry) {
+	private RouteScanStatus getLocalScanStatus(RouteEntry entry) {
 		if (entry == null) {
-			return ScanStatus.UNKNOWN;
+			return RouteScanStatus.UNKNOWN;
 		}
 		SystemCache cache = SystemCache.getInstance();
 		CachedSystemSummary summary = cache.getSummary(entry.systemAddress, entry.systemName);
 		if (summary == null) {
-			return ScanStatus.UNKNOWN; // not visited / no local info
+			return RouteScanStatus.UNKNOWN; // not visited / no local info
 		}
 		Boolean all = summary.allBodiesFound;
 		if (Boolean.TRUE.equals(all)) {
-			return ScanStatus.FULLY_DISCOVERED_VISITED;
+			return RouteScanStatus.FULLY_DISCOVERED_VISITED;
 		}
 		Integer totalBodies = summary.totalBodies;
 		int knownBodies = summary.cachedBodyCount;
 		// If we know the system body count and we don't have them all locally -> X
 		if (totalBodies != null && totalBodies > 0 && knownBodies > 0 && knownBodies < totalBodies) {
-			return ScanStatus.DISCOVERY_MISSING_VISITED;
+			return RouteScanStatus.DISCOVERY_MISSING_VISITED;
 		}
 		// If we know counts match and FSS progress says complete -> checkmark
 		Double progress = summary.fssProgress;
 		if (totalBodies != null && totalBodies > 0 && knownBodies >= totalBodies
 				&& progress != null && progress >= 1.0) {
-			return ScanStatus.FULLY_DISCOVERED_VISITED;
+			return RouteScanStatus.FULLY_DISCOVERED_VISITED;
 		}
-		return ScanStatus.UNKNOWN;
+		return RouteScanStatus.UNKNOWN;
 	}
 	/**
 	 * Hook for your local cache: return true if you consider the system
@@ -1829,43 +1117,6 @@ public class RouteTabPanel extends JPanel {
 		//         At this point, cache says we know all bodies and FSS is effectively complete.
 		return false;
 	}
-	private static String safeString(JsonObject obj, String key) {
-		JsonElement el = obj.get(key);
-		return (el != null && !el.isJsonNull()) ? el.getAsString() : "";
-	}
-	private static long safeLong(JsonObject obj, String key) {
-		JsonElement el = obj.get(key);
-		try {
-			if (el == null || el.isJsonNull()) {
-				return 0L;
-			}
-			// Some JSON exports encode numeric ids as strings.
-			if (el.isJsonPrimitive() && el.getAsJsonPrimitive().isString()) {
-				String s = el.getAsString();
-				if (s == null || s.isBlank()) {
-					return 0L;
-				}
-				return Long.parseLong(s.trim());
-			}
-			return el.getAsLong();
-		} catch (Exception e) {
-			return 0L;
-		}
-	}
-	private static Double safeDouble(JsonObject obj, String key) {
-		if (obj == null || key == null) {
-			return null;
-		}
-		JsonElement el = obj.get(key);
-		if (el == null || el.isJsonNull()) {
-			return null;
-		}
-		try {
-			return el.getAsDouble();
-		} catch (Exception e) {
-			return null;
-		}
-	}
 	/**
 	 * Returns true if the system for this route entry appears in the local cache.
 	 * This is the only "me-related" state: it means you have visited the system.
@@ -1879,22 +1130,22 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	private String getCurrentSystemName() {
-		if (currentSystemName != null && !currentSystemName.isBlank()) {
-			return currentSystemName;
+		if (routeSession.getCurrentSystemName() != null && !routeSession.getCurrentSystemName().isBlank()) {
+			return routeSession.getCurrentSystemName();
 		}
 		// Best source: recent journals (works at startup, no live events required)
 		String fromJournal = resolveCurrentSystemNameFromJournal();
 		if (fromJournal != null && !fromJournal.isBlank()) {
-			currentSystemName = fromJournal;
-			return currentSystemName;
+			routeSession.setCurrentSystemName(fromJournal);
+			return fromJournal;
 		}
 		// Fallback: whatever SystemCache persisted last
 		try {
 			CachedSystem cached = SystemCache.load();
 			String fromCache = (cached != null) ? cached.systemName : null;
 			if (fromCache != null && !fromCache.isBlank()) {
-				currentSystemName = fromCache;
-				return currentSystemName;
+				routeSession.setCurrentSystemName(fromCache);
+				return fromCache;
 			}
 		} catch (IOException e) {
 			e.printStackTrace();
@@ -1924,117 +1175,16 @@ public class RouteTabPanel extends JPanel {
 	        return null;
 	    }
 	}
-	private void setCurrentSystemName(String currentSystemName) {
-		if (currentSystemName == null) {
+	private void setCurrentSystemName(String name) {
+		if (name == null) {
 			return;
 		}
-		this.currentSystemName = currentSystemName;
-		tableModel.setCurrentSystemName(currentSystemName);
+		routeSession.setCurrentSystemName(name);
+		tableModel.setCurrentSystemName(name);
 	}
 	// ---------------------------------------------------------------------
 	// Model + table
 	// ---------------------------------------------------------------------
-	enum ScanStatus {
-		// Any body missing discovery.commander and you have visited the system.
-		DISCOVERY_MISSING_VISITED,
-		// Any body missing discovery.commander and you have NOT visited the system.
-		DISCOVERY_MISSING_NOT_VISITED,
-		// EDSM bodyCount does not match the number of bodies returned, and you have visited.
-		BODYCOUNT_MISMATCH_VISITED,
-		// EDSM bodyCount does not match the number of bodies returned, and you have NOT visited.
-		BODYCOUNT_MISMATCH_NOT_VISITED,
-		// All bodies accounted for in EDSM and each has discovery.commander, and you have visited.
-		FULLY_DISCOVERED_VISITED,
-		// All bodies accounted for in EDSM and each has discovery.commander, and you have NOT visited.
-		FULLY_DISCOVERED_NOT_VISITED,
-		// Anything else / no data.
-		UNKNOWN
-	}
-	private enum MarkerKind {
-		NONE,
-		CURRENT,
-		TARGET,
-		PENDING_JUMP
-	}
-	static final class RouteEntry {
-		public RouteEntry() {
-		}
-		public RouteEntry(int i, String systemNameIn, long systemAddressIn, String starClassIn, double dLy, ScanStatus scanStatusIn) {
-			index = i;
-			systemName = systemNameIn;
-			systemAddress = systemAddressIn;
-			starClass = starClassIn;
-			distanceLy = dLy;
-			status = scanStatusIn;
-		}
-		int index;
-		Integer displayIndex;
-		String systemName;
-		long systemAddress;
-		String starClass;
-		boolean isSynthetic;
-		boolean isBodyRow;
-		int indentLevel;
-		MarkerKind markerKind = MarkerKind.NONE;
-		/**
-		 * StarPos coordinates (x,y,z) for this system, in Ly, when available (NavRoute.json provides these).
-		 * Used for "straight line" distance calculations.
-		 */
-		Double x;
-		Double y;
-		Double z;
-		/**
-		 * Per-leg distance (Ly) from the previous entry to this entry.
-		 * Null for the origin row.
-		 */
-		Double distanceLy;
-		ScanStatus status;
-		RouteEntry copy() {
-			RouteEntry e = new RouteEntry();
-			e.index = index;
-			e.displayIndex = displayIndex;
-			e.systemName = systemName;
-			e.systemAddress = systemAddress;
-			e.starClass = starClass;
-			e.x = x;
-			e.y = y;
-			e.z = z;
-			e.distanceLy = distanceLy;
-			e.status = status;
-			e.isSynthetic = isSynthetic;
-			e.isBodyRow = isBodyRow;
-			e.indentLevel = indentLevel;
-			e.markerKind = markerKind;
-			return e;
-		}
-		static RouteEntry syntheticSystem(String name, long address, Double[] coords, MarkerKind markerKind) {
-			RouteEntry e = new RouteEntry();
-			e.isSynthetic = true;
-			e.isBodyRow = false;
-			e.systemName = (name != null ? name : "");
-			e.systemAddress = address;
-			e.starClass = "";
-			e.status = ScanStatus.UNKNOWN;
-			e.markerKind = (markerKind != null ? markerKind : MarkerKind.NONE);
-			if (coords != null && coords.length == 3 && coords[0] != null && coords[1] != null && coords[2] != null) {
-				e.x = coords[0];
-				e.y = coords[1];
-				e.z = coords[2];
-			}
-			return e;
-		}
-		static RouteEntry syntheticBody(String bodyName) {
-			RouteEntry e = new RouteEntry();
-			e.isSynthetic = true;
-			e.isBodyRow = true;
-			e.systemName = (bodyName != null ? bodyName : "");
-			e.systemAddress = 0L;
-			e.starClass = "";
-			e.status = null;
-			e.markerKind = MarkerKind.NONE;
-			return e;
-		}
-	}
 	private static final class RouteTableModel extends AbstractTableModel {
 		private static final long serialVersionUID = 1L;
 		private final List<RouteEntry> entries = new ArrayList<>();
@@ -2282,8 +1432,8 @@ public class RouteTabPanel extends JPanel {
 			label.setText("");
 			label.setIcon(null);
 
-			if (value instanceof ScanStatus) {
-				ScanStatus status = (ScanStatus) value;
+			if (value instanceof RouteScanStatus) {
+				RouteScanStatus status = (RouteScanStatus) value;
 				switch (status) {
 				case FULLY_DISCOVERED_VISITED:
 					label.setIcon(ICON_FULLY_DISCOVERED_VISITED);
@@ -2639,19 +1789,19 @@ public class RouteTabPanel extends JPanel {
 			} catch (Exception e) {
 				entry = null;
 			}
-			MarkerKind kind = (entry != null ? entry.markerKind : MarkerKind.NONE);
+			RouteMarkerKind kind = (entry != null ? entry.markerKind : RouteMarkerKind.NONE);
 
-			if (kind == MarkerKind.CURRENT) {
+			if (kind == RouteMarkerKind.CURRENT) {
 				icon = new TriangleIcon(EdoUi.User.MAIN_TEXT, 10, 10);
 
-			} else if (kind == MarkerKind.PENDING_JUMP) {
+			} else if (kind == RouteMarkerKind.PENDING_JUMP) {
 				// Blink the "next jump" empty triangle.
 				if (jumpFlashOn)
 				{
 					icon = new OutlineTriangleIcon(EdoUi.ED_ORANGE_LESS_TRANS, 10, 10, 2f);
 				}
 
-			} else if (kind == MarkerKind.TARGET) {
+			} else if (kind == RouteMarkerKind.TARGET) {
 				// Keep target visible regardless of pending jump.
 				icon = new OutlineTriangleIcon(EdoUi.ED_ORANGE_LESS_TRANS, 10, 10, 2f);
 			}
