@@ -717,7 +717,7 @@ private static List<BioRow> buildRows(BodyInfo body) {
                     int column) {
 
                 JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, false, false, row, column);
-                boolean transparent = OverlayPreferences.isOverlayTransparent();
+                boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
                 label.setOpaque(!transparent);
                 label.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
                 label.setForeground(EdoUi.User.MAIN_TEXT);
