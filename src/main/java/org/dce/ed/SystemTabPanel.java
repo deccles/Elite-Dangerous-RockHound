@@ -89,7 +89,6 @@ public class SystemTabPanel extends JPanel {
 
     private static final long BIO_DOLLAR_THRESHOLD = 20_000_000L;
     // NEW: semi-transparent orange for separators, similar to RouteTabPanel
-    private static final Color ED_ORANGE_TRANS = EdoUi.ED_ORANGE_TRANS;
     // NEW: shared ED font (similar to Route tab)
         private Font uiFont = OverlayPreferences.getUiFont();
 
@@ -250,7 +249,7 @@ public class SystemTabPanel extends JPanel {
                                                            int column) {
                 JLabel label = (JLabel) super.getTableCellRendererComponent(
                         table, value, false, false, row, column);
-                boolean transparent = OverlayPreferences.isOverlayTransparent();
+                boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
                 label.setOpaque(!transparent);
                 label.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
                 label.setForeground(EdoUi.User.MAIN_TEXT);
@@ -1901,7 +1900,7 @@ static class Row {
 
             Graphics2D g2 = (Graphics2D) g.create();
             try {
-                g2.setColor(ED_ORANGE_TRANS);
+                g2.setColor(EdoUi.ED_ORANGE_TRANS);
 
                 int rowCount = tableModel.getRowCount();
                 boolean firstBodySeen = false;
@@ -1912,7 +1911,7 @@ static class Row {
                         if (firstBodySeen) {
                             Rectangle rect = getCellRect(row, 0, true);
                             int y = rect.y;
-                            g2.setColor(ED_ORANGE_TRANS);
+                            g2.setColor(EdoUi.ED_ORANGE_TRANS);
                             g2.drawLine(0, y, getWidth(), y);
                         } else {
                             firstBodySeen = true;

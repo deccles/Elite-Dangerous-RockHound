@@ -57,6 +57,7 @@ public class EliteDangerousOverlay implements NativeKeyListener {
 
         this.prefs = Preferences.userNodeForPackage(EliteDangerousOverlay.class);
         this.passThroughMode = prefs.getBoolean(PREF_START_IN_PASSTHROUGH, false);
+        OverlayPreferences.setPassThroughWindowActive(this.passThroughMode);
         this.contentPanel = new OverlayContentPanel(() -> passThroughMode);
 
         this.passThroughFrame = new OverlayFrame(contentPanel);
@@ -269,6 +270,7 @@ public class EliteDangerousOverlay implements NativeKeyListener {
 
     	// 5) Final state.
     	this.passThroughMode = enablePassThrough;
+        OverlayPreferences.setPassThroughWindowActive(enablePassThrough);
         prefs.putBoolean(PREF_START_IN_PASSTHROUGH, enablePassThrough);
 
     	// If we're switching to the decorated window, make sure pass-through is disabled.

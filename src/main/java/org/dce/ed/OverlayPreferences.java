@@ -132,6 +132,28 @@ public final class OverlayPreferences {
         PREFS.putBoolean(KEY_IS_OVERLAY_TRANSPARENT, transparent);
     }
 
+    /**
+     * Set by the app when the undecorated pass-through {@link org.dce.ed.OverlayFrame} is the visible host.
+     * Decorated mode uses an opaque theme plate; legacy {@link #isOverlayTransparent()} must not force
+     * transparent table/tab chrome there (Windows LAF shows through as blue).
+     */
+    private static volatile boolean passThroughWindowActive;
+
+    public static void setPassThroughWindowActive(boolean active) {
+        passThroughWindowActive = active;
+    }
+
+    public static boolean isPassThroughWindowActive() {
+        return passThroughWindowActive;
+    }
+
+    /**
+     * True when table headers, tab row, etc. should use transparent fills so the desktop shows through.
+     */
+    public static boolean overlayChromeRequestsTransparency() {
+        return isOverlayTransparent() && passThroughWindowActive;
+    }
+
     // ---------------------------------------------------------------------
     // Overlay background (new)
     // ---------------------------------------------------------------------

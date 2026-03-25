@@ -129,9 +129,7 @@ public class PreferencesDialog extends JDialog {
 
 	private boolean okPressed;
 	private final Font originalUiFont;
-	private final int originalNormalBgRgb;
 	private final int originalNormalTransparencyPct;
-	private final int originalPassThroughBgRgb;
 	private final int originalPassThroughTransparencyPct;
 	private final int originalPassThroughToggleKeyCode;
 
@@ -157,9 +155,7 @@ public class PreferencesDialog extends JDialog {
 		this.clientKey = clientKey;
 		this.originalUiFont = OverlayPreferences.getUiFont();
 
-		this.originalNormalBgRgb = OverlayPreferences.getNormalBackgroundRgb();
 		this.originalNormalTransparencyPct = OverlayPreferences.getNormalTransparencyPercent();
-		this.originalPassThroughBgRgb = OverlayPreferences.getPassThroughBackgroundRgb();
 		this.originalPassThroughTransparencyPct = OverlayPreferences.getPassThroughTransparencyPercent();
 		this.originalPassThroughToggleKeyCode = OverlayPreferences.getPassThroughToggleKeyCode();
 
@@ -515,12 +511,13 @@ public class PreferencesDialog extends JDialog {
 		// If the user cancels, revertLivePreviewIfNeeded() restores the original values.
 		OverlayPreferences.setUiMainTextRgb(mainRgb);
 		OverlayPreferences.setUiBackgroundRgb(bgRgb);
+		OverlayPreferences.setNormalBackgroundRgb(bgRgb);
+		OverlayPreferences.setPassThroughBackgroundRgb(bgRgb);
 		OverlayPreferences.setUiSneakerRgb(sneakerRgb);
 		OverlayPreferences.applyThemeToEdoUi();
 
 		if (getOwner() instanceof OverlayUiPreviewHost) {
 			OverlayUiPreviewHost f = (OverlayUiPreviewHost) getOwner();
-			f.applyThemeFromPreferences();
 
 			boolean pt = f.isPassThroughEnabled();
 			int pct;
@@ -534,8 +531,9 @@ public class PreferencesDialog extends JDialog {
 								: originalNormalTransparencyPct;
 			}
 
-			// Also preview overlay background using the chosen theme background color
+			// Push overlay fill first so rebuildTabbedPane() copies the correct parent background.
 			f.applyOverlayBackgroundPreview(pt, bgRgb, pct);
+			f.applyThemeFromPreferences();
 		}
 	}
 
@@ -1162,16 +1160,15 @@ public class PreferencesDialog extends JDialog {
 		OverlayPreferences.setUiBackgroundRgb(originalUiBackgroundRgb);
 		OverlayPreferences.setUiSneakerRgb(originalUiSneakerRgb);
 		OverlayPreferences.applyThemeToEdoUi();
-		f.applyThemeFromPreferences();
 
 		// Revert font
 		f.applyUiFontPreview(originalUiFont);
 
-		// Revert overlay background preview
+		// Revert overlay fill, then rebuild so tabbed pane inherits the restored background.
 		boolean pt = f.isPassThroughEnabled();
-		int rgb = pt ? originalPassThroughBgRgb : originalNormalBgRgb;
 		int pct = pt ? originalPassThroughTransparencyPct : originalNormalTransparencyPct;
-		f.applyOverlayBackgroundPreview(pt, rgb, pct);
+		f.applyOverlayBackgroundPreview(pt, originalUiBackgroundRgb, pct);
+		f.applyThemeFromPreferences();
 	}
 
 	private JPanel createSpeechPanel() {

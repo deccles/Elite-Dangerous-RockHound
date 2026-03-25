@@ -37,6 +37,7 @@ import java.util.function.BooleanSupplier;
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JPanel;
+import javax.swing.plaf.basic.BasicButtonUI;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.TransferHandler;
@@ -91,6 +92,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	private static final int TAB_HOVER_DELAY_MS = 500;	private static final Color TAB_WHITE = EdoUi.Internal.WHITE_ALPHA_230;
 
+	/** Selected tab fill (~half the luminance of {@link EdoUi.Internal#GRAY_180}). */
+	private static final Color TAB_SELECTED_BG = new Color(92, 92, 92);
+
 	// Restores the original "bigger" tab look (padding inside the outline)
 	private static final Insets TAB_PADDING = new Insets(4, 10, 4, 10);
 
@@ -129,7 +133,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		this.hoverSwitchEnabled = hoverSwitchEnabled;
 		
-		boolean opaque = !OverlayPreferences.isOverlayTransparent();
+		boolean opaque = !OverlayPreferences.overlayChromeRequestsTransparency();
 
 		setOpaque(opaque);
 
@@ -169,13 +173,24 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		    @Override
 		    protected void paintComponent(Graphics g) {
+		        Color bg = getBackground();
 		        Graphics2D g2 = (Graphics2D) g.create();
 		        try {
-		            // IMPORTANT: Src overwrites pixels (including alpha).
-		            // This prevents "ghosting" between CardLayout swaps while preserving transparency.
-		            g2.setComposite(AlphaComposite.Src);
-		            g2.setColor(getBackground());
-		            g2.fillRect(0, 0, getWidth(), getHeight());
+		            // Src + a color with alpha 0 leaves broken premultiplied RGB on some GPUs (neon green smear).
+		            if (bg != null && bg.getAlpha() > 0) {
+		                // Overwrite pixels (including alpha) to stop CardLayout swap ghosting.
+		                g2.setComposite(AlphaComposite.Src);
+		                g2.setColor(bg);
+		                g2.fillRect(0, 0, getWidth(), getHeight());
+		            } else if (OverlayPreferences.overlayChromeRequestsTransparency()) {
+		                g2.setComposite(AlphaComposite.Clear);
+		                g2.fillRect(0, 0, getWidth(), getHeight());
+		            } else {
+		                Color b = EdoUi.User.BACKGROUND;
+		                g2.setComposite(AlphaComposite.SrcOver);
+		                g2.setColor(new Color(b.getRed(), b.getGreen(), b.getBlue(), 255));
+		                g2.fillRect(0, 0, getWidth(), getHeight());
+		            }
 		        } finally {
 		            g2.dispose();
 		        }
@@ -718,14 +733,16 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	private JButton createTabButton(String text) {
 		JButton button = new JButton(text);
+		button.setUI(new BasicButtonUI());
 		button.setFocusable(false);
 		button.setFocusPainted(false);
 		button.setFont(button.getFont().deriveFont(Font.BOLD, 11f));
+		button.setContentAreaFilled(false);
 
 		// Default: slightly translucent dark background when overlay is transparent.
 		// Selected tab gets an opaque background in applyTabButtonStyle to prevent
 		// adjacent tab text from peeking through (z-order/alpha bleed).
-		button.setOpaque(!OverlayPreferences.isOverlayTransparent());
+		button.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
 		button.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 
 		applyTabButtonStyle(button);
@@ -787,14 +804,15 @@ public class EliteOverlayTabbedPane extends JPanel {
 		// (avoids "logy" / "ining" ghosting when overlay is transparent).
 		if (button.isSelected()) {
 			button.setOpaque(true);
-			button.setBackground(EdoUi.Internal.GRAY_180);
+			button.setBackground(TAB_SELECTED_BG);
 		} else {
 			if (forceSolidTabBackground) {
-				// In non-pass-through mode, keep tab fills solid to prevent lower-row text bleed-through.
+				// Match Colors → Background instead of fixed PANEL_BG; avoids Windows LAF tint clashes.
 				button.setOpaque(true);
-				button.setBackground(EdoUi.User.PANEL_BG);
+				Color base = EdoUi.User.BACKGROUND;
+				button.setBackground(new Color(base.getRed(), base.getGreen(), base.getBlue(), 255));
 			} else {
-				button.setOpaque(!OverlayPreferences.isOverlayTransparent());
+				button.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
 				button.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 			}
 		}
@@ -971,6 +989,22 @@ public class EliteOverlayTabbedPane extends JPanel {
 		}
 	}
 
+
+	@Override
+	protected void paintComponent(Graphics g) {
+		// FlowLayout tab gaps and non-opaque children leave holes; decorated JFrames + CLEAR show lime artifacts.
+		if (!isOpaque() && !OverlayPreferences.overlayChromeRequestsTransparency()) {
+			Graphics2D g2 = (Graphics2D) g.create();
+			try {
+				Color b = EdoUi.User.BACKGROUND;
+				g2.setColor(new Color(b.getRed(), b.getGreen(), b.getBlue(), 255));
+				g2.fillRect(0, 0, getWidth(), getHeight());
+			} finally {
+				g2.dispose();
+			}
+		}
+		super.paintComponent(g);
+	}
 
 	public void applyOverlayTransparency(boolean transparent) {
 		applyOverlayBackground(transparent ? EdoUi.Internal.TRANSPARENT : Color.BLACK, transparent);

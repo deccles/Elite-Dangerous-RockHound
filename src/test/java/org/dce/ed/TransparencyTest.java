@@ -60,6 +60,7 @@ class TransparencyTest {
     }
 
     private boolean savedOverlayTransparent;
+    private boolean savedPassThroughActive;
 
     @BeforeEach
     void assumeDisplayAndSavePrefs() {
@@ -67,12 +68,14 @@ class TransparencyTest {
                 GraphicsEnvironment.getLocalGraphicsEnvironment().isHeadless(),
                 "Transparency tests require a display (no headless)");
         savedOverlayTransparent = OverlayPreferences.isOverlayTransparent();
+        savedPassThroughActive = OverlayPreferences.isPassThroughWindowActive();
     }
 
     @AfterEach
     void restorePrefs() {
         if (!GraphicsEnvironment.getLocalGraphicsEnvironment().isHeadless()) {
             OverlayPreferences.setOverlayTransparent(savedOverlayTransparent);
+            OverlayPreferences.setPassThroughWindowActive(savedPassThroughActive);
         }
     }
 
@@ -255,6 +258,7 @@ class TransparencyTest {
     @Test
     void minimalTransparentPanel_showsBackingThroughEntireArea() throws Exception {
         OverlayPreferences.setOverlayTransparent(true);
+        OverlayPreferences.setPassThroughWindowActive(true);
         OverlayPreferences.applyThemeToEdoUi();
 
         JPanel p = new JPanel();
@@ -277,6 +281,7 @@ class TransparencyTest {
     @Test
     void miningTabPanel_transparentMode_showsBackingAtAllComponentCenters() throws Exception {
         OverlayPreferences.setOverlayTransparent(true);
+        OverlayPreferences.setPassThroughWindowActive(true);
         OverlayPreferences.applyThemeToEdoUi();
 
         GalacticAveragePrices prices = GalacticAveragePrices.loadDefault();
@@ -296,6 +301,7 @@ class TransparencyTest {
     @Test
     void systemTabPanel_transparentMode_showsBackingInSomeRegions() throws Exception {
         OverlayPreferences.setOverlayTransparent(true);
+        OverlayPreferences.setPassThroughWindowActive(true);
         OverlayPreferences.applyThemeToEdoUi();
 
         Path tempJournal = Files.createTempDirectory("edo-transparency-test");
@@ -328,6 +334,7 @@ class TransparencyTest {
     @Test
     void biologyTabPanel_transparentMode_showsBackingAtAllComponentCenters() throws Exception {
         OverlayPreferences.setOverlayTransparent(true);
+        OverlayPreferences.setPassThroughWindowActive(true);
         OverlayPreferences.applyThemeToEdoUi();
 
         BiologyTabPanel panel = new BiologyTabPanel();

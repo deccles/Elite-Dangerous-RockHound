@@ -35,7 +35,7 @@ public class OverlayContentPanel extends JPanel {
 
         // Reapply current overlay background + font prefs to the new pane
         java.awt.Color bg = getBackground();
-        boolean treatAsTransparent = (bg != null && bg.getAlpha() == 0);
+        boolean treatAsTransparent = (bg != null && bg.getAlpha() < 255);
         next.applyOverlayBackground(bg, treatAsTransparent);
         next.applyUiFontPreferences();
 

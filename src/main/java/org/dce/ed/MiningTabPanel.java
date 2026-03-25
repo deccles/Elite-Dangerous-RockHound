@@ -310,7 +310,7 @@ private final JLayer<JTable> cargoLayer;
 		JTableHeader th = table.getTableHeader();
 		if (th != null) {
 			th.setUI(TransparentTableHeaderUI.createUI(th));
-			th.setOpaque(!OverlayPreferences.isOverlayTransparent());
+			th.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
 			th.setForeground(EdoUi.User.MAIN_TEXT);
 			th.setBackground(EdoUi.User.BACKGROUND);
 			th.setBorder(null);
@@ -2678,7 +2678,7 @@ String getName() {
 					 false,
 					 row,
 					 column);
-			 boolean transparent = OverlayPreferences.isOverlayTransparent();
+			 boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
 			 label.setOpaque(!transparent);
 			 label.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
 			 label.setForeground(EdoUi.Internal.tableHeaderForeground());
@@ -2694,7 +2694,7 @@ String getName() {
 
 		 @Override
 		 protected void paintComponent(Graphics g) {
-			 boolean transparent = OverlayPreferences.isOverlayTransparent();
+			 boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
 			 setOpaque(!transparent);
 			 setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
 			 Graphics2D g2 = (Graphics2D) g.create();

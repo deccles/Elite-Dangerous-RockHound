@@ -16,6 +16,7 @@ import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 
 import org.dce.ed.util.AppIconUtil;
@@ -26,6 +27,7 @@ import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.platform.win32.WinDef.HWND;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.OverlayBackgroundPanel;
 import org.dce.ed.OverlayPreferences.MiningLimpetReminderMode;
 import org.dce.ed.logreader.event.LoadoutEvent;
 
@@ -42,9 +44,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 
 	private static final String APP_ICON_RESOURCE = "/org/dce/ed/edsm/locate_icon.png";
 
-	// Menu styling
-	private static final Color MENU_BG = EdoUi.Internal.DARK_22;
-	private static final Color MENU_FG = EdoUi.Internal.MENU_ACCENT;
+	// Menu bar uses Colors → Background; popups stay slightly darker for contrast.
 	private static final Color MENU_POPUP_BG = EdoUi.Internal.DARK_14;
 	private static final Color MENU_POPUP_FG = EdoUi.Internal.MENU_FG_LIGHT;
 
@@ -58,6 +58,9 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 	private volatile CargoMonitor.Snapshot lastCargoSnapshot;
 	private String lastRightStatusText = "";
 	private JComponent transitionShield;
+
+	/** Same full-area fill as {@link OverlayFrame} so theme/overlay color shows in non-pass-through mode. */
+	private OverlayBackgroundPanel decoratedBackgroundPanel;
 
 	/**
 	 * Minimal DWM binding.
@@ -120,7 +123,16 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 			contentPanel.getParent().remove(contentPanel);
 		}
 
-		getContentPane().add(contentPanel, BorderLayout.CENTER);
+		if (decoratedBackgroundPanel == null) {
+			decoratedBackgroundPanel = new OverlayBackgroundPanel();
+			decoratedBackgroundPanel.setOpaque(false);
+			decoratedBackgroundPanel.setLayout(new BorderLayout());
+		} else {
+			decoratedBackgroundPanel.removeAll();
+		}
+		decoratedBackgroundPanel.add(contentPanel, BorderLayout.CENTER);
+		setContentPane(decoratedBackgroundPanel);
+
 		revalidate();
 		repaint();
 
@@ -231,6 +243,10 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		}
 	}
 
+	private static Color opaquePlate(Color c) {
+		return new Color(c.getRed(), c.getGreen(), c.getBlue(), 255);
+	}
+
 	private boolean shouldShowLowLimpetWarning() {
 		EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
 		boolean docked = tp != null && tp.isCurrentlyDocked();
@@ -243,11 +259,11 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 	private JMenuBar createMenuBar() {
 		JMenuBar bar = new JMenuBar();
 		bar.setOpaque(true);
-		bar.setBackground(MENU_BG);
+		bar.setBackground(opaquePlate(EdoUi.User.BACKGROUND));
 		bar.setBorder(new EmptyBorder(2, 6, 2, 6));
 
 		JMenu overlayMenu = new JMenu("Menu");
-		overlayMenu.setForeground(MENU_FG);
+		overlayMenu.setForeground(EdoUi.Internal.MENU_ACCENT);
 
 		JMenuItem prefs = new JMenuItem("Preferences...");
 		styleMenuItem(prefs);
@@ -326,12 +342,35 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
     public void applyThemeFromPreferences() {
         OverlayPreferences.applyThemeToEdoUi();
 
+        UIManager.put("TitlePane.background", EdoUi.User.BACKGROUND);
+        UIManager.put("TitlePane.foreground", EdoUi.User.MAIN_TEXT);
+
         if (contentPanel != null) {
             contentPanel.rebuildTabbedPane();
         }
 
+        refreshMenuBarAccentColors();
         repaint();
     }
+
+	/**
+	 * Swing stores foreground {@link Color} instances; after {@link OverlayPreferences#applyThemeToEdoUi()}
+	 * the accent must be pushed again into the menu bar.
+	 */
+	private void refreshMenuBarAccentColors() {
+		if (menuBar == null) {
+			return;
+		}
+		menuBar.setBackground(opaquePlate(EdoUi.User.BACKGROUND));
+		Color accent = EdoUi.Internal.MENU_ACCENT;
+		menuBar.setForeground(accent);
+		for (int i = 0; i < menuBar.getMenuCount(); i++) {
+			JMenu m = menuBar.getMenu(i);
+			if (m != null) {
+				m.setForeground(accent);
+			}
+		}
+	}
 
 	@Override
 	public void applyUiFontPreview(Font font) {
@@ -345,7 +384,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 
 	@Override
 	public void applyOverlayBackgroundFromPreferences(boolean passThroughMode) {
-		int rgb = OverlayPreferences.getNormalBackgroundRgb();
+		int rgb = OverlayPreferences.getUiBackgroundRgb();
 		int pct = OverlayPreferences.getNormalTransparencyPercent();
 		applyOverlayBackgroundPreview(false, rgb, pct);
 	}
@@ -372,24 +411,32 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		Color base = EdoUi.rgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
 		Color bg = EdoUi.withAlpha(base, alpha);
 
-		// Push the translucent background into your content panel (this is the important part).
-		// If OverlayContentPanel already propagates this to sub-panels, you're done.
-		contentPanel.applyOverlayBackground(bg, alpha == 0);
+		// Match pass-through window: paint fill behind non-opaque children (see OverlayFrame).
+		if (decoratedBackgroundPanel != null) {
+			if (alpha <= 0) {
+				// This window is a normal decorated JFrame, not a per-pixel layered overlay. When overlay
+				// prefs say "100% transparent", painting alpha-0 would skip the plate and leave random
+				// framebuffer (often neon green) in gaps. Keep theme RGB as an opaque backing plate.
+				decoratedBackgroundPanel.setPaintColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), 255));
+			} else {
+				decoratedBackgroundPanel.setPaintColor(bg);
+			}
+		}
 
-		// For the frame content pane itself, keep it opaque black so the alpha blending has a base.
-		// (We don't want the default LAF panel gray bleeding in.)
-		getContentPane().setBackground(Color.black);
+		// Same semantics as OverlayFrame.applyOverlayBackgroundPreview (pct > 0 => non-opaque Swing fill off).
+		boolean treatAsTransparent = pct > 0;
+		contentPanel.applyOverlayBackground(bg, treatAsTransparent);
 
-		// Keep the menu bar dark regardless.
+		// Match content pane to theme so transparent / non-opaque regions don't read as flat black.
+		getContentPane().setBackground(base);
+
 		if (menuBar != null) {
 			menuBar.setOpaque(true);
-			menuBar.setBackground(MENU_BG);
-			menuBar.setForeground(MENU_FG);
+			refreshMenuBarAccentColors();
 
 			for (int i = 0; i < menuBar.getMenuCount(); i++) {
 				JMenu m = menuBar.getMenu(i);
 				if (m != null) {
-					m.setForeground(MENU_FG);
 
 					JPopupMenu popup = m.getPopupMenu();
 					if (popup != null) {

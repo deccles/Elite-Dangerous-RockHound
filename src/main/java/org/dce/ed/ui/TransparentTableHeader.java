@@ -44,9 +44,15 @@ public final class TransparentTableHeader extends JTableHeader {
             TableCellRenderer colRenderer = tc.getHeaderRenderer();
             if (colRenderer == null) colRenderer = renderer;
             java.awt.Rectangle r = getHeaderRect(col);
-            // Clear cell to transparent so backing shows through (no LAF fill)
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-            g2.fillRect(r.x, r.y, r.width, r.height);
+            // CLEAR composites to garbage (often lime green) on decorated JFrames; only use on pass-through overlay.
+            if (OverlayPreferences.overlayChromeRequestsTransparency()) {
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+                g2.fillRect(r.x, r.y, r.width, r.height);
+            } else {
+                g2.setComposite(AlphaComposite.SrcOver);
+                g2.setColor(EdoUi.User.BACKGROUND);
+                g2.fillRect(r.x, r.y, r.width, r.height);
+            }
             g2.setComposite(AlphaComposite.SrcOver);
             java.awt.Component cell = colRenderer.getTableCellRendererComponent(tbl, tc.getHeaderValue(), false, false, -1, col);
             cell.setBounds(0, 0, r.width, r.height);
@@ -79,7 +85,7 @@ public final class TransparentTableHeader extends JTableHeader {
         Rectangle first = getHeaderRect(ltr ? 0 : n - 1);
         Rectangle last = getHeaderRect(ltr ? n - 1 : 0);
 
-        boolean transparent = OverlayPreferences.isOverlayTransparent();
+        boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
 
         // Leading gap (e.g. RTL or odd layout)
         if (first.x > 0) {

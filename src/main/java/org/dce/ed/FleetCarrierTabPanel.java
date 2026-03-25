@@ -62,7 +62,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		importButton = new JButton("Import Spansh Fleet Carrier JSON");
 		importButton.setFocusable(false);
 		importButton.setForeground(EdoUi.User.MAIN_TEXT);
-		importButton.setOpaque(!OverlayPreferences.isOverlayTransparent());
+		importButton.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
 		importButton.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 
 		importButton.addActionListener(e -> {
@@ -87,7 +87,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		bottomBar.add(statusWrap, BorderLayout.CENTER);
 
 		add(bottomBar, BorderLayout.SOUTH);
-		applyOverlayBackground(EdoUi.Internal.TRANSPARENT, OverlayPreferences.isOverlayTransparent());
+		applyOverlayBackground(EdoUi.Internal.TRANSPARENT, OverlayPreferences.overlayChromeRequestsTransparency());
 	}
 
 	@Override

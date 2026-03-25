@@ -29,9 +29,11 @@ import java.util.prefs.Preferences;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import javax.swing.Timer;
 import javax.swing.border.LineBorder;
 
+import org.dce.ed.ui.OverlayBackgroundPanel;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.session.EdoSessionPersistence;
@@ -758,6 +760,9 @@ private void updateLeftStatusLabel() {
     public void applyThemeFromPreferences() {
         OverlayPreferences.applyThemeToEdoUi();
 
+        UIManager.put("TitlePane.background", EdoUi.User.BACKGROUND);
+        UIManager.put("TitlePane.foreground", EdoUi.User.MAIN_TEXT);
+
         if (contentPanel != null) {
             contentPanel.rebuildTabbedPane();
             installSessionPersistence();
@@ -788,9 +793,8 @@ private void updateLeftStatusLabel() {
     }
 
     public void applyOverlayBackgroundFromPreferences(boolean passThroughMode) {
-        int rgb = passThroughMode
-                ? OverlayPreferences.getPassThroughBackgroundRgb()
-                : OverlayPreferences.getNormalBackgroundRgb();
+        // Colors tab "Background" drives EdoUi.User.BACKGROUND; use the same RGB for the painted overlay fill.
+        int rgb = OverlayPreferences.getUiBackgroundRgb();
 
         int pct = passThroughMode
                 ? OverlayPreferences.getPassThroughTransparencyPercent()
@@ -1217,41 +1221,6 @@ private void updateLeftStatusLabel() {
                 : defaultValue;
     }
 
-    private static final class OverlayBackgroundPanel extends javax.swing.JPanel {
-
-        private static final long serialVersionUID = 1L;
-		private java.awt.Color paintColor = new java.awt.Color(0, 0, 0, 0);
-
-        OverlayBackgroundPanel() {
-            setOpaque(false);
-        }
-
-        void setPaintColor(java.awt.Color paintColor) {
-            if (paintColor == null) {
-                paintColor = new java.awt.Color(0, 0, 0, 0);
-            }
-            this.paintColor = paintColor;
-            repaint();
-        }
-
-        @Override
-        protected void paintComponent(java.awt.Graphics g) {
-            super.paintComponent(g);
-            if (paintColor == null) {
-                return;
-            }
-            if (paintColor.getAlpha() <= 0) {
-                return;
-            }
-            java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
-            try {
-                g2.setColor(paintColor);
-                g2.fillRect(0, 0, getWidth(), getHeight());
-            } finally {
-                g2.dispose();
-            }
-        }
-    }
     private void maybeSendCarrierJumpTextNotification() {
 //        if (!OverlayPreferences.isTextNotificationsEnabled()) {
 //            return;
