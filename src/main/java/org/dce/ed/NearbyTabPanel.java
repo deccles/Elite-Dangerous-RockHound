@@ -449,7 +449,8 @@ public class NearbyTabPanel extends JPanel {
                                     if (tr.fromCache) fromCache++; else queried++;
                                     if (tr.cachePayload != null) {
                                         cache.put(0L, tr.cachePayload.systemName, tr.cachePayload.starPos,
-                                                tr.cachePayload.bodyCount, null, null, null, tr.cachePayload.cachedBodies);
+                                                tr.cachePayload.bodyCount, null, null, null,
+                                                null, tr.cachePayload.cachedBodies);
                                     }
                                     if (tr.row != null) rows.add(tr.row);
                                 } catch (Exception e) {

@@ -21,6 +21,14 @@ public class SystemState {
     private long systemAddress;
 	private double[] starPos;
 	
+    /**
+     * Exobiology running total (expected credits, unsold).
+     *
+     * This is a global "session across systems" number, persisted via the system cache
+     * so the toolbar survives tool restarts and reboots.
+     */
+    private Long exobiologyCreditsTotalUnsold;
+
     private boolean visitedByMe;
     /**
      * Total number of bodies reported by EDSM for this system (may be null if unknown).
@@ -61,6 +69,14 @@ public class SystemState {
         docked = false;
         
         bodies.clear();
+    }
+
+    public Long getExobiologyCreditsTotalUnsold() {
+        return exobiologyCreditsTotalUnsold;
+    }
+
+    public void setExobiologyCreditsTotalUnsold(Long exobiologyCreditsTotalUnsold) {
+        this.exobiologyCreditsTotalUnsold = exobiologyCreditsTotalUnsold;
     }
 
     // ------------------------------------------------------------

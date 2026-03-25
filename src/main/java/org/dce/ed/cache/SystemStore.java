@@ -24,6 +24,7 @@ public interface SystemStore {
             Integer nonBodyCount,
             Double fssProgress,
             Boolean allBodiesFound,
+            Long exobiologyCreditsTotalUnsold,
             List<CachedBody> bodies);
 
     void loadInto(SystemState state, CachedSystem cs);

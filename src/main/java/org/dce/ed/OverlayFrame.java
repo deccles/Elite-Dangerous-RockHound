@@ -35,6 +35,8 @@ import javax.swing.border.LineBorder;
 
 import org.dce.ed.ui.OverlayBackgroundPanel;
 import org.dce.ed.exobiology.ExobiologyData;
+import org.dce.ed.cache.CachedSystem;
+import org.dce.ed.cache.SystemCache;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.session.EdoSessionPersistence;
 import org.dce.ed.session.EdoSessionState;
@@ -277,7 +279,15 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         // Cross-cutting error reporting hook (used by prospector pipeline).
         ExceptionReporting.setReporter(this::reportExceptionToTitleBar);
 
-        exoCreditsTotal = prefs.getLong(PREF_KEY_EXO_CREDITS_TOTAL, 0L);
+        // Source of truth: system cache (persisted alongside the last visited system).
+        // Preference value is kept as a backwards-compatible fallback.
+        Long cached = loadExoCreditsTotalFromSystemCache();
+        if (cached != null) {
+            exoCreditsTotal = cached.longValue();
+            prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
+        } else {
+            exoCreditsTotal = prefs.getLong(PREF_KEY_EXO_CREDITS_TOTAL, 0L);
+        }
         updateRightStatusDefault();
 
         // Transparent content panel with tabbed pane
@@ -601,6 +611,46 @@ private static String formatExoCredits(long credits) {
     return "Bio: " + nf.format(credits) + " Cr";
 }
 
+private Long loadExoCreditsTotalFromSystemCache() {
+    try {
+        CachedSystem cs = SystemCache.load();
+        if (cs == null) return null;
+        return cs.exobiologyCreditsTotalUnsold;
+    } catch (Exception ignored) {
+        return null;
+    }
+}
+
+private void persistExoCreditsTotal() {
+    // Keep preferences updated as a backwards-compatible fallback.
+    prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
+
+    try {
+        // Prefer current on-screen SystemState (if available) so bodies get persisted too.
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        SystemTabPanel systemTab = (tabs != null) ? tabs.getSystemTabPanel() : null;
+        SystemState st = (systemTab != null) ? systemTab.getState() : null;
+        if (st != null && st.getSystemName() != null && st.getSystemAddress() != 0L) {
+            st.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+            SystemCache.getInstance().storeSystem(st);
+            return;
+        }
+
+        // Fallback: update the cached last system.
+        CachedSystem last = SystemCache.load();
+        if (last == null || last.systemAddress == 0L || last.systemName == null) {
+            return;
+        }
+
+        SystemState tmp = new SystemState();
+        SystemCache.getInstance().loadInto(tmp, last);
+        tmp.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+        SystemCache.getInstance().storeSystem(tmp);
+    } catch (Exception ignored) {
+        // Best-effort persistence; UI should never break.
+    }
+}
+
 private void installExoCreditsTracker() {
     try {
         LiveJournalMonitor monitor = LiveJournalMonitor.getInstance(EliteDangerousOverlay.clientKey);
@@ -609,7 +659,7 @@ private void installExoCreditsTracker() {
             if (event.getType() == EliteEventType.SELL_ORGANIC_DATA) {
             	System.out.println("Sold " + exoCreditsTotal);
                 exoCreditsTotal = 0L;
-                prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
+                persistExoCreditsTotal();
                 updateRightStatusDefault();
                 return;
             }
@@ -654,7 +704,7 @@ private void installExoCreditsTracker() {
 
             exoCreditsTotal += payout.longValue();
             System.out.println("Earned " + exoCreditsTotal);
-            prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
+            persistExoCreditsTotal();
 
             updateRightStatusDefault();
         });

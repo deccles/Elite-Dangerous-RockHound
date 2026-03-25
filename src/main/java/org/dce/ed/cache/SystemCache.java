@@ -212,6 +212,7 @@ public final class SystemCache implements SystemStore {
             Integer nonBodyCount,
             Double fssProgress,
             Boolean allBodiesFound,
+            Long exobiologyCreditsTotalUnsold,
             List<CachedBody> bodies) {
         if (sqliteReady) {
             CachedSystem cs = sqliteGet(systemAddress, systemName);
@@ -225,6 +226,9 @@ public final class SystemCache implements SystemStore {
             cs.nonBodyCount = nonBodyCount;
             cs.fssProgress = fssProgress;
             cs.allBodiesFound = allBodiesFound;
+            if (exobiologyCreditsTotalUnsold != null) {
+                cs.exobiologyCreditsTotalUnsold = exobiologyCreditsTotalUnsold;
+            }
             if (cs.bodies == null) {
                 cs.bodies = new ArrayList<>();
             }
@@ -268,6 +272,9 @@ public final class SystemCache implements SystemStore {
         cs.nonBodyCount = nonBodyCount;
         cs.fssProgress = fssProgress;
         cs.allBodiesFound = allBodiesFound;
+        if (exobiologyCreditsTotalUnsold != null) {
+            cs.exobiologyCreditsTotalUnsold = exobiologyCreditsTotalUnsold;
+        }
         if (cs.bodies == null) {
             cs.bodies = new ArrayList<>();
         }
@@ -323,6 +330,7 @@ public final class SystemCache implements SystemStore {
         state.setNonBodyCount(cs.nonBodyCount);
         state.setFssProgress(cs.fssProgress);
         state.setAllBodiesFound(cs.allBodiesFound);
+        state.setExobiologyCreditsTotalUnsold(cs.exobiologyCreditsTotalUnsold);
         
         for (CachedBody cb : cs.bodies) {
             BodyInfo info = new BodyInfo();
@@ -814,6 +822,7 @@ public final class SystemCache implements SystemStore {
                 state.getNonBodyCount(),
                 state.getFssProgress(),
                 state.getAllBodiesFound(),
+                state.getExobiologyCreditsTotalUnsold(),
                 list);
     }
 

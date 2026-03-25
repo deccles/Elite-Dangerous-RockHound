@@ -9,6 +9,7 @@ import java.util.prefs.Preferences;
 
 import org.dce.ed.EliteDangerousOverlay;
 import org.dce.ed.OverlayFrame;
+import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
@@ -133,10 +134,22 @@ public class RescanJournalsMain {
 		SystemState state = new SystemState();
 		SystemEventProcessor processor = new SystemEventProcessor(EliteDangerousOverlay.clientKey, state);
 
-		// Recompute exobiology expected credits total from scratch during a rescan.
-		// This avoids double-counting if the overlay has already been running.
+		// Exobiology running total (expected credits, unsold) should persist across restarts.
+		// We seed it from the persisted system-cache / preferences, then apply only the events
+		// included in this rescan run.
 		Preferences prefs = Preferences.userNodeForPackage(OverlayFrame.class);
-		long exoCreditsTotal = 0L;
+		Long cachedTotal = null;
+		try {
+			CachedSystem last = SystemCache.load();
+			if (last != null) {
+				cachedTotal = last.exobiologyCreditsTotalUnsold;
+			}
+		} catch (Exception ignored) {
+			// Seed from preferences below.
+		}
+		long exoCreditsTotal = cachedTotal != null ? cachedTotal.longValue()
+				: prefs.getLong(PREF_KEY_EXO_CREDITS_TOTAL, 0L);
+		state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
 
 		Instant newestEventTimestamp = lastImport;
 
@@ -176,6 +189,7 @@ public class RescanJournalsMain {
 			if (event.getType() == EliteEventType.SELL_ORGANIC_DATA) {
 				System.out.println("Sold " + exoCreditsTotal);
 				exoCreditsTotal = 0L;
+				state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
 			}
 
 			if (event instanceof ScanOrganicEvent) {
@@ -200,6 +214,7 @@ public class RescanJournalsMain {
 							firstBonus);
 					if (payout != null && payout.longValue() > 0L) {
 						exoCreditsTotal += payout.longValue();
+						state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
 						System.out.println("Earned total: " + exoCreditsTotal);
 					}
 				}
@@ -207,12 +222,29 @@ public class RescanJournalsMain {
 			//            persistIfStarScan(cache, state, event);
 		}
 
-		// Persist the final system (if valid)
-		cache.storeSystem(state);
+		// Persist exobiology expected credits total (unsold) for toolbar + future rescans.
+		state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+		if (state.getSystemName() != null && state.getSystemAddress() != 0L) {
+			// Persist together with the final system (best-effort).
+			cache.storeSystem(state);
+		} else {
+			// If we never built a valid system snapshot, update the cached last-system instead.
+			try {
+				CachedSystem last = SystemCache.load();
+				if (last != null) {
+					SystemState tmp = new SystemState();
+					cache.loadInto(tmp, last);
+					tmp.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+					cache.storeSystem(tmp);
+				}
+			} catch (Exception ignored) {
+				// Fallback to preferences below.
+			}
+		}
 
-		// Persist recomputed exobiology expected credits total.
+		// Preference fallback for compatibility / edge cases.
 		prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
-		System.out.println("Recomputed exobiology expected credits total (unsold): " + exoCreditsTotal + " Cr");
+		System.out.println("Exobiology expected credits total (unsold): " + exoCreditsTotal + " Cr");
 
 		// Update carrier jump state in session file so overlay restores countdown when tool was closed during jump.
 		EdoSessionState sessionState = EdoSessionPersistence.load();
@@ -240,10 +272,7 @@ public class RescanJournalsMain {
 			System.out.println("Updated last journal import time to: " + newestEventTimestamp);
 		}
 
-		System.out.println("Rescan complete.");
-
-		prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
-		System.out.println("Recomputed exobiology expected credits total: " + exoCreditsTotal);
+		System.out.println("Rescan complete. Exobiology expected credits total (unsold): " + exoCreditsTotal);
 	}
 
 	private static void persistIfSystemIsChanging(SystemCache cache, SystemState state, String nextName, long nextAddr) {
