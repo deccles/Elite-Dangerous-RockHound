@@ -15,6 +15,8 @@ import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.dce.ed.OverlayPreferences;
+
 /**
  * "sprintf for voice" that expands templates like:
  *   "Leaving clonal colony range of {species}"
@@ -94,6 +96,11 @@ public class TtsSprintf {
      * Non-blocking: queues speech (delegates to PollyTtsCached.speak()).
      */
     public void speakf(String template, Object... args) {
+        // Double-gate: most callers already check speech enabled, but tests (and any missed call sites)
+        // must never produce console spam or invoke TTS side effects.
+        if (!OverlayPreferences.isSpeechEnabled()) {
+            return;
+        }
         SpeechPlan plan = formatToSpeechPlan(template, args);
         List<String> chunks = plan.chunkTexts;
         System.out.print("*** SPEAKING: ");

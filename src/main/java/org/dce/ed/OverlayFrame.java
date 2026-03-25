@@ -108,6 +108,10 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private final OverlayContentPanel contentPanel;
 	private final OverlayBackgroundPanel backgroundPanel;
 
+    /** When non-null+not expired, overrides Low Limpet Warning red status. */
+    private volatile String exceptionLeftStatusText;
+    private volatile Instant exceptionLeftStatusUntil;
+
     // Crosshair overlay and timer to show mouse position in pass-through mode
     private final CrosshairOverlay crosshairOverlay = new CrosshairOverlay();
     private final Timer crosshairTimer;
@@ -130,11 +134,14 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     /** Available update version for status bar; null when none. */
     private volatile String updateAvailableVersion;
 
-    /** Single entry point for right-hand status: whichever window is visible gets updates. */
-    private Consumer<String> rightStatusListener = this::setRightStatusTextOnTitleBar;
+    /**
+     * Optional additional right-hand status sink.
+     * The OverlayFrame title bar is always updated; this lets the decorated window mirror it.
+     */
+    private volatile Consumer<String> rightStatusListener;
 
     public void setRightStatusListener(Consumer<String> listener) {
-        this.rightStatusListener = listener != null ? listener : this::setRightStatusTextOnTitleBar;
+        this.rightStatusListener = listener;
     }
 
     private void setRightStatusTextOnTitleBar(String text) {
@@ -142,7 +149,17 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     }
 
     private void publishRightStatusText(String text) {
-        rightStatusListener.accept(text);
+        // Always update the overlay frame title bar.
+        setRightStatusTextOnTitleBar(text);
+
+        // Optionally also mirror into whichever other window is active.
+        Consumer<String> extra = rightStatusListener;
+        if (extra != null) {
+            try {
+                extra.accept(text);
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     public void refreshRightStatusDisplay() {
@@ -258,6 +275,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         titleBar = new TitleBarPanel(this, "Elite Dangerous Overlay");
         add(titleBar, BorderLayout.NORTH);
 
+        // Cross-cutting error reporting hook (used by prospector pipeline).
+        ExceptionReporting.setReporter(this::reportExceptionToTitleBar);
+
         exoCreditsTotal = prefs.getLong(PREF_KEY_EXO_CREDITS_TOTAL, 0L);
         updateRightStatusDefault();
 
@@ -283,6 +303,28 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         installLowLimpetStatusUpdater();
         sessionSaveTimer.setRepeats(false);
         installSessionPersistence();
+    }
+
+    /**
+     * Surface exceptions in the title-bar left red label.
+     * <p>
+     * This is intentionally fast/no-throw: exceptions reported here must not break event processing.
+     */
+    private void reportExceptionToTitleBar(Throwable t, String context) {
+        try {
+            if (t != null) {
+                // Make the failure visible even when the title bar isn't readable (logs).
+                t.printStackTrace();
+            }
+        } catch (Exception ignored) {
+        }
+
+        String safeContext = (context == null || context.isBlank())
+                ? (t != null ? t.getClass().getSimpleName() : "Exception")
+                : context;
+        exceptionLeftStatusText = "ERROR: " + safeContext;
+        exceptionLeftStatusUntil = Instant.now().plusSeconds(10);
+        updateLeftStatusLabel();
     }
 
     private void installSessionPersistence() {
@@ -655,7 +697,11 @@ private void updateLeftStatusLabel() {
                 docked,
                 lastCargoSnapshot
         );
-        titleBar.setLeftStatusText(show ? "Low Limpet Warning!" : "");
+        Instant until = exceptionLeftStatusUntil;
+        String err = exceptionLeftStatusText;
+        boolean showErr = err != null && until != null && Instant.now().isBefore(until);
+
+        titleBar.setLeftStatusText(showErr ? err : (show ? "Low Limpet Warning!" : ""));
     };
 
     if (SwingUtilities.isEventDispatchThread()) {

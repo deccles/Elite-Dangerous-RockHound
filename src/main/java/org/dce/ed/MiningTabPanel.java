@@ -30,9 +30,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import javax.swing.AbstractButton;
 import javax.swing.BorderFactory;
@@ -98,8 +100,10 @@ import com.google.gson.JsonObject;
  */
 public class MiningTabPanel extends JPanel {
 
-	private final TtsSprintf tts = new TtsSprintf(new PollyTtsCached());
+	private final TtsSprintf tts;
+	private final Supplier<ProspectorLogBackend> prospectorBackendSupplier;
 	private String lastProspectorAnnouncementSig;
+	private volatile boolean lastProspectorUpdateWasOnEdt;
 	private Set<String> prospectorHighlightNames = new HashSet<>();
 
 	private final GalacticAveragePrices prices;
@@ -199,9 +203,18 @@ private final JLayer<JTable> cargoLayer;
 	}
 
 	public MiningTabPanel(GalacticAveragePrices prices, BooleanSupplier isDockedSupplier) {
+		this(prices, isDockedSupplier, new TtsSprintf(new PollyTtsCached()), ProspectorLogBackendFactory::create);
+	}
+
+	public MiningTabPanel(GalacticAveragePrices prices,
+	                        BooleanSupplier isDockedSupplier,
+	                        TtsSprintf tts,
+	                        Supplier<ProspectorLogBackend> backendSupplier) {
 		super(new BorderLayout());
 		this.prices = prices;
 		this.isDockedSupplier = isDockedSupplier;
+		this.tts = Objects.requireNonNull(tts, "tts");
+		this.prospectorBackendSupplier = Objects.requireNonNull(backendSupplier, "backendSupplier");
 
 		this.matcher = new MaterialNameMatcher(prices);
 // Always render transparent so passthrough mode looks right.
@@ -1264,7 +1277,7 @@ return EdoUi.User.MAIN_TEXT;
 
 		if (!rows.isEmpty()) {
 			try {
-				ProspectorLogBackend backend = ProspectorLogBackendFactory.create();
+				ProspectorLogBackend backend = prospectorBackendSupplier.get();
 				if (backend instanceof GoogleSheetsBackend sheetsBackend) {
 					sheetsBackend.upsertRows(rows);
 				} else {
@@ -1342,7 +1355,7 @@ return EdoUi.User.MAIN_TEXT;
 			String commander = OverlayPreferences.getMiningLogCommanderName();
 			if (commander != null && !commander.isBlank()) {
 				try {
-					ProspectorLogBackendFactory.create().updateRunEndTime(commander, activeRun, Instant.now());
+					prospectorBackendSupplier.get().updateRunEndTime(commander, activeRun, Instant.now());
 				} catch (Exception ignored) {
 				}
 				refreshSpreadsheetFromBackend();
@@ -1387,7 +1400,7 @@ return EdoUi.User.MAIN_TEXT;
 		Instant latestTsForCommander = null;
 		Instant latestTsForCommanderAtLocation = null;
 		try {
-			List<ProspectorLogRow> existing = ProspectorLogBackendFactory.create().loadRows();
+			List<ProspectorLogRow> existing = prospectorBackendSupplier.get().loadRows();
 			if (existing != null && !existing.isEmpty()) {
 				for (ProspectorLogRow r : existing) {
 					if (r == null) {
@@ -1665,7 +1678,7 @@ return EdoUi.User.MAIN_TEXT;
 			dudCounter = 0;
 		}
 		try {
-			ProspectorLogBackend backend = ProspectorLogBackendFactory.create();
+			ProspectorLogBackend backend = prospectorBackendSupplier.get();
 			if (backend instanceof GoogleSheetsBackend sheetsBackend) {
 				sheetsBackend.upsertRows(rows);
 			} else {
@@ -1686,7 +1699,7 @@ return EdoUi.User.MAIN_TEXT;
 			@Override
 			protected ProspectorLoadResult doInBackground() {
 				try {
-					ProspectorLogBackend backend = ProspectorLogBackendFactory.create();
+					ProspectorLogBackend backend = prospectorBackendSupplier.get();
 					if (backend instanceof GoogleSheetsBackend sheetsBackend) {
 						return sheetsBackend.loadRowsWithStatus();
 					}
@@ -1989,6 +2002,7 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 
     
 	public void updateFromProspector(ProspectedAsteroidEvent event) {
+		lastProspectorUpdateWasOnEdt = SwingUtilities.isEventDispatchThread();
 		if (event == null) {
 			model.setRows(List.of());
 			headerLabel.setText("Mining (latest prospector)");
@@ -2098,6 +2112,16 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		}
 		Object v = model.getValueAt(row, column);
 		return v != null ? v.toString() : null;
+	}
+
+	/** For prospector threading tests: last call to updateFromProspector happened on EDT. */
+	public boolean wasLastProspectorUpdateOnEdtForTests() {
+		return lastProspectorUpdateWasOnEdt;
+	}
+
+	/** For backend-failure tests: current spreadsheet table row count. */
+	public int getProspectorSpreadsheetRowCountForTests() {
+		return spreadsheetModel != null ? spreadsheetModel.getRowCount() : 0;
 	}
 
 	/**

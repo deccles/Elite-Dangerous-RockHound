@@ -22,6 +22,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.dce.ed.OverlayPreferences;
+import org.dce.ed.ExceptionReporting;
 import org.dce.ed.logreader.event.StatusEvent;
 
 import com.google.gson.JsonArray;
@@ -651,7 +652,8 @@ public final class LiveJournalMonitor {
             try {
                 l.accept(event);
             } catch (RuntimeException ex) {
-                // don't let one bad listener break the others
+                // don't let one bad listener break the others, but make the failure visible
+                ExceptionReporting.report(ex, "LiveJournalMonitor listener");
             }
         }
     }

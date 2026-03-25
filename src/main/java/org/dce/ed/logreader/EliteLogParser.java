@@ -139,7 +139,9 @@ default:
                 }
                 JsonObject m = el.getAsJsonObject();
                 String name = getString(m, "Name");
-                double proportion = m.has("Proportion") ? m.get("Proportion").getAsDouble() : 0.0;
+                double proportion = (m.has("Proportion") && !m.get("Proportion").isJsonNull())
+                        ? m.get("Proportion").getAsDouble()
+                        : 0.0;
                 if (name != null && !name.isBlank()) {
                     materials.add(new ProspectedAsteroidEvent.MaterialProportion(name, proportion));
                 }

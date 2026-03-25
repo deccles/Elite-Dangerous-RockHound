@@ -532,11 +532,13 @@ public class EliteOverlayTabbedPane extends JPanel {
 		// Prospecting an asteroid means we're in space, not docked (enables CSV logging when undocked).
 		setCurrentlyDocked(false);
 		// Update Mining tab UI (always), regardless of whether announcements are enabled.
-		try {
-			miningTab.updateFromProspector(event);
-		} catch (Exception e) {
-			// UI update errors shouldn't break log processing
-		}
+		SwingUtilities.invokeLater(() -> {
+			try {
+				miningTab.updateFromProspector(event);
+			} catch (Exception e) {
+				ExceptionReporting.report(e, "Prospector update");
+			}
+		});
 	}
 
 
