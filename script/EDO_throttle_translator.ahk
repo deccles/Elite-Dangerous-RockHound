@@ -41,11 +41,22 @@ global longPressMs := 350
 global timeToFullMs := 1600
 
 ; Modifier buttons (held => translation OFF, combos passthrough)
-global modifierButtons := ["1Joy3", "1Joy4"]
+; NOTE: When using reWASD with a virtual controller, AutoHotkey often can no longer see
+; DirectInput joystick buttons (1Joy*). In that setup, map your physical modifier buttons
+; to unused keyboard keys (e.g. F15/F16) and list them here.
+global modifierButtons := []
 
 ; Throttle buttons (joystick)
-global driveDownButton := "1Joy5" ; -> Ctrl+Alt+S
-global driveUpButton   := "1Joy6" ; -> Ctrl+Alt+W
+; Throttle input sources:
+; - If AHK can see your physical joystick buttons, keep using 1Joy5/1Joy6.
+; - If reWASD is enabled and AHK can't see 1Joy*, map your physical buttons to F13/F14
+;   (or any unused keys) and set these instead.
+global driveDownButton := "F13" ; -> Ctrl+Alt+S (flight), F15 (GUI)
+global driveUpButton   := "F14" ; -> Ctrl+Alt+W (flight), F16 (GUI)
+global guiDriveDownKey := "q"
+global guiDriveUpKey   := "e"
+global guiTapMs := 35
+global guiDebounceMs := 150
 
 ; Keys used for chord base (bind these in ELITE ship throttle to Ctrl+Alt+W / Ctrl+Alt+S)
 global throttleUpBaseKey := "w"
@@ -57,7 +68,8 @@ global gateOnGuiFocus := true
 global gateOnFoot := true
 
 ; GUI-assume cooldown (pre-emptive: when you hit modifier/X buttons, briefly force OFF)
-global guiAssumeJoyButtons := ["1Joy3", "1Joy4"]
+; Same guidance as modifierButtons: prefer keyboard keys when using reWASD.
+global guiAssumeJoyButtons := []
 global guiAssumeMs := 900
 global guiAssumeUntilTick := 0
 
@@ -94,6 +106,9 @@ global injectedCtrlAlt := false
 global lastGuiFocus := -1
 global lastOnFoot := false
 global statusReadOk := false
+global guiDriveUpSent := false
+global guiDriveDownSent := false
+global lastGuiDriveTick := 0
 
 ; Joy edge tracking
 global joyPrev := Map()
@@ -230,6 +245,34 @@ translationAllowed() {
         return false
 
     return true
+}
+
+isEliteGuiFocusActive() {
+    global gateOnGuiFocus, statusReadOk, lastGuiFocus
+    if (!isEliteActive())
+        return false
+    return gateOnGuiFocus && statusReadOk && (lastGuiFocus > 0)
+}
+
+sendGuiDriveDown(which) {
+    global guiDriveUpKey, guiDriveDownKey, guiTapMs, guiDebounceMs, lastGuiDriveTick
+    if (A_TickCount - lastGuiDriveTick < guiDebounceMs)
+        return
+    lastGuiDriveTick := A_TickCount
+
+    if (which = "up") {
+        SendEvent "{" guiDriveUpKey " down}"
+        Sleep guiTapMs
+        SendEvent "{" guiDriveUpKey " up}"
+    } else {
+        SendEvent "{" guiDriveDownKey " down}"
+        Sleep guiTapMs
+        SendEvent "{" guiDriveDownKey " up}"
+    }
+}
+
+sendGuiDriveUp(which) {
+    ; No-op: GUI drive keys are tapped on button-down.
 }
 
 ; -------------------------
@@ -553,7 +596,7 @@ stepPressEnd(keyName) {
     stepKeyDown[keyName] := false
 
     if (!stepKeyLongFired[keyName]) {
-        if (keyName = "Home" || keyName = "PgUp")
+        if (keyName = "PgUp")
             snapUpToBoundary()
         else
             snapDownToBoundary()
@@ -568,7 +611,7 @@ stepLongPressTimer() {
             return
         stepKeyLongFired[keyName] := true
 
-        if (keyName = "Home" || keyName = "PgUp")
+        if (keyName = "PgUp")
             enqueueAction("setPct", 100)
         else
             enqueueAction("setPct", 0)
@@ -656,21 +699,41 @@ PollJoyDrive() {
             return
 
         global driveUpButton, driveDownButton, joyPrev
+        global guiDriveUpSent, guiDriveDownSent
+
+        upNow := GetKeyState(driveUpButton, "P")
+        dnNow := GetKeyState(driveDownButton, "P")
+        upPrev := joyPrev.Has(driveUpButton) ? joyPrev[driveUpButton] : false
+        dnPrev := joyPrev.Has(driveDownButton) ? joyPrev[driveDownButton] : false
 
         if (!translationAllowed()) {
             global sentW, sentS, wDown, sDown, chordHoldCount
             if (sentW || sentS || wDown || sDown || chordHoldCount > 0) {
                 hardReleaseWS()
             }
+
+            ; In Elite GUI screens, repurpose throttle inputs to panel-tab keys.
+            if (isEliteGuiFocusActive()) {
+                if (upNow && !upPrev)
+                    sendGuiDriveDown("up")
+
+                if (dnNow && !dnPrev)
+                    sendGuiDriveDown("down")
+
+                joyPrev[driveUpButton] := upNow
+                joyPrev[driveDownButton] := dnNow
+                return
+            }
+
+            ; Not in GUI mode: ensure fallback GUI keys are released.
+            if (!upNow || !upPrev)
+                sendGuiDriveUp("up")
+            if (!dnNow || !dnPrev)
+                sendGuiDriveUp("down")
+
             joyPrev.Clear()
             return
         }
-
-        upNow := GetKeyState(driveUpButton, "P")
-        dnNow := GetKeyState(driveDownButton, "P")
-
-        upPrev := joyPrev.Has(driveUpButton) ? joyPrev[driveUpButton] : false
-        dnPrev := joyPrev.Has(driveDownButton) ? joyPrev[driveDownButton] : false
 
         if (upNow && !upPrev)
             handleWDown()
@@ -744,14 +807,8 @@ $^v::elitePasteOnce()
 ; Step keys only when translation is allowed
 #HotIf translationAllowed()
 
-$*Home::    stepPressStart("Home")
-$*Home up:: stepPressEnd("Home")
-
 $*PgUp::    stepPressStart("PgUp")
 $*PgUp up:: stepPressEnd("PgUp")
-
-$*End::     stepPressStart("End")
-$*End up::  stepPressEnd("End")
 
 $*PgDn::    stepPressStart("PgDn")
 $*PgDn up:: stepPressEnd("PgDn")
