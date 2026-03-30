@@ -346,7 +346,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 					final Path droppedFinal = dropped;
 					SwingUtilities.invokeLater(() -> {
-						selectTab(CARD_FLEET_CARRIER, fleetCarrierButton);
+						if (OverlayPreferences.isAutoSwitchFleetCarrierOnJsonDrop()) {
+							selectTab(CARD_FLEET_CARRIER, fleetCarrierButton);
+						}
 						fleetCarrierTab.importSpanshFleetCarrierRouteFile(droppedFinal);
 					});
 
@@ -493,10 +495,14 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		if (event instanceof FsdJumpEvent e) {
 			if (e.getDocked() == null || e.getDocked()) {
-				showSystemTabFromStatusWatcher();
+				if (OverlayPreferences.isAutoSwitchSystemTabOnJumpOrScan()) {
+					showSystemTabFromStatusWatcher();
+				}
 			}
 		} else if (event instanceof FssDiscoveryScanEvent) {
-			showSystemTabFromStatusWatcher();
+			if (OverlayPreferences.isAutoSwitchSystemTabOnJumpOrScan()) {
+				showSystemTabFromStatusWatcher();
+			}
 		}
 
 		if (event instanceof StartJumpEvent sj) {
@@ -536,6 +542,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * System tab when Status shows a body/station target (non-zero Destination.Body); Route tab for system-only.
 	 */
 	private void onFsdTargetTabFromStatus(StatusEvent status, Long jumpTargetSystemAddress) {
+		if (!OverlayPreferences.isAutoSwitchTabOnFsdTarget()) {
+			return;
+		}
 		long cur = currentOverlaySystemAddressOrZero();
 		if (SystemTabTargetLogic.preferSystemTabForFsdTarget(status, jumpTargetSystemAddress, cur)) {
 			showSystemTabFromStatusWatcher();
@@ -545,6 +554,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 	}
 
 	private void showMiningTabFromStatusWatcher() {
+	    if (!OverlayPreferences.isAutoSwitchMiningOnPlanetaryRing()) {
+	    	return;
+	    }
 	    SwingUtilities.invokeLater(() -> selectTab(CARD_MINING, miningButton));
 	}
 
@@ -553,6 +565,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * (same {@code PlanetaryRing} check as live {@link SupercruiseExitEvent} handling).
 	 */
 	private void maybeSelectMiningTabFromStartupJournal() {
+		if (!OverlayPreferences.isAutoSwitchMiningOnStartupPlanetaryRing()) {
+			return;
+		}
 		if (miningButton == null || !miningButton.isVisible()) {
 			return;
 		}
@@ -915,14 +930,19 @@ public class EliteOverlayTabbedPane extends JPanel {
 	}
 
 	private void showRouteTabFromStatusWatcher() {
+		// Note: this is used by the GuiFocus watcher; preference check is handled there.
 		SwingUtilities.invokeLater(() -> selectTab(CARD_ROUTE, routeButton));
 	}
 
 	private void showSystemTabFromStatusWatcher() {
+		// Called by multiple auto-switch sources; each caller should check its own preference.
 		SwingUtilities.invokeLater(() -> selectTab(CARD_SYSTEM, systemButton));
 	}
 
 	private void handleNearBodyChanged(BodyInfo nearBody) {
+	    if (!OverlayPreferences.isAutoSwitchBiologyOnNearLandableAtmosphere()) {
+	        return;
+	    }
 	    if (nearBody == null) {
 	        lastAutoBiologyBodyId = null;
 	        return;
@@ -1035,11 +1055,43 @@ public class EliteOverlayTabbedPane extends JPanel {
 		private void handleGuiFocusChange(int guiFocus) {
 			// 6 = Galaxy Map -> Route tab
 			if (guiFocus == 6) {
-				parent.showRouteTabFromStatusWatcher();
+				if (OverlayPreferences.isAutoSwitchRouteOnGalaxyMap()) {
+					parent.showRouteTabFromStatusWatcher();
+				}
 			}
 			// 7 = System Map -> System tab
 			else if (guiFocus == 7) {
-				parent.showSystemTabFromStatusWatcher();
+				if (OverlayPreferences.isAutoSwitchSystemOnSystemMap()) {
+					parent.showSystemTabFromStatusWatcher();
+				}
+			}
+		}
+	}
+
+	/**
+	 * Cycles to the next visible tab (skips tabs hidden in Preferences → Overlay → Visible tabs).
+	 * Order: Route → System → Biology → Mining → Fleet Carrier.
+	 */
+	public void selectNextVisibleTab() {
+		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, fleetCarrierButton };
+		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_FLEET_CARRIER };
+
+		int selected = -1;
+		for (int i = 0; i < buttons.length; i++) {
+			JButton b = buttons[i];
+			if (b != null && b.isSelected()) {
+				selected = i;
+				break;
+			}
+		}
+
+		for (int step = 1; step <= buttons.length; step++) {
+			int idx = (selected + step) % buttons.length;
+			JButton b = buttons[idx];
+			if (b != null && b.isVisible()) {
+				final int fIdx = idx;
+				SwingUtilities.invokeLater(() -> selectTab(cards[fIdx], buttons[fIdx]));
+				return;
 			}
 		}
 	}

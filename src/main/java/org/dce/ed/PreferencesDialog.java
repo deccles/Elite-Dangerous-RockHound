@@ -57,7 +57,18 @@ public class PreferencesDialog extends JDialog {
 	private JLabel passThroughTransparencyValueLabel;
 
 	private JComboBox<String> passThroughHotkeyCombo;
+	private JComboBox<String> nextShownTabHotkeyCombo;
 	private JCheckBox nonOverlayAlwaysOnTopCheckBox;
+
+	// Overlay-tab fields: auto-switch preferences
+	private JCheckBox autoSwitchGalaxyMapToRouteCheckBox;
+	private JCheckBox autoSwitchSystemMapToSystemCheckBox;
+	private JCheckBox autoSwitchTabOnFsdTargetCheckBox;
+	private JCheckBox autoSwitchSystemTabOnJumpOrScanCheckBox;
+	private JCheckBox autoSwitchMiningOnPlanetaryRingCheckBox;
+	private JCheckBox autoSwitchMiningOnStartupPlanetaryRingCheckBox;
+	private JCheckBox autoSwitchBiologyOnNearBodyCheckBox;
+	private JCheckBox autoSwitchFleetCarrierOnJsonDropCheckBox;
 
 	// Logging-tab fields so OK can read them
 	private JCheckBox autoDetectCheckBox;
@@ -127,6 +138,7 @@ public class PreferencesDialog extends JDialog {
 	private final int originalNormalTransparencyPct;
 	private final int originalPassThroughTransparencyPct;
 	private final int originalPassThroughToggleKeyCode;
+	private final int originalNextShownTabKeyCode;
 
 	private final int originalUiMainTextRgb;
 	private final int originalUiBackgroundRgb;
@@ -153,6 +165,7 @@ public class PreferencesDialog extends JDialog {
 		this.originalNormalTransparencyPct = OverlayPreferences.getNormalTransparencyPercent();
 		this.originalPassThroughTransparencyPct = OverlayPreferences.getPassThroughTransparencyPercent();
 		this.originalPassThroughToggleKeyCode = OverlayPreferences.getPassThroughToggleKeyCode();
+		this.originalNextShownTabKeyCode = OverlayPreferences.getNextShownTabKeyCode();
 
 		this.originalUiMainTextRgb = OverlayPreferences.getUiMainTextRgb();
 		this.originalUiBackgroundRgb = OverlayPreferences.getUiBackgroundRgb();
@@ -209,34 +222,7 @@ public class PreferencesDialog extends JDialog {
 		outer.weightx = 1.0;
 		outer.insets = new Insets(6, 6, 6, 6);
 
-		// --- Normal mode ---
-		JPanel normalPanel = createOverlayAppearanceSection(
-				"Normal mode",
-				originalNormalTransparencyPct,
-				(slider, valueLabel) -> {
-					normalTransparencySlider = slider;
-					normalTransparencyValueLabel = valueLabel;
-				},
-				() -> applyLiveOverlayBackgroundPreview(false)
-				);
-
-		content.add(normalPanel, outer);
-
-		// --- Pass-through mode ---
-		outer.gridy++;
-		JPanel ptPanel = createOverlayAppearanceSection(
-				"Mouse-pass through mode",
-				originalPassThroughTransparencyPct,
-				(slider, valueLabel) -> {
-					passThroughTransparencySlider = slider;
-					passThroughTransparencyValueLabel = valueLabel;
-				},
-				() -> applyLiveOverlayBackgroundPreview(true)
-				);
-		content.add(ptPanel, outer);
-
-		// --- Hotkey ---
-		outer.gridy++;
+		// --- Controls / Hotkeys ---
 		JPanel hotkeyPanel = new JPanel(new GridBagLayout());
 		hotkeyPanel.setOpaque(false);
 		hotkeyPanel.setBorder(BorderFactory.createTitledBorder("Controls"));
@@ -254,6 +240,16 @@ public class PreferencesDialog extends JDialog {
 		passThroughHotkeyCombo = new JComboBox<>(buildFunctionKeyChoices());
 		passThroughHotkeyCombo.setSelectedItem(keyCodeToDisplayString(originalPassThroughToggleKeyCode));
 		hotkeyPanel.add(passThroughHotkeyCombo, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
+		JLabel nextTabLabel = new JLabel("Next shown tab key:");
+		hotkeyPanel.add(nextTabLabel, gbc);
+
+		gbc.gridx = 1;
+		nextShownTabHotkeyCombo = new JComboBox<>(buildFunctionKeyChoices());
+		nextShownTabHotkeyCombo.setSelectedItem(keyCodeToDisplayString(originalNextShownTabKeyCode));
+		hotkeyPanel.add(nextShownTabHotkeyCombo, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridy++;
@@ -309,6 +305,66 @@ public class PreferencesDialog extends JDialog {
 		tabsPanel.add(overlayTabFleetCarrierVisibleCheckBox, tgc);
 
 		content.add(tabsPanel, outer);
+
+		outer.gridy++;
+		JPanel autoSwitchPanel = new JPanel(new GridBagLayout());
+		autoSwitchPanel.setOpaque(false);
+		autoSwitchPanel.setBorder(BorderFactory.createTitledBorder("Auto-switch tabs"));
+
+		GridBagConstraints agc = new GridBagConstraints();
+		agc.gridx = 0;
+		agc.gridy = 0;
+		agc.anchor = GridBagConstraints.WEST;
+		agc.insets = new Insets(2, 4, 2, 4);
+
+		autoSwitchGalaxyMapToRouteCheckBox = new JCheckBox("Open Galaxy Map → Route tab");
+		autoSwitchGalaxyMapToRouteCheckBox.setOpaque(false);
+		autoSwitchGalaxyMapToRouteCheckBox.setSelected(OverlayPreferences.isAutoSwitchRouteOnGalaxyMap());
+		autoSwitchPanel.add(autoSwitchGalaxyMapToRouteCheckBox, agc);
+
+		agc.gridy++;
+		autoSwitchSystemMapToSystemCheckBox = new JCheckBox("Open System Map → System tab");
+		autoSwitchSystemMapToSystemCheckBox.setOpaque(false);
+		autoSwitchSystemMapToSystemCheckBox.setSelected(OverlayPreferences.isAutoSwitchSystemOnSystemMap());
+		autoSwitchPanel.add(autoSwitchSystemMapToSystemCheckBox, agc);
+
+		agc.gridy++;
+		autoSwitchTabOnFsdTargetCheckBox = new JCheckBox("Start FSD jump → Route/System tab");
+		autoSwitchTabOnFsdTargetCheckBox.setOpaque(false);
+		autoSwitchTabOnFsdTargetCheckBox.setSelected(OverlayPreferences.isAutoSwitchTabOnFsdTarget());
+		autoSwitchPanel.add(autoSwitchTabOnFsdTargetCheckBox, agc);
+
+		agc.gridy++;
+		autoSwitchSystemTabOnJumpOrScanCheckBox = new JCheckBox("Jump / Discovery scan → System tab");
+		autoSwitchSystemTabOnJumpOrScanCheckBox.setOpaque(false);
+		autoSwitchSystemTabOnJumpOrScanCheckBox.setSelected(OverlayPreferences.isAutoSwitchSystemTabOnJumpOrScan());
+		autoSwitchPanel.add(autoSwitchSystemTabOnJumpOrScanCheckBox, agc);
+
+		agc.gridy++;
+		autoSwitchMiningOnPlanetaryRingCheckBox = new JCheckBox("Planetary ring → Mining tab");
+		autoSwitchMiningOnPlanetaryRingCheckBox.setOpaque(false);
+		autoSwitchMiningOnPlanetaryRingCheckBox.setSelected(OverlayPreferences.isAutoSwitchMiningOnPlanetaryRing());
+		autoSwitchPanel.add(autoSwitchMiningOnPlanetaryRingCheckBox, agc);
+
+		agc.gridy++;
+		autoSwitchMiningOnStartupPlanetaryRingCheckBox = new JCheckBox("Startup in planetary ring → Mining tab");
+		autoSwitchMiningOnStartupPlanetaryRingCheckBox.setOpaque(false);
+		autoSwitchMiningOnStartupPlanetaryRingCheckBox.setSelected(OverlayPreferences.isAutoSwitchMiningOnStartupPlanetaryRing());
+		autoSwitchPanel.add(autoSwitchMiningOnStartupPlanetaryRingCheckBox, agc);
+
+		agc.gridy++;
+		autoSwitchBiologyOnNearBodyCheckBox = new JCheckBox("Near landable body with atmosphere → Biology tab");
+		autoSwitchBiologyOnNearBodyCheckBox.setOpaque(false);
+		autoSwitchBiologyOnNearBodyCheckBox.setSelected(OverlayPreferences.isAutoSwitchBiologyOnNearLandableAtmosphere());
+		autoSwitchPanel.add(autoSwitchBiologyOnNearBodyCheckBox, agc);
+
+		agc.gridy++;
+		autoSwitchFleetCarrierOnJsonDropCheckBox = new JCheckBox("Dropping a carrier route JSON → Fleet Carrier tab");
+		autoSwitchFleetCarrierOnJsonDropCheckBox.setOpaque(false);
+		autoSwitchFleetCarrierOnJsonDropCheckBox.setSelected(OverlayPreferences.isAutoSwitchFleetCarrierOnJsonDrop());
+		autoSwitchPanel.add(autoSwitchFleetCarrierOnJsonDropCheckBox, agc);
+
+		content.add(autoSwitchPanel, outer);
 
 		panel.add(content, BorderLayout.NORTH);
 		return panel;
@@ -529,6 +585,38 @@ public class PreferencesDialog extends JDialog {
 		grid.add(resetColorsButton, gbc);
 
 		panel.add(grid);
+
+		// -----------------------------------------------------------------
+		// Overlay background transparency (moved from Overlay tab)
+		// -----------------------------------------------------------------
+		panel.add(Box.createVerticalStrut(10));
+
+		JPanel normalPanel = createOverlayAppearanceSection(
+				"Overlay background (Normal mode)",
+				originalNormalTransparencyPct,
+				(slider, valueLabel) -> {
+					normalTransparencySlider = slider;
+					normalTransparencyValueLabel = valueLabel;
+				},
+				() -> applyLiveOverlayBackgroundPreview(false)
+				);
+		normalPanel.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+		panel.add(normalPanel);
+
+		panel.add(Box.createVerticalStrut(8));
+
+		JPanel ptPanel = createOverlayAppearanceSection(
+				"Overlay background (Mouse-pass through mode)",
+				originalPassThroughTransparencyPct,
+				(slider, valueLabel) -> {
+					passThroughTransparencySlider = slider;
+					passThroughTransparencyValueLabel = valueLabel;
+				},
+				() -> applyLiveOverlayBackgroundPreview(true)
+				);
+		ptPanel.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+		panel.add(ptPanel);
+
 		panel.add(Box.createVerticalGlue());
 
 		return panel;
@@ -1307,7 +1395,7 @@ public class PreferencesDialog extends JDialog {
 	}
 
     private void applyAndSavePreferences() {
-        // Overlay tab
+        // Overlay / Colors tabs
         if (normalTransparencySlider != null) {
             OverlayPreferences.setNormalTransparencyPercent(normalTransparencySlider.getValue());
         }
@@ -1317,6 +1405,10 @@ public class PreferencesDialog extends JDialog {
         if (passThroughHotkeyCombo != null && passThroughHotkeyCombo.getSelectedItem() != null) {
             int keyCode = displayStringToKeyCode(passThroughHotkeyCombo.getSelectedItem().toString());
             OverlayPreferences.setPassThroughToggleKeyCode(keyCode);
+        }
+        if (nextShownTabHotkeyCombo != null && nextShownTabHotkeyCombo.getSelectedItem() != null) {
+            int keyCode = displayStringToKeyCode(nextShownTabHotkeyCombo.getSelectedItem().toString());
+            OverlayPreferences.setNextShownTabKeyCode(keyCode);
         }
 
         if (nonOverlayAlwaysOnTopCheckBox != null) {
@@ -1337,6 +1429,31 @@ public class PreferencesDialog extends JDialog {
             OverlayPreferences.setOverlayTabBiologyVisible(b);
             OverlayPreferences.setOverlayTabMiningVisible(m);
             OverlayPreferences.setOverlayTabFleetCarrierVisible(f);
+        }
+
+        if (autoSwitchGalaxyMapToRouteCheckBox != null) {
+            OverlayPreferences.setAutoSwitchRouteOnGalaxyMap(autoSwitchGalaxyMapToRouteCheckBox.isSelected());
+        }
+        if (autoSwitchSystemMapToSystemCheckBox != null) {
+            OverlayPreferences.setAutoSwitchSystemOnSystemMap(autoSwitchSystemMapToSystemCheckBox.isSelected());
+        }
+        if (autoSwitchTabOnFsdTargetCheckBox != null) {
+            OverlayPreferences.setAutoSwitchTabOnFsdTarget(autoSwitchTabOnFsdTargetCheckBox.isSelected());
+        }
+        if (autoSwitchSystemTabOnJumpOrScanCheckBox != null) {
+            OverlayPreferences.setAutoSwitchSystemTabOnJumpOrScan(autoSwitchSystemTabOnJumpOrScanCheckBox.isSelected());
+        }
+        if (autoSwitchMiningOnPlanetaryRingCheckBox != null) {
+            OverlayPreferences.setAutoSwitchMiningOnPlanetaryRing(autoSwitchMiningOnPlanetaryRingCheckBox.isSelected());
+        }
+        if (autoSwitchMiningOnStartupPlanetaryRingCheckBox != null) {
+            OverlayPreferences.setAutoSwitchMiningOnStartupPlanetaryRing(autoSwitchMiningOnStartupPlanetaryRingCheckBox.isSelected());
+        }
+        if (autoSwitchBiologyOnNearBodyCheckBox != null) {
+            OverlayPreferences.setAutoSwitchBiologyOnNearLandableAtmosphere(autoSwitchBiologyOnNearBodyCheckBox.isSelected());
+        }
+        if (autoSwitchFleetCarrierOnJsonDropCheckBox != null) {
+            OverlayPreferences.setAutoSwitchFleetCarrierOnJsonDrop(autoSwitchFleetCarrierOnJsonDropCheckBox.isSelected());
         }
 
         // Logging tab

@@ -1,6 +1,10 @@
 package org.dce.ed;
 
 import java.awt.Color;
+import java.awt.IllegalComponentStateException;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Window;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
@@ -220,23 +224,33 @@ public class EliteDangerousOverlay implements NativeKeyListener {
     		return;
     	}
 
-    	// Determine current bounds from the currently-visible window.
-    	java.awt.Rectangle bounds = this.passThroughMode
-    			? passThroughFrame.getBounds()
-    			: decoratedDialog.getBounds();
-
     	java.awt.Window fromWindow = this.passThroughMode ? passThroughFrame : decoratedDialog;
     	java.awt.Window toWindow = enablePassThrough ? passThroughFrame : decoratedDialog;
+
+    	// Prefer getLocationOnScreen()+size over getBounds(): on Windows/HiDPI they can disagree slightly,
+    	// which shows up as a vertical gap vs the screen edge after mode switch.
+    	Rectangle outerResolved = captureWindowOuterRect(fromWindow);
+    	if (outerResolved == null) {
+    		outerResolved = new Rectangle(fromWindow.getBounds());
+    	}
+    	final Rectangle outerBounds = outerResolved;
+    	final Point sourceWindowTopLeft = new Point(outerBounds.x, outerBounds.y);
+
+    	// Horizontal: align shared content. Vertical: pin to source window top (content-based dy is unreliable
+    	// across decorated caption+menu vs undecorated custom title bar — fixes pass-through "dropping" down).
+    	Rectangle contentScreenBefore = captureContentPanelScreenRect();
+
     	if (contentPanel.getParent() != null) {
     		contentPanel.getParent().remove(contentPanel);
     	}
 
     	if (enablePassThrough) {
     		// Prepare pass-through frame fully before showing.
-    		passThroughFrame.setBounds(bounds);
+    		passThroughFrame.setBounds(outerBounds);
+    		// Add content before pass-through styling so layout / background apply to the full hierarchy.
+    		passThroughFrame.add(contentPanel, java.awt.BorderLayout.CENTER);
     		passThroughFrame.setPassThroughEnabled(true);
     		passThroughFrame.prepareForShow(true);
-    		passThroughFrame.add(contentPanel, java.awt.BorderLayout.CENTER);
     		passThroughFrame.setRightStatusListener(null);
     		passThroughFrame.refreshRightStatusDisplay();
     		passThroughFrame.applyOverlayBackgroundFromPreferences(true);
@@ -247,11 +261,12 @@ public class EliteDangerousOverlay implements NativeKeyListener {
     		passThroughFrame.toFront();
     		passThroughFrame.requestFocus();
     		fromWindow.setVisible(false);
+    		scheduleStabilizeWindowBounds(passThroughFrame, outerBounds, contentScreenBefore, sourceWindowTopLeft, true);
     	} else {
     		// Prepare decorated dialog fully while hidden, then show once.
     		passThroughFrame.setPassThroughEnabled(false);
 
-    		decoratedDialog.setBounds(bounds);
+    		decoratedDialog.setBounds(outerBounds);
     		decoratedDialog.attachContent();
     		passThroughFrame.setRightStatusListener(decoratedDialog::setRightStatusText);
     		passThroughFrame.refreshRightStatusDisplay();
@@ -264,7 +279,11 @@ public class EliteDangerousOverlay implements NativeKeyListener {
                 decoratedDialog.toFront();
                 decoratedDialog.requestFocus();
                 fromWindow.setVisible(false);
-                javax.swing.SwingUtilities.invokeLater(() -> decoratedDialog.hideTransitionShield());
+                stabilizeOverlayWindowBounds(decoratedDialog, outerBounds, contentScreenBefore, sourceWindowTopLeft);
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                	stabilizeOverlayWindowBounds(decoratedDialog, outerBounds, contentScreenBefore, sourceWindowTopLeft);
+                	decoratedDialog.hideTransitionShield();
+                });
     		});
     	}
 
@@ -280,6 +299,96 @@ public class EliteDangerousOverlay implements NativeKeyListener {
     	}
     }
 
+    /**
+     * Outer window bounds in screen coordinates. Prefer this over {@link Window#getBounds()} alone when
+     * swapping hosts, to reduce HiDPI / Win32 inconsistencies between modes.
+     */
+    private static Rectangle captureWindowOuterRect(Window w) {
+        if (w == null || !w.isShowing()) {
+            return null;
+        }
+        try {
+            Point loc = w.getLocationOnScreen();
+            return new Rectangle(loc.x, loc.y, w.getWidth(), w.getHeight());
+        } catch (IllegalComponentStateException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Screen-space bounds of the shared {@link OverlayContentPanel} before it is reparented.
+     * Used to keep the overlay content from drifting when swapping between decorated and pass-through hosts.
+     */
+    private Rectangle captureContentPanelScreenRect() {
+        if (contentPanel == null || !contentPanel.isShowing()) {
+            return null;
+        }
+        try {
+            Point p = contentPanel.getLocationOnScreen();
+            return new Rectangle(p.x, p.y, contentPanel.getWidth(), contentPanel.getHeight());
+        } catch (IllegalComponentStateException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Re-applies the intended outer frame rectangle and nudges the window so the shared content panel
+     * matches its pre-switch horizontal position; vertical position uses {@code sourceWindowTopLeft.y} so
+     * the window stays flush with the same screen edge as before the switch (decorated vs undecorated chrome
+     * makes content-based vertical delta unreliable).
+     */
+    private void stabilizeOverlayWindowBounds(
+            Window w,
+            Rectangle outerBounds,
+            Rectangle contentBefore,
+            Point sourceWindowTopLeft) {
+        if (w == null || outerBounds == null) {
+            return;
+        }
+        w.setBounds(outerBounds);
+        if (contentBefore == null || contentPanel == null) {
+            return;
+        }
+        try {
+            if (!contentPanel.isShowing()) {
+                return;
+            }
+            Point p = contentPanel.getLocationOnScreen();
+            int dx = contentBefore.x - p.x;
+            int x = w.getX() + dx;
+            int y = (sourceWindowTopLeft != null) ? sourceWindowTopLeft.y : w.getY() + (contentBefore.y - p.y);
+            w.setLocation(x, y);
+            w.setSize(outerBounds.width, outerBounds.height);
+        } catch (IllegalComponentStateException ignored) {
+        }
+    }
+
+    /**
+     * Pass-through host: title bar height and Win32 layered-window layout often settle after the first paint.
+     * Extra delayed retries fix residual vertical drift when switching from the decorated window.
+     */
+    private void scheduleStabilizeWindowBounds(
+            Window w,
+            Rectangle outerBounds,
+            Rectangle contentBefore,
+            Point sourceWindowTopLeft,
+            boolean delayedRetries) {
+        Runnable once = () -> stabilizeOverlayWindowBounds(w, outerBounds, contentBefore, sourceWindowTopLeft);
+        SwingUtilities.invokeLater(once);
+        SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(once));
+        if (!delayedRetries) {
+            return;
+        }
+        for (int ms : new int[] { 50, 150, 300, 500 }) {
+            Timer t = new Timer(ms, e -> {
+                ((Timer) e.getSource()).stop();
+                once.run();
+            });
+            t.setRepeats(false);
+            t.start();
+        }
+    }
+
     //
     // Global key listener: F9 toggles between click-through overlay and a normal decorated window.
     //
@@ -288,6 +397,17 @@ public class EliteDangerousOverlay implements NativeKeyListener {
         int toggleKey = OverlayPreferences.getPassThroughToggleKeyCode();
         if (toggleKey > 0 && e.getKeyCode() == toggleKey) {
             SwingUtilities.invokeLater(() -> setPassThroughMode(!passThroughMode));
+            return;
+        }
+
+        int nextTabKey = OverlayPreferences.getNextShownTabKeyCode();
+        if (nextTabKey > 0 && e.getKeyCode() == nextTabKey) {
+            SwingUtilities.invokeLater(() -> {
+                EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
+                if (tp != null) {
+                    tp.selectNextVisibleTab();
+                }
+            });
         }
     }
     private static void forceWindowToFront(java.awt.Window w) {

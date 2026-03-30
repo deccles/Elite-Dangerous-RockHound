@@ -27,6 +27,7 @@ public final class OverlayPreferences {
     private static final String KEY_OVERLAY_BG_PT_TRANSPARENCY_PCT = "overlay.bg.passthrough.transparencyPct"; // 0-100
 
     private static final String KEY_PASSTHROUGH_TOGGLE_KEYCODE = "overlay.passthrough.toggleKeyCode"; // JNativeHook NativeKeyEvent VC_*
+    private static final String KEY_NEXT_TAB_KEYCODE = "overlay.tabs.nextShown.keyCode"; // JNativeHook NativeKeyEvent VC_*
     private static final String KEY_LOG_AUTO = "log.autoDetect";
     private static final String KEY_LOG_CUSTOM_DIR = "log.customDir";
 
@@ -57,6 +58,16 @@ public final class OverlayPreferences {
     private static final String KEY_OVERLAY_TAB_BIOLOGY_VISIBLE = "overlay.tab.biology.visible";
     private static final String KEY_OVERLAY_TAB_MINING_VISIBLE = "overlay.tab.mining.visible";
     private static final String KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE = "overlay.tab.fleetCarrier.visible";
+
+    // --- Auto-switching / tab behavior ---
+    private static final String KEY_AUTOSWITCH_GUIFOCUS_GALAXYMAP = "overlay.autoswitch.guiFocus.galaxyMap";
+    private static final String KEY_AUTOSWITCH_GUIFOCUS_SYSTEMMAP = "overlay.autoswitch.guiFocus.systemMap";
+    private static final String KEY_AUTOSWITCH_FSD_TARGET = "overlay.autoswitch.fsd.target";
+    private static final String KEY_AUTOSWITCH_SYSTEMTAB_ON_JUMP_SCAN = "overlay.autoswitch.systemTab.onJumpOrScan";
+    private static final String KEY_AUTOSWITCH_MINING_PLANETARY_RING = "overlay.autoswitch.mining.onPlanetaryRing";
+    private static final String KEY_AUTOSWITCH_MINING_STARTUP_PLANETARY_RING = "overlay.autoswitch.mining.onStartupPlanetaryRing";
+    private static final String KEY_AUTOSWITCH_BIOLOGY_NEAR_BODY = "overlay.autoswitch.biology.onNearLandableAtmosphere";
+    private static final String KEY_AUTOSWITCH_FLEETCARRIER_ON_DROP = "overlay.autoswitch.fleetCarrier.onJsonDrop";
 
     // --- Mining / Prospector ---
     private static final String KEY_MINING_PROSPECTOR_MATERIALS = "mining.prospector.materials"; // comma-separated
@@ -232,6 +243,82 @@ public final class OverlayPreferences {
 
     public static void setPassThroughToggleKeyCode(int keyCode) {
         PREFS.putInt(KEY_PASSTHROUGH_TOGGLE_KEYCODE, keyCode);
+    }
+
+    /**
+     * Global hotkey to cycle to the next visible overlay tab (skips tabs hidden in Preferences → Overlay → Visible tabs).
+     * Default: F8.
+     */
+    public static int getNextShownTabKeyCode() {
+        return PREFS.getInt(KEY_NEXT_TAB_KEYCODE, NativeKeyEvent.VC_F8);
+    }
+
+    public static void setNextShownTabKeyCode(int keyCode) {
+        PREFS.putInt(KEY_NEXT_TAB_KEYCODE, keyCode);
+    }
+
+    public static boolean isAutoSwitchRouteOnGalaxyMap() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_GUIFOCUS_GALAXYMAP, true);
+    }
+
+    public static void setAutoSwitchRouteOnGalaxyMap(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_GUIFOCUS_GALAXYMAP, enabled);
+    }
+
+    public static boolean isAutoSwitchSystemOnSystemMap() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_GUIFOCUS_SYSTEMMAP, true);
+    }
+
+    public static void setAutoSwitchSystemOnSystemMap(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_GUIFOCUS_SYSTEMMAP, enabled);
+    }
+
+    public static boolean isAutoSwitchTabOnFsdTarget() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_FSD_TARGET, true);
+    }
+
+    public static void setAutoSwitchTabOnFsdTarget(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_FSD_TARGET, enabled);
+    }
+
+    public static boolean isAutoSwitchSystemTabOnJumpOrScan() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_SYSTEMTAB_ON_JUMP_SCAN, true);
+    }
+
+    public static void setAutoSwitchSystemTabOnJumpOrScan(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_SYSTEMTAB_ON_JUMP_SCAN, enabled);
+    }
+
+    public static boolean isAutoSwitchMiningOnPlanetaryRing() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_MINING_PLANETARY_RING, true);
+    }
+
+    public static void setAutoSwitchMiningOnPlanetaryRing(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_MINING_PLANETARY_RING, enabled);
+    }
+
+    public static boolean isAutoSwitchMiningOnStartupPlanetaryRing() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_MINING_STARTUP_PLANETARY_RING, true);
+    }
+
+    public static void setAutoSwitchMiningOnStartupPlanetaryRing(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_MINING_STARTUP_PLANETARY_RING, enabled);
+    }
+
+    public static boolean isAutoSwitchBiologyOnNearLandableAtmosphere() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_BIOLOGY_NEAR_BODY, true);
+    }
+
+    public static void setAutoSwitchBiologyOnNearLandableAtmosphere(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_BIOLOGY_NEAR_BODY, enabled);
+    }
+
+    public static boolean isAutoSwitchFleetCarrierOnJsonDrop() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_FLEETCARRIER_ON_DROP, true);
+    }
+
+    public static void setAutoSwitchFleetCarrierOnJsonDrop(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_FLEETCARRIER_ON_DROP, enabled);
     }
 
     // ---------------------------------------------------------------------
