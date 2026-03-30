@@ -5,6 +5,7 @@ import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
+import java.awt.LinearGradientPaint;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
@@ -13,6 +14,7 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
@@ -33,6 +35,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Random;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
@@ -3014,6 +3017,91 @@ String getName() {
 		/** Rotation angle for line-art asteroid markers on the most recent active asteroid */
 		private double asteroidSpinAngle;
 
+		private static final class PlotGeom {
+			final int plotX;
+			final int plotY;
+			final int plotW;
+			final int plotH;
+			final int effectivePadTop;
+			final double minPct;
+			final double maxPct;
+			final double minAct;
+			final double maxAct;
+
+			PlotGeom(int plotX, int plotY, int plotW, int plotH, int effectivePadTop,
+					double minPct, double maxPct, double minAct, double maxAct) {
+				this.plotX = plotX;
+				this.plotY = plotY;
+				this.plotW = plotW;
+				this.plotH = plotH;
+				this.effectivePadTop = effectivePadTop;
+				this.minPct = minPct;
+				this.maxPct = maxPct;
+				this.minAct = minAct;
+				this.maxAct = maxAct;
+			}
+
+			Point project(ProspectorLogRow r) {
+				return projectValues(r.getPercent(), r.getDifference());
+			}
+
+			Point projectValues(double pct, double tons) {
+				double nx = (maxPct > minPct) ? (pct - minPct) / (maxPct - minPct) : 0.5;
+				double ny = (maxAct > minAct) ? 1.0 - (tons - minAct) / (maxAct - minAct) : 0.5;
+				int x = plotX + (int) (nx * plotW);
+				int y = plotY + (int) (ny * plotH);
+				return new Point(x, y);
+			}
+		}
+
+		private static final class LeaderSnapshot {
+			final int run;
+			final String asteroidId;
+			final Instant instant;
+			final double pct;
+			final double tons;
+			final String material;
+
+			LeaderSnapshot(ProspectorLogRow r) {
+				run = r.getRun();
+				asteroidId = r.getAsteroidId() != null ? r.getAsteroidId() : "";
+				instant = r.getTimestamp();
+				pct = r.getPercent();
+				tons = r.getDifference();
+				material = r.getMaterial() != null ? r.getMaterial() : "";
+			}
+
+			boolean sameAsteroid(LeaderSnapshot o) {
+				return o != null && run == o.run && Objects.equals(asteroidId, o.asteroidId);
+			}
+		}
+
+		private static final class OreParticle {
+			double x;
+			double y;
+			double vx;
+			double vy;
+			int ageMs;
+		}
+
+		private final Map<String, LeaderSnapshot> leaderSnapshotsByCommander = new HashMap<>();
+		private javax.swing.Timer gatherAnimTimer;
+		private float gatherAnimPhase;
+		private boolean gatherAnimActive;
+		/** After the rock reaches its end position: laser/animated rock off; particles run out. */
+		private boolean gatherDebrisPhaseOnly;
+		private Point gatherLaserFrom;
+		private Point gatherMoveFrom;
+		private Point gatherMoveTo;
+		private Color gatherAsteroidColor;
+		private double gatherPhaseSpin;
+		private String gatherSkipRowKeyFrom;
+		private String gatherSkipRowKeyTo;
+		private final List<OreParticle> gatherParticles = new ArrayList<>();
+		private final Random gatherRandom = new Random();
+		/** Fraction of gatherAnimPhase (0–1) spent extending the laser to the rock before it moves. */
+		private static final float GATHER_LASER_CONTACT_PHASE_END = 0.28f;
+
 		ProspectorLogScatterPanel() {
 			// Normal Swing mouse events (non pass-through)
 			addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
@@ -3052,7 +3140,373 @@ String getName() {
 			if (asteroidSpinTimer != null) {
 				asteroidSpinTimer.stop();
 			}
+			if (gatherAnimTimer != null) {
+				gatherAnimTimer.stop();
+			}
 			super.removeNotify();
+		}
+
+		private static String rowKeyForAnim(ProspectorLogRow r) {
+			return r.getRun() + "|" + Objects.toString(r.getAsteroidId(), "") + "|" + Objects.toString(r.getTimestamp(), "") + "|"
+				+ Objects.toString(r.getMaterial(), "") + "|" + r.getPercent() + "|" + r.getDifference();
+		}
+
+		private static ProspectorLogRow findRowMatchingSnapshot(LeaderSnapshot s, List<ProspectorLogRow> toPlot) {
+			if (s == null) {
+				return null;
+			}
+			for (ProspectorLogRow r : toPlot) {
+				if (r.getRun() != s.run) {
+					continue;
+				}
+				if (!Objects.equals(r.getAsteroidId() != null ? r.getAsteroidId() : "", s.asteroidId)) {
+					continue;
+				}
+				if (!Objects.equals(r.getTimestamp(), s.instant)) {
+					continue;
+				}
+				if (!Objects.equals(r.getMaterial() != null ? r.getMaterial() : "", s.material)) {
+					continue;
+				}
+				if (r.getPercent() != s.pct || r.getDifference() != s.tons) {
+					continue;
+				}
+				return r;
+			}
+			return null;
+		}
+
+		private Map<String, LeaderSnapshot> computeLatestLeadersMap(List<ProspectorLogRow> toPlot) {
+			Map<String, LeaderSnapshot> out = new HashMap<>();
+			if (toPlot == null || toPlot.isEmpty()) {
+				return out;
+			}
+			Map<String, ProspectorLogRow> latestRowByCommander = new HashMap<>();
+			for (ProspectorLogRow r : toPlot) {
+				if (r.getTimestamp() == null) {
+					continue;
+				}
+				String cmdr = r.getCommanderName() != null ? r.getCommanderName() : "";
+				ProspectorLogRow prev = latestRowByCommander.get(cmdr);
+				if (prev == null || (prev.getTimestamp() != null && r.getTimestamp().isAfter(prev.getTimestamp()))) {
+					latestRowByCommander.put(cmdr, r);
+				}
+			}
+			for (Map.Entry<String, ProspectorLogRow> e : latestRowByCommander.entrySet()) {
+				String cmdr = e.getKey();
+				ProspectorLogRow latest = e.getValue();
+				int run = latest.getRun();
+				String aid = latest.getAsteroidId() != null ? latest.getAsteroidId() : "";
+				List<ProspectorLogRow> sameAsteroid = toPlot.stream()
+					.filter(x -> Objects.equals(x.getCommanderName() != null ? x.getCommanderName() : "", cmdr)
+						&& x.getRun() == run
+						&& Objects.equals(x.getAsteroidId() != null ? x.getAsteroidId() : "", aid))
+					.toList();
+				ProspectorLogRow leader = sameAsteroid.stream()
+					.filter(r -> r.getTimestamp() != null)
+					.max(Comparator.comparing(ProspectorLogRow::getTimestamp))
+					.orElse(null);
+				if (leader != null) {
+					out.put(cmdr, new LeaderSnapshot(leader));
+				}
+			}
+			return out;
+		}
+
+		private PlotGeom computePlotGeom() {
+			List<ProspectorLogRow> toPlot = filteredRows();
+			int w = getWidth();
+			int h = getHeight();
+			if (toPlot.isEmpty() || w <= PAD_LEFT + PAD_RIGHT) {
+				return null;
+			}
+			int effectivePadTop = PAD_TOP;
+			if (!runSummaries.isEmpty()) {
+				Font runLineFont = getFont().deriveFont(Font.BOLD, getFont().getSize2D() + 2f);
+				FontMetrics sumFm = getFontMetrics(runLineFont);
+				int lineHeight = sumFm.getHeight();
+				int runLineCount = 0;
+				for (RunSummary summary : runSummaries) {
+					if (summary != null && summary.formatSummary() != null && !summary.formatSummary().isEmpty()) {
+						runLineCount++;
+					}
+				}
+				int runLineBlockHeight = 4 + runLineCount * lineHeight + 6;
+				effectivePadTop = Math.max(PAD_TOP, runLineBlockHeight);
+			}
+			if (h <= effectivePadTop + PAD_BOTTOM) {
+				return null;
+			}
+			double minPct = Double.MAX_VALUE;
+			double maxPct = -Double.MAX_VALUE;
+			double minAct = Double.MAX_VALUE;
+			double maxAct = -Double.MAX_VALUE;
+			for (ProspectorLogRow r : toPlot) {
+				double p = r.getPercent();
+				double a = r.getDifference();
+				if (p < minPct) {
+					minPct = p;
+				}
+				if (p > maxPct) {
+					maxPct = p;
+				}
+				if (a < minAct) {
+					minAct = a;
+				}
+				if (a > maxAct) {
+					maxAct = a;
+				}
+			}
+			if (minPct >= maxPct) {
+				maxPct = minPct + 1.0;
+			}
+			if (minAct >= maxAct) {
+				maxAct = minAct + 1.0;
+			}
+			int plotW = w - PAD_LEFT - PAD_RIGHT;
+			int plotH = h - effectivePadTop - PAD_BOTTOM;
+			int plotX = PAD_LEFT;
+			int plotY = effectivePadTop;
+			return new PlotGeom(plotX, plotY, plotW, plotH, effectivePadTop, minPct, maxPct, minAct, maxAct);
+		}
+
+		private Color commanderColorFor(String cmdr, List<ProspectorLogRow> toPlot) {
+			List<String> commanderOrder = filterMode == FilterMode.ALL
+				? toPlot.stream().map(ProspectorLogRow::getCommanderName).distinct().toList()
+				: List.of();
+			Map<String, Color> commanderColor = new HashMap<>();
+			for (int i = 0; i < commanderOrder.size(); i++) {
+				commanderColor.put(commanderOrder.get(i), COMMANDER_PALETTE[i % COMMANDER_PALETTE.length]);
+			}
+			return commanderColor.getOrDefault(cmdr, EdoUi.User.VALUABLE);
+		}
+
+		private void maybeStartGatherAnimationFromNewData() {
+			if (gatherAnimActive || getWidth() <= 0 || getHeight() <= 0) {
+				return;
+			}
+			PlotGeom geom = computePlotGeom();
+			if (geom == null) {
+				return;
+			}
+			List<ProspectorLogRow> toPlot = filteredRows();
+			Map<String, LeaderSnapshot> nextLeaders = computeLatestLeadersMap(toPlot);
+			for (Map.Entry<String, LeaderSnapshot> e : nextLeaders.entrySet()) {
+				String cmdr = e.getKey();
+				LeaderSnapshot now = e.getValue();
+				LeaderSnapshot prev = leaderSnapshotsByCommander.get(cmdr);
+				if (prev == null || !now.sameAsteroid(prev)) {
+					continue;
+				}
+				if (now.instant == null || prev.instant == null || !now.instant.isAfter(prev.instant)) {
+					continue;
+				}
+				if (now.pct == prev.pct && now.tons == prev.tons) {
+					continue;
+				}
+				Point from = geom.projectValues(prev.pct, prev.tons);
+				Point to = geom.projectValues(now.pct, now.tons);
+				if (from.x == to.x && from.y == to.y) {
+					continue;
+				}
+				Color col = commanderColorFor(cmdr, toPlot);
+				ProspectorLogRow rowPrev = findRowMatchingSnapshot(prev, toPlot);
+				ProspectorLogRow rowNow = findRowMatchingSnapshot(now, toPlot);
+				String kFrom = rowPrev != null ? rowKeyForAnim(rowPrev) : "";
+				String kTo = rowNow != null ? rowKeyForAnim(rowNow) : "";
+				startGatherAnimation(from, to, col, kFrom, kTo);
+				return;
+			}
+		}
+
+		private void startGatherAnimation(Point from, Point to, Color asteroidColor, String skipKeyFrom, String skipKeyTo) {
+			if (gatherAnimTimer == null) {
+				gatherAnimTimer = new javax.swing.Timer(30, e -> tickGatherAnimation());
+			}
+			gatherAnimActive = true;
+			gatherDebrisPhaseOnly = false;
+			gatherAnimPhase = 0f;
+			gatherPhaseSpin = asteroidSpinAngle;
+			gatherMoveFrom = new Point(from);
+			gatherMoveTo = new Point(to);
+			// Beam starts at the bottom of the plot's left border (Y-axis line meets bottom edge).
+			PlotGeom geom = computePlotGeom();
+			if (geom != null) {
+				gatherLaserFrom = new Point(geom.plotX, geom.plotY + geom.plotH);
+			} else {
+				int fallbackY = Math.min(getHeight() - 4, Math.max(gatherMoveFrom.y, gatherMoveTo.y) + 40);
+				gatherLaserFrom = new Point(gatherMoveFrom.x, fallbackY);
+			}
+			gatherAsteroidColor = asteroidColor;
+			gatherSkipRowKeyFrom = skipKeyFrom != null ? skipKeyFrom : "";
+			gatherSkipRowKeyTo = skipKeyTo != null ? skipKeyTo : "";
+			gatherParticles.clear();
+			gatherAnimTimer.start();
+		}
+
+		private void tickGatherAnimation() {
+			if (!gatherAnimActive) {
+				return;
+			}
+			if (gatherDebrisPhaseOnly) {
+				for (OreParticle p : gatherParticles) {
+					p.ageMs += 30;
+					p.x += p.vx;
+					p.y += p.vy;
+					p.vy += 0.06;
+				}
+				gatherParticles.removeIf(p -> p.ageMs > 700);
+				if (gatherParticles.isEmpty()) {
+					endGatherAnimation();
+				}
+				repaint();
+				return;
+			}
+			gatherAnimPhase += 1f / 50f;
+			gatherPhaseSpin += 0.14;
+			if (gatherPhaseSpin > Math.PI * 2) {
+				gatherPhaseSpin -= Math.PI * 2;
+			}
+			for (OreParticle p : gatherParticles) {
+				p.ageMs += 30;
+				p.x += p.vx;
+				p.y += p.vy;
+				p.vy += 0.06;
+			}
+			gatherParticles.removeIf(p -> p.ageMs > 700);
+			while (gatherParticles.size() > 220) {
+				gatherParticles.remove(0);
+			}
+			if (gatherAnimPhase >= GATHER_LASER_CONTACT_PHASE_END) {
+				Point rock = currentGatherAsteroidScreenPos();
+				spawnOreTrailAtRock(rock.x, rock.y);
+			}
+			if (gatherAnimPhase >= 1f) {
+				gatherAnimPhase = 1f;
+				gatherDebrisPhaseOnly = true;
+				gatherSkipRowKeyFrom = "";
+				gatherSkipRowKeyTo = "";
+			}
+			repaint();
+		}
+
+		private Point currentGatherAsteroidScreenPos() {
+			if (gatherMoveFrom == null) {
+				return new Point(0, 0);
+			}
+			if (gatherAnimPhase < GATHER_LASER_CONTACT_PHASE_END) {
+				return new Point(gatherMoveFrom.x, gatherMoveFrom.y);
+			}
+			double u = (gatherAnimPhase - GATHER_LASER_CONTACT_PHASE_END) / (1.0 - GATHER_LASER_CONTACT_PHASE_END);
+			float moveT = (float) easeOutCubic(Math.min(1.0, u));
+			int ax = gatherMoveFrom.x + (int) ((gatherMoveTo.x - gatherMoveFrom.x) * moveT);
+			int ay = gatherMoveFrom.y + (int) ((gatherMoveTo.y - gatherMoveFrom.y) * moveT);
+			return new Point(ax, ay);
+		}
+
+		/** Ore chips ejected from the rock as it moves; called each animation tick. */
+		private void spawnOreTrailAtRock(int cx, int cy) {
+			int n = 3 + gatherRandom.nextInt(4);
+			for (int i = 0; i < n; i++) {
+				OreParticle p = new OreParticle();
+				p.x = cx + gatherRandom.nextGaussian() * 2.5;
+				p.y = cy + gatherRandom.nextGaussian() * 2.5;
+				double ang = gatherRandom.nextDouble() * Math.PI * 2;
+				double sp = 0.9 + gatherRandom.nextDouble() * 2.4;
+				p.vx = Math.cos(ang) * sp;
+				p.vy = Math.sin(ang) * sp - 0.9;
+				p.ageMs = 0;
+				gatherParticles.add(p);
+			}
+		}
+
+		private void endGatherAnimation() {
+			gatherAnimActive = false;
+			gatherDebrisPhaseOnly = false;
+			gatherParticles.clear();
+			if (gatherAnimTimer != null) {
+				gatherAnimTimer.stop();
+			}
+			gatherSkipRowKeyFrom = "";
+			gatherSkipRowKeyTo = "";
+			repaint();
+		}
+
+		private static double easeOutCubic(double t) {
+			if (t <= 0) {
+				return 0;
+			}
+			if (t >= 1) {
+				return 1;
+			}
+			double u = 1 - t;
+			return 1 - u * u * u;
+		}
+
+		private void drawPlasmaLaser(Graphics2D g2, int x0, int y0, int x1, int y1, float beamProgress) {
+			if (beamProgress <= 0f) {
+				return;
+			}
+			float t = Math.min(1f, beamProgress);
+			int cx = x0 + (int) ((x1 - x0) * t);
+			int cy = y0 + (int) ((y1 - y0) * t);
+			float[] dist = { 0f, 0.35f, 0.65f, 1f };
+			Color[] colors = {
+				new Color(255, 40, 40, 220),
+				new Color(255, 120, 80, 200),
+				new Color(255, 200, 220, 160),
+				new Color(255, 255, 255, 40)
+			};
+			LinearGradientPaint gp = new LinearGradientPaint(x0, y0, cx, cy, dist, colors);
+			g2.setStroke(new BasicStroke(4.5f + 3f * (float) Math.sin(beamProgress * Math.PI * 3), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g2.setPaint(gp);
+			g2.drawLine(x0, y0, cx, cy);
+			g2.setColor(new Color(255, 80, 60, 110));
+			g2.setStroke(new BasicStroke(10f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g2.drawLine(x0, y0, cx, cy);
+			g2.setColor(new Color(255, 200, 180, 90));
+			g2.fillOval(cx - 6, cy - 6, 12, 12);
+		}
+
+		private void drawGatherAnimationOverlay(Graphics2D g2) {
+			if (!gatherAnimActive) {
+				return;
+			}
+			if (gatherDebrisPhaseOnly) {
+				drawGatherParticlesOnly(g2);
+				return;
+			}
+			Point rock = currentGatherAsteroidScreenPos();
+			int ax = rock.x;
+			int ay = rock.y;
+			if (gatherLaserFrom != null && gatherMoveFrom != null) {
+				if (gatherAnimPhase < GATHER_LASER_CONTACT_PHASE_END) {
+					// Extend beam to the rock at its start position; rock stays put until contact completes.
+					float beamLen = gatherAnimPhase <= 0f ? 0f
+						: Math.min(1f, gatherAnimPhase / GATHER_LASER_CONTACT_PHASE_END);
+					drawPlasmaLaser(g2, gatherLaserFrom.x, gatherLaserFrom.y, gatherMoveFrom.x, gatherMoveFrom.y, beamLen);
+				} else {
+					// After contact: beam follows the rock along its path; full length each frame.
+					drawPlasmaLaser(g2, gatherLaserFrom.x, gatherLaserFrom.y, ax, ay, 1f);
+				}
+			}
+			drawLineArtAsteroid(g2, ax, ay, gatherAsteroidColor, gatherPhaseSpin, 0.02);
+
+			drawGatherParticlesOnly(g2);
+		}
+
+		private void drawGatherParticlesOnly(Graphics2D g2) {
+			g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.85f));
+			for (OreParticle p : gatherParticles) {
+				float life = 1f - p.ageMs / 700f;
+				if (life <= 0) {
+					continue;
+				}
+				int alpha = (int) (220 * life);
+				g2.setColor(new Color(220, 180, 90, Math.min(255, alpha)));
+				g2.fillOval((int) (p.x - 1.5), (int) (p.y - 1.5), 3, 3);
+			}
+			g2.setComposite(AlphaComposite.SrcOver);
 		}
 
 		/** Filled black body, commander-colored rim; rotated in place. */
@@ -3108,6 +3562,11 @@ String getName() {
 
 		void setRows(List<ProspectorLogRow> rows) {
 			this.rows = (rows != null) ? new ArrayList<>(rows) : new ArrayList<>();
+			if (!gatherAnimActive) {
+				maybeStartGatherAnimationFromNewData();
+			}
+			leaderSnapshotsByCommander.clear();
+			leaderSnapshotsByCommander.putAll(computeLatestLeadersMap(filteredRows()));
 			repaint();
 		}
 
@@ -3176,43 +3635,19 @@ String getName() {
 			g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
 			int w = getWidth();
 			int h = getHeight();
-			// Reserve top space for run summary line(s) so they sit fully above the graph border.
-			int effectivePadTop = PAD_TOP;
-			if (!runSummaries.isEmpty()) {
-				Font runLineFont = getFont().deriveFont(Font.BOLD, getFont().getSize2D() + 2f);
-				g2.setFont(runLineFont);
-				FontMetrics sumFm = g2.getFontMetrics();
-				int lineHeight = sumFm.getHeight();
-				int runLineCount = 0;
-				for (RunSummary summary : runSummaries) {
-					if (summary != null && summary.formatSummary() != null && !summary.formatSummary().isEmpty()) {
-						runLineCount++;
-					}
-				}
-				int runLineBlockHeight = 4 + runLineCount * lineHeight + 6; // margin above + lines + gap below
-				effectivePadTop = Math.max(PAD_TOP, runLineBlockHeight);
-				g2.setFont(getFont());
-			}
-			if (w <= PAD_LEFT + PAD_RIGHT || h <= effectivePadTop + PAD_BOTTOM) {
+			PlotGeom geom = computePlotGeom();
+			if (geom == null) {
 				g2.dispose();
 				return;
 			}
-			double minPct = Double.MAX_VALUE, maxPct = -Double.MAX_VALUE;
-			double minAct = Double.MAX_VALUE, maxAct = -Double.MAX_VALUE;
-			for (ProspectorLogRow r : toPlot) {
-				double p = r.getPercent();
-				double a = r.getDifference();
-				if (p < minPct) minPct = p;
-				if (p > maxPct) maxPct = p;
-				if (a < minAct) minAct = a;
-				if (a > maxAct) maxAct = a;
-			}
-			if (minPct >= maxPct) maxPct = minPct + 1.0;
-			if (minAct >= maxAct) maxAct = minAct + 1.0;
-			int plotW = w - PAD_LEFT - PAD_RIGHT;
-			int plotH = h - effectivePadTop - PAD_BOTTOM;
-			int plotX = PAD_LEFT;
-			int plotY = effectivePadTop;
+			int plotW = geom.plotW;
+			int plotH = geom.plotH;
+			int plotX = geom.plotX;
+			int plotY = geom.plotY;
+			double minPct = geom.minPct;
+			double maxPct = geom.maxPct;
+			double minAct = geom.minAct;
+			double maxAct = geom.maxAct;
 			g2.setColor(EdoUi.User.MAIN_TEXT);
 			g2.drawRect(plotX, plotY, plotW, plotH);
 			g2.setFont(g2.getFont().deriveFont(10f));
@@ -3426,6 +3861,15 @@ String getName() {
 						Color markColor = commanderColor.getOrDefault(cmdr, EdoUi.User.VALUABLE);
 						double phase = (cmdr.hashCode() & 0xFFFF) * 0.001;
 						for (ProspectorLogRow row : e.getValue()) {
+							String rk = rowKeyForAnim(row);
+							if (gatherAnimActive && !gatherDebrisPhaseOnly) {
+								if (!gatherSkipRowKeyFrom.isEmpty() && rk.equals(gatherSkipRowKeyFrom)) {
+									continue;
+								}
+								if (!gatherSkipRowKeyTo.isEmpty() && rk.equals(gatherSkipRowKeyTo)) {
+									continue;
+								}
+							}
 							for (PointInfo pi : pointInfos) {
 								if (pi.row == row) {
 									drawLineArtAsteroid(g2, pi.x, pi.y, markColor, asteroidSpinAngle, phase);
@@ -3511,6 +3955,7 @@ String getName() {
 					}
 				}
 			}
+			drawGatherAnimationOverlay(g2);
 			g2.dispose();
 		}
 
