@@ -26,6 +26,7 @@ import java.text.NumberFormat;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -3103,7 +3104,31 @@ String getName() {
 			int ageMs;
 		}
 
+		/** One queued gather (from prior leader snapshot → current); processed FIFO so nothing is dropped. */
+		private static final class GatherAnimRequest {
+			final Point from;
+			final Point to;
+			final Color color;
+			final String skipKeyFrom;
+			final String skipKeyTo;
+			final String animCommander;
+
+			GatherAnimRequest(Point from, Point to, Color color, String skipKeyFrom, String skipKeyTo, String animCommander) {
+				this.from = new Point(from);
+				this.to = new Point(to);
+				this.color = color;
+				this.skipKeyFrom = skipKeyFrom != null ? skipKeyFrom : "";
+				this.skipKeyTo = skipKeyTo != null ? skipKeyTo : "";
+				this.animCommander = animCommander != null ? animCommander : "";
+			}
+
+			String signature() {
+				return animCommander + "\t" + skipKeyFrom + "\t" + skipKeyTo;
+			}
+		}
+
 		private final Map<String, LeaderSnapshot> leaderSnapshotsByCommander = new HashMap<>();
+		private final ArrayDeque<GatherAnimRequest> gatherAnimQueue = new ArrayDeque<>();
 		private javax.swing.Timer gatherAnimTimer;
 		private float gatherAnimPhase;
 		private boolean gatherAnimActive;
@@ -3124,8 +3149,6 @@ String getName() {
 		private static final float GATHER_LASER_CONTACT_PHASE_END = 0.16f;
 		/** Phase advance per timer tick (higher = faster overall). */
 		private static final float GATHER_PHASE_DELTA = 1f / 36f;
-		/** Retarget only when end moves more than this (avoids reset spam on every setRows / layout jitter). */
-		private static final int GATHER_RETARGET_MIN_MOVE_SQ = 8 * 8;
 		/** Gun platform X lerp per tick toward asteroid / home (~30% slower than earlier 0.22 / 0.18). */
 		private static final double GUN_LERP_TO_ROCK = 0.22 * 0.7;
 		private static final double GUN_LERP_TO_HOME = 0.18 * 0.7;
@@ -3275,6 +3298,7 @@ String getName() {
 		}
 
 		void triggerTestGatherAnimation() {
+			gatherAnimQueue.clear();
 			endGatherAnimation();
 			PlotGeom geom = computePlotGeom();
 			if (geom == null || getWidth() <= 0 || getHeight() <= 0) {
@@ -3284,13 +3308,23 @@ String getName() {
 			if (toPlot.isEmpty()) {
 				return;
 			}
-			int midX = geom.plotX + (int) (geom.plotW * 0.45);
-			int yHi = geom.plotY + (int) (geom.plotH * 0.28);
-			int yLo = geom.plotY + (int) (geom.plotH * 0.62);
 			ProspectorLogRow sample = toPlot.get(0);
 			String cmdrName = sample.getCommanderName() != null ? sample.getCommanderName() : "";
 			Color col = commanderColorFor(cmdrName, toPlot);
-			startGatherAnimation(new Point(midX, yHi), new Point(midX, yLo), col, "__testFrom", "__testTo", cmdrName);
+			int midX = geom.plotX + (int) (geom.plotW * 0.45);
+			int dx = Math.max(18, (int) (geom.plotW * 0.06));
+			int yHi = geom.plotY + (int) (geom.plotH * 0.30);
+			int yLo = geom.plotY + (int) (geom.plotH * 0.64);
+
+			// Two separate “materials” on the same commander: left rock then right rock, both fully collected.
+			Point fromA = new Point(midX - dx, yHi);
+			Point toA = new Point(midX - dx, yLo);
+			Point fromB = new Point(midX + dx, yHi);
+			Point toB = new Point(midX + dx, yLo);
+
+			offerGatherAnimRequest(new GatherAnimRequest(fromA, toA, col, "__testFromA", "__testToA", cmdrName));
+			offerGatherAnimRequest(new GatherAnimRequest(fromB, toB, col, "__testFromB", "__testToB", cmdrName));
+			tryStartNextGatherFromQueue();
 		}
 
 		ProspectorLogScatterPanel() {
@@ -3502,19 +3536,7 @@ String getName() {
 			return commanderColor.getOrDefault(cmdr, EdoUi.User.VALUABLE);
 		}
 
-		private void maybeStartGatherAnimationFromNewData() {
-			// Allow a new gather while only debris is playing; block only during laser+move (retarget handles that).
-			if (gatherAnimActive && !gatherDebrisPhaseOnly) {
-				return;
-			}
-			if (getWidth() <= 0 || getHeight() <= 0) {
-				return;
-			}
-			PlotGeom geom = computePlotGeom();
-			if (geom == null) {
-				return;
-			}
-			List<ProspectorLogRow> toPlot = filteredRows();
+		private void enqueueGatherTransitionsForLeaders(List<ProspectorLogRow> toPlot, PlotGeom geom) {
 			Map<String, LeaderSnapshot> nextLeaders = computeLatestLeadersMap(toPlot);
 			for (Map.Entry<String, LeaderSnapshot> e : nextLeaders.entrySet()) {
 				String cmdr = e.getKey();
@@ -3529,17 +3551,54 @@ String getName() {
 				if (now.pct == prev.pct && now.tons == prev.tons) {
 					continue;
 				}
-				Point from = geom.projectValues(prev.pct, prev.tons);
+				boolean materialChanged = !Objects.equals(prev.material, now.material);
+				Point from = materialChanged
+					? geom.projectValues(now.pct, now.tons)
+					: geom.projectValues(prev.pct, prev.tons);
 				Point to = geom.projectValues(now.pct, now.tons);
-				// Do not skip when from==to: chart rounding can hide small material changes; laser still reads.
 				Color col = commanderColorFor(cmdr, toPlot);
 				ProspectorLogRow rowPrev = findRowMatchingSnapshot(prev, toPlot);
 				ProspectorLogRow rowNow = findRowMatchingSnapshot(now, toPlot);
-				String kFrom = rowPrev != null ? rowKeyForAnim(rowPrev) : "";
+				String kFrom = materialChanged || rowPrev == null ? "" : rowKeyForAnim(rowPrev);
 				String kTo = rowNow != null ? rowKeyForAnim(rowNow) : "";
-				startGatherAnimation(from, to, col, kFrom, kTo, cmdr);
+				offerGatherAnimRequest(new GatherAnimRequest(from, to, col, kFrom, kTo, cmdr));
+			}
+		}
+
+		private void offerGatherAnimRequest(GatherAnimRequest req) {
+			if (matchesCurrentGatherRequest(req)) {
 				return;
 			}
+			String sig = req.signature();
+			for (GatherAnimRequest q : gatherAnimQueue) {
+				if (q.signature().equals(sig)) {
+					return;
+				}
+			}
+			if (!gatherAnimQueue.isEmpty() && gatherAnimQueue.peekLast().signature().equals(sig)) {
+				return;
+			}
+			gatherAnimQueue.addLast(req);
+		}
+
+		private boolean matchesCurrentGatherRequest(GatherAnimRequest req) {
+			if (!gatherAnimActive) {
+				return false;
+			}
+			return Objects.equals(req.animCommander, gatherAnimCommander)
+				&& Objects.equals(req.skipKeyFrom, gatherSkipRowKeyFrom)
+				&& Objects.equals(req.skipKeyTo, gatherSkipRowKeyTo);
+		}
+
+		private void tryStartNextGatherFromQueue() {
+			if (gatherAnimActive || gatherAnimQueue.isEmpty()) {
+				return;
+			}
+			GatherAnimRequest req = gatherAnimQueue.pollFirst();
+			if (req == null) {
+				return;
+			}
+			startGatherAnimation(req.from, req.to, req.color, req.skipKeyFrom, req.skipKeyTo, req.animCommander);
 		}
 
 		private void startGatherAnimation(Point from, Point to, Color asteroidColor, String skipKeyFrom, String skipKeyTo, String animCommander) {
@@ -3572,44 +3631,6 @@ String getName() {
 			gatherAnimCommander = animCommander != null ? animCommander : "";
 			gatherParticles.clear();
 			gatherAnimTimer.start();
-		}
-
-		/**
-		 * If new prospector rows move the leader while the gather is still in flight, aim the move at the new end.
-		 * During laser contact only {@code gatherMoveTo} updates; during move, the rock continues from its current pixel.
-		 */
-		private void retargetGatherAnimationFromNewData() {
-			if (!gatherAnimActive || gatherDebrisPhaseOnly || gatherAnimCommander.isEmpty()) {
-				return;
-			}
-			PlotGeom geom = computePlotGeom();
-			if (geom == null) {
-				return;
-			}
-			List<ProspectorLogRow> toPlot = filteredRows();
-			Map<String, LeaderSnapshot> leaders = computeLatestLeadersMap(toPlot);
-			LeaderSnapshot now = leaders.get(gatherAnimCommander);
-			if (now == null) {
-				return;
-			}
-			Point newEnd = geom.projectValues(now.pct, now.tons);
-			ProspectorLogRow rowNow = findRowMatchingSnapshot(now, toPlot);
-			String newToKey = rowNow != null ? rowKeyForAnim(rowNow) : "";
-			// Same leader row + ~same pixel: do nothing (prevents phase reset every refresh / sub-pixel layout).
-			if (gatherMoveTo != null
-				&& newToKey.equals(gatherSkipRowKeyTo)
-				&& screenWithinRadiusSq(newEnd.x, newEnd.y, gatherMoveTo.x, gatherMoveTo.y, GATHER_RETARGET_MIN_MOVE_SQ)) {
-				return;
-			}
-			gatherSkipRowKeyTo = newToKey;
-			Point cur = currentGatherAsteroidScreenPos();
-			boolean inMovePhase = gatherAnimPhase >= GATHER_LASER_CONTACT_PHASE_END;
-			gatherMoveTo.setLocation(newEnd);
-			if (inMovePhase) {
-				gatherMoveFrom.setLocation(cur);
-				gatherAnimPhase = GATHER_LASER_CONTACT_PHASE_END;
-			}
-			updateGatherLaserFromFromGun(geom, gatherAnimCommander);
 		}
 
 		private void tickGatherAnimation() {
@@ -3716,6 +3737,7 @@ String getName() {
 			}
 			gatherSkipRowKeyFrom = "";
 			gatherSkipRowKeyTo = "";
+			tryStartNextGatherFromQueue();
 			repaint();
 		}
 
@@ -3849,11 +3871,13 @@ String getName() {
 
 		void setRows(List<ProspectorLogRow> rows) {
 			this.rows = (rows != null) ? new ArrayList<>(rows) : new ArrayList<>();
-			if (gatherAnimActive && !gatherDebrisPhaseOnly) {
-				retargetGatherAnimationFromNewData();
+			List<ProspectorLogRow> toPlot = filteredRows();
+			PlotGeom geom = computePlotGeom();
+			if (geom != null && !toPlot.isEmpty() && getWidth() > 0 && getHeight() > 0) {
+				enqueueGatherTransitionsForLeaders(toPlot, geom);
 			}
-			if (!gatherAnimActive || gatherDebrisPhaseOnly) {
-				maybeStartGatherAnimationFromNewData();
+			if (!gatherAnimActive) {
+				tryStartNextGatherFromQueue();
 			}
 			leaderSnapshotsByCommander.clear();
 			leaderSnapshotsByCommander.putAll(computeLatestLeadersMap(filteredRows()));
