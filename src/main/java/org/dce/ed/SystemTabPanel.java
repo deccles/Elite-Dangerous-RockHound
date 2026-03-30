@@ -12,13 +12,14 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
-import java.awt.image.BufferedImage;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.QuadCurve2D;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -42,14 +43,11 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
-import javax.swing.table.TableColumnModel;
 
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
-import org.dce.ed.util.FirstBonusHelper;
-import org.dce.ed.util.SpanshLandmark;
 import org.dce.ed.edsm.BodiesResponse;
-import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.edsm.UtilTable;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.logreader.EliteJournalReader;
@@ -61,16 +59,15 @@ import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.IFsdJump;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.StatusEvent;
+import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemEventProcessor;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
-import org.dce.ed.ui.EdoUi.User;
 import org.dce.ed.util.EdsmClient;
-
-import org.dce.ed.edsm.UtilTable;
+import org.dce.ed.util.FirstBonusHelper;
 /**
  * System tab – now a *pure UI* renderer.
  *
@@ -506,31 +503,75 @@ public class SystemTabPanel extends JPanel {
         // 2) If we jumped, do the heavy load/merge off the EDT,
         //    then refresh UI on the EDT.
         if (event instanceof BioScanPredictionEvent) {
-        	BioScanPredictionEvent e = (BioScanPredictionEvent)event;
-        	
-        	List<BioCandidate> candidates = e.getCandidates();
-        	
-        	long highestPayout = 0L;
-        	
-        	for (BioCandidate bio : candidates) {
-        		System.out.println("Need to know which planet so we can tell expected value");
-        		highestPayout = Math.max(highestPayout, bio.getEstimatedPayout(e.getBonusApplies()));
-        	}
-        	TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
-        	
-        	if (e.getKind() == PredictionKind.INITIAL) {
-        		if (highestPayout >= OverlayPreferences.getBioValuableThresholdCredits()) {
-        			long speakCredits = TtsSprintf.roundCreditsForSpeech(highestPayout);
-        			ttsSprintf.speakf("{n} species discovered on planetary body {body} with estimated value of {credits} credits",
-        					candidates.size(),
-        					e.getBodyName(),
-        					speakCredits);
-        		} else {
-        			ttsSprintf.speakf("{n} species discovered on planetary body {body}",
-        					candidates.size(),
-        					e.getBodyName());
-        		}
-        	}
+            BioScanPredictionEvent e = (BioScanPredictionEvent) event;
+
+            List<BioCandidate> candidates = e.getCandidates();
+            if (candidates == null || candidates.isEmpty()) {
+                return;
+            }
+
+            // Look up the body so we can use the actual number of bio signals (if known)
+            Integer signals = null;
+            try {
+                if (state != null) {
+                    BodyInfo body = state.getBodies().get(e.getBodyId());
+                    if (body != null) {
+                        signals = body.getNumberOfBioSignals();
+                    }
+                }
+            } catch (Exception ignored) {
+                // best-effort; fall back below
+            }
+
+            int signalCount = (signals != null && signals.intValue() > 0)
+                    ? signals.intValue()
+                    : Math.max(1, candidates.size());
+
+            // Compute payout range based on candidate values and number of signals.
+            List<Long> payouts = new java.util.ArrayList<>(candidates.size());
+            for (BioCandidate bio : candidates) {
+                payouts.add(Long.valueOf(bio.getEstimatedPayout(e.getBonusApplies())));
+            }
+            Collections.sort(payouts);
+
+            signalCount = Math.min(signalCount, payouts.size());
+
+            long minTotal = 0L;
+            for (int i = 0; i < signalCount; i++) {
+                minTotal += payouts.get(i).longValue();
+            }
+
+            long maxTotal = 0L;
+            for (int i = payouts.size() - signalCount; i < payouts.size(); i++) {
+                maxTotal += payouts.get(i).longValue();
+            }
+
+            TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
+
+            if (e.getKind() == PredictionKind.INITIAL) {
+                if (maxTotal >= OverlayPreferences.getBioValuableThresholdCredits()) {
+                    long speakMin = TtsSprintf.roundCreditsForSpeech(minTotal);
+                    long speakMax = TtsSprintf.roundCreditsForSpeech(maxTotal);
+                    if (speakMin == speakMax) {
+                        ttsSprintf.speakf(
+                                "{n} signals on planetary body {body} with guaranteed exobiology value of {credits} credits",
+                                Integer.valueOf(signalCount),
+                                e.getBodyName(),
+                                Long.valueOf(speakMax));
+                    } else {
+                        ttsSprintf.speakf(
+                                "{n} signals on planetary body {body} with estimated value between {min} and {max} credits",
+                                Integer.valueOf(signalCount),
+                                e.getBodyName(),
+                                Long.valueOf(speakMin),
+                                Long.valueOf(speakMax));
+                    }
+                } else {
+                    ttsSprintf.speakf("{n} species discovered on planetary body {body}",
+                            Integer.valueOf(candidates.size()),
+                            e.getBodyName());
+                }
+            }
         }
         if (event instanceof IFsdJump) {
             IFsdJump e = (IFsdJump) event;
