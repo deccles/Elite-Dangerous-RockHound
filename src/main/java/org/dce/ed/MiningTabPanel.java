@@ -3318,7 +3318,11 @@ String getName() {
 		}
 
 		private void maybeStartGatherAnimationFromNewData() {
-			if (gatherAnimActive || getWidth() <= 0 || getHeight() <= 0) {
+			// Allow a new gather while only debris is playing; block only during laser+move (retarget handles that).
+			if (gatherAnimActive && !gatherDebrisPhaseOnly) {
+				return;
+			}
+			if (getWidth() <= 0 || getHeight() <= 0) {
 				return;
 			}
 			PlotGeom geom = computePlotGeom();
@@ -3342,9 +3346,7 @@ String getName() {
 				}
 				Point from = geom.projectValues(prev.pct, prev.tons);
 				Point to = geom.projectValues(now.pct, now.tons);
-				if (from.x == to.x && from.y == to.y) {
-					continue;
-				}
+				// Do not skip when from==to: chart rounding can hide small material changes; laser still reads.
 				Color col = commanderColorFor(cmdr, toPlot);
 				ProspectorLogRow rowPrev = findRowMatchingSnapshot(prev, toPlot);
 				ProspectorLogRow rowNow = findRowMatchingSnapshot(now, toPlot);
@@ -3640,7 +3642,7 @@ String getName() {
 			if (gatherAnimActive && !gatherDebrisPhaseOnly) {
 				retargetGatherAnimationFromNewData();
 			}
-			if (!gatherAnimActive) {
+			if (!gatherAnimActive || gatherDebrisPhaseOnly) {
 				maybeStartGatherAnimationFromNewData();
 			}
 			leaderSnapshotsByCommander.clear();
