@@ -3126,6 +3126,11 @@ String getName() {
 		private static final float GATHER_PHASE_DELTA = 1f / 36f;
 		/** Retarget only when end moves more than this (avoids reset spam on every setRows / layout jitter). */
 		private static final int GATHER_RETARGET_MIN_MOVE_SQ = 8 * 8;
+		/** Gun platform X lerp per tick toward asteroid / home (~30% slower than earlier 0.22 / 0.18). */
+		private static final double GUN_LERP_TO_ROCK = 0.22 * 0.7;
+		private static final double GUN_LERP_TO_HOME = 0.18 * 0.7;
+		/** End gather when gun is this close to home (avoids asymptotic crawl). */
+		private static final double GUN_HOME_EPSILON = 0.45;
 		/** Laser emit point above bottom of plot (matches {@link #drawMobileGunPlatform} barrel tip). */
 		private static final int GUN_EMIT_UP_FROM_PLOT_BOTTOM = 27;
 
@@ -3180,6 +3185,22 @@ String getName() {
 				return gatherLaserOriginX(geom);
 			}
 			return gunHomeCenterX(geom, idx, ordered.size());
+		}
+
+		private boolean gatherGunWithinEpsilonOfHome(double epsilon) {
+			if (gatherAnimCommander == null || gatherAnimCommander.isEmpty()) {
+				return true;
+			}
+			PlotGeom g = computePlotGeom();
+			if (g == null) {
+				return true;
+			}
+			Double gx = gunPlatformCenterXByCommander.get(gatherAnimCommander);
+			if (gx == null) {
+				return true;
+			}
+			double home = homeXForCommander(g, gatherAnimCommander, platformCommandersForPlot(filteredRows()));
+			return Math.abs(gx - home) < epsilon;
 		}
 
 		private void syncGunPlatformCenters(List<String> orderedCmdrs, PlotGeom geom) {
@@ -3609,10 +3630,11 @@ String getName() {
 					double home = homeXForCommander(gDebris, gatherAnimCommander, pcsD);
 					Double gx = gunPlatformCenterXByCommander.get(gatherAnimCommander);
 					if (gx != null) {
-						gunPlatformCenterXByCommander.put(gatherAnimCommander, gx + (home - gx) * 0.18);
+						double d = home - gx;
+						gunPlatformCenterXByCommander.put(gatherAnimCommander, gx + d * GUN_LERP_TO_HOME);
 					}
 				}
-				if (gatherParticles.isEmpty()) {
+				if (gatherParticles.isEmpty() && gatherGunWithinEpsilonOfHome(GUN_HOME_EPSILON)) {
 					endGatherAnimation();
 				}
 				repaint();
@@ -3647,7 +3669,7 @@ String getName() {
 				Point rockScr = currentGatherAsteroidScreenPos();
 				Double curX = gunPlatformCenterXByCommander.get(gatherAnimCommander);
 				if (curX != null) {
-					gunPlatformCenterXByCommander.put(gatherAnimCommander, curX + (rockScr.x - curX) * 0.22);
+					gunPlatformCenterXByCommander.put(gatherAnimCommander, curX + (rockScr.x - curX) * GUN_LERP_TO_ROCK);
 				}
 				updateGatherLaserFromFromGun(gTrack, gatherAnimCommander);
 			}
@@ -3694,13 +3716,6 @@ String getName() {
 			}
 			gatherSkipRowKeyFrom = "";
 			gatherSkipRowKeyTo = "";
-			PlotGeom gEnd = computePlotGeom();
-			if (gEnd != null) {
-				List<String> pcsE = platformCommandersForPlot(filteredRows());
-				for (int i = 0; i < pcsE.size(); i++) {
-					gunPlatformCenterXByCommander.put(pcsE.get(i), gunHomeCenterX(gEnd, i, pcsE.size()));
-				}
-			}
 			repaint();
 		}
 
