@@ -1,5 +1,9 @@
 package org.dce.ed.logreader;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -45,6 +49,25 @@ import com.google.gson.JsonParser;
 public class EliteLogParser {
 
     private final Gson gson = new Gson(); // kept for future use if needed
+
+    /**
+     * Parses Elite's {@code Status.json} (full file, not a journal line) into a {@link StatusEvent}.
+     */
+    public StatusEvent parseStatusJsonFile(Path path) throws IOException {
+        String json = Files.readString(path, StandardCharsets.UTF_8);
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        JsonObject obj = JsonParser.parseString(json.trim()).getAsJsonObject();
+        Instant ts = Instant.EPOCH;
+        if (obj.has("timestamp") && !obj.get("timestamp").isJsonNull()) {
+            try {
+                ts = Instant.parse(obj.get("timestamp").getAsString());
+            } catch (Exception ignored) {
+            }
+        }
+        return parseStatus(ts, obj);
+    }
 
     public EliteLogEvent parseRecord(String jsonLine) {
         JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();

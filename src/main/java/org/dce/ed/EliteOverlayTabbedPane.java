@@ -45,6 +45,7 @@ import javax.swing.TransferHandler;
 import org.dce.ed.OverlayPreferences.MiningLimpetReminderMode;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteJournalReader;
+import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.EliteLogFileLocator;
 import org.dce.ed.logreader.event.FsdJumpEvent;
@@ -77,6 +78,8 @@ import java.util.function.Consumer;
  * Main tabs: Route, System, Biology, Mining, Fleet Carrier (visibility from preferences). Nearby panel is kept in the card stack but has no tab button.
  */
 public class EliteOverlayTabbedPane extends JPanel {
+
+	private static final EliteLogParser STATUS_SNAPSHOT_PARSER = new EliteLogParser();
 
 	private volatile Integer lastAutoBiologyBodyId;
 	
@@ -384,11 +387,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 			miningTab.updateFromStatus(se);
 		}
 
-		if (event instanceof StatusEvent) {
-			StatusEvent flagEvent = (StatusEvent) event;
-			if (flagEvent.isFsdCharging()) {
-				showRouteTabFromStatusWatcher();
-			}
+		if (event instanceof StatusEvent flagEvent && flagEvent.isFsdCharging()) {
+			onFsdTargetTabFromStatus(flagEvent, null);
 		}
 
 		systemTab.handleLogEvent(event);
@@ -499,8 +499,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 			showSystemTabFromStatusWatcher();
 		}
 
-		if (event instanceof StartJumpEvent) {
-			showRouteTabFromStatusWatcher();
+		if (event instanceof StartJumpEvent sj) {
+			StatusEvent snap = readStatusSnapshotFromDisk();
+			onFsdTargetTabFromStatus(snap, sj.getSystemAddress());
 		}
 		if (event instanceof SupercruiseExitEvent e) {
 		    miningTab.updateFromSupercruiseExit(e);
@@ -511,6 +512,38 @@ public class EliteOverlayTabbedPane extends JPanel {
 		}
 
 	}
+	private StatusEvent readStatusSnapshotFromDisk() {
+		try {
+			String home = System.getProperty("user.home");
+			Path p = Path.of(home, "Saved Games", "Frontier Developments", "Elite Dangerous", "Status.json");
+			if (!Files.exists(p)) {
+				return null;
+			}
+			return STATUS_SNAPSHOT_PARSER.parseStatusJsonFile(p);
+		} catch (Exception ignored) {
+			return null;
+		}
+	}
+
+	private long currentOverlaySystemAddressOrZero() {
+		if (systemTab == null || systemTab.getState() == null) {
+			return 0L;
+		}
+		return systemTab.getState().getSystemAddress();
+	}
+
+	/**
+	 * System tab when Status shows a body/station target (non-zero Destination.Body); Route tab for system-only.
+	 */
+	private void onFsdTargetTabFromStatus(StatusEvent status, Long jumpTargetSystemAddress) {
+		long cur = currentOverlaySystemAddressOrZero();
+		if (SystemTabTargetLogic.preferSystemTabForFsdTarget(status, jumpTargetSystemAddress, cur)) {
+			showSystemTabFromStatusWatcher();
+		} else {
+			showRouteTabFromStatusWatcher();
+		}
+	}
+
 	private void showMiningTabFromStatusWatcher() {
 	    SwingUtilities.invokeLater(() -> selectTab(CARD_MINING, miningButton));
 	}

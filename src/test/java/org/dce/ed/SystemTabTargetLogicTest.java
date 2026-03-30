@@ -70,6 +70,42 @@ class SystemTabTargetLogicTest {
         assertEquals("Earth", SystemTabTargetLogic.effectiveDestName(e, 100L));
     }
 
+    @Test
+    void preferSystemTab_jumpTargetMatchesWithBody_true() {
+        StatusEvent e = parseStatusWithDestination(100L, 7, "Moon");
+        assertTrue(SystemTabTargetLogic.preferSystemTabForFsdTarget(e, 100L, 50L));
+    }
+
+    @Test
+    void preferSystemTab_jumpTargetMismatchedWithBody_false() {
+        StatusEvent e = parseStatusWithDestination(200L, 7, "Moon");
+        assertFalse(SystemTabTargetLogic.preferSystemTabForFsdTarget(e, 100L, 50L));
+    }
+
+    @Test
+    void preferSystemTab_noJumpTarget_hyperspaceBody_true() {
+        StatusEvent e = parseStatusWithDestination(100L, 7, "Moon");
+        assertTrue(SystemTabTargetLogic.preferSystemTabForFsdTarget(e, null, 50L));
+    }
+
+    @Test
+    void preferSystemTab_noJumpTarget_currentUnknown_false() {
+        StatusEvent e = parseStatusWithDestination(100L, 7, "Moon");
+        assertFalse(SystemTabTargetLogic.preferSystemTabForFsdTarget(e, null, 0L));
+    }
+
+    @Test
+    void preferSystemTab_sameSystemBody_true() {
+        StatusEvent e = parseStatusWithDestination(50L, 3, "Body");
+        assertTrue(SystemTabTargetLogic.preferSystemTabForFsdTarget(e, null, 50L));
+    }
+
+    @Test
+    void preferSystemTab_systemOnlyBodyZero_false() {
+        StatusEvent e = parseStatusWithDestination(100L, 0, "System");
+        assertFalse(SystemTabTargetLogic.preferSystemTabForFsdTarget(e, 100L, 50L));
+    }
+
     private StatusEvent parseStatusWithDestination(Long destSystem, int destBody, String destName) {
         StringBuilder json = new StringBuilder("{\"event\":\"Status\",\"timestamp\":\"" + ISO_TS + "\",\"Flags\":0,\"Flags2\":0");
         if (destSystem != null || destBody != 0 || destName != null) {
