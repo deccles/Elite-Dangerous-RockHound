@@ -96,6 +96,10 @@ public final class OverlayPreferences {
     private static final String KEY_MINING_LIMPET_REMINDER_MODE = "mining.limpetReminder.mode"; // COUNT or PERCENT
     private static final String KEY_MINING_LIMPET_REMINDER_THRESHOLD = "mining.limpetReminder.threshold"; // COUNT
     private static final String KEY_MINING_LIMPET_REMINDER_THRESHOLD_PERCENT = "mining.limpetReminder.thresholdPercent"; // PERCENT
+    /** Mining scatter gather animation: gun platform scale, 100 = current default artwork size. */
+    private static final String KEY_MINING_ANIM_GUN_SIZE_PERCENT = "mining.animation.gunSizePercent";
+    /** Mining scatter gather animation: asteroid line-art scale, 100 = current default artwork size. */
+    private static final String KEY_MINING_ANIM_ASTEROID_SIZE_PERCENT = "mining.animation.asteroidSizePercent";
 
     // Nearby tab (exobiology sphere search)
     private static final String KEY_NEARBY_SPHERE_RADIUS_LY = "nearby.sphereRadiusLy";
@@ -1020,6 +1024,38 @@ public static Engine getSpeechEngine() {
         PREFS.putInt(KEY_MINING_LIMPET_REMINDER_THRESHOLD_PERCENT, v);
     }
 
+    private static int clampMiningAnimationSizePercent(int percent) {
+        int v = percent;
+        if (v < 25) {
+            v = 25;
+        }
+        if (v > 400) {
+            v = 400;
+        }
+        return v;
+    }
+
+    /**
+     * Scale for the mining scatter gather gun platform (100 = default on-screen size).
+     */
+    public static int getMiningAnimationGunSizePercent() {
+        return clampMiningAnimationSizePercent(PREFS.getInt(KEY_MINING_ANIM_GUN_SIZE_PERCENT, 100));
+    }
+
+    public static void setMiningAnimationGunSizePercent(int percent) {
+        PREFS.putInt(KEY_MINING_ANIM_GUN_SIZE_PERCENT, clampMiningAnimationSizePercent(percent));
+    }
+
+    /**
+     * Scale for the mining scatter asteroid line-art and gather animation rock (100 = default on-screen size).
+     */
+    public static int getMiningAnimationAsteroidSizePercent() {
+        return clampMiningAnimationSizePercent(PREFS.getInt(KEY_MINING_ANIM_ASTEROID_SIZE_PERCENT, 100));
+    }
+
+    public static void setMiningAnimationAsteroidSizePercent(int percent) {
+        PREFS.putInt(KEY_MINING_ANIM_ASTEROID_SIZE_PERCENT, clampMiningAnimationSizePercent(percent));
+    }
 
     private static double getDoubleClamped(String key, double def, double min, double max) {
         String s = PREFS.get(key, Double.toString(def));

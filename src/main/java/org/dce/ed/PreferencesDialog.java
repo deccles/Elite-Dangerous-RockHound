@@ -115,6 +115,8 @@ public class PreferencesDialog extends JDialog {
 	private JSpinner miningLowLimpetReminderThresholdSpinner;
 	private JRadioButton miningLowLimpetReminderPercentRadio;
 	private JSpinner miningLowLimpetReminderPercentSpinner;
+	private JSpinner miningAnimGunSizeSpinner;
+	private JSpinner miningAnimAsteroidSizeSpinner;
 
 	private JCheckBox overlayTabRouteVisibleCheckBox;
 	private JCheckBox overlayTabSystemVisibleCheckBox;
@@ -954,6 +956,43 @@ public class PreferencesDialog extends JDialog {
 		limpetWrap.add(limpetPanel, BorderLayout.WEST);
 
 		outer.add(limpetWrap);
+		outer.add(Box.createVerticalStrut(10));
+
+		// -----------------------------------------------------------------
+		// Mining scatter gather animation sizes (gun + asteroid line-art)
+		// -----------------------------------------------------------------
+		JPanel animBox = new JPanel(new GridBagLayout());
+		animBox.setOpaque(false);
+		animBox.setBorder(
+				BorderFactory.createTitledBorder(
+						BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+						"Mining scatter animation (size %)"
+						)
+				);
+		GridBagConstraints abc = new GridBagConstraints();
+		abc.gridx = 0;
+		abc.gridy = 0;
+		abc.anchor = GridBagConstraints.WEST;
+		abc.insets = new Insets(6, 8, 6, 8);
+		animBox.add(new JLabel("Gun platform:"), abc);
+		abc.gridx = 1;
+		miningAnimGunSizeSpinner = new JSpinner(new SpinnerNumberModel(
+				OverlayPreferences.getMiningAnimationGunSizePercent(), 25, 400, 5));
+		((JSpinner.DefaultEditor) miningAnimGunSizeSpinner.getEditor()).getTextField().setColumns(5);
+		animBox.add(miningAnimGunSizeSpinner, abc);
+		abc.gridx = 2;
+		animBox.add(new JLabel("% (100 = default)"), abc);
+		abc.gridx = 0;
+		abc.gridy++;
+		animBox.add(new JLabel("Asteroid:"), abc);
+		abc.gridx = 1;
+		miningAnimAsteroidSizeSpinner = new JSpinner(new SpinnerNumberModel(
+				OverlayPreferences.getMiningAnimationAsteroidSizePercent(), 25, 400, 5));
+		((JSpinner.DefaultEditor) miningAnimAsteroidSizeSpinner.getEditor()).getTextField().setColumns(5);
+		animBox.add(miningAnimAsteroidSizeSpinner, abc);
+		abc.gridx = 2;
+		animBox.add(new JLabel("% (100 = default)"), abc);
+		outer.add(animBox);
 
 		panel.add(outer, BorderLayout.NORTH);
 		return panel;
@@ -1540,6 +1579,23 @@ public class PreferencesDialog extends JDialog {
             try {
                 int v = ((Number) miningLowLimpetReminderPercentSpinner.getValue()).intValue();
                 OverlayPreferences.setMiningLowLimpetReminderThresholdPercent(v);
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+
+        if (miningAnimGunSizeSpinner != null) {
+            try {
+                int v = ((Number) miningAnimGunSizeSpinner.getValue()).intValue();
+                OverlayPreferences.setMiningAnimationGunSizePercent(v);
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        if (miningAnimAsteroidSizeSpinner != null) {
+            try {
+                int v = ((Number) miningAnimAsteroidSizeSpinner.getValue()).intValue();
+                OverlayPreferences.setMiningAnimationAsteroidSizePercent(v);
             } catch (Exception e) {
                 // ignore
             }

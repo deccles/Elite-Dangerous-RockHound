@@ -3295,10 +3295,26 @@ String getName() {
 		private static final double GUN_LERP_TO_HOME = 0.18 * 0.7;
 		/** End gather when gun is this close to home (avoids asymptotic crawl). */
 		private static final double GUN_HOME_EPSILON = 0.45;
-		/** Laser emit point above bottom of plot (matches {@link #drawMobileGunPlatform} barrel tip). */
-		private static final int GUN_EMIT_UP_FROM_PLOT_BOTTOM = 27;
+		/** Default laser emit height above plot bottom (scaled by {@link OverlayPreferences#getMiningAnimationGunSizePercent()}). */
+		private static final int GUN_EMIT_UP_BASE = 27;
 
 		private final Map<String, Double> gunPlatformCenterXByCommander = new HashMap<>();
+
+		private double gunDrawScale() {
+			return OverlayPreferences.getMiningAnimationGunSizePercent() / 100.0;
+		}
+
+		private double asteroidDrawScale() {
+			return OverlayPreferences.getMiningAnimationAsteroidSizePercent() / 100.0;
+		}
+
+		private int gunPx(double u) {
+			return (int) Math.round(u * gunDrawScale());
+		}
+
+		private int asteroidPx(double u) {
+			return (int) Math.round(u * asteroidDrawScale());
+		}
 
 		/** Laser fires from the bottom edge of the plot; X is ~30% across the plot width from the left. */
 		private int gatherLaserOriginX(PlotGeom geom) {
@@ -3310,8 +3326,8 @@ String getName() {
 			return PAD_LEFT + (int) (plotW * 0.3);
 		}
 
-		private static int gunLaserEmitY(PlotGeom geom) {
-			return geom.plotY + geom.plotH - GUN_EMIT_UP_FROM_PLOT_BOTTOM;
+		private int gunLaserEmitY(PlotGeom geom) {
+			return geom.plotY + geom.plotH - gunPx(GUN_EMIT_UP_BASE);
 		}
 
 		/** Idle X center for gun {@code index} of {@code n} along the plot bottom (30% width when solo). */
@@ -3387,39 +3403,40 @@ String getName() {
 			gatherLaserFrom.y = gunLaserEmitY(geom);
 		}
 
-		/** Small retro treaded platform + turret; laser emits from barrel top ({@link #GUN_EMIT_UP_FROM_PLOT_BOTTOM} px above plot bottom). */
-		private static void drawMobileGunPlatform(Graphics2D g2, int centerX, int plotBottomY, Color accent) {
+		/** Small retro treaded platform + turret; laser emits from barrel top (scaled above plot bottom). */
+		private void drawMobileGunPlatform(Graphics2D g2, int centerX, int plotBottomY, Color accent) {
 			int B = plotBottomY;
-			int left = centerX - 12;
+			int left = centerX - gunPx(12);
 			Stroke strokeSave = g2.getStroke();
+			float treadStroke = (float) Math.max(0.75, Math.min(2.0, gunDrawScale()));
 			g2.setColor(new Color(38, 40, 44));
-			g2.fillRoundRect(left - 2, B - 5, 28, 6, 3, 3);
+			g2.fillRoundRect(left - gunPx(2), B - gunPx(5), gunPx(28), gunPx(6), gunPx(3), gunPx(3));
 			g2.setColor(new Color(22, 22, 26));
-			g2.setStroke(new BasicStroke(1f));
+			g2.setStroke(new BasicStroke(treadStroke));
 			for (int u = 0; u < 6; u++) {
-				int gx = left + u * 5;
-				g2.drawLine(gx, B - 4, gx + 2, B - 2);
+				int gx = left + gunPx(u * 5);
+				g2.drawLine(gx, B - gunPx(4), gx + gunPx(2), B - gunPx(2));
 			}
 			g2.setColor(new Color(58, 62, 68));
-			g2.fillRect(left - 1, B - 14, 26, 9);
+			g2.fillRect(left - gunPx(1), B - gunPx(14), gunPx(26), gunPx(9));
 			g2.setColor(accent.darker());
-			g2.drawRect(left - 1, B - 14, 26, 9);
+			g2.drawRect(left - gunPx(1), B - gunPx(14), gunPx(26), gunPx(9));
 			g2.setColor(new Color(48, 52, 58));
 			g2.fillPolygon(
-				new int[] { left + 2, left + 22, left + 20, left + 4 },
-				new int[] { B - 14, B - 14, B - 19, B - 19 },
+				new int[] { left + gunPx(2), left + gunPx(22), left + gunPx(20), left + gunPx(4) },
+				new int[] { B - gunPx(14), B - gunPx(14), B - gunPx(19), B - gunPx(19) },
 				4);
-			int emitY = B - GUN_EMIT_UP_FROM_PLOT_BOTTOM;
+			int emitY = B - gunPx(GUN_EMIT_UP_BASE);
 			int turretCx = centerX;
-			int turretCy = emitY + 10;
+			int turretCy = emitY + gunPx(10);
 			g2.setColor(accent);
-			g2.fillOval(turretCx - 7, turretCy - 6, 14, 12);
+			g2.fillOval(turretCx - gunPx(7), turretCy - gunPx(6), gunPx(14), gunPx(12));
 			g2.setColor(accent.darker());
-			g2.drawOval(turretCx - 7, turretCy - 6, 14, 12);
+			g2.drawOval(turretCx - gunPx(7), turretCy - gunPx(6), gunPx(14), gunPx(12));
 			g2.setColor(new Color(72, 74, 80));
-			g2.fillRect(turretCx - 2, emitY, 4, 12);
+			g2.fillRect(turretCx - gunPx(2), emitY, gunPx(4), gunPx(12));
 			g2.setColor(new Color(90, 92, 98));
-			g2.drawRect(turretCx - 2, emitY, 4, 12);
+			g2.drawRect(turretCx - gunPx(2), emitY, gunPx(4), gunPx(12));
 			g2.setStroke(strokeSave);
 		}
 
@@ -3525,23 +3542,29 @@ String getName() {
 		}
 
 		/** ~line-art asteroid footprint + rounding; keeps one rock visible during gather. */
-		private static final int GATHER_SUPPRESS_END_RADIUS_SQ = 22 * 22;
-		private static final int GATHER_SUPPRESS_START_RADIUS_SQ = 22 * 22;
+		private static final int GATHER_SUPPRESS_RADIUS_BASE = 22;
+
+		private int gatherSuppressRadiusSq() {
+			int r = asteroidPx(GATHER_SUPPRESS_RADIUS_BASE);
+			r = Math.max(4, r);
+			return r * r;
+		}
 
 		/** Hide static line-art where the animated rock is drawn (avoids double asteroids). */
 		private boolean gatherSuppressStaticAsteroidAtPlotPixel(int px, int py) {
 			if (!gatherAnimActive) {
 				return false;
 			}
+			int rsq = gatherSuppressRadiusSq();
 			// End position: hide only during laser+move. During debris the animated rock is gone — show static
 			// at the data point so the rock does not vanish until particles finish (smooth handoff).
 			if (!gatherDebrisPhaseOnly && gatherMoveTo != null
-				&& screenWithinRadiusSq(px, py, gatherMoveTo.x, gatherMoveTo.y, GATHER_SUPPRESS_END_RADIUS_SQ)) {
+				&& screenWithinRadiusSq(px, py, gatherMoveTo.x, gatherMoveTo.y, rsq)) {
 				return true;
 			}
 			// Start position: hidden only during laser+move; may show again during debris.
 			if (!gatherDebrisPhaseOnly && gatherMoveFrom != null
-				&& screenWithinRadiusSq(px, py, gatherMoveFrom.x, gatherMoveFrom.y, GATHER_SUPPRESS_START_RADIUS_SQ)) {
+				&& screenWithinRadiusSq(px, py, gatherMoveFrom.x, gatherMoveFrom.y, rsq)) {
 				return true;
 			}
 			return false;
@@ -3960,10 +3983,11 @@ String getName() {
 		}
 
 		/** Filled black body, commander-colored rim; rotated in place. */
-		private static void drawLineArtAsteroid(Graphics2D g2, int cx, int cy, Color color, double spinRadians, double phaseOffset) {
+		private void drawLineArtAsteroid(Graphics2D g2, int cx, int cy, Color color, double spinRadians, double phaseOffset) {
+			double a = asteroidDrawScale();
 			// Smooth polar rock: mean radius + a few harmonics (lumpy potato, not a spiky star).
 			final int n = 32;
-			final double rMean = 14.0;
+			final double rMean = 14.0 * a;
 			double ph = phaseOffset * 19.0;
 			Path2D.Double path = new Path2D.Double();
 			for (int i = 0; i < n; i++) {
@@ -3998,14 +4022,16 @@ String getName() {
 			g2.setColor(Color.BLACK);
 			g2.fill(path);
 			g2.setColor(color);
-			g2.setStroke(new BasicStroke(1.35f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			float rimW = (float) Math.max(0.75, Math.min(4.0, 1.35 * a));
+			g2.setStroke(new BasicStroke(rimW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 			g2.draw(path);
 			// Crater bowl + facet lines (dark on black, still reads as texture)
 			g2.setColor(new Color(28, 28, 28));
-			g2.setStroke(new BasicStroke(0.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-			g2.drawArc(-7, -3, 13, 10, 188, 98);
-			g2.drawLine(-6, 5, 2, -1);
-			g2.drawLine(4, 6, 9, 2);
+			float detailW = (float) Math.max(0.5, Math.min(3.0, 0.9 * a));
+			g2.setStroke(new BasicStroke(detailW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g2.drawArc(asteroidPx(-7), asteroidPx(-3), asteroidPx(13), asteroidPx(10), 188, 98);
+			g2.drawLine(asteroidPx(-6), asteroidPx(5), asteroidPx(2), asteroidPx(-1));
+			g2.drawLine(asteroidPx(4), asteroidPx(6), asteroidPx(9), asteroidPx(2));
 			g2.setTransform(old);
 			g2.setStroke(strokeSave);
 		}
