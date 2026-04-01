@@ -1,5 +1,8 @@
 package org.dce.ed.route;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -8,7 +11,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 /**
- * Parses NavRoute.json and Spansh fleet-carrier JSON into {@link RouteEntry} lists.
+ * Parses NavRoute.json, Spansh fleet-carrier JSON, and Spansh fleet-carrier CSV exports into {@link RouteEntry} lists.
  */
 public final class RouteNavRouteJson {
 
@@ -146,6 +149,119 @@ public final class RouteNavRouteJson {
             }
         }
         return entries;
+    }
+
+    /**
+     * Spansh fleet-carrier CSV export: header row with {@code System Name} and optional {@code Distance}
+     * (per-leg Ly from the previous system; first row’s distance is ignored like JSON).
+     */
+    public static List<RouteEntry> parseSpanshFleetCarrierRouteFromCsv(Reader reader) throws IOException {
+        List<RouteEntry> entries = new ArrayList<>();
+        if (reader == null) {
+            return entries;
+        }
+        BufferedReader br = reader instanceof BufferedReader ? (BufferedReader) reader : new BufferedReader(reader);
+        String headerLine = br.readLine();
+        if (headerLine == null) {
+            return entries;
+        }
+        if (!headerLine.isEmpty() && headerLine.charAt(0) == '\uFEFF') {
+            headerLine = headerLine.substring(1);
+        }
+        List<String> header = splitCsvLine(headerLine);
+        int sysIdx = -1;
+        int distIdx = -1;
+        for (int i = 0; i < header.size(); i++) {
+            String h = trimCsvField(header.get(i));
+            if ("system name".equalsIgnoreCase(h)) {
+                sysIdx = i;
+            } else if ("distance".equalsIgnoreCase(h)) {
+                distIdx = i;
+            }
+        }
+        if (sysIdx < 0) {
+            return entries;
+        }
+
+        String line;
+        while ((line = br.readLine()) != null) {
+            if (line.isBlank()) {
+                continue;
+            }
+            List<String> cols = splitCsvLine(line);
+            if (cols.size() <= sysIdx) {
+                continue;
+            }
+            String name = trimCsvField(cols.get(sysIdx));
+            if (name.isEmpty()) {
+                continue;
+            }
+            RouteEntry entry = new RouteEntry();
+            entry.index = entries.size();
+            entry.systemName = name;
+            entry.systemAddress = 0L;
+            entry.starClass = "";
+            entry.status = RouteScanStatus.UNKNOWN;
+            entry.x = null;
+            entry.y = null;
+            entry.z = null;
+            if (entries.isEmpty()) {
+                entry.distanceLy = null;
+            } else if (distIdx >= 0 && distIdx < cols.size()) {
+                String d = trimCsvField(cols.get(distIdx));
+                if (d.isEmpty()) {
+                    entry.distanceLy = null;
+                } else {
+                    try {
+                        entry.distanceLy = Double.parseDouble(d);
+                    } catch (NumberFormatException e) {
+                        entry.distanceLy = null;
+                    }
+                }
+            } else {
+                entry.distanceLy = null;
+            }
+            entries.add(entry);
+        }
+        return entries;
+    }
+
+    private static List<String> splitCsvLine(String line) {
+        List<String> out = new ArrayList<>();
+        if (line == null) {
+            return out;
+        }
+        StringBuilder cur = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    cur.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                out.add(cur.toString());
+                cur.setLength(0);
+            } else {
+                cur.append(c);
+            }
+        }
+        out.add(cur.toString());
+        return out;
+    }
+
+    private static String trimCsvField(String s) {
+        if (s == null) {
+            return "";
+        }
+        String t = s.trim();
+        if (t.length() >= 2 && t.charAt(0) == '"' && t.charAt(t.length() - 1) == '"') {
+            t = t.substring(1, t.length() - 1).replace("\"\"", "\"");
+        }
+        return t.trim();
     }
 
     public static String safeString(JsonObject obj, String key) {

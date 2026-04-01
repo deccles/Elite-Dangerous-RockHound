@@ -297,7 +297,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		add(cardPanel, BorderLayout.CENTER);
 
-		// Drag & drop Spansh fleet-carrier JSON import (drop anywhere on the overlay).
+		// Drag & drop Spansh fleet-carrier JSON/CSV import (drop anywhere on the overlay).
 		// Mouse pass-through mode typically prevents receiving drag events, so we decline drops there.
 		TransferHandler fcDropHandler = new TransferHandler() {
 			private static final long serialVersionUID = 1L;
@@ -335,9 +335,12 @@ public class EliteOverlayTabbedPane extends JPanel {
 							continue;
 						}
 						String name = f.getName();
-						if (name != null && name.toLowerCase(Locale.US).endsWith(".json")) {
-							dropped = f.toPath();
-							break;
+						if (name != null) {
+							String lower = name.toLowerCase(Locale.US);
+							if (lower.endsWith(".json") || lower.endsWith(".csv")) {
+								dropped = f.toPath();
+								break;
+							}
 						}
 					}
 					if (dropped == null) {
@@ -410,6 +413,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	public RouteTabPanel getRouteTabPanel() {
 		return routeTab;
+	}
+
+	public FleetCarrierTabPanel getFleetCarrierTabPanel() {
+		return fleetCarrierTab;
 	}
 
 	public MiningTabPanel getMiningTabPanel() {

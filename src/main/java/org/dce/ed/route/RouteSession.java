@@ -160,6 +160,14 @@ public final class RouteSession {
     }
 
     /**
+     * Replace base route list only (used when restoring fleet carrier session from persistence).
+     * Does not clear target state; caller should apply a persistence snapshot first if needed.
+     */
+    public void replaceBaseRouteEntries(List<RouteEntry> entries) {
+        baseRouteEntries = RouteGeometry.deepCopy(entries != null ? entries : List.of());
+    }
+
+    /**
      * When the route table is empty, FSD jump can seed a one-row list.
      */
     public void ensureSingleSystemRowIfBaseEmpty(String systemName, long systemAddress) {

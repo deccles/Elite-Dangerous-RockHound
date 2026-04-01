@@ -20,11 +20,13 @@ import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
+import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.session.FleetCarrierSessionMapper;
 import org.dce.ed.ui.EdoUi;
 
 /**
  * Fleet Carrier tab:
- * - Imports a Spansh fleet-carrier route JSON.
+ * - Imports a Spansh fleet-carrier route (JSON or CSV export).
  * - Reacts to carrier jump scheduling ({@code CarrierJumpRequest}), completion ({@code CarrierJump}),
  *   cancellation ({@code CarrierJumpCancelled}), and {@code CarrierLocation}.
  * - After each carrier jump, copies the next system name to clipboard (and shows the “Copied: …” toast).
@@ -32,7 +34,7 @@ import org.dce.ed.ui.EdoUi;
 public class FleetCarrierTabPanel extends RouteTabPanel {
 	private static final long serialVersionUID = 1L;
 
-	private final String defaultStatusText = "Drop a Spansh fleet-carrier JSON to load the route";
+	private final String defaultStatusText = "Drop a Spansh fleet-carrier JSON or CSV to load the route";
 
 	private volatile boolean spanshRouteLoaded = false;
 
@@ -59,7 +61,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		Font base = OverlayPreferences.getUiFont();
 		statusLabel.setFont(base);
 
-		importButton = new JButton("Import Spansh Fleet Carrier JSON");
+		importButton = new JButton("Import Spansh Fleet Carrier (JSON or CSV)");
 		importButton.setFocusable(false);
 		importButton.setForeground(EdoUi.User.MAIN_TEXT);
 		importButton.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
@@ -67,10 +69,10 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 
 		importButton.addActionListener(e -> {
 			JFileChooser chooser = new JFileChooser();
-			chooser.setDialogTitle("Import Spansh fleet-carrier route JSON");
+			chooser.setDialogTitle("Import Spansh fleet-carrier route (JSON or CSV)");
 			chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
 			chooser.setAcceptAllFileFilterUsed(false);
-			chooser.setFileFilter(new FileNameExtensionFilter("JSON", "json"));
+			chooser.setFileFilter(new FileNameExtensionFilter("JSON or CSV", "json", "csv"));
 
 			java.awt.Window w = SwingUtilities.getWindowAncestor(this);
 			int result = chooser.showOpenDialog(w);
@@ -91,6 +93,34 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	}
 
 	@Override
+	public void fillSessionState(EdoSessionState state) {
+		if (state == null) {
+			return;
+		}
+		state.setFleetCarrier(FleetCarrierSessionMapper.fromRouteSession(routeSession));
+	}
+
+	@Override
+	public void applySessionState(EdoSessionState state) {
+		if (state == null) {
+			return;
+		}
+		if (state.getFleetCarrier() != null) {
+			FleetCarrierSessionMapper.applyToRouteSession(routeSession, state.getFleetCarrier());
+		}
+		int n = state.getFleetCarrier() != null ? state.getFleetCarrier().baseRouteEntriesOrEmpty().size() : 0;
+		spanshRouteLoaded = n > 0;
+		if (spanshRouteLoaded) {
+			setHeaderLabelText("Route: " + n + " systems");
+			statusLabel.setText(defaultStatusText);
+		} else {
+			setHeaderLabelText("Fleet Carrier: (no data)");
+		}
+		reconcileRouteCurrentWithPostRescanCache();
+		rebuildDisplayedEntries();
+	}
+
+	@Override
 	protected boolean shouldUpdateOnCarrierJump(CarrierJumpEvent jump) {
 		// Fleet Carrier tab updates from every carrier jump (regardless of docked status),
 		// per user request.
@@ -102,7 +132,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		boolean ok = super.importSpanshFleetCarrierRouteFile(file);
 		spanshRouteLoaded = ok;
 		if (!ok) {
-			statusLabel.setText("Invalid/unsupported Spansh fleet-carrier JSON");
+			statusLabel.setText("Invalid/unsupported Spansh fleet-carrier JSON or CSV");
 		} else {
 			statusLabel.setText(defaultStatusText);
 		}
@@ -116,7 +146,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		} catch (Exception ex) {
 			ex.printStackTrace();
 			spanshRouteLoaded = false;
-			statusLabel.setText("Invalid/unsupported Spansh fleet-carrier JSON");
+			statusLabel.setText("Invalid/unsupported Spansh fleet-carrier JSON or CSV");
 		}
 	}
 

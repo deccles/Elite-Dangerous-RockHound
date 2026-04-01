@@ -355,7 +355,7 @@ public class PreferencesDialog extends JDialog {
 		autoSwitchPanel.add(autoSwitchBiologyOnNearBodyCheckBox, agc);
 
 		agc.gridy++;
-		autoSwitchFleetCarrierOnJsonDropCheckBox = new JCheckBox("Dropping a carrier route JSON → Fleet Carrier tab");
+		autoSwitchFleetCarrierOnJsonDropCheckBox = new JCheckBox("Dropping a carrier route file (JSON or CSV) → Fleet Carrier tab");
 		autoSwitchFleetCarrierOnJsonDropCheckBox.setOpaque(false);
 		autoSwitchFleetCarrierOnJsonDropCheckBox.setSelected(OverlayPreferences.isAutoSwitchFleetCarrierOnJsonDrop());
 		autoSwitchPanel.add(autoSwitchFleetCarrierOnJsonDropCheckBox, agc);

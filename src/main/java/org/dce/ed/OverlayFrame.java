@@ -38,7 +38,6 @@ import javax.swing.border.LineBorder;
 
 import org.dce.ed.ui.OverlayBackgroundPanel;
 import org.dce.ed.exobiology.ExobiologyData;
-import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.session.EdoSessionPersistence;
@@ -78,8 +77,6 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private static final String PREF_KEY_Y = "overlay.y";
     private static final String PREF_KEY_WIDTH = "overlay.width";
     private static final String PREF_KEY_HEIGHT = "overlay.height";
-
-    private static final String PREF_KEY_EXO_CREDITS_TOTAL = "exo.creditsTotal";
 
     private static final String DEFAULT_TITLE_BAR_TITLE = "Elite Dangerous Overlay";
 
@@ -283,15 +280,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         // Cross-cutting error reporting hook (used by prospector pipeline).
         ExceptionReporting.setReporter(this::reportExceptionToTitleBar);
 
-        // Source of truth: system cache (persisted alongside the last visited system).
-        // Preference value is kept as a backwards-compatible fallback.
         Long cached = loadExoCreditsTotalFromSystemCache();
-        if (cached != null) {
-            exoCreditsTotal = cached.longValue();
-            prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
-        } else {
-            exoCreditsTotal = prefs.getLong(PREF_KEY_EXO_CREDITS_TOTAL, 0L);
-        }
+        exoCreditsTotal = cached != null ? cached.longValue() : 0L;
         updateRightStatusDefault();
 
         // Transparent content panel with tabbed pane
@@ -348,6 +338,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             sessionSaveTimer.start();
         };
         tabs.getRouteTabPanel().setSessionStateChangeCallback(debouncedSave);
+        tabs.getFleetCarrierTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getSystemTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getMiningTabPanel().setSessionStateChangeCallback(debouncedSave);
         restoreSessionState();
@@ -358,8 +349,10 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         if (tabs == null) return;
         EdoSessionState state = new EdoSessionState();
         tabs.getRouteTabPanel().fillSessionState(state);
+        tabs.getFleetCarrierTabPanel().fillSessionState(state);
         tabs.getSystemTabPanel().fillSessionState(state);
         tabs.getMiningTabPanel().fillSessionState(state);
+        state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
         fillCarrierSessionState(state);
         EdoSessionPersistence.save(state);
     }
@@ -377,9 +370,16 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         if (tabs == null) return;
         tabs.getRouteTabPanel().applySessionState(state);
+        tabs.getFleetCarrierTabPanel().applySessionState(state);
         tabs.getSystemTabPanel().applySessionState(state);
         tabs.getMiningTabPanel().applySessionState(state);
         applyCarrierSessionState(state);
+        if (state.getExobiologyCreditsTotalUnsold() != null) {
+            exoCreditsTotal = state.getExobiologyCreditsTotalUnsold().longValue();
+        } else {
+            exoCreditsTotal = 0L;
+        }
+        updateRightStatusDefault();
     }
 
     private void applyCarrierSessionState(EdoSessionState state) {
@@ -624,30 +624,18 @@ private Long loadExoCreditsTotalFromSystemCache() {
 }
 
 private void persistExoCreditsTotal() {
-    // Keep preferences updated as a backwards-compatible fallback.
-    prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
-
     try {
-        // Prefer current on-screen SystemState (if available) so bodies get persisted too.
+        SystemCache cache = SystemCache.getInstance();
+        EdoSessionState s = cache.loadEdoSessionState();
+        s.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+        cache.saveEdoSessionState(s);
+
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         SystemTabPanel systemTab = (tabs != null) ? tabs.getSystemTabPanel() : null;
         SystemState st = (systemTab != null) ? systemTab.getState() : null;
-        if (st != null && st.getSystemName() != null && st.getSystemAddress() != 0L) {
+        if (st != null) {
             st.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
-            SystemCache.getInstance().storeSystem(st);
-            return;
         }
-
-        // Fallback: update the cached last system.
-        CachedSystem last = SystemCache.load();
-        if (last == null || last.systemAddress == 0L || last.systemName == null) {
-            return;
-        }
-
-        SystemState tmp = new SystemState();
-        SystemCache.getInstance().loadInto(tmp, last);
-        tmp.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
-        SystemCache.getInstance().storeSystem(tmp);
     } catch (Exception ignored) {
         // Best-effort persistence; UI should never break.
     }

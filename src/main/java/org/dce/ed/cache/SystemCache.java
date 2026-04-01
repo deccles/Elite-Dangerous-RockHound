@@ -14,11 +14,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.prefs.Preferences;
 
+import org.dce.ed.OverlayFrame;
 import org.dce.ed.edsm.BodiesResponse;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
+import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.util.RingSummaryFormatter;
 
 import com.google.gson.Gson;
@@ -31,7 +34,7 @@ import com.google.gson.GsonBuilder;
  * <b>Current system:</b> {@code overlay_global_state} holds {@code current_system_address} /
  * {@code current_system_name}, updated on {@link #storeSystem} (unless bulk rescan).
  * {@link #loadLastSystem()} uses that pointer first, then the newest {@code systems} row.
- * Live journals are authoritative at runtime; {@code edo-session.json} is separate UI/session state.
+ * Commander / overlay session is stored in {@code overlay_global_state.session_json} (see {@link #loadEdoSessionState()}).
  */
 
 
@@ -48,9 +51,16 @@ public final class SystemCache implements SystemStore {
 
     public static final String CACHE_DB_PATH_PROPERTY = "edo.cacheDbFile";
     /**
-     * Optional directory for {@code edo-session.json}; default is the parent of the SQLite DB file.
+     * Optional directory for cache data; default is the parent of the SQLite DB file.
      */
     public static final String CACHE_DATA_DIR_PROPERTY = "edo.cacheDir";
+
+    private static final String LEGACY_SESSION_FILE_NAME = "edo-session.json";
+    private static final String PREF_KEY_EXO_CREDITS_TOTAL = "exo.creditsTotal";
+    /** After migration, global row only stores schema_version + session_json. */
+    private static final int GLOBAL_SCHEMA_SLIM = 3;
+
+    private final Gson sessionGson = new GsonBuilder().create();
     /**
      * When {@code true}, {@link #storeSystem} skips updating the session header in {@code overlay_global_state}
      * (bulk journal rescan).
@@ -64,6 +74,7 @@ public final class SystemCache implements SystemStore {
     private Connection sqliteConnection;
     private boolean sqliteReady;
     private long lastUpdatedAtMs;
+    private boolean sessionBlobMigrationChecked;
 
     private SystemCache() {
         this.gson = new GsonBuilder()
@@ -89,6 +100,7 @@ public final class SystemCache implements SystemStore {
         }
         sqliteConnection = null;
         sqliteReady = false;
+        sessionBlobMigrationChecked = false;
         try {
             Files.deleteIfExists(cacheDbPath);
         } catch (IOException ex) {
@@ -122,7 +134,53 @@ public final class SystemCache implements SystemStore {
         if (!sqliteReady) {
             return null;
         }
-        return sqliteReadGlobalExobiologyCredits();
+        EdoSessionState s = loadEdoSessionState();
+        return s.getExobiologyCreditsTotalUnsold();
+    }
+
+    /**
+     * Load commander/overlay session from SQLite ({@code session_json}), migrating once from legacy file/columns if needed.
+     */
+    public synchronized EdoSessionState loadEdoSessionState() {
+        if (!sqliteReady) {
+            return new EdoSessionState();
+        }
+        try {
+            ensureSessionMigratedAndLoaded();
+            String json = sqliteReadSessionJsonRaw();
+            if (json == null || json.isBlank()) {
+                EdoSessionState empty = new EdoSessionState();
+                empty.setVersion(2);
+                writeSessionJsonToDb(empty);
+                tryRebuildSlimGlobalTableIfNeeded();
+                return empty;
+            }
+            EdoSessionState parsed = sessionGson.fromJson(json, EdoSessionState.class);
+            return parsed != null ? parsed : new EdoSessionState();
+        } catch (Exception e) {
+            System.err.println("SystemCache: loadEdoSessionState failed: " + e.getMessage());
+            return new EdoSessionState();
+        }
+    }
+
+    /**
+     * Persist full commander/overlay session (replaces {@code session_json}).
+     */
+    public synchronized void saveEdoSessionState(EdoSessionState state) {
+        if (!sqliteReady || state == null) {
+            return;
+        }
+        try {
+            ensureSessionMigratedAndLoaded();
+            writeSessionJsonToDb(state);
+            tryRebuildSlimGlobalTableIfNeeded();
+        } catch (Exception e) {
+            System.err.println("SystemCache: saveEdoSessionState failed: " + e.getMessage());
+        }
+    }
+
+    public static Path getLegacySessionJsonPath() {
+        return getCacheDataDirectory().resolve(LEGACY_SESSION_FILE_NAME);
     }
 
     private static String canonicalName(String name) {
@@ -189,9 +247,6 @@ public final class SystemCache implements SystemStore {
             }
         }
         sqliteUpsert(cs);
-        if (exobiologyCreditsTotalUnsold != null) {
-            sqliteWriteGlobalExobiologyCredits(exobiologyCreditsTotalUnsold.longValue());
-        }
         lastLoadedSystem = cs;
     }
 
@@ -213,8 +268,13 @@ public final class SystemCache implements SystemStore {
         state.setFssProgress(cs.fssProgress);
         state.setAllBodiesFound(cs.allBodiesFound);
         if (sqliteReady) {
-            state.setExobiologyCreditsTotalUnsold(sqliteReadGlobalExobiologyCredits());
-            state.setDocked(sqliteReadSessionHeader().docked);
+            EdoSessionState sess = loadEdoSessionState();
+            if (sess.getExobiologyCreditsTotalUnsold() != null) {
+                state.setExobiologyCreditsTotalUnsold(sess.getExobiologyCreditsTotalUnsold());
+            }
+            if (sess.getDocked() != null) {
+                state.setDocked(sess.getDocked().booleanValue());
+            }
         }
         if (cs.bodies == null) {
             return;
@@ -710,7 +770,7 @@ public final class SystemCache implements SystemStore {
                 state.getExobiologyCreditsTotalUnsold(),
                 list);
         if (sqliteReady && !isBulkSystemWrite()) {
-            sqliteWriteSessionHeader(state.getSystemAddress(), state.getSystemName(), state.isDocked());
+            mergeEdoSessionBlobFromStoreSystem(state);
         }
     }
 
@@ -848,7 +908,8 @@ public final class SystemCache implements SystemStore {
             try (PreparedStatement ps = sqliteConnection.prepareStatement(
                     "CREATE TABLE IF NOT EXISTS " + SQLITE_GLOBAL_TABLE + " (" +
                     "singleton INTEGER PRIMARY KEY CHECK (singleton = 1)," +
-                    "exobiology_credits_total_unsold INTEGER" +
+                    "schema_version INTEGER NOT NULL DEFAULT " + GLOBAL_SCHEMA_SLIM + "," +
+                    "session_json TEXT" +
                     ")")) {
                 ps.execute();
             }
@@ -871,9 +932,20 @@ public final class SystemCache implements SystemStore {
 
     private void migrateOverlayGlobalStateSchema() throws SQLException {
         ensureGlobalStateColumn("schema_version", "INTEGER NOT NULL DEFAULT 1");
+        if (isSlimGlobalTable()) {
+            return;
+        }
+        ensureGlobalStateColumn("exobiology_credits_total_unsold", "INTEGER");
         ensureGlobalStateColumn("current_system_address", "INTEGER NOT NULL DEFAULT 0");
         ensureGlobalStateColumn("current_system_name", "TEXT NOT NULL DEFAULT ''");
         ensureGlobalStateColumn("docked", "INTEGER NOT NULL DEFAULT 0");
+        ensureGlobalStateColumn("session_json", "TEXT");
+    }
+
+    private boolean isSlimGlobalTable() throws SQLException {
+        return globalStateHasColumn("session_json")
+                && !globalStateHasColumn("exobiology_credits_total_unsold")
+                && !globalStateHasColumn("current_system_address");
     }
 
     private void ensureGlobalStateColumn(String column, String typeAndConstraints) throws SQLException {
@@ -921,6 +993,9 @@ public final class SystemCache implements SystemStore {
             return;
         }
         try {
+            if (!globalStateHasColumn("exobiology_credits_total_unsold")) {
+                return;
+            }
             if (!sqliteGlobalStateTableEmpty()) {
                 return;
             }
@@ -1083,12 +1158,240 @@ public final class SystemCache implements SystemStore {
         return null;
     }
 
+    private void ensureSessionMigratedAndLoaded() {
+        if (!sqliteReady || sessionBlobMigrationChecked) {
+            return;
+        }
+        synchronized (this) {
+            if (sessionBlobMigrationChecked) {
+                return;
+            }
+            try {
+                if (!globalStateHasColumn("session_json")) {
+                    return;
+                }
+                String j = sqliteReadSessionJsonRaw();
+                if (j == null || j.isBlank()) {
+                    migrateSessionBlobFromLegacy();
+                    tryRebuildSlimGlobalTableIfNeeded();
+                }
+            } catch (Exception ex) {
+                System.err.println("SystemCache: session blob migration failed: " + ex.getMessage());
+            } finally {
+                sessionBlobMigrationChecked = true;
+            }
+        }
+    }
+
+    private String sqliteReadSessionJsonRaw() throws SQLException {
+        if (sqliteConnection == null || !globalStateHasColumn("session_json")) {
+            return null;
+        }
+        try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                "SELECT session_json FROM " + SQLITE_GLOBAL_TABLE + " WHERE singleton = 1");
+             ResultSet rs = ps.executeQuery()) {
+            if (!rs.next()) {
+                return null;
+            }
+            return rs.getString(1);
+        }
+    }
+
+    private void writeSessionJsonToDb(EdoSessionState state) throws SQLException {
+        if (sqliteConnection == null || state == null) {
+            return;
+        }
+        String json = sessionGson.toJson(state);
+        if (isSlimGlobalTable()) {
+            try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                    "INSERT INTO " + SQLITE_GLOBAL_TABLE + " (singleton, schema_version, session_json) VALUES (1, ?, ?) "
+                            + "ON CONFLICT(singleton) DO UPDATE SET session_json = excluded.session_json, "
+                            + "schema_version = excluded.schema_version")) {
+                ps.setInt(1, GLOBAL_SCHEMA_SLIM);
+                ps.setString(2, json);
+                ps.executeUpdate();
+            }
+        } else {
+            try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                    "INSERT INTO " + SQLITE_GLOBAL_TABLE + " (singleton, session_json) VALUES (1, ?) "
+                            + "ON CONFLICT(singleton) DO UPDATE SET session_json = excluded.session_json")) {
+                ps.setString(1, json);
+                ps.executeUpdate();
+            }
+        }
+    }
+
+    private void migrateSessionBlobFromLegacy() throws Exception {
+        EdoSessionState merged = new EdoSessionState();
+        merged.setVersion(2);
+        Path legacyPath = getLegacySessionJsonPath();
+        if (Files.isRegularFile(legacyPath)) {
+            try {
+                String fileJson = Files.readString(legacyPath, java.nio.charset.StandardCharsets.UTF_8);
+                if (fileJson != null && !fileJson.isBlank()) {
+                    EdoSessionState fromFile = sessionGson.fromJson(fileJson, EdoSessionState.class);
+                    if (fromFile != null) {
+                        merged = fromFile;
+                        if (merged.getVersion() < 2) {
+                            merged.setVersion(2);
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                System.err.println("SystemCache: legacy edo-session.json parse failed: " + ex.getMessage());
+            }
+        }
+        SessionHeader legHead = safeSqliteReadSessionHeader();
+        merged.setCacheLastSystemAddress(legHead.currentSystemAddress != 0L ? Long.valueOf(legHead.currentSystemAddress) : null);
+        merged.setCacheLastSystemName(legHead.currentSystemName.isEmpty() ? null : legHead.currentSystemName);
+        merged.setDocked(Boolean.valueOf(legHead.docked));
+        Long exoCol = safeSqliteReadGlobalExobiologyCredits();
+        if (exoCol != null) {
+            merged.setExobiologyCreditsTotalUnsold(exoCol);
+        }
+        if (merged.getExobiologyCreditsTotalUnsold() == null) {
+            try {
+                long p = Preferences.userNodeForPackage(OverlayFrame.class).getLong(PREF_KEY_EXO_CREDITS_TOTAL, Long.MIN_VALUE);
+                if (p != Long.MIN_VALUE) {
+                    merged.setExobiologyCreditsTotalUnsold(Long.valueOf(p));
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        writeSessionJsonToDb(merged);
+        try {
+            Files.deleteIfExists(legacyPath);
+        } catch (IOException io) {
+            System.err.println("SystemCache: could not delete legacy session file: " + io.getMessage());
+        }
+    }
+
+    private SessionHeader safeSqliteReadSessionHeader() {
+        try {
+            if (sqliteConnection != null && globalStateHasColumn("current_system_address")) {
+                return sqliteReadSessionHeader();
+            }
+        } catch (SQLException e) {
+            System.err.println("SystemCache: legacy session header read failed: " + e.getMessage());
+        }
+        return new SessionHeader(0L, "", false);
+    }
+
+    private Long safeSqliteReadGlobalExobiologyCredits() {
+        try {
+            if (sqliteConnection != null && globalStateHasColumn("exobiology_credits_total_unsold")) {
+                return sqliteReadGlobalExobiologyCredits();
+            }
+        } catch (SQLException e) {
+            System.err.println("SystemCache: legacy exo credits read failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private SessionHeader readCachePointerForLoadLastSystem() {
+        if (sqliteConnection == null) {
+            return new SessionHeader(0L, "", false);
+        }
+        try {
+            ensureSessionMigratedAndLoaded();
+            if (globalStateHasColumn("session_json")) {
+                String json = sqliteReadSessionJsonRaw();
+                if (json != null && !json.isBlank()) {
+                    EdoSessionState s = sessionGson.fromJson(json, EdoSessionState.class);
+                    if (s != null) {
+                        Long ca = s.getCacheLastSystemAddress();
+                        String cn = s.getCacheLastSystemName();
+                        if ((ca != null && ca.longValue() != 0L)
+                                || (cn != null && !cn.isEmpty())) {
+                            long addr = ca != null ? ca.longValue() : 0L;
+                            String name = cn != null ? cn : "";
+                            boolean docked = Boolean.TRUE.equals(s.getDocked());
+                            return new SessionHeader(addr, name, docked);
+                        }
+                    }
+                }
+            }
+            if (globalStateHasColumn("current_system_address")) {
+                return sqliteReadSessionHeader();
+            }
+        } catch (Exception ex) {
+            System.err.println("SystemCache: readCachePointerForLoadLastSystem failed: " + ex.getMessage());
+        }
+        return new SessionHeader(0L, "", false);
+    }
+
+    private void mergeEdoSessionBlobFromStoreSystem(SystemState state) {
+        if (!sqliteReady || state == null) {
+            return;
+        }
+        try {
+            EdoSessionState s = loadEdoSessionState();
+            if (state.getSystemAddress() != 0L) {
+                s.setCacheLastSystemAddress(Long.valueOf(state.getSystemAddress()));
+            }
+            if (state.getSystemName() != null && !state.getSystemName().isEmpty()) {
+                s.setCacheLastSystemName(state.getSystemName());
+            }
+            s.setDocked(Boolean.valueOf(state.isDocked()));
+            if (state.getExobiologyCreditsTotalUnsold() != null) {
+                s.setExobiologyCreditsTotalUnsold(state.getExobiologyCreditsTotalUnsold());
+            }
+            saveEdoSessionState(s);
+        } catch (Exception ex) {
+            System.err.println("SystemCache: mergeEdoSessionBlobFromStoreSystem failed: " + ex.getMessage());
+        }
+    }
+
+    private void tryRebuildSlimGlobalTableIfNeeded() throws SQLException {
+        if (sqliteConnection == null || !globalStateHasColumn("exobiology_credits_total_unsold")) {
+            return;
+        }
+        String json = sqliteReadSessionJsonRaw();
+        if (json == null || json.isBlank()) {
+            return;
+        }
+        String temp = SQLITE_GLOBAL_TABLE + "_slim_rebuild";
+        boolean ac = sqliteConnection.getAutoCommit();
+        try {
+            sqliteConnection.setAutoCommit(false);
+            try (java.sql.Statement st = sqliteConnection.createStatement()) {
+                st.executeUpdate("DROP TABLE IF EXISTS " + temp);
+                st.executeUpdate("CREATE TABLE " + temp + " ("
+                        + "singleton INTEGER PRIMARY KEY CHECK (singleton = 1),"
+                        + "schema_version INTEGER NOT NULL DEFAULT " + GLOBAL_SCHEMA_SLIM + ","
+                        + "session_json TEXT NOT NULL)");
+            }
+            try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                    "INSERT INTO " + temp + " (singleton, schema_version, session_json) VALUES (1, ?, ?)")) {
+                ps.setInt(1, GLOBAL_SCHEMA_SLIM);
+                ps.setString(2, json);
+                ps.executeUpdate();
+            }
+            try (java.sql.Statement st = sqliteConnection.createStatement()) {
+                st.executeUpdate("DROP TABLE " + SQLITE_GLOBAL_TABLE);
+                st.executeUpdate("ALTER TABLE " + temp + " RENAME TO " + SQLITE_GLOBAL_TABLE);
+            }
+            sqliteConnection.commit();
+            sessionBlobMigrationChecked = false;
+            migrateOverlayGlobalStateSchema();
+            sessionBlobMigrationChecked = true;
+        } catch (SQLException e) {
+            try {
+                sqliteConnection.rollback();
+            } catch (SQLException ignored) {
+            }
+            throw e;
+        } finally {
+            sqliteConnection.setAutoCommit(ac);
+        }
+    }
+
     private CachedSystem sqliteLoadLastSystem() {
         if (sqliteConnection == null) {
             return null;
         }
         try {
-            SessionHeader head = sqliteReadSessionHeader();
+            SessionHeader head = readCachePointerForLoadLastSystem();
             if (head.currentSystemAddress != 0L
                     || (head.currentSystemName != null && !head.currentSystemName.isEmpty())) {
                 CachedSystem byPtr = sqliteGet(head.currentSystemAddress, head.currentSystemName);

@@ -1,14 +1,13 @@
 package org.dce.ed.session;
 
 /**
- * Snapshot of overlay "session" state that can be persisted to edo-session.json
- * and restored on startup so in-progress navigation, carrier countdown, and
- * system tab selection survive restarts.
+ * Commander / overlay session: routes, tab UI, mining anchor, carrier countdown, and globals
+ * persisted in SQLite ({@code session_json} via {@link org.dce.ed.cache.SystemCache}).
  */
 public final class EdoSessionState {
 
-    /** Schema version for future migration. */
-    private int version = 1;
+    /** DTO schema version (inside JSON). */
+    private int version = 2;
 
     // --- Route tab ---
     private String currentSystemName;
@@ -39,6 +38,20 @@ public final class EdoSessionState {
     // --- Mining tab (run start time) ---
     /** ISO-8601 instant of last undock; used as run start for the first row of each run. */
     private String lastUndockTime;
+
+    // --- Commander globals (authoritative in session blob; not star-system domain) ---
+    /** Unsold exobiology expected credits total (toolbar). */
+    private Long exobiologyCreditsTotalUnsold;
+    /** Last known docked flag from journals / Status. */
+    private Boolean docked;
+    /**
+     * Cache bootstrap: which system row in {@code systems} to load first (was {@code overlay_global_state} header).
+     */
+    private Long cacheLastSystemAddress;
+    private String cacheLastSystemName;
+
+    // --- Fleet carrier tab ---
+    private FleetCarrierSessionData fleetCarrier;
 
     public EdoSessionState() {
     }
@@ -209,5 +222,45 @@ public final class EdoSessionState {
 
     public void setLastUndockTime(String lastUndockTime) {
         this.lastUndockTime = lastUndockTime;
+    }
+
+    public Long getExobiologyCreditsTotalUnsold() {
+        return exobiologyCreditsTotalUnsold;
+    }
+
+    public void setExobiologyCreditsTotalUnsold(Long exobiologyCreditsTotalUnsold) {
+        this.exobiologyCreditsTotalUnsold = exobiologyCreditsTotalUnsold;
+    }
+
+    public Boolean getDocked() {
+        return docked;
+    }
+
+    public void setDocked(Boolean docked) {
+        this.docked = docked;
+    }
+
+    public Long getCacheLastSystemAddress() {
+        return cacheLastSystemAddress;
+    }
+
+    public void setCacheLastSystemAddress(Long cacheLastSystemAddress) {
+        this.cacheLastSystemAddress = cacheLastSystemAddress;
+    }
+
+    public String getCacheLastSystemName() {
+        return cacheLastSystemName;
+    }
+
+    public void setCacheLastSystemName(String cacheLastSystemName) {
+        this.cacheLastSystemName = cacheLastSystemName;
+    }
+
+    public FleetCarrierSessionData getFleetCarrier() {
+        return fleetCarrier;
+    }
+
+    public void setFleetCarrier(FleetCarrierSessionData fleetCarrier) {
+        this.fleetCarrier = fleetCarrier;
     }
 }

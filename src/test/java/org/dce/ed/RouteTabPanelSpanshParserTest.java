@@ -4,9 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.io.IOException;
+import java.io.StringReader;
 import java.util.List;
 
 import org.dce.ed.route.RouteEntry;
+import org.dce.ed.route.RouteNavRouteJson;
 import org.junit.jupiter.api.Test;
 
 import com.google.gson.JsonObject;
@@ -70,6 +73,44 @@ class RouteTabPanelSpanshParserTest {
 		assertEquals(1L, entries.get(0).systemAddress);
 		assertEquals("Alpha Centauri", entries.get(1).systemName);
 		assertEquals(2L, entries.get(1).systemAddress);
+	}
+
+	@Test
+	void parseSpanshFleetCarrierRouteFromCsv_twoSystems_preservesOrderAndDistanceColumn() throws IOException {
+		String csv = "\"System Name\",\"Distance\",\"Distance Remaining\"\n"
+				+ "\"Sol\",\"0\",\"3.0\"\n"
+				+ "\"Alpha Centauri\",\"3.0\",\"0\"\n";
+
+		List<RouteEntry> entries = RouteNavRouteJson.parseSpanshFleetCarrierRouteFromCsv(new StringReader(csv));
+
+		assertEquals(2, entries.size());
+		assertEquals("Sol", entries.get(0).systemName);
+		assertNull(entries.get(0).distanceLy);
+		assertEquals("Alpha Centauri", entries.get(1).systemName);
+		assertEquals(3.0, entries.get(1).distanceLy, 1e-9);
+	}
+
+	@Test
+	void parseSpanshFleetCarrierRouteFromCsv_spanshExportStyle_parses() throws IOException {
+		String csv = "\"System Name\",\"Distance\",\"Distance Remaining\",\"Tritium in tank\"\n"
+				+ "\"Schee Flyi WS-L c23-5229\",\"0\",\"2536.77\",\"\"\n"
+				+ "\"Schee Flyi DJ-B c29-6992\",\"499.96\",\"2037.34\",\"\"\n";
+
+		List<RouteEntry> entries = RouteNavRouteJson.parseSpanshFleetCarrierRouteFromCsv(new StringReader(csv));
+
+		assertEquals(2, entries.size());
+		assertEquals("Schee Flyi WS-L c23-5229", entries.get(0).systemName);
+		assertNull(entries.get(0).distanceLy);
+		assertEquals(499.96, entries.get(1).distanceLy, 0.01);
+	}
+
+	@Test
+	void parseSpanshFleetCarrierRouteFromCsv_noSystemNameHeader_returnsEmpty() throws IOException {
+		String csv = "\"Foo\",\"Distance\"\n\"Sol\",\"0\"\n";
+
+		List<RouteEntry> entries = RouteNavRouteJson.parseSpanshFleetCarrierRouteFromCsv(new StringReader(csv));
+
+		assertEquals(0, entries.size());
 	}
 }
 

@@ -129,6 +129,7 @@ public class SystemTabPanel extends JPanel {
 	/** Fill system-tab-related fields of the given session state (for save). */
 	public void fillSessionState(EdoSessionState state) {
 	    if (state == null) return;
+	    state.setDocked(Boolean.valueOf(this.state.isDocked()));
 	    state.setTargetBodyId(targetBodyId);
 	    state.setTargetBodyName(targetBodyName);
 	    state.setNearBodyId(nearBodyId);
@@ -140,6 +141,9 @@ public class SystemTabPanel extends JPanel {
 	/** Apply persisted system tab state (for restore on startup). */
 	public void applySessionState(EdoSessionState state) {
 	    if (state == null) return;
+	    if (state.getDocked() != null) {
+	        this.state.setDocked(state.getDocked().booleanValue());
+	    }
 	    if (state.getTargetBodyId() != null) {
 	        targetBodyId = state.getTargetBodyId();
 	        targetBodyName = state.getTargetBodyName();

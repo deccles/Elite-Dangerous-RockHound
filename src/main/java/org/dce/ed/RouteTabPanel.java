@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.awt.event.MouseAdapter;
@@ -143,7 +144,7 @@ public class RouteTabPanel extends JPanel {
 			jumpFlashOn = true;
 		}
 	};
-	private final RouteSession routeSession = new RouteSession(routeJumpFlashHandle, this::shouldUpdateOnCarrierJump);
+	protected final RouteSession routeSession = new RouteSession(routeJumpFlashHandle, this::shouldUpdateOnCarrierJump);
 
 	private final Map<Long, RouteScanStatus> lastKnownScanStatusByAddress = new ConcurrentHashMap<>();
 	private final Map<Long, EdsmScanSummary> edsmSummaryByAddress = new ConcurrentHashMap<>();
@@ -645,26 +646,33 @@ public class RouteTabPanel extends JPanel {
 	 */
 	public boolean importSpanshFleetCarrierRouteFile(Path file) {
 		if (file == null || !Files.isRegularFile(file)) {
-			setHeaderLabelText("Error reading Spansh JSON (missing file).");
+			setHeaderLabelText("Error reading Spansh fleet-carrier file (missing file).");
 			routeSession.applyNavRouteReloadParsed(new ArrayList<>());
 			tableModel.setEntries(new ArrayList<>());
 			return false;
 		}
 
+		String name = file.getFileName().toString();
+		boolean csv = name.toLowerCase(Locale.US).endsWith(".csv");
+
 		List<RouteEntry> entries;
 		try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-			JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-			entries = RouteNavRouteJson.parseSpanshFleetCarrierRouteFromJson(root);
+			if (csv) {
+				entries = RouteNavRouteJson.parseSpanshFleetCarrierRouteFromCsv(reader);
+			} else {
+				JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
+				entries = RouteNavRouteJson.parseSpanshFleetCarrierRouteFromJson(root);
+			}
 		} catch (Exception e) {
 			e.printStackTrace();
-			setHeaderLabelText("Error reading Spansh JSON");
+			setHeaderLabelText("Error reading Spansh JSON or CSV");
 			routeSession.applyNavRouteReloadParsed(new ArrayList<>());
 			tableModel.setEntries(new ArrayList<>());
 			return false;
 		}
 
 		if (entries == null || entries.isEmpty()) {
-			setHeaderLabelText("No jumps found in Spansh JSON.");
+			setHeaderLabelText("No jumps found in Spansh JSON/CSV.");
 			routeSession.applyNavRouteReloadParsed(new ArrayList<>());
 			tableModel.setEntries(new ArrayList<>());
 			return false;
@@ -705,7 +713,7 @@ public class RouteTabPanel extends JPanel {
 		return RouteNavRouteJson.parseSpanshFleetCarrierRouteFromJson(root);
 	}
 
-	private void rebuildDisplayedEntries() {
+	protected void rebuildDisplayedEntries() {
 		RouteDisplaySnapshot snap = routeSession.buildDisplaySnapshot(this::applyRememberedScanStatuses, this::resolveSystemCoords);
 		tableModel.setEntries(snap.displayedEntries());
 		maybeScheduleTargetCoordsFetch(snap.displayedEntries());
@@ -1161,7 +1169,7 @@ public class RouteTabPanel extends JPanel {
 	 * {@link org.dce.ed.logreader.RescanJournalsMain} already advanced {@link SystemCache} from the
 	 * same journals. Align route markers with that cache when it disagrees with the restored session.
 	 */
-	private void reconcileRouteCurrentWithPostRescanCache() {
+	protected void reconcileRouteCurrentWithPostRescanCache() {
 		try {
 			CachedSystem cs = SystemCache.load();
 			if (cs == null || cs.systemName == null || cs.systemName.isBlank() || cs.systemAddress == 0L) {
@@ -1525,7 +1533,8 @@ public class RouteTabPanel extends JPanel {
 				journalStatus = "In progress";
 			}
 			if (totalBodies != null && totalBodies.intValue() > 0) {
-				journalBodies = Integer.toString(totalBodies.intValue());
+				// Prefer observed/expected so users can see progress and target totals.
+				journalBodies = knownBodies + " / " + totalBodies.intValue();
 			} else {
 				journalBodies = Integer.toString(knownBodies);
 			}
@@ -1550,6 +1559,9 @@ public class RouteTabPanel extends JPanel {
 				if (ret != null && ret.intValue() > 0) {
 					if (bc != null && !bc.equals(ret)) {
 						edsmStatus = "Body count mismatch";
+						if (bc.intValue() > 0) {
+							edsmStatus += " (" + ret.intValue() + " / " + bc.intValue() + ")";
+						}
 					} else {
 						edsmStatus = "Complete";
 					}

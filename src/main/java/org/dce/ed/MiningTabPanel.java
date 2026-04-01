@@ -93,6 +93,8 @@ import org.dce.ed.mining.ProspectorLoadResult;
 import org.dce.ed.mining.ProspectorLogBackend;
 import org.dce.ed.mining.ProspectorLogBackendFactory;
 import org.dce.ed.mining.ProspectorLogRegression;
+import org.dce.ed.mining.MiningLeaderSnapshot;
+import org.dce.ed.mining.MiningScatterAsteroidModel;
 import org.dce.ed.mining.ProspectorLogRow;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.tts.PollyTtsCached;
@@ -187,6 +189,12 @@ public class MiningTabPanel extends JPanel {
 
 	/** True if the current asteroid already has a row; controls update vs new row behavior. */
 	private boolean haveActiveAsteroid;
+
+	/**
+	 * After the first ProspectedAsteroid of a trip, each new limpet advances the asteroid letter even if no cargo
+	 * was logged on the previous rock (otherwise lettering stays on A forever).
+	 */
+	private boolean prospectorLimpetSeenThisTrip;
 
 	/** Run number currently in use for cargo-driven logging in this system/body; 0 means \"not yet chosen\". */
 	private int activeRun;
@@ -1306,37 +1314,38 @@ return EdoUi.User.MAIN_TEXT;
 	 * gains since the last prospector boundary.
 	 */
 	private void onCargoChanged(JsonObject cargoObj) {
-		// Only log when armed by a prospector and when undocked.
-		if (!miningLoggingArmed) {
-			return;
-		}
-		if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
-			return;
-		}
-		Map<String, Double> current = buildInventoryTonsFromCargo(cargoObj);
-		if (lastCargoTonsForLogging == null || lastCargoTonsForLogging.isEmpty()) {
-			lastCargoTonsForLogging = new HashMap<>(current);
-			return;
-		}
-
-		// Compute positive deltas.
-		Set<String> materials = new HashSet<>();
-		materials.addAll(lastCargoTonsForLogging.keySet());
-		materials.addAll(current.keySet());
-
-		Map<String, Double> deltas = new HashMap<>();
-		for (String m : materials) {
-			double before = lastCargoTonsForLogging.getOrDefault(m, 0.0);
-			double after = current.getOrDefault(m, 0.0);
-			double diff = after - before;
-			if (diff > 0) {
-				deltas.put(m, diff);
+		try {
+			// Only log when armed by a prospector and when undocked.
+			if (!miningLoggingArmed) {
+				return;
 			}
-		}
-		if (deltas.isEmpty()) {
-			lastCargoTonsForLogging = new HashMap<>(current);
-			return;
-		}
+			if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
+				return;
+			}
+			Map<String, Double> current = buildInventoryTonsFromCargo(cargoObj);
+			if (lastCargoTonsForLogging == null || lastCargoTonsForLogging.isEmpty()) {
+				lastCargoTonsForLogging = new HashMap<>(current);
+				return;
+			}
+
+			// Compute positive deltas.
+			Set<String> materials = new HashSet<>();
+			materials.addAll(lastCargoTonsForLogging.keySet());
+			materials.addAll(current.keySet());
+
+			Map<String, Double> deltas = new HashMap<>();
+			for (String m : materials) {
+				double before = lastCargoTonsForLogging.getOrDefault(m, 0.0);
+				double after = current.getOrDefault(m, 0.0);
+				double diff = after - before;
+				if (diff > 0) {
+					deltas.put(m, diff);
+				}
+			}
+			if (deltas.isEmpty()) {
+				lastCargoTonsForLogging = new HashMap<>(current);
+				return;
+			}
 
 		Instant ts = Instant.now();
 		String commander = OverlayPreferences.getMiningLogCommanderName();
@@ -1375,6 +1384,10 @@ return EdoUi.User.MAIN_TEXT;
 			}
 		}
 		int run = activeRun;
+		if (!wroteRowsThisRun && previousRun != activeRun) {
+			// New run starts at asteroid A, even if multiple prospectors fired before first cargo write.
+			asteroidIdCounter = 0;
+		}
 
 		// Determine asteroid ID: first gain after a boundary starts at current counter;
 		// subsequent gains before the next prospector reuse the same asteroid letter.
@@ -1436,7 +1449,49 @@ return EdoUi.User.MAIN_TEXT;
 			}
 		}
 
-		lastCargoTonsForLogging = new HashMap<>(current);
+			lastCargoTonsForLogging = new HashMap<>(current);
+		} finally {
+			syncScatterActiveRun();
+		}
+	}
+
+	/**
+	 * Scatter asteroid markers only while a prospector trip is armed; uses {@link #activeRun} as the session run.
+	 */
+	private void syncScatterActiveRun() {
+		if (spreadsheetScatterPanel == null) {
+			return;
+		}
+		if (!miningLoggingArmed) {
+			spreadsheetScatterPanel.clearScatterAsteroidModelForSessionEnd();
+		}
+		int r = activeRun;
+		if (!miningLoggingArmed) {
+			r = 0;
+		}
+		spreadsheetScatterPanel.setSessionActiveRun(r);
+		syncScatterMarkerMaterials();
+	}
+
+	/**
+	 * Scatter line-art rocks only for materials on the latest prospector readout (normalized keys),
+	 * so stale sheet rows (e.g. old materials) do not get markers.
+	 */
+	private void syncScatterMarkerMaterials() {
+		if (spreadsheetScatterPanel == null) {
+			return;
+		}
+		if (!miningLoggingArmed) {
+			spreadsheetScatterPanel.setProspectorMaterialKeysForMarkers(Set.of());
+			return;
+		}
+		Set<String> keys = new HashSet<>();
+		for (String name : lastPercentByMaterialAtProspector.keySet()) {
+			if (name != null && !name.isBlank()) {
+				keys.add(GalacticAveragePrices.normalizeMaterialKey(name));
+			}
+		}
+		spreadsheetScatterPanel.setProspectorMaterialKeysForMarkers(keys);
 	}
 
 	/** Called when undocking is detected; records time so the first row of the next run gets it as run start. */
@@ -1488,12 +1543,17 @@ return EdoUi.User.MAIN_TEXT;
 		// logging fake "0 -> X" gains when docking with pre-existing cargo.
 		if (lastInventoryTonsAtProspector == null || lastInventoryTonsAtProspector.isEmpty()) {
 			asteroidIdCounter = 0;
+			prospectorLimpetSeenThisTrip = false;
 			wroteRowsThisRun = false;
 			miningLoggingArmed = false;
 			haveActiveAsteroid = false;
 			asteroidBaselineTons = new HashMap<>();
 			lastCargoTonsForLogging = new HashMap<>();
 			lastUndockTime = null;
+			if (spreadsheetScatterPanel != null) {
+				spreadsheetScatterPanel.clearScatterAsteroidModelForSessionEnd();
+			}
+			syncScatterActiveRun();
 			return;
 		}
 		// Set run end time on the canonical row for the run we just finished.
@@ -1516,11 +1576,16 @@ return EdoUi.User.MAIN_TEXT;
 		lastInventoryTonsAtProspector = new HashMap<>();
 		lastPercentByMaterialAtProspector = new HashMap<>();
 		asteroidIdCounter = 0;
+		prospectorLimpetSeenThisTrip = false;
 		wroteRowsThisRun = false;
 		miningLoggingArmed = false;
 		haveActiveAsteroid = false;
 		asteroidBaselineTons = new HashMap<>();
 		lastCargoTonsForLogging = new HashMap<>();
+		if (spreadsheetScatterPanel != null) {
+			spreadsheetScatterPanel.clearScatterAsteroidModelForSessionEnd();
+		}
+		syncScatterActiveRun();
 	}
 
 	/**
@@ -1871,6 +1936,7 @@ return EdoUi.User.MAIN_TEXT;
 							if (spreadsheetScatterWrapper != null) {
 								spreadsheetScatterWrapper.setRows(lastGoodSpreadsheetRows);
 							}
+							syncScatterActiveRun();
 						}
 						case EMPTY_SHEET -> {
 							lastGoodSpreadsheetRows = java.util.Collections.emptyList();
@@ -1878,6 +1944,7 @@ return EdoUi.User.MAIN_TEXT;
 							if (spreadsheetScatterWrapper != null) {
 								spreadsheetScatterWrapper.setRows(lastGoodSpreadsheetRows);
 							}
+							syncScatterActiveRun();
 						}
 						case ERROR -> {
 							// Keep showing the last good data when there is a transient error.
@@ -1886,6 +1953,7 @@ return EdoUi.User.MAIN_TEXT;
 								if (spreadsheetScatterWrapper != null) {
 									spreadsheetScatterWrapper.setRows(lastGoodSpreadsheetRows);
 								}
+								syncScatterActiveRun();
 							}
 						}
 					}
@@ -2161,10 +2229,13 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		// Prospector events now act as asteroid boundaries and update percent estimates,
 		// but do not directly write spreadsheet rows. Cargo changes drive logging.
 		miningLoggingArmed = true;
-		// Moving to a new asteroid: advance the letter so the next cargo gain creates a new row.
-		if (haveActiveAsteroid) {
+		// New limpet → next asteroid letter for the following cargo rows. Advance on every limpet after the
+		// first, even if the player never collected cargo on the previous rock (otherwise we stay on A).
+		if (prospectorLimpetSeenThisTrip) {
 			asteroidIdCounter++;
 		}
+		prospectorLimpetSeenThisTrip = true;
+
 		asteroidBaselineTons = new HashMap<>();
 		haveActiveAsteroid = false;
 
@@ -2182,6 +2253,8 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 			}
 		}
 		lastPercentByMaterialAtProspector = nextPercent;
+		spreadsheetScatterPanel.onProspectorLimpetFromMining(nextPercent);
+		syncScatterActiveRun();
 
 		String motherlode = event.getMotherlodeMaterial();
 		String content = event.getContent();
@@ -3173,6 +3246,12 @@ String getName() {
 		/** When set, mouse is near a trend line (and not on a point). */
 		private TrendHoverState hoverTrend;
 		private List<RunSummary> runSummaries = new ArrayList<>();
+		/**
+		 * Current cargo-logging run for line-art rocks; 0 disables markers. Set from {@link MiningTabPanel#syncScatterActiveRun()}.
+		 */
+		private int sessionActiveRun;
+		/** Normalized material keys from latest prospector; only these get line-art rocks (see {@link #setProspectorMaterialKeysForMarkers}). */
+		private Set<String> prospectorMaterialKeysForMarkers = Set.of();
 		private final javax.swing.Timer hoverPollTimer;
 		private final javax.swing.Timer asteroidSpinTimer;
 		/** Rotation angle for line-art asteroid markers on the most recent active asteroid */
@@ -3215,28 +3294,6 @@ String getName() {
 			}
 		}
 
-		private static final class LeaderSnapshot {
-			final int run;
-			final String asteroidId;
-			final Instant instant;
-			final double pct;
-			final double tons;
-			final String material;
-
-			LeaderSnapshot(ProspectorLogRow r) {
-				run = r.getRun();
-				asteroidId = r.getAsteroidId() != null ? r.getAsteroidId() : "";
-				instant = r.getTimestamp();
-				pct = r.getPercent();
-				tons = r.getDifference();
-				material = r.getMaterial() != null ? r.getMaterial() : "";
-			}
-
-			boolean sameAsteroid(LeaderSnapshot o) {
-				return o != null && run == o.run && Objects.equals(asteroidId, o.asteroidId);
-			}
-		}
-
 		private static final class OreParticle {
 			double x;
 			double y;
@@ -3253,22 +3310,26 @@ String getName() {
 			final String skipKeyFrom;
 			final String skipKeyTo;
 			final String animCommander;
+			/** Commander+material map key so two rocks never share a queue signature when skip keys are empty. */
+			final String queueKey;
 
-			GatherAnimRequest(Point from, Point to, Color color, String skipKeyFrom, String skipKeyTo, String animCommander) {
+			GatherAnimRequest(Point from, Point to, Color color, String skipKeyFrom, String skipKeyTo, String animCommander, String queueKey) {
 				this.from = new Point(from);
 				this.to = new Point(to);
 				this.color = color;
 				this.skipKeyFrom = skipKeyFrom != null ? skipKeyFrom : "";
 				this.skipKeyTo = skipKeyTo != null ? skipKeyTo : "";
 				this.animCommander = animCommander != null ? animCommander : "";
+				this.queueKey = queueKey != null ? queueKey : "";
 			}
 
 			String signature() {
-				return animCommander + "\t" + skipKeyFrom + "\t" + skipKeyTo;
+				String id = !queueKey.isEmpty() ? queueKey : animCommander;
+				return id + "\t" + skipKeyFrom + "\t" + skipKeyTo;
 			}
 		}
 
-		private final Map<String, LeaderSnapshot> leaderSnapshotsByCommander = new HashMap<>();
+		private final MiningScatterAsteroidModel scatterAsteroidModel = new MiningScatterAsteroidModel();
 		private final ArrayDeque<GatherAnimRequest> gatherAnimQueue = new ArrayDeque<>();
 		private javax.swing.Timer gatherAnimTimer;
 		private float gatherAnimPhase;
@@ -3282,12 +3343,12 @@ String getName() {
 		private double gatherPhaseSpin;
 		private String gatherSkipRowKeyFrom;
 		private String gatherSkipRowKeyTo;
+		/** Same as {@link GatherAnimRequest#queueKey} for the running animation. */
+		private String gatherQueueKey = "";
 		/** Commander whose gather animation is running (for mid-flight retarget). */
 		private String gatherAnimCommander = "";
 		private final List<OreParticle> gatherParticles = new ArrayList<>();
 		private final Random gatherRandom = new Random();
-		/** Fraction of gatherAnimPhase (0–1) for laser contact (lower = faster beam). */
-		private static final float GATHER_LASER_CONTACT_PHASE_END = 0.16f;
 		/** Phase advance per timer tick (higher = faster overall). */
 		private static final float GATHER_PHASE_DELTA = 1f / 36f;
 		/** Gun platform X lerp per tick toward asteroid / home (~30% slower than earlier 0.22 / 0.18). */
@@ -3300,12 +3361,24 @@ String getName() {
 
 		private final Map<String, Double> gunPlatformCenterXByCommander = new HashMap<>();
 
+		/**
+		 * Cached animation scales — {@link java.util.prefs.Preferences} is too slow to read on every
+		 * {@code gunPx}/{@code asteroidPx} call (dozens per frame). Refreshed once per paint and on gather ticks.
+		 */
+		private double animGunScaleCached = 1.0;
+		private double animAsteroidScaleCached = 1.0;
+
+		private void refreshAnimationScaleCache() {
+			animGunScaleCached = OverlayPreferences.getMiningAnimationGunSizePercent() / 100.0;
+			animAsteroidScaleCached = OverlayPreferences.getMiningAnimationAsteroidSizePercent() / 100.0;
+		}
+
 		private double gunDrawScale() {
-			return OverlayPreferences.getMiningAnimationGunSizePercent() / 100.0;
+			return animGunScaleCached;
 		}
 
 		private double asteroidDrawScale() {
-			return OverlayPreferences.getMiningAnimationAsteroidSizePercent() / 100.0;
+			return animAsteroidScaleCached;
 		}
 
 		private int gunPx(double u) {
@@ -3480,8 +3553,8 @@ String getName() {
 			Point fromB = new Point(midX + dx, yHi);
 			Point toB = new Point(midX + dx, yLo);
 
-			offerGatherAnimRequest(new GatherAnimRequest(fromA, toA, col, "__testFromA", "__testToA", cmdrName));
-			offerGatherAnimRequest(new GatherAnimRequest(fromB, toB, col, "__testFromB", "__testToB", cmdrName));
+			offerGatherAnimRequest(new GatherAnimRequest(fromA, toA, col, "__testFromA", "__testToA", cmdrName, cmdrName + "\t__testMatA"));
+			offerGatherAnimRequest(new GatherAnimRequest(fromB, toB, col, "__testFromB", "__testToB", cmdrName, cmdrName + "\t__testMatB"));
 			tryStartNextGatherFromQueue();
 		}
 
@@ -3570,66 +3643,52 @@ String getName() {
 			return false;
 		}
 
-		private static ProspectorLogRow findRowMatchingSnapshot(LeaderSnapshot s, List<ProspectorLogRow> toPlot) {
-			if (s == null) {
+		/**
+		 * Maps a leader snapshot to a row in the current plot list. Exact timestamp match often fails after cargo
+		 * updates (new row appended with a new instant, or sheet refresh), so we fall back to run/asteroid/material/
+		 * commander + same pct/tons (latest timestamp if duplicated).
+		 */
+		private static ProspectorLogRow findRowMatchingSnapshot(MiningLeaderSnapshot s, String cmdr, List<ProspectorLogRow> toPlot) {
+			if (s == null || toPlot == null) {
 				return null;
 			}
+			String c = cmdr != null ? cmdr : "";
+			List<ProspectorLogRow> candidates = new ArrayList<>();
 			for (ProspectorLogRow r : toPlot) {
-				if (r.getRun() != s.run) {
+				if (!Objects.equals(r.getCommanderName() != null ? r.getCommanderName() : "", c)) {
 					continue;
 				}
-				if (!Objects.equals(r.getAsteroidId() != null ? r.getAsteroidId() : "", s.asteroidId)) {
+				if (r.getRun() != s.run()) {
 					continue;
 				}
-				if (!Objects.equals(r.getTimestamp(), s.instant)) {
+				if (!Objects.equals(r.getAsteroidId() != null ? r.getAsteroidId() : "", s.asteroidId())) {
 					continue;
 				}
-				if (!Objects.equals(r.getMaterial() != null ? r.getMaterial() : "", s.material)) {
+				if (!Objects.equals(r.getMaterial() != null ? r.getMaterial() : "", s.material())) {
 					continue;
 				}
-				if (r.getPercent() != s.pct || r.getDifference() != s.tons) {
+				candidates.add(r);
+			}
+			for (ProspectorLogRow r : candidates) {
+				if (!Objects.equals(r.getTimestamp(), s.instant())) {
+					continue;
+				}
+				if (r.getPercent() != s.pct() || r.getDifference() != s.tons()) {
 					continue;
 				}
 				return r;
 			}
-			return null;
-		}
-
-		private Map<String, LeaderSnapshot> computeLatestLeadersMap(List<ProspectorLogRow> toPlot) {
-			Map<String, LeaderSnapshot> out = new HashMap<>();
-			if (toPlot == null || toPlot.isEmpty()) {
-				return out;
-			}
-			Map<String, ProspectorLogRow> latestRowByCommander = new HashMap<>();
-			for (ProspectorLogRow r : toPlot) {
-				if (r.getTimestamp() == null) {
+			ProspectorLogRow byAmounts = null;
+			for (ProspectorLogRow r : candidates) {
+				if (r.getPercent() != s.pct() || r.getDifference() != s.tons()) {
 					continue;
 				}
-				String cmdr = r.getCommanderName() != null ? r.getCommanderName() : "";
-				ProspectorLogRow prev = latestRowByCommander.get(cmdr);
-				if (prev == null || (prev.getTimestamp() != null && r.getTimestamp().isAfter(prev.getTimestamp()))) {
-					latestRowByCommander.put(cmdr, r);
+				if (byAmounts == null || (r.getTimestamp() != null && byAmounts.getTimestamp() != null
+					&& r.getTimestamp().isAfter(byAmounts.getTimestamp()))) {
+					byAmounts = r;
 				}
 			}
-			for (Map.Entry<String, ProspectorLogRow> e : latestRowByCommander.entrySet()) {
-				String cmdr = e.getKey();
-				ProspectorLogRow latest = e.getValue();
-				int run = latest.getRun();
-				String aid = latest.getAsteroidId() != null ? latest.getAsteroidId() : "";
-				List<ProspectorLogRow> sameAsteroid = toPlot.stream()
-					.filter(x -> Objects.equals(x.getCommanderName() != null ? x.getCommanderName() : "", cmdr)
-						&& x.getRun() == run
-						&& Objects.equals(x.getAsteroidId() != null ? x.getAsteroidId() : "", aid))
-					.toList();
-				ProspectorLogRow leader = sameAsteroid.stream()
-					.filter(r -> r.getTimestamp() != null)
-					.max(Comparator.comparing(ProspectorLogRow::getTimestamp))
-					.orElse(null);
-				if (leader != null) {
-					out.put(cmdr, new LeaderSnapshot(leader));
-				}
-			}
-			return out;
+			return byAmounts;
 		}
 
 		private PlotGeom computePlotGeom() {
@@ -3700,32 +3759,53 @@ String getName() {
 			return commanderColor.getOrDefault(cmdr, EdoUi.User.VALUABLE);
 		}
 
-		private void enqueueGatherTransitionsForLeaders(List<ProspectorLogRow> toPlot, PlotGeom geom) {
-			Map<String, LeaderSnapshot> nextLeaders = computeLatestLeadersMap(toPlot);
-			for (Map.Entry<String, LeaderSnapshot> e : nextLeaders.entrySet()) {
-				String cmdr = e.getKey();
-				LeaderSnapshot now = e.getValue();
-				LeaderSnapshot prev = leaderSnapshotsByCommander.get(cmdr);
+		private static String commanderFromRockSnapshotKey(String rockKey) {
+			if (rockKey == null) {
+				return "";
+			}
+			int i = rockKey.indexOf('\t');
+			return i < 0 ? rockKey : rockKey.substring(0, i);
+		}
+
+		/** One queued gather per commander+material rock; laser always tied to that rock's row transition. */
+		private void enqueueGatherTransitionsForRockSnapshots(
+				Map<String, MiningLeaderSnapshot> previousLeaders,
+				Map<String, MiningLeaderSnapshot> nextLeaders,
+				List<ProspectorLogRow> toPlot,
+				PlotGeom geom) {
+			for (Map.Entry<String, MiningLeaderSnapshot> e : nextLeaders.entrySet()) {
+				String rockKey = e.getKey();
+				String cmdr = commanderFromRockSnapshotKey(rockKey);
+				MiningLeaderSnapshot now = e.getValue();
+				MiningLeaderSnapshot prev = previousLeaders.get(rockKey);
 				if (prev == null || !now.sameAsteroid(prev)) {
 					continue;
 				}
-				if (now.instant == null || prev.instant == null || !now.instant.isAfter(prev.instant)) {
+				if (now.instant() == null || prev.instant() == null || !now.instant().isAfter(prev.instant())) {
 					continue;
 				}
-				if (now.pct == prev.pct && now.tons == prev.tons) {
+				if (now.pct() == prev.pct() && now.tons() == prev.tons()) {
 					continue;
 				}
-				boolean materialChanged = !Objects.equals(prev.material, now.material);
-				Point from = materialChanged
-					? geom.projectValues(now.pct, now.tons)
-					: geom.projectValues(prev.pct, prev.tons);
-				Point to = geom.projectValues(now.pct, now.tons);
+				if (now.tons() + 1e-6 < prev.tons()) {
+					continue;
+				}
+				boolean monotonicTonGain = now.tons() > prev.tons() + 1e-6;
+				// Prospector often nudges % on every material when any cargo updates; skip only when there is no
+				// ton gain (reset / re-read) so secondary materials still get laser+gather.
+				final double pctEpsilon = 1e-3;
+				if (!monotonicTonGain && Math.abs(now.pct() - prev.pct()) > pctEpsilon) {
+					continue;
+				}
+				boolean materialChanged = !Objects.equals(prev.material(), now.material());
+				Point from = geom.projectValues(prev.pct(), prev.tons());
+				Point to = geom.projectValues(now.pct(), now.tons());
 				Color col = commanderColorFor(cmdr, toPlot);
-				ProspectorLogRow rowPrev = findRowMatchingSnapshot(prev, toPlot);
-				ProspectorLogRow rowNow = findRowMatchingSnapshot(now, toPlot);
-				String kFrom = materialChanged || rowPrev == null ? "" : rowKeyForAnim(rowPrev);
+				ProspectorLogRow rowPrev = findRowMatchingSnapshot(prev, cmdr, toPlot);
+				ProspectorLogRow rowNow = findRowMatchingSnapshot(now, cmdr, toPlot);
+				String kFrom = rowPrev == null ? "" : rowKeyForAnim(rowPrev);
 				String kTo = rowNow != null ? rowKeyForAnim(rowNow) : "";
-				offerGatherAnimRequest(new GatherAnimRequest(from, to, col, kFrom, kTo, cmdr));
+				offerGatherAnimRequest(new GatherAnimRequest(from, to, col, kFrom, kTo, cmdr, rockKey));
 			}
 		}
 
@@ -3750,6 +3830,7 @@ String getName() {
 				return false;
 			}
 			return Objects.equals(req.animCommander, gatherAnimCommander)
+				&& Objects.equals(req.queueKey, gatherQueueKey)
 				&& Objects.equals(req.skipKeyFrom, gatherSkipRowKeyFrom)
 				&& Objects.equals(req.skipKeyTo, gatherSkipRowKeyTo);
 		}
@@ -3762,13 +3843,14 @@ String getName() {
 			if (req == null) {
 				return;
 			}
-			startGatherAnimation(req.from, req.to, req.color, req.skipKeyFrom, req.skipKeyTo, req.animCommander);
+			startGatherAnimation(req.from, req.to, req.color, req.skipKeyFrom, req.skipKeyTo, req.animCommander, req.queueKey);
 		}
 
-		private void startGatherAnimation(Point from, Point to, Color asteroidColor, String skipKeyFrom, String skipKeyTo, String animCommander) {
+		private void startGatherAnimation(Point from, Point to, Color asteroidColor, String skipKeyFrom, String skipKeyTo, String animCommander, String queueKey) {
 			if (gatherAnimTimer == null) {
 				gatherAnimTimer = new javax.swing.Timer(30, e -> tickGatherAnimation());
 			}
+			refreshAnimationScaleCache();
 			gatherAnimActive = true;
 			gatherDebrisPhaseOnly = false;
 			gatherAnimPhase = 0f;
@@ -3793,6 +3875,7 @@ String getName() {
 			gatherSkipRowKeyFrom = skipKeyFrom != null ? skipKeyFrom : "";
 			gatherSkipRowKeyTo = skipKeyTo != null ? skipKeyTo : "";
 			gatherAnimCommander = animCommander != null ? animCommander : "";
+			gatherQueueKey = queueKey != null ? queueKey : "";
 			gatherParticles.clear();
 			gatherAnimTimer.start();
 		}
@@ -3801,6 +3884,7 @@ String getName() {
 			if (!gatherAnimActive) {
 				return;
 			}
+			refreshAnimationScaleCache();
 			if (gatherDebrisPhaseOnly) {
 				for (OreParticle p : gatherParticles) {
 					p.ageMs += 30;
@@ -3840,14 +3924,20 @@ String getName() {
 			while (gatherParticles.size() > 220) {
 				gatherParticles.remove(0);
 			}
-			if (gatherAnimPhase >= GATHER_LASER_CONTACT_PHASE_END) {
+			if (gatherAnimPhase > 0.02f && gatherAnimPhase < 1f) {
 				Point rock = currentGatherAsteroidScreenPos();
 				spawnOreTrailAtRock(rock.x, rock.y);
 			}
 			if (gatherAnimPhase >= 1f) {
 				gatherAnimPhase = 1f;
-				gatherDebrisPhaseOnly = true;
-				// Keep gatherSkipRowKey* until endGatherAnimation — clearing here let static redraw during debris.
+				if (gatherAnimQueue.isEmpty()) {
+					gatherDebrisPhaseOnly = true;
+					// Keep gatherSkipRowKey* until endGatherAnimation — clearing here let static redraw during debris.
+				} else {
+					// Queue backlog: chaining directly avoids visible jump to latest static row between short gathers.
+					endGatherAnimation();
+					return;
+				}
 			}
 			PlotGeom gTrack = computePlotGeom();
 			if (gTrack != null && !gatherAnimCommander.isEmpty()) {
@@ -3865,13 +3955,9 @@ String getName() {
 			if (gatherMoveFrom == null) {
 				return new Point(0, 0);
 			}
-			if (gatherAnimPhase < GATHER_LASER_CONTACT_PHASE_END) {
-				return new Point(gatherMoveFrom.x, gatherMoveFrom.y);
-			}
-			double u = (gatherAnimPhase - GATHER_LASER_CONTACT_PHASE_END) / (1.0 - GATHER_LASER_CONTACT_PHASE_END);
-			float moveT = (float) easeOutCubic(Math.min(1.0, u));
-			int ax = gatherMoveFrom.x + (int) ((gatherMoveTo.x - gatherMoveFrom.x) * moveT);
-			int ay = gatherMoveFrom.y + (int) ((gatherMoveTo.y - gatherMoveFrom.y) * moveT);
+			float t = Math.min(1f, gatherAnimPhase);
+			int ax = Math.round(gatherMoveFrom.x + (gatherMoveTo.x - gatherMoveFrom.x) * t);
+			int ay = Math.round(gatherMoveFrom.y + (gatherMoveTo.y - gatherMoveFrom.y) * t);
 			return new Point(ax, ay);
 		}
 
@@ -3895,6 +3981,7 @@ String getName() {
 			gatherAnimActive = false;
 			gatherDebrisPhaseOnly = false;
 			gatherAnimCommander = "";
+			gatherQueueKey = "";
 			gatherParticles.clear();
 			if (gatherAnimTimer != null) {
 				gatherAnimTimer.stop();
@@ -3903,17 +3990,6 @@ String getName() {
 			gatherSkipRowKeyTo = "";
 			tryStartNextGatherFromQueue();
 			repaint();
-		}
-
-		private static double easeOutCubic(double t) {
-			if (t <= 0) {
-				return 0;
-			}
-			if (t >= 1) {
-				return 1;
-			}
-			double u = 1 - t;
-			return 1 - u * u * u;
 		}
 
 		private void drawPlasmaLaser(Graphics2D g2, int x0, int y0, int x1, int y1, float beamProgress) {
@@ -3952,16 +4028,9 @@ String getName() {
 			Point rock = currentGatherAsteroidScreenPos();
 			int ax = rock.x;
 			int ay = rock.y;
-			if (gatherLaserFrom != null && gatherMoveFrom != null) {
-				if (gatherAnimPhase < GATHER_LASER_CONTACT_PHASE_END) {
-					// Extend beam to the rock at its start position; rock stays put until contact completes.
-					float beamLen = gatherAnimPhase <= 0f ? 0f
-						: Math.min(1f, gatherAnimPhase / GATHER_LASER_CONTACT_PHASE_END);
-					drawPlasmaLaser(g2, gatherLaserFrom.x, gatherLaserFrom.y, gatherMoveFrom.x, gatherMoveFrom.y, beamLen);
-				} else {
-					// After contact: beam follows the rock along its path; full length each frame.
-					drawPlasmaLaser(g2, gatherLaserFrom.x, gatherLaserFrom.y, ax, ay, 1f);
-				}
+			if (gatherLaserFrom != null && gatherAnimPhase > 0f) {
+				// Beam always reaches the rock; do not shorten the beam while the rock moves (avoids rock sliding ahead of the laser).
+				drawPlasmaLaser(g2, gatherLaserFrom.x, gatherLaserFrom.y, ax, ay, 1f);
 			}
 			drawLineArtAsteroid(g2, ax, ay, gatherAsteroidColor, gatherPhaseSpin, 0.02);
 
@@ -4040,15 +4109,24 @@ String getName() {
 			this.rows = (rows != null) ? new ArrayList<>(rows) : new ArrayList<>();
 			List<ProspectorLogRow> toPlot = filteredRows();
 			PlotGeom geom = computePlotGeom();
+			scatterAsteroidModel.updateLeadersFromPlotRows(toPlot);
+			MiningScatterAsteroidModel.LeaderSnapshotUpdate rockUpdate = scatterAsteroidModel.updateRockSnapshotsForGather(
+				toPlot, prospectorMaterialKeysForMarkers, sessionActiveRun);
 			if (geom != null && !toPlot.isEmpty() && getWidth() > 0 && getHeight() > 0) {
-				enqueueGatherTransitionsForLeaders(toPlot, geom);
+				enqueueGatherTransitionsForRockSnapshots(rockUpdate.previous(), rockUpdate.next(), toPlot, geom);
 			}
 			if (!gatherAnimActive) {
 				tryStartNextGatherFromQueue();
 			}
-			leaderSnapshotsByCommander.clear();
-			leaderSnapshotsByCommander.putAll(computeLatestLeadersMap(filteredRows()));
 			repaint();
+		}
+
+		void onProspectorLimpetFromMining(Map<String, Double> uiNameToPercent) {
+			scatterAsteroidModel.onProspectorLimpet(uiNameToPercent);
+		}
+
+		void clearScatterAsteroidModelForSessionEnd() {
+			scatterAsteroidModel.clearForMiningSessionEnd();
 		}
 
 		void setFilterMode(FilterMode mode) {
@@ -4068,6 +4146,19 @@ String getName() {
 
 		void setRunSummaries(List<RunSummary> summaries) {
 			this.runSummaries = (summaries != null) ? new ArrayList<>(summaries) : new ArrayList<>();
+			repaint();
+		}
+
+		void setSessionActiveRun(int run) {
+			int v = run < 0 ? 0 : run;
+			if (this.sessionActiveRun != v) {
+				this.sessionActiveRun = v;
+				repaint();
+			}
+		}
+
+		void setProspectorMaterialKeysForMarkers(Set<String> normalizedKeys) {
+			this.prospectorMaterialKeysForMarkers = normalizedKeys != null ? Set.copyOf(normalizedKeys) : Set.of();
 			repaint();
 		}
 
@@ -4096,6 +4187,7 @@ String getName() {
 		@Override
 		protected void paintComponent(Graphics g) {
 			super.paintComponent(g);
+			refreshAnimationScaleCache();
 			List<ProspectorLogRow> toPlot = filteredRows();
 			pointInfos.clear();
 			Graphics2D g2 = (Graphics2D) g.create();
@@ -4281,59 +4373,40 @@ String getName() {
 				}
 			}
 
-			// Highlight latest asteroid's points for each commander (all materials in that run) with commander-colored circle
-			if (!pointInfos.isEmpty()) {
-				// For each commander: find chronologically latest row, then all rows from that same run+asteroid
-				Map<String, ProspectorLogRow> latestRowByCommander = new HashMap<>();
-				for (ProspectorLogRow r : toPlot) {
-					String cmdr = r.getCommanderName();
-					if (cmdr == null) cmdr = "";
-					Instant ts = r.getTimestamp();
-					if (ts == null) continue;
-					ProspectorLogRow prev = latestRowByCommander.get(cmdr);
-					if (prev == null || (prev.getTimestamp() != null && ts.isAfter(prev.getTimestamp()))) {
-						latestRowByCommander.put(cmdr, r);
-					}
-				}
-				Map<String, List<ProspectorLogRow>> latestAsteroidRowsByCommander = new HashMap<>();
-				for (Map.Entry<String, ProspectorLogRow> e : latestRowByCommander.entrySet()) {
-					String cmdr = e.getKey();
-					ProspectorLogRow latest = e.getValue();
-					int run = latest.getRun();
-					String aid = latest.getAsteroidId() != null ? latest.getAsteroidId() : "";
-					List<ProspectorLogRow> sameAsteroid = toPlot.stream()
-						.filter(x -> java.util.Objects.equals(x.getCommanderName(), cmdr)
-							&& x.getRun() == run
-							&& java.util.Objects.equals(x.getAsteroidId() != null ? x.getAsteroidId() : "", aid))
-						.toList();
-					latestAsteroidRowsByCommander.put(cmdr, sameAsteroid);
-				}
-
-				if (!latestAsteroidRowsByCommander.isEmpty()) {
-					for (Map.Entry<String, List<ProspectorLogRow>> e : latestAsteroidRowsByCommander.entrySet()) {
-						String cmdr = e.getKey();
+			// Line-art asteroids: {@link MiningScatterAsteroidModel#computeRockMarkerRows} — one rock per material
+			// on the commander's current asteroid (latest row anchor), no duplicate rows for the same material.
+			if (!pointInfos.isEmpty() && sessionActiveRun > 0) {
+				List<ProspectorLogRow> inSession = toPlot.stream()
+					.filter(r -> r.getRun() == sessionActiveRun)
+					.toList();
+				if (!inSession.isEmpty()) {
+					List<ProspectorLogRow> rockRows = MiningScatterAsteroidModel.computeRockMarkerRows(
+						inSession, prospectorMaterialKeysForMarkers);
+					for (ProspectorLogRow leadRow : rockRows) {
+						String cmdr = leadRow.getCommanderName() != null ? leadRow.getCommanderName() : "";
 						Color markColor = commanderColor.getOrDefault(cmdr, EdoUi.User.VALUABLE);
-						double phase = (cmdr.hashCode() & 0xFFFF) * 0.001;
-						for (ProspectorLogRow row : e.getValue()) {
-							String rk = rowKeyForAnim(row);
-							if (gatherAnimActive) {
-								// End row: hide static only during laser+move (same window as pixel suppress).
-								if (!gatherDebrisPhaseOnly && !gatherSkipRowKeyTo.isEmpty() && rk.equals(gatherSkipRowKeyTo)) {
-									continue;
-								}
-								// Start row: hide only during laser+move.
-								if (!gatherDebrisPhaseOnly && !gatherSkipRowKeyFrom.isEmpty() && rk.equals(gatherSkipRowKeyFrom)) {
-									continue;
-								}
+						String mat = leadRow.getMaterial() != null ? leadRow.getMaterial() : "";
+						double phase = ((cmdr.hashCode() & 0xFFFF) ^ (mat.hashCode() & 0xFFFF)) * 0.001;
+						String rk = rowKeyForAnim(leadRow);
+						if (gatherAnimActive) {
+							if (!gatherDebrisPhaseOnly && !gatherQueueKey.isEmpty()
+								&& gatherQueueKey.equals(cmdr + "\t" + GalacticAveragePrices.normalizeMaterialKey(mat))) {
+								continue;
 							}
-							for (PointInfo pi : pointInfos) {
-								if (pi.row == row) {
-									if (gatherSuppressStaticAsteroidAtPlotPixel(pi.x, pi.y)) {
-										break;
-									}
-									drawLineArtAsteroid(g2, pi.x, pi.y, markColor, asteroidSpinAngle, phase);
+							if (!gatherDebrisPhaseOnly && !gatherSkipRowKeyTo.isEmpty() && rk.equals(gatherSkipRowKeyTo)) {
+								continue;
+							}
+							if (!gatherDebrisPhaseOnly && !gatherSkipRowKeyFrom.isEmpty() && rk.equals(gatherSkipRowKeyFrom)) {
+								continue;
+							}
+						}
+						for (PointInfo pi : pointInfos) {
+							if (pi.row == leadRow) {
+								if (gatherSuppressStaticAsteroidAtPlotPixel(pi.x, pi.y)) {
 									break;
 								}
+								drawLineArtAsteroid(g2, pi.x, pi.y, markColor, asteroidSpinAngle, phase);
+								break;
 							}
 						}
 					}

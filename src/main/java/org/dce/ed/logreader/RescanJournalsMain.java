@@ -5,10 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.prefs.Preferences;
-
 import org.dce.ed.EliteDangerousOverlay;
-import org.dce.ed.OverlayFrame;
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.exobiology.ExobiologyData;
@@ -36,8 +33,6 @@ import org.dce.ed.util.SpanshLandmarkCache;
  */
 public class RescanJournalsMain {
 
-
-	private static final String PREF_KEY_EXO_CREDITS_TOTAL = "exo.creditsTotal";
 
 	public static void main(String[] args) throws IOException {
 		System.out.println("Rescanning Elite Dangerous journals and rebuilding local system cache...");
@@ -134,18 +129,14 @@ public class RescanJournalsMain {
 		SystemState state = new SystemState();
 		SystemEventProcessor processor = new SystemEventProcessor(EliteDangerousOverlay.clientKey, state);
 
-		// Exobiology running total (expected credits, unsold) should persist across restarts.
-		// We seed it from the persisted system-cache / preferences, then apply only the events
-		// included in this rescan run.
-		Preferences prefs = Preferences.userNodeForPackage(OverlayFrame.class);
+		// Exobiology running total (expected credits, unsold): seed from commander session blob.
 		Long cachedTotal = null;
 		try {
 			cachedTotal = SystemCache.getInstance().getPersistedExobiologyCreditsTotalUnsold();
 		} catch (Exception ignored) {
-			// Seed from preferences below.
+			// fall through to 0
 		}
-		long exoCreditsTotal = cachedTotal != null ? cachedTotal.longValue()
-				: prefs.getLong(PREF_KEY_EXO_CREDITS_TOTAL, 0L);
+		long exoCreditsTotal = cachedTotal != null ? cachedTotal.longValue() : 0L;
 		state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
 
 		Instant newestEventTimestamp = lastImport;
@@ -265,12 +256,11 @@ public class RescanJournalsMain {
 			}
 		}
 
-		// Preference fallback for compatibility / edge cases.
-		prefs.putLong(PREF_KEY_EXO_CREDITS_TOTAL, exoCreditsTotal);
 		System.out.println("Exobiology expected credits total (unsold): " + exoCreditsTotal + " Cr");
 
-		// Update carrier jump state in session file so overlay restores countdown when tool was closed during jump.
+		// Persist exobiology total + carrier countdown into the same SQLite session blob as the overlay.
 		EdoSessionState sessionState = EdoSessionPersistence.load();
+		sessionState.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
 		if (latestCarrierEvent != null) {
 			if (latestCarrierEvent instanceof CarrierJumpRequestEvent) {
 				CarrierJumpRequestEvent req = (CarrierJumpRequestEvent) latestCarrierEvent;
@@ -283,12 +273,11 @@ public class RescanJournalsMain {
 					sessionState.setCarrierJumpTargetSystem(null);
 				}
 			} else {
-				// CarrierJump or CarrierJumpCancelled: clear countdown.
 				sessionState.setCarrierJumpDepartureTime(null);
 				sessionState.setCarrierJumpTargetSystem(null);
 			}
-			EdoSessionPersistence.save(sessionState);
 		}
+		EdoSessionPersistence.save(sessionState);
 
 		if (journalDirectory != null && newestEventTimestamp != null) {
 			JournalImportCursor.write(journalDirectory, newestEventTimestamp);
