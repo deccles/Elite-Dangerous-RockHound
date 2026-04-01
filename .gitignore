@@ -8,3 +8,5 @@
 /dist/
 /logs/
 /.pydevproject
+/_dbg.py
+/.gitmsg.txt
