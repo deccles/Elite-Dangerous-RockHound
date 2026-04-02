@@ -191,10 +191,13 @@ public class MiningTabPanel extends JPanel {
 	private boolean haveActiveAsteroid;
 
 	/**
-	 * After the first ProspectedAsteroid of a trip, each new limpet advances the asteroid letter even if no cargo
-	 * was logged on the previous rock (otherwise lettering stays on A forever).
+	 * After the first ProspectedAsteroid of a trip, each new limpet advances the asteroid letter only if we logged
+	 * cargo from the previous rock; dud limpets (no material gathered) do not consume the next letter.
 	 */
 	private boolean prospectorLimpetSeenThisTrip;
+
+	/** True after a successful cargo-driven log write for the current rock; cleared on each new prospector event. */
+	private boolean loggedCargoSinceLastProspector;
 
 	/** Run number currently in use for cargo-driven logging in this system/body; 0 means \"not yet chosen\". */
 	private int activeRun;
@@ -1461,6 +1464,7 @@ return EdoUi.User.MAIN_TEXT;
 				refreshSpreadsheetFromBackend();
 				wroteRowsThisRun = true;
 				haveActiveAsteroid = true;
+				loggedCargoSinceLastProspector = true;
 			} catch (Exception ignored) {
 			}
 		}
@@ -1560,6 +1564,7 @@ return EdoUi.User.MAIN_TEXT;
 		if (lastInventoryTonsAtProspector == null || lastInventoryTonsAtProspector.isEmpty()) {
 			asteroidIdCounter = 0;
 			prospectorLimpetSeenThisTrip = false;
+			loggedCargoSinceLastProspector = false;
 			wroteRowsThisRun = false;
 			miningLoggingArmed = false;
 			haveActiveAsteroid = false;
@@ -1593,6 +1598,7 @@ return EdoUi.User.MAIN_TEXT;
 		lastPercentByMaterialAtProspector = new HashMap<>();
 		asteroidIdCounter = 0;
 		prospectorLimpetSeenThisTrip = false;
+		loggedCargoSinceLastProspector = false;
 		wroteRowsThisRun = false;
 		miningLoggingArmed = false;
 		haveActiveAsteroid = false;
@@ -2315,12 +2321,12 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		if (!prospectorLimpetSeenThisTrip && !wroteRowsThisRun) {
 			syncAsteroidCounterFromBackendForCurrentLocation(nextMiningStartsNewRun);
 		}
-		// New limpet → next asteroid letter for the following cargo rows. Advance on every limpet after the
-		// first, even if the player never collected cargo on the previous rock (otherwise we stay on A).
-		if (prospectorLimpetSeenThisTrip) {
+		// New limpet after the first: advance the letter only if the previous rock produced logged cargo (not a dud).
+		if (prospectorLimpetSeenThisTrip && loggedCargoSinceLastProspector) {
 			asteroidIdCounter++;
 		}
 		prospectorLimpetSeenThisTrip = true;
+		loggedCargoSinceLastProspector = false;
 
 		asteroidBaselineTons = new HashMap<>();
 		haveActiveAsteroid = false;
