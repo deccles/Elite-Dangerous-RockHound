@@ -97,4 +97,22 @@ class MiningTabPanelTest {
         assertEquals(5.0, out.get("Tritium"), 1e-6);
     }
 
+    @Test
+    void parseAsteroidIdToIndex_examples() {
+        assertEquals(0, MiningTabPanel.parseAsteroidIdToIndex("A"));
+        assertEquals(1, MiningTabPanel.parseAsteroidIdToIndex("B"));
+        assertEquals(25, MiningTabPanel.parseAsteroidIdToIndex("Z"));
+        assertEquals(26, MiningTabPanel.parseAsteroidIdToIndex("AA"));
+        assertEquals(-1, MiningTabPanel.parseAsteroidIdToIndex(""));
+        assertEquals(-1, MiningTabPanel.parseAsteroidIdToIndex("A1"));
+    }
+
+    @Test
+    void formatAsteroidId_parseAsteroidIdToIndex_roundTrip_throughAA() {
+        for (int i = 0; i <= 80; i++) {
+            String letter = MiningTabPanel.formatAsteroidId(i);
+            assertEquals(i, MiningTabPanel.parseAsteroidIdToIndex(letter), "index " + i);
+        }
+    }
+
 }

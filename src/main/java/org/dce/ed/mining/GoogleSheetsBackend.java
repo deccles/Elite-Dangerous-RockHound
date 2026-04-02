@@ -253,8 +253,13 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                         row.set(11, body);
                         row.set(12, commander);
                         ensureRowSize(row, 15);
+                        // Never overwrite an existing start time: cargo upserts on a "continued" run still send
+                        // a fresh lastUndockTime and would corrupt the canonical run start.
                         if (r.getRunStartTime() != null) {
-                            row.set(13, r.getRunStartTime().atZone(zone).format(fmt));
+                            String existingStart = row.size() > 13 ? str(row.get(13)) : "";
+                            if (existingStart.isBlank()) {
+                                row.set(13, r.getRunStartTime().atZone(zone).format(fmt));
+                            }
                         }
                         if (r.getRunEndTime() != null) {
                             row.set(14, r.getRunEndTime().atZone(zone).format(fmt));
@@ -578,51 +583,30 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("M/d/yyyy H:mm:ss", Locale.US);
             String endStr = endTime.atZone(zone).format(fmt);
             String cmdr = commander != null ? commander : "";
-			// Prefer to set the end time on the canonical row for the run, which
-			// is the first asteroid of the run (asteroid "A"). If that cannot be
-			// found (older data), fall back to any row that has a start time.
-
-			// First pass: look for asteroid "A".
-			for (int i = 1; i < values.size(); i++) {
-				List<Object> row = values.get(i);
-				if (row == null || row.size() < 13) continue;
-				int rowRun = parseInt(row.get(0), 0);
-				String rowCommander = str(row.get(12));
-				String rowAsteroid = str(row.get(1));
-				String rowStart = row.size() > 13 ? str(row.get(13)) : "";
-				if (rowRun == run
-						&& java.util.Objects.equals(rowCommander, cmdr)
-						&& "A".equalsIgnoreCase(rowAsteroid)
-						&& !rowStart.isBlank()) {
-					ensureRowSize(row, 15);
-					row.set(14, endStr);
-					ValueRange bodyRange = new ValueRange().setValues(values);
-					sheets.spreadsheets().values()
-						.update(spreadsheetId, rangeA1O(), bodyRange)
-						.setValueInputOption(VALUE_INPUT_OPTION_USER_ENTERED)
-						.execute();
-					return;
-				}
-			}
-
-			// Second pass: any row in the run that has a start time.
-			for (int i = 1; i < values.size(); i++) {
-				List<Object> row = values.get(i);
-				if (row == null || row.size() < 13) continue;
-				int rowRun = parseInt(row.get(0), 0);
-				String rowCommander = str(row.get(12));
-				String rowStart = row.size() > 13 ? str(row.get(13)) : "";
-				if (rowRun == run && java.util.Objects.equals(rowCommander, cmdr) && !rowStart.isBlank()) {
-					ensureRowSize(row, 15);
-					row.set(14, endStr);
-					ValueRange bodyRange = new ValueRange().setValues(values);
-					sheets.spreadsheets().values()
-						.update(spreadsheetId, rangeA1O(), bodyRange)
-						.setValueInputOption(VALUE_INPUT_OPTION_USER_ENTERED)
-						.execute();
-					return;
-				}
-			}
+            // Every row for this run+commander must get an end time. Otherwise loadRows still sees
+            // (start set, end empty) on sibling materials / later asteroids and computeRunNumberForWrite
+            // treats the run as still open forever (matches LocalCsvBackend behavior).
+            boolean any = false;
+            for (int i = 1; i < values.size(); i++) {
+                List<Object> row = values.get(i);
+                if (row == null || row.size() < 13) {
+                    continue;
+                }
+                int rowRun = parseInt(row.get(0), 0);
+                String rowCommander = str(row.get(12));
+                if (rowRun == run && java.util.Objects.equals(rowCommander, cmdr)) {
+                    ensureRowSize(row, 15);
+                    row.set(14, endStr);
+                    any = true;
+                }
+            }
+            if (any) {
+                ValueRange bodyRange = new ValueRange().setValues(values);
+                sheets.spreadsheets().values()
+                        .update(spreadsheetId, rangeA1O(), bodyRange)
+                        .setValueInputOption(VALUE_INPUT_OPTION_USER_ENTERED)
+                        .execute();
+            }
         } catch (Exception e) {
             // don't break UI; caller may log
         }

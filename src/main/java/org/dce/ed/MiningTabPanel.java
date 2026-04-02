@@ -1384,9 +1384,25 @@ return EdoUi.User.MAIN_TEXT;
 			}
 		}
 		int run = activeRun;
-		if (!wroteRowsThisRun && previousRun != activeRun) {
-			// New run starts at asteroid A, even if multiple prospectors fired before first cargo write.
-			asteroidIdCounter = 0;
+		if (!wroteRowsThisRun && run > 0) {
+			try {
+				List<ProspectorLogRow> existing = prospectorBackendSupplier.get().loadRows();
+				int maxIdx = maxAsteroidIndexForRun(existing, run);
+				if (maxIdx >= 0) {
+					// Resume same run (e.g. overlay restarted mid-trip): continue lettering from the log.
+					// Do not overwrite a higher counter (e.g. prospector already advanced for the next rock).
+					if (asteroidIdCounter <= maxIdx) {
+						asteroidIdCounter = maxIdx;
+					}
+				} else if (previousRun != activeRun) {
+					// Brand-new run with no rows yet: start at A.
+					asteroidIdCounter = 0;
+				}
+			} catch (Exception ignored) {
+				if (previousRun != activeRun) {
+					asteroidIdCounter = 0;
+				}
+			}
 		}
 
 		// Determine asteroid ID: first gain after a boundary starts at current counter;
@@ -1689,8 +1705,8 @@ return EdoUi.User.MAIN_TEXT;
 		return lastRunGlobal + 1;
 	}
 
-	/** Format asteroid index as A, B, ..., Z, AA, AB, ... */
-	private static String formatAsteroidId(int index) {
+	/** Format asteroid index as A, B, ..., Z, AA, AB, ... (package-private for tests). */
+	static String formatAsteroidId(int index) {
 		if (index < 0) return "";
 		StringBuilder sb = new StringBuilder();
 		int n = index;
@@ -1699,6 +1715,71 @@ return EdoUi.User.MAIN_TEXT;
 			n = n / 26 - 1;
 		} while (n >= 0);
 		return sb.toString();
+	}
+
+	/**
+	 * Inverse of {@link #formatAsteroidId} for log-backed lettering; invalid or blank ids return -1.
+	 * Package-private for unit tests (same package).
+	 */
+	static int parseAsteroidIdToIndex(String id) {
+		if (id == null || id.isBlank()) {
+			return -1;
+		}
+		int result = 0;
+		for (int i = 0; i < id.length(); i++) {
+			char c = Character.toUpperCase(id.charAt(i));
+			if (c < 'A' || c > 'Z') {
+				return -1;
+			}
+			result = result * 26 + (c - 'A' + 1);
+		}
+		return result - 1;
+	}
+
+	private static int maxAsteroidIndexForRun(List<ProspectorLogRow> rows, int runNum) {
+		int max = -1;
+		if (rows == null || rows.isEmpty()) {
+			return -1;
+		}
+		for (ProspectorLogRow r : rows) {
+			if (r == null || r.getRun() != runNum) {
+				continue;
+			}
+			int idx = parseAsteroidIdToIndex(r.getAsteroidId());
+			if (idx > max) {
+				max = idx;
+			}
+		}
+		return max;
+	}
+
+	/**
+	 * After restart, align the in-memory asteroid letter with rows already stored for the resolved run
+	 * (continuing an open run). No-op once we have written this trip or when the backend has no rows for that run.
+	 */
+	private void syncAsteroidCounterFromBackendForCurrentLocation(boolean forceNewRun) {
+		if (wroteRowsThisRun) {
+			return;
+		}
+		String commander = OverlayPreferences.getMiningLogCommanderName();
+		if (commander == null || commander.isBlank()) {
+			commander = "-";
+		}
+		String sys = currentSystemName != null && !currentSystemName.isBlank()
+				? currentSystemName
+				: (lastNonEmptySystemName != null ? lastNonEmptySystemName : "");
+		String body = currentBodyName != null && !currentBodyName.isBlank()
+				? currentBodyName
+				: (lastNonEmptyBodyName != null ? lastNonEmptyBodyName : "");
+		int run = computeRunNumberForWrite(commander, sys, body, forceNewRun);
+		try {
+			List<ProspectorLogRow> existing = prospectorBackendSupplier.get().loadRows();
+			int maxIdx = maxAsteroidIndexForRun(existing, run);
+			if (maxIdx >= 0) {
+				asteroidIdCounter = maxIdx;
+			}
+		} catch (Exception ignored) {
+		}
 	}
 
 	/** Update cached location from Location event (system + body). */
@@ -2229,6 +2310,11 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		// Prospector events now act as asteroid boundaries and update percent estimates,
 		// but do not directly write spreadsheet rows. Cargo changes drive logging.
 		miningLoggingArmed = true;
+		// First limpet after overlay start (or mid-run resume): match lettering to the log so we do not restart at A
+		// while {@link #computeRunNumberForWrite} continues an open run.
+		if (!prospectorLimpetSeenThisTrip && !wroteRowsThisRun) {
+			syncAsteroidCounterFromBackendForCurrentLocation(nextMiningStartsNewRun);
+		}
 		// New limpet → next asteroid letter for the following cargo rows. Advance on every limpet after the
 		// first, even if the player never collected cargo on the previous rock (otherwise we stay on A).
 		if (prospectorLimpetSeenThisTrip) {
