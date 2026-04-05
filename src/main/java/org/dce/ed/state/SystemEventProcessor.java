@@ -314,12 +314,19 @@ public class SystemEventProcessor {
         }
 
         info.setAtmoOrType(chooseAtmoOrType(e));
-        boolean highValueBody = isHighValue(e);
-        info.setHighValue(highValueBody);
-        info.setTerraformState(e.getTerraformState());
-        info.setMassEm(e.getMassEm());
+        String tfState = e.getTerraformState();
+        if (tfState != null && !tfState.isBlank()) {
+            info.setTerraformState(tfState);
+        }
+        Double scanMassEm = e.getMassEm();
+        if (scanMassEm != null && scanMassEm.doubleValue() > 0) {
+            info.setMassEm(scanMassEm);
+        }
 
-        info.setPlanetClass(e.getPlanetClass());
+        String scanPlanetClass = e.getPlanetClass();
+        if (scanPlanetClass != null && !scanPlanetClass.isBlank()) {
+            info.setPlanetClass(scanPlanetClass);
+        }
         info.setAtmosphere(e.getAtmosphere());
 
         if (e.getAtmosphereComposition() != null && !e.getAtmosphereComposition().isEmpty()) {
@@ -379,12 +386,14 @@ public class SystemEventProcessor {
             }
         }
 
-        if (highValueBody) {
+        ExplorationBodyCredits.syncHighValueExplorationFromClassifiers(info);
+        if (info.isHighValue()) {
             long cr = ExplorationBodyCredits.achievableExplorationTotalCredits(info);
             if (cr > 0) {
                 info.setValuableBodyExplorationCredits(Long.valueOf(cr));
             } else {
-                Long fb = ValuableBodyExplorationEstimate.estimateCredits(info.getPlanetClass(), info.getTerraformState());
+                Long fb = ValuableBodyExplorationEstimate.estimateCredits(
+                        ExplorationBodyCredits.explorationTypeHint(info), info.getTerraformState());
                 info.setValuableBodyExplorationCredits(fb != null ? fb
                         : Long.valueOf(ValuableBodyExplorationEstimate.TERRAFORMABLE_FALLBACK));
             }
@@ -804,15 +813,6 @@ public class SystemEventProcessor {
         return "";
     }
 
-    private boolean isHighValue(ScanEvent e) {
-        String pc = toLower(e.getPlanetClass());
-        String tf = toLower(e.getTerraformState());
-        return pc.contains("earth-like")
-                || pc.contains("water world")
-                || pc.contains("ammonia world")
-                || tf.contains("terraformable");
-    }
-    
     private static int tempBodyKey(String bodyName) {
         if (bodyName == null) {
             return Integer.MIN_VALUE;
@@ -915,6 +915,29 @@ public class SystemEventProcessor {
                 && !tmp.getPredictions().isEmpty()) {
             real.setPredictions(tmp.getPredictions());
         }
+
+        if (tmp.getPlanetClass() != null && !tmp.getPlanetClass().isBlank()
+                && (real.getPlanetClass() == null || real.getPlanetClass().isBlank())) {
+            real.setPlanetClass(tmp.getPlanetClass());
+        }
+        if (tmp.getAtmoOrType() != null && !tmp.getAtmoOrType().isBlank()
+                && (real.getAtmoOrType() == null || real.getAtmoOrType().isBlank())) {
+            real.setAtmoOrType(tmp.getAtmoOrType());
+        }
+        if ((real.getTerraformState() == null || real.getTerraformState().isBlank())
+                && tmp.getTerraformState() != null && !tmp.getTerraformState().isBlank()) {
+            real.setTerraformState(tmp.getTerraformState());
+        }
+        if (real.getMassEm() == null && tmp.getMassEm() != null) {
+            real.setMassEm(tmp.getMassEm());
+        }
+        Long tmpCr = tmp.getValuableBodyExplorationCredits();
+        Long realCr = real.getValuableBodyExplorationCredits();
+        if (tmpCr != null && (realCr == null || tmpCr.longValue() > realCr.longValue())) {
+            real.setValuableBodyExplorationCredits(tmpCr);
+        }
+
+        ExplorationBodyCredits.syncHighValueExplorationFromClassifiers(real);
 
         state.getBodies().remove(tmpKey);
     }

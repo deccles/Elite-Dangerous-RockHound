@@ -353,6 +353,9 @@ public final class SystemCache implements SystemStore {
             if (cb.observedBioDisplayNames != null && !cb.observedBioDisplayNames.isEmpty()) {
                 info.setObservedBioDisplayNames(new java.util.HashSet<>(cb.observedBioDisplayNames));
             }
+
+            ExplorationBodyCredits.syncHighValueExplorationFromClassifiers(info);
+
             if (info.isPlanetaryBodyForRingDisplay()
                     && cb.ringReserveHumanized != null
                     && !cb.ringReserveHumanized.isBlank()) {
@@ -517,6 +520,13 @@ public final class SystemCache implements SystemStore {
                 info.setMassEm(remote.earthMasses);
             }
 
+            if (remote.discovery != null
+                    && remote.discovery.commander != null
+                    && !remote.discovery.commander.isBlank()
+                    && info.getWasDiscovered() == null) {
+                info.setWasDiscovered(Boolean.TRUE);
+            }
+
             if ((info.getDistanceLs() <= 0 || Double.isNaN(info.getDistanceLs()))
                     && remote.distanceToArrival != null) {
                 info.setDistanceLs(remote.distanceToArrival);
@@ -540,21 +550,15 @@ public final class SystemCache implements SystemStore {
                 }
             }
 
-            // High value (EDSM-only bodies won't hit your ScanEvent logic)
-            String pc = toLower(remote.subType);
-            String tf = toLower(remote.terraformingState);
-            boolean highValue =
-                    pc.contains("earth-like")
-                            || pc.contains("water world")
-                            || pc.contains("ammonia world")
-                            || tf.contains("terraformable");
-            info.setHighValue(highValue);
-            if (highValue) {
+            // High-value exploration flag + credits (journal classifiers + EDSM merge; do not wipe journal truth)
+            ExplorationBodyCredits.syncHighValueExplorationFromClassifiers(info);
+            if (info.isHighValue()) {
                 long cr = ExplorationBodyCredits.achievableExplorationTotalCredits(info);
                 if (cr > 0) {
                     info.setValuableBodyExplorationCredits(Long.valueOf(cr));
                 } else {
-                    Long fb = ValuableBodyExplorationEstimate.estimateCredits(remote.subType, remote.terraformingState);
+                    Long fb = ValuableBodyExplorationEstimate.estimateCredits(
+                            ExplorationBodyCredits.explorationTypeHint(info), info.getTerraformState());
                     info.setValuableBodyExplorationCredits(fb != null ? fb
                             : Long.valueOf(ValuableBodyExplorationEstimate.TERRAFORMABLE_FALLBACK));
                 }

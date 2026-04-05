@@ -143,12 +143,63 @@ public final class ExplorationBodyCredits {
     }
 
     /**
+     * Prefer journal {@code PlanetClass}; if missing (common on partial cache rows), fall back to display
+     * {@link BodyInfo#getAtmoOrType()} which often still contains e.g. "Earth-like world".
+     */
+    public static String explorationTypeHint(BodyInfo b) {
+        if (b == null) {
+            return "";
+        }
+        String pc = b.getPlanetClass();
+        if (pc != null && !pc.isBlank()) {
+            return pc;
+        }
+        String at = b.getAtmoOrType();
+        return at != null ? at.trim() : "";
+    }
+
+    /**
+     * ELW / WW / ammonia world / terraformable tier — matches the bodies we show exploration estimates for.
+     * Uses {@link #explorationTypeHint(BodyInfo)} so cached rows still work when {@code PlanetClass} was stored
+     * only in {@link BodyInfo#getAtmoOrType()}.
+     */
+    public static boolean isJournalValuableExplorationTarget(BodyInfo b) {
+        if (b == null) {
+            return false;
+        }
+        return isJournalValuableExplorationTarget(explorationTypeHint(b), b.getTerraformState());
+    }
+
+    /**
+     * @param typeHint planet class or atmosphere/type line (see {@link #explorationTypeHint(BodyInfo)})
+     */
+    public static boolean isJournalValuableExplorationTarget(String typeHint, String terraformState) {
+        String pc = lc(typeHint);
+        if (pc.contains("earth-like") || pc.contains("earthlike")) {
+            return true;
+        }
+        if (pc.contains("water world") || pc.contains("ammonia world")) {
+            return true;
+        }
+        return TerraformingUtil.isTerraformableExplorationTier(terraformState);
+    }
+
+    /**
+     * Sets {@link BodyInfo#setHighValue(boolean)} from classifiers on the body (journal + merged cache/EDSM).
+     */
+    public static void syncHighValueExplorationFromClassifiers(BodyInfo b) {
+        if (b == null) {
+            return;
+        }
+        b.setHighValue(isJournalValuableExplorationTarget(b));
+    }
+
+    /**
      * Exploration coefficient k (combined base + terraformable tier when applicable).
      */
     public static int explorationK(String planetClass, String terraformState) {
         String pc = lc(planetClass);
-        String tf = lc(terraformState);
-        boolean terraformable = tf.contains("terraformable");
+        boolean terraformable = TerraformingUtil.isTerraformableExplorationTier(terraformState);
         if (pc.contains("earth-like") || pc.contains("earthlike")) {
             return 64831 + 116295;
         }
@@ -187,7 +238,7 @@ public final class ExplorationBodyCredits {
         if (pc.contains("high metal content") || pc.contains("metal rich")) {
             return 0.6;
         }
-        if (lc(terraformState).contains("terraformable")) {
+        if (TerraformingUtil.isTerraformableExplorationTier(terraformState)) {
             return 0.35;
         }
         return 0.5;
@@ -228,14 +279,15 @@ public final class ExplorationBodyCredits {
         if (b == null || !b.isHighValue()) {
             return 0L;
         }
-        int k = explorationK(b.getPlanetClass(), b.getTerraformState());
+        String typeHint = explorationTypeHint(b);
+        int k = explorationK(typeHint, b.getTerraformState());
         if (k <= 0) {
             return 0L;
         }
         Double massObj = b.getMassEm();
         double mass = massObj != null && massObj.doubleValue() > 0
                 ? massObj.doubleValue()
-                : defaultMassEm(b.getPlanetClass(), b.getTerraformState());
+                : defaultMassEm(typeHint, b.getTerraformState());
         boolean firstDiscoverer = Boolean.FALSE.equals(b.getWasDiscovered());
         boolean firstMapper = firstDiscoverer && !Boolean.TRUE.equals(b.getWasMapped());
         return achievableTotalCredits(k, mass, firstDiscoverer, firstMapper);
@@ -248,14 +300,15 @@ public final class ExplorationBodyCredits {
         if (b == null || !b.isHighValue()) {
             return null;
         }
-        int k = explorationK(b.getPlanetClass(), b.getTerraformState());
+        String typeHint = explorationTypeHint(b);
+        int k = explorationK(typeHint, b.getTerraformState());
         if (k <= 0) {
             return null;
         }
         Double massObj = b.getMassEm();
         double mass = massObj != null && massObj.doubleValue() > 0
                 ? massObj.doubleValue()
-                : defaultMassEm(b.getPlanetClass(), b.getTerraformState());
+                : defaultMassEm(typeHint, b.getTerraformState());
         double raw = rawScanValue(k, mass);
         if (raw <= 0) {
             return null;

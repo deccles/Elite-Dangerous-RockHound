@@ -617,6 +617,13 @@ public class EdsmClient {
                 info.setMassEm(remote.earthMasses);
             }
 
+            if (remote.discovery != null
+                    && remote.discovery.commander != null
+                    && !remote.discovery.commander.isBlank()
+                    && info.getWasDiscovered() == null) {
+                info.setWasDiscovered(Boolean.TRUE);
+            }
+
             // Parent star: parents[].Star contains the star id (same numeric id as in the list)
             if ((info.getParentStar() == null || info.getParentStar().isEmpty())
                     && remote.parents != null
@@ -638,12 +645,11 @@ public class EdsmClient {
 
             // High-value heuristic (same as your ScanEvent-based logic)
             String pc = toLower(remote.subType);
-            String tf = toLower(remote.terraformingState);
             boolean highValue =
                     pc.contains("earth-like")
                             || pc.contains("water world")
                             || pc.contains("ammonia world")
-                            || tf.contains("terraformable");
+                            || TerraformingUtil.isTerraformableExplorationTier(remote.terraformingState);
             info.setHighValue(highValue);
             if (highValue) {
                 long cr = ExplorationBodyCredits.achievableExplorationTotalCredits(info);

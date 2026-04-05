@@ -2038,8 +2038,11 @@ static class Row {
                     if (html != null) {
                         return html;
                     }
-                    return "<html><body style='font-size:11px;text-align:left'>High-value world.<br/>"
-                            + "A detailed scan (journal MassEM) refines the payout estimate.</body></html>";
+                    String fallback = ValuableBodyExplorationEstimate.formatHighValueFallbackTooltipHtml(r.body);
+                    if (fallback != null) {
+                        return fallback;
+                    }
+                    return "<html><body style='font-size:11px;text-align:left'>High-value world.</body></html>";
                 }
                 if (r != null && r.detail && !r.destinationRow && !r.isRingDetail()
                         && r.bioValue != null && !r.bioValue.isBlank()) {

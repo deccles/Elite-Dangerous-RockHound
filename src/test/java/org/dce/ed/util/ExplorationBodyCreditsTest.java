@@ -1,6 +1,7 @@
 package org.dce.ed.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.dce.ed.state.BodyInfo;
@@ -32,5 +33,41 @@ class ExplorationBodyCreditsTest {
     @Test
     void explorationK_earthLike() {
         assertEquals(64831 + 116295, ExplorationBodyCredits.explorationK("Earth-like world", ""));
+    }
+
+    @Test
+    void explorationK_metalRich_notTerraformableStringIsNotTerraformTier() {
+        assertEquals(21790, ExplorationBodyCredits.explorationK("Metal rich body", "Not terraformable"));
+    }
+
+    @Test
+    void explorationK_metalRich_candidateForTerraformingUsesTerraformTier() {
+        assertEquals(21790 + 105678,
+                ExplorationBodyCredits.explorationK("Metal rich body", "Candidate for terraforming"));
+    }
+
+    @Test
+    void explorationTypeHint_usesAtmoWhenPlanetClassMissing() {
+        BodyInfo b = new BodyInfo();
+        b.setAtmoOrType("Earth-like world");
+        assertEquals("Earth-like world", ExplorationBodyCredits.explorationTypeHint(b));
+        assertTrue(ExplorationBodyCredits.explorationK(
+                ExplorationBodyCredits.explorationTypeHint(b), "") > 0);
+    }
+
+    @Test
+    void journalValuableTarget_trueWhenOnlyAtmoOrTypeHasElw() {
+        BodyInfo b = new BodyInfo();
+        b.setHighValue(false);
+        b.setAtmoOrType("Earth-like world");
+        assertTrue(ExplorationBodyCredits.isJournalValuableExplorationTarget(b));
+        ExplorationBodyCredits.syncHighValueExplorationFromClassifiers(b);
+        assertTrue(b.isHighValue());
+    }
+
+    @Test
+    void journalValuableTarget_notTerraformableIsFalse() {
+        assertFalse(ExplorationBodyCredits.isJournalValuableExplorationTarget(
+                "High metal content body", "Not terraformable"));
     }
 }

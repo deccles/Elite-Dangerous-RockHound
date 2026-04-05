@@ -28,8 +28,7 @@ public final class ValuableBodyExplorationEstimate {
      */
     public static Long estimateCredits(String planetClass, String terraformState) {
         String pc = toLower(planetClass);
-        String tf = toLower(terraformState);
-        boolean terraformable = tf.contains("terraformable");
+        boolean terraformable = TerraformingUtil.isTerraformableExplorationTier(terraformState);
         if (pc.contains("earth-like") || pc.contains("earthlike")) {
             return Long.valueOf(ELW_TYPICAL);
         }
@@ -60,8 +59,39 @@ public final class ValuableBodyExplorationEstimate {
         if (stored != null && stored.longValue() > 0) {
             return stored.longValue();
         }
-        Long est = estimateCredits(b.getPlanetClass(), b.getTerraformState());
+        Long est = estimateCredits(ExplorationBodyCredits.explorationTypeHint(b), b.getTerraformState());
         return est != null ? est.longValue() : TERRAFORMABLE_FALLBACK;
+    }
+
+    /**
+     * When {@link ExplorationBodyCredits#formatExplorationTooltipHtml} has no line breakdown, explain the cell total.
+     */
+    public static String formatHighValueFallbackTooltipHtml(BodyInfo b) {
+        if (b == null || !b.isHighValue()) {
+            return null;
+        }
+        long cr = resolveCreditsForDisplay(b);
+        if (cr <= 0) {
+            return null;
+        }
+        boolean hasMass = b.getMassEm() != null && b.getMassEm().doubleValue() > 0;
+        boolean hasK = ExplorationBodyCredits.explorationK(
+                ExplorationBodyCredits.explorationTypeHint(b), b.getTerraformState()) > 0;
+        StringBuilder sb = new StringBuilder(400);
+        sb.append("<html><body style='font-size:11px;text-align:left'>");
+        sb.append("<b>Total shown: ").append(formatCredits(cr)).append("</b><br/><br/>");
+        if (!hasK) {
+            sb.append("Line-by-line exploration math needs a recognized world type (e.g. Earth-like / water world / terraformable). ");
+            sb.append("This row may be missing planet class in cache; jump or re-scan can refresh it.<br/><br/>");
+        }
+        if (!hasMass) {
+            sb.append("<b>MassEM</b> in the journal is Earth masses. Elite usually adds it on a <b>detailed surface scan</b>, ");
+            sb.append("not on FSS discovery alone. The overlay keeps MassEM after the first scan that includes it.<br/><br/>");
+        } else {
+            sb.append("Earth masses (MassEM) are stored for this body.<br/><br/>");
+        }
+        sb.append("</body></html>");
+        return sb.toString();
     }
 
     public static String formatCredits(long credits) {
