@@ -1,5 +1,6 @@
 package org.dce.ed;
 
+import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -13,6 +14,7 @@ import org.dce.ed.SystemTabPanel.Row;
 import org.dce.ed.exobiology.BodyAttributes;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.ui.EdoUi;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.RingSummaryFormatter;
 import org.dce.ed.util.SpanshBodyExobiologyInfo;
@@ -64,6 +66,28 @@ final class BioTableBuilder {
      * sampled species; when nothing is scanned yet, appends FSS {@code (n signals)} if known.
      */
     static String formatBodyBioColumnText(BodyInfo b) {
+        BioColumnHeaderParts parts = buildBioColumnHeaderParts(b);
+        return parts == null ? null : parts.toPlainString();
+    }
+
+    /**
+     * HTML for the body-row bio column: subdued gray for {@code (n signals)} and {@code (Xm scanned)};
+     * green only for the million-scale remaining range/value when its max credits meet or exceed
+     * {@code valuableThresholdCredits}.
+     */
+    static String formatBodyBioColumnHtml(BodyInfo b, long valuableThresholdCredits) {
+        BioColumnHeaderParts parts = buildBioColumnHeaderParts(b);
+        if (parts != null && !parts.isEmpty()) {
+            return parts.toHtml(valuableThresholdCredits);
+        }
+        String summary = computeBioHeaderSummary(b);
+        if (summary == null || summary.isBlank()) {
+            return null;
+        }
+        return singleMillionSummaryHtml(summary, valuableThresholdCredits);
+    }
+
+    private static BioColumnHeaderParts buildBioColumnHeaderParts(BodyInfo b) {
         if (b == null) {
             return null;
         }
@@ -72,7 +96,12 @@ final class BioTableBuilder {
         int fssN = (fss != null && fss.intValue() > 0) ? fss.intValue() : 0;
 
         if (split == null) {
-            return fssN > 0 ? parentheticalSignals(fssN) : null;
+            if (fssN <= 0) {
+                return null;
+            }
+            BioColumnHeaderParts onlySignals = new BioColumnHeaderParts();
+            onlySignals.signalsParenthetical = parentheticalSignals(fssN);
+            return onlySignals;
         }
 
         long claimedSum = 0L;
@@ -83,36 +112,146 @@ final class BioTableBuilder {
         }
 
         String remainingStr = null;
-        long[] payoutRange = null;
+        Long maxRemainingCr = null;
         if (!split.remainingPerSpecies.isEmpty()) {
-            payoutRange = bioPayoutRangeFromRemainingCredits(
+            long[] payoutRange = bioPayoutRangeFromRemainingCredits(
                     split.remainingMin, split.remainingMax, b.getNumberOfBioSignals());
             if (payoutRange != null) {
                 remainingStr = formatRemainingMillionSummaryForHeader(
                         payoutRange[0], payoutRange[1], split.remainingPerSpecies);
+                maxRemainingCr = Long.valueOf(payoutRange[1]);
             }
         }
 
-        StringBuilder sb = new StringBuilder();
-        if (remainingStr != null && !remainingStr.isEmpty()) {
-            sb.append(remainingStr);
-        }
+        BioColumnHeaderParts p = new BioColumnHeaderParts();
+        p.remainingMillionText = remainingStr;
+        p.maxRemainingCredits = maxRemainingCr;
         if (claimedSum > 0L) {
-            if (sb.length() > 0) {
-                sb.append(' ');
-            }
-            String scanned = formatScannedCreditsParenthetical(claimedSum);
-            if (scanned != null) {
-                sb.append(scanned);
-            }
+            p.scannedParenthetical = formatScannedCreditsParenthetical(claimedSum);
         }
         if (claimedSum <= 0L && fssN > 0) {
-            if (sb.length() > 0) {
-                sb.append(' ');
-            }
-            sb.append(parentheticalSignals(fssN));
+            p.signalsParenthetical = parentheticalSignals(fssN);
         }
-        return sb.length() == 0 ? null : sb.toString();
+        return p.isEmpty() ? null : p;
+    }
+
+    private static final class BioColumnHeaderParts {
+        String remainingMillionText;
+        Long maxRemainingCredits;
+        String scannedParenthetical;
+        String signalsParenthetical;
+
+        boolean isEmpty() {
+            return (remainingMillionText == null || remainingMillionText.isEmpty())
+                    && scannedParenthetical == null
+                    && signalsParenthetical == null;
+        }
+
+        String toPlainString() {
+            StringBuilder sb = new StringBuilder();
+            if (remainingMillionText != null && !remainingMillionText.isEmpty()) {
+                sb.append(remainingMillionText);
+            }
+            if (scannedParenthetical != null) {
+                if (sb.length() > 0) {
+                    sb.append(' ');
+                }
+                sb.append(scannedParenthetical);
+            }
+            if (signalsParenthetical != null) {
+                if (sb.length() > 0) {
+                    sb.append(' ');
+                }
+                sb.append(signalsParenthetical);
+            }
+            return sb.length() == 0 ? null : sb.toString();
+        }
+
+        String toHtml(long valuableThresholdCredits) {
+            Color subdued = EdoUi.Internal.GRAY_180;
+            Color valuable = Color.GREEN;
+            String sub = htmlRgb(subdued);
+            String val = htmlRgb(valuable);
+            StringBuilder sb = new StringBuilder("<html><body style='margin:0'>");
+            boolean needSpace = false;
+            if (remainingMillionText != null && !remainingMillionText.isEmpty()) {
+                boolean hi = maxRemainingCredits != null
+                        && maxRemainingCredits.longValue() >= valuableThresholdCredits;
+                sb.append("<font color='").append(hi ? val : sub).append("'>")
+                        .append(escapeHtml(remainingMillionText)).append("</font>");
+                needSpace = true;
+            }
+            if (scannedParenthetical != null) {
+                if (needSpace) {
+                    sb.append(' ');
+                }
+                sb.append("<font color='").append(sub).append("'>")
+                        .append(escapeHtml(scannedParenthetical)).append("</font>");
+                needSpace = true;
+            }
+            if (signalsParenthetical != null) {
+                if (needSpace) {
+                    sb.append(' ');
+                }
+                sb.append("<font color='").append(sub).append("'>")
+                        .append(escapeHtml(signalsParenthetical)).append("</font>");
+            }
+            sb.append("</body></html>");
+            return sb.toString();
+        }
+    }
+
+    private static String singleMillionSummaryHtml(String summary, long valuableThresholdCredits) {
+        Long maxCr = parseMaxCreditsFromMillionSummaryLabel(summary);
+        Color subdued = EdoUi.Internal.GRAY_180;
+        Color valuable = Color.GREEN;
+        String sub = htmlRgb(subdued);
+        String val = htmlRgb(valuable);
+        boolean hi = maxCr != null && maxCr.longValue() >= valuableThresholdCredits;
+        return "<html><body style='margin:0'><font color='" + (hi ? val : sub) + "'>"
+                + escapeHtml(summary.trim()) + "</font></body></html>";
+    }
+
+    /** Parses e.g. {@code 182M} or {@code 5–182M} (en dash) to max credits. */
+    private static Long parseMaxCreditsFromMillionSummaryLabel(String text) {
+        if (text == null) {
+            return null;
+        }
+        String s = text.trim();
+        if (!s.endsWith("M")) {
+            return null;
+        }
+        String core = s.substring(0, s.length() - 1).trim();
+        int dash = -1;
+        for (int i = 0; i < core.length(); i++) {
+            char ch = core.charAt(i);
+            if (ch == '\u2013' || ch == '-') {
+                dash = i;
+                break;
+            }
+        }
+        try {
+            if (dash >= 0) {
+                long a = Long.parseLong(core.substring(0, dash).trim());
+                long b = Long.parseLong(core.substring(dash + 1).trim());
+                return Long.valueOf(Math.max(a, b) * 1_000_000L);
+            }
+            long n = Long.parseLong(core);
+            return Long.valueOf(n * 1_000_000L);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static String htmlRgb(Color c) {
+        return String.format("#%06x", c.getRGB() & 0xffffff);
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 
     private static String parentheticalSignals(int n) {

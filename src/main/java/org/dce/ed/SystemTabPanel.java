@@ -1911,8 +1911,13 @@ public class SystemTabPanel extends JPanel {
                 }
             }
 
-            if (text.indexOf('M') >= 0 && !isSelected) {
-                c.setForeground(Color.GREEN);
+            long bioValuableThresholdCr = OverlayPreferences.getMiningExobiologyValuableBioThresholdCredits();
+            String displayText = text;
+            if (!isSelected && hasBio && !text.isEmpty()) {
+                String html = BioTableBuilder.formatBodyBioColumnHtml(b, bioValuableThresholdCr);
+                if (html != null) {
+                    displayText = html;
+                }
             }
 
             int slotW = bioColumnBioLeadingSlotWidthPx();
@@ -1923,7 +1928,7 @@ public class SystemTabPanel extends JPanel {
                 leafMoney.add(bioLeafIcon);
                 long rowCr = BioTableBuilder.getMaxBioEstimatedCredits(b);
                 if (rowCr != Long.MIN_VALUE
-                        && rowCr >= OverlayPreferences.getMiningExobiologyValuableBioThresholdCredits()) {
+                        && rowCr >= bioValuableThresholdCr) {
                     leafMoney.add(bioDollarIcon);
                 }
                 HorizontalIconStack stack = new HorizontalIconStack(0);
@@ -1938,7 +1943,7 @@ public class SystemTabPanel extends JPanel {
             }
 
             c.setIcon(composite);
-            c.setText(text);
+            c.setText(displayText);
             c.setHorizontalTextPosition(SwingConstants.RIGHT);
             c.setIconTextGap(4);
             return c;
