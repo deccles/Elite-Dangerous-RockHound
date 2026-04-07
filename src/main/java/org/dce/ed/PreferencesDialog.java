@@ -147,6 +147,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
 
 	private JSpinner bioValuableThresholdMillionSpinner;
+	private JCheckBox autoExpandBioOnTargetedBodyCheckBox;
 
 	private boolean okPressed;
 	private final Font originalUiFont;
@@ -1078,6 +1079,17 @@ public class PreferencesDialog extends JDialog {
 		bioValuableThresholdMillionSpinner.setToolTipText(valuableBioLabel.getToolTipText());
 		box.add(bioValuableThresholdMillionSpinner, gbc);
 
+		gbc.gridx = 0;
+		gbc.gridy = 1;
+		gbc.gridwidth = 2;
+		autoExpandBioOnTargetedBodyCheckBox = new JCheckBox(
+				"Auto-expand exobiology when a body is targeted (dashed outline)",
+				OverlayPreferences.isAutoExpandBioOnTargetedBody());
+		autoExpandBioOnTargetedBodyCheckBox.setOpaque(false);
+		autoExpandBioOnTargetedBodyCheckBox.setToolTipText(
+				"When enabled, the System tab expands exobiology detail lines for your navigation target and collapses them when the target clears.");
+		box.add(autoExpandBioOnTargetedBodyCheckBox, gbc);
+
 		panel.add(box, BorderLayout.NORTH);
 		return panel;
 	}
@@ -1687,6 +1699,9 @@ public class PreferencesDialog extends JDialog {
             } catch (Exception e) {
                 // ignore
             }
+        }
+        if (autoExpandBioOnTargetedBodyCheckBox != null) {
+            OverlayPreferences.setAutoExpandBioOnTargetedBody(autoExpandBioOnTargetedBodyCheckBox.isSelected());
         }
 
         // Other tabs can be wired into OverlayPreferences later as needed.

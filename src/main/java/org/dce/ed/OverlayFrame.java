@@ -860,10 +860,12 @@ private void refreshPassThroughUnifiedStatus() {
 
     public void setPassThroughEnabled(boolean enabled) {
         if (this.passThroughEnabled == enabled) {
+            OverlayPreferences.setOverlayMousePassThroughToGame(enabled);
             return;
         }
 
         this.passThroughEnabled = enabled;
+        OverlayPreferences.setOverlayMousePassThroughToGame(enabled);
         applyPassThrough(this.passThroughEnabled);
         applyOverlayBackgroundFromPreferences(this.passThroughEnabled);
 

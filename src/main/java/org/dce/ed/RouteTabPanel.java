@@ -5,6 +5,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
@@ -32,6 +33,7 @@ import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.SwingConstants;
@@ -44,6 +46,9 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumnModel;
+
+import org.dce.ed.ui.PassThroughScrollSupport;
+import org.dce.ed.ui.SubtleScrollBarUI;
 
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.CachedSystemSummary;
@@ -214,6 +219,14 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	/** Apply persisted route state (for restore on startup). */
+	/**
+	 * Mouse pass-through: apply global wheel to the route table scroller when the pointer is over it and the
+	 * vertical bar is visible.
+	 */
+	public boolean applyPassThroughWheelIfHit(int screenX, int screenY, int wheelRotation) {
+		return PassThroughScrollSupport.applyVerticalWheelIfHit(routeScrollPane, screenX, screenY, wheelRotation);
+	}
+
 	public void applySessionState(EdoSessionState state) {
 		if (state == null) {
 			return;
@@ -443,6 +456,15 @@ public class RouteTabPanel extends JPanel {
 			th.setBorder(null);
 		}
 		th.setBorder(null);
+
+		if (routeScrollPane.getVerticalScrollBar() != null) {
+			JScrollBar vsb = routeScrollPane.getVerticalScrollBar();
+			vsb.setOpaque(false);
+			vsb.setBackground(EdoUi.Internal.TRANSPARENT);
+			vsb.setUI(new SubtleScrollBarUI());
+			vsb.setPreferredSize(new Dimension(12, Integer.MAX_VALUE));
+		}
+		routeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
 		add(headerLabel, BorderLayout.NORTH);
 		add(routeScrollPane, BorderLayout.CENTER);

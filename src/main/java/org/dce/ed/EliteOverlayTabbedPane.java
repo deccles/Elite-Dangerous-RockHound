@@ -114,6 +114,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private final NearbyTabPanel nearbyTab;
 	private final FleetCarrierTabPanel fleetCarrierTab;
 
+	/** Current card name (same values as {@code CARD_*}) for pass-through wheel routing. */
+	private volatile String visibleCardName = CARD_SYSTEM;
+
 	private static final TtsSprintf tts = new TtsSprintf(new PollyTtsCached());
 
 	private final GalacticAveragePrices galacticAvgPrices = GalacticAveragePrices.loadDefault();
@@ -853,6 +856,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 				return;
 			}
 		}
+		visibleCardName = CARD_SYSTEM;
 		cardLayout.show(cardPanel, CARD_SYSTEM);
 	}
 
@@ -887,6 +891,29 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(fleetCarrierButton);
 
 		cardLayout.show(cardPanel, cardName);
+		visibleCardName = cardName;
+	}
+
+	/**
+	 * Forward a global mouse wheel (pass-through mode) to the active tab's main vertical scroller when the pointer
+	 * is over that scroller and its vertical scroll bar is visible. Route, System, and Fleet Carrier tabs only.
+	 *
+	 * @return {@code true} if a scroll bar was adjusted
+	 */
+	public boolean handlePassThroughMouseWheelAtScreen(int screenX, int screenY, int wheelRotation) {
+		if (!isShowing() || wheelRotation == 0) {
+			return false;
+		}
+		switch (visibleCardName) {
+		case CARD_ROUTE:
+			return routeTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+		case CARD_SYSTEM:
+			return systemTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+		case CARD_FLEET_CARRIER:
+			return fleetCarrierTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+		default:
+			return false;
+		}
 	}
 
 	private void applyTabButtonStyle(JButton button) {

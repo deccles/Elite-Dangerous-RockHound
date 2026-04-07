@@ -10,11 +10,14 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.MouseInfo;
 import java.awt.Point;
+import java.awt.PointerInfo;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
+import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
@@ -23,9 +26,12 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -39,12 +45,14 @@ import javax.swing.JTextField;
 import javax.swing.JViewport;
 import javax.swing.ListSelectionModel;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.Timer;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
+import javax.swing.table.TableCellRenderer;
 
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
@@ -69,6 +77,8 @@ import org.dce.ed.state.SystemState;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.PassThroughScrollSupport;
+import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
 /**
@@ -82,6 +92,7 @@ import org.dce.ed.util.FirstBonusHelper;
 public class SystemTabPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
+
     // Bio column icons (painted, no external resources) - scaled from current UI font.
     private Icon bioLeafIcon = new LeafIcon(18, 18);
     private Icon bioDollarIcon = new DollarIcon(16, 16);
@@ -95,6 +106,8 @@ public class SystemTabPanel extends JPanel {
         private Font uiFont = OverlayPreferences.getUiFont();
 
     private final JTable table;
+    /** Main bodies table scroller (pass-through wheel forwarding). */
+    private final JScrollPane systemBodyScrollPane;
     private final JTextField headerLabel;
     private final SystemBodiesTableModel tableModel;
 
@@ -116,6 +129,44 @@ public class SystemTabPanel extends JPanel {
     // When a station/carrier is targeted, Destination.Body is the parent body and Destination.DisplayName is the station/carrier.
     private volatile Integer targetDestinationParentBodyId;
     private volatile String targetDestinationName;
+
+    /** Body IDs whose exobiology detail rows are hidden (body + ring lines remain). */
+    private final Set<Integer> bioDetailsCollapsedBodyIds = new HashSet<>();
+    /**
+     * Pass-through hover latch: body ids whose bio details stay peek-open until collapse-all, manual row toggle,
+     * or system load — multiple bodies may be latched. Survives tab switches ({@code !table.isShowing()}).
+     */
+    private final Set<Integer> passthroughHoverExpandBodyIds = new HashSet<>();
+    /** Mouse pass-through: pointer over Bio header −/+ (Swing never gets motion); drives header cue repaint. */
+    private volatile boolean bioColumnHeaderExpandCueHover;
+    /** Polls global pointer position (pass-through does not deliver Swing mouse motion reliably). */
+    private final Timer bioExpandCueHoverPollTimer;
+    /** One-shot: after dwell on body Bio cue, expand (latch) or collapse per {@link #bioExpandCueDelayedPendingClose}. */
+    private final Timer bioExpandCueDelayedOpenTimer;
+    /** One-shot: after dwell on Bio column header −/+ (expand/collapse all), same delay as body rows. */
+    private final Timer bioHeaderAllDwellTimer;
+    /** If true, pending header dwell is collapse all; if false, expand all. */
+    private boolean bioHeaderAllDwellPendingCollapse;
+    /** After a header dwell commit, block another until pointer leaves the header cue hit region. */
+    private boolean bioHeaderAllDwellArmUntilCueExit;
+    private Integer bioExpandCueDelayedOpenPendingBodyId;
+    /** If true, pending action is collapse (−); if false, expand (+ / latch). */
+    private boolean bioExpandCueDelayedPendingClose;
+    /**
+     * After a dwell commit on a body's Bio cue, block further dwell toggles for that body until the pointer
+     * leaves the cue hit region or hovers another body's cue (avoids open/close oscillation while stationary).
+     */
+    private Integer bioExpandCueDwellArmBodyUntilCueExit;
+    private static final int BIO_EXPAND_HOVER_OPEN_DELAY_MS = 400;
+    /** After a system load, seed "all bio sections collapsed" once bodies exist. */
+    private boolean bioCollapsedDefaultsSeededForCurrentSystem;
+    /** Body id expanded only because it was targeted (eligible for auto-collapse on untarget). */
+    private Integer bioAutoExpandedForTargetBodyId;
+    private int bioExpandCuePx = 12;
+    /** Horizontal space between the −/+ cue and the leaf (Eclipse-style tree gap). */
+    private int bioExpandToLeafGapPx = 5;
+    private static final int EXPAND_HIT_SLOP_PX = 2;
+
 	private JLabel headerSummaryLabel;
 
 	/** Optional callback when system tab target/near/destination state changes (for debounced session persist). */
@@ -143,6 +194,14 @@ public class SystemTabPanel extends JPanel {
 	    state.setTargetDestinationName(targetDestinationName);
 	}
 
+	/**
+	 * Mouse pass-through: apply global wheel to the bodies table when the pointer is over the scroll area and the
+	 * vertical bar is visible.
+	 */
+	public boolean applyPassThroughWheelIfHit(int screenX, int screenY, int wheelRotation) {
+		return PassThroughScrollSupport.applyVerticalWheelIfHit(systemBodyScrollPane, screenX, screenY, wheelRotation);
+	}
+
 	/** Apply persisted system tab state (for restore on startup). */
 	public void applySessionState(EdoSessionState state) {
 	    if (state == null) return;
@@ -161,6 +220,10 @@ public class SystemTabPanel extends JPanel {
 	        targetDestinationParentBodyId = state.getTargetDestinationParentBodyId();
 	        targetDestinationName = state.getTargetDestinationName();
 	    }
+	    // Session restore runs after refreshFromCache() already seeded "all bio collapsed" with no target yet.
+	    // reconcileAutoExpandBioForCurrentTargetBody() only runs on that seed pass; run it here too so a
+	    // persisted target + pref reliably expands on cold start.
+	    reconcileAutoExpandBioForCurrentTargetBody();
 	    requestRebuild();
 	}
     
@@ -413,15 +476,54 @@ public class SystemTabPanel extends JPanel {
 
         // Column index 3 is "Value"
         table.getColumnModel().getColumn(2).setCellRenderer(new BioCellRenderer());
+        table.getColumnModel().getColumn(2).setHeaderRenderer(createBioColumnHeaderRenderer());
+
+        table.getTableHeader().addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                JTableHeader h = table.getTableHeader();
+                int col = h.columnAtPoint(e.getPoint());
+                if (col != 2) {
+                    return;
+                }
+                Set<Integer> ex = collectExpandableBioBodyIds();
+                if (ex.isEmpty()) {
+                    return;
+                }
+                Rectangle hr = h.getHeaderRect(col);
+                int relX = e.getX() - hr.x;
+                int hitW = bioColumnBioLeadingSlotWidthPx() + EXPAND_HIT_SLOP_PX * 2;
+                if (relX < 0 || relX > hitW) {
+                    return;
+                }
+                toggleCollapseAllExpandableBioDetails();
+            }
+        });
+
+        table.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                    return;
+                }
+                tryToggleBioExpandAt(e.getPoint());
+            }
+        });
 
         table.getColumnModel().getColumn(3).setCellRenderer(valueRightRenderer);
         table.getColumnModel().getColumn(4).setCellRenderer(landRenderer);
 
-        JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setBorder(null);
-        scrollPane.setOpaque(false);
-        scrollPane.getViewport().setOpaque(false);
-        scrollPane.getViewport().setBackground(EdoUi.Internal.TRANSPARENT);
+        systemBodyScrollPane = new JScrollPane(table);
+        systemBodyScrollPane.setBorder(null);
+        systemBodyScrollPane.setOpaque(false);
+        systemBodyScrollPane.getViewport().setOpaque(false);
+        systemBodyScrollPane.getViewport().setBackground(EdoUi.Internal.TRANSPARENT);
         // Prevent LAF default white corner/scrollbar paints in transparent overlay mode.
         javax.swing.JPanel upperRightCorner = new javax.swing.JPanel();
         upperRightCorner.setOpaque(false);
@@ -429,10 +531,10 @@ public class SystemTabPanel extends JPanel {
         javax.swing.JPanel lowerRightCorner = new javax.swing.JPanel();
         lowerRightCorner.setOpaque(false);
         lowerRightCorner.setBackground(EdoUi.Internal.TRANSPARENT);
-        scrollPane.setCorner(ScrollPaneConstants.UPPER_RIGHT_CORNER, upperRightCorner);
-        scrollPane.setCorner(ScrollPaneConstants.LOWER_RIGHT_CORNER, lowerRightCorner);
-        if (scrollPane.getVerticalScrollBar() != null) {
-            javax.swing.JScrollBar vsb = scrollPane.getVerticalScrollBar();
+        systemBodyScrollPane.setCorner(ScrollPaneConstants.UPPER_RIGHT_CORNER, upperRightCorner);
+        systemBodyScrollPane.setCorner(ScrollPaneConstants.LOWER_RIGHT_CORNER, lowerRightCorner);
+        if (systemBodyScrollPane.getVerticalScrollBar() != null) {
+            javax.swing.JScrollBar vsb = systemBodyScrollPane.getVerticalScrollBar();
             vsb.setOpaque(false);
             vsb.setBackground(EdoUi.Internal.TRANSPARENT);
             vsb.setUI(new SubtleScrollBarUI());
@@ -440,7 +542,7 @@ public class SystemTabPanel extends JPanel {
             vsb.setPreferredSize(new Dimension(12, Integer.MAX_VALUE));
         }
         
-        JViewport headerViewport = scrollPane.getColumnHeader();
+        JViewport headerViewport = systemBodyScrollPane.getColumnHeader();
         if (headerViewport != null) {
             headerViewport.setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
             headerViewport.setOpaque(false);
@@ -448,8 +550,8 @@ public class SystemTabPanel extends JPanel {
             headerViewport.setUI(org.dce.ed.ui.TransparentViewportUI.createUI(headerViewport));
         }
 
-        scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        systemBodyScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        systemBodyScrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
         setBorder(new EmptyBorder(4, 4, 4, 4));
 
@@ -460,7 +562,7 @@ public class SystemTabPanel extends JPanel {
         headerPanel.setBorder(null);
 
         add(headerPanel, BorderLayout.NORTH);
-        add(scrollPane, BorderLayout.CENTER);
+        add(systemBodyScrollPane, BorderLayout.CENTER);
 
 
         refreshFromCache();
@@ -495,6 +597,36 @@ public class SystemTabPanel extends JPanel {
 
         // Fill horizontal space: fixed-ish leading columns, last column stretches with viewport.
         table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+
+        bioExpandCueHoverPollTimer = new Timer(40, e -> pollBioExpandCueHoverFromGlobalMouse());
+        bioExpandCueHoverPollTimer.setRepeats(true);
+
+        bioExpandCueDelayedOpenTimer = new Timer(BIO_EXPAND_HOVER_OPEN_DELAY_MS, e -> commitBioExpandCueDelayedAction());
+        bioExpandCueDelayedOpenTimer.setRepeats(false);
+        bioHeaderAllDwellTimer = new Timer(BIO_EXPAND_HOVER_OPEN_DELAY_MS, e -> commitBioHeaderAllDwellAction());
+        bioHeaderAllDwellTimer.setRepeats(false);
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        if (bioExpandCueHoverPollTimer != null) {
+            bioExpandCueHoverPollTimer.start();
+        }
+    }
+
+    @Override
+    public void removeNotify() {
+        if (bioExpandCueHoverPollTimer != null) {
+            bioExpandCueHoverPollTimer.stop();
+        }
+        if (bioExpandCueDelayedOpenTimer != null) {
+            bioExpandCueDelayedOpenTimer.stop();
+        }
+        if (bioHeaderAllDwellTimer != null) {
+            bioHeaderAllDwellTimer.stop();
+        }
+        super.removeNotify();
     }
 
     // ---------------------------------------------------------------------
@@ -691,7 +823,6 @@ public class SystemTabPanel extends JPanel {
             CachedSystem last = SystemCache.load();
             if (last != null && last.systemName != null && !last.systemName.isBlank() && last.systemAddress != 0L) {
                 loadSystem(last.systemName, last.systemAddress, false);
-                rebuildTable();
                 System.out.println("[EDO][Cache] refreshFromCache: loaded from rescan cache " + last.systemName
                         + " in " + (System.currentTimeMillis() - startedAtMs) + "ms");
                 return;
@@ -731,7 +862,6 @@ public class SystemTabPanel extends JPanel {
             }
             
             loadSystem(systemName, systemAddress, false);
-            rebuildTable();
             System.out.println("[EDO][Cache] refreshFromCache: loaded " + systemName + " in " + (System.currentTimeMillis() - startedAtMs) + "ms");
 
         } catch (Exception ex) {
@@ -818,6 +948,7 @@ public class SystemTabPanel extends JPanel {
         }
 
         SwingUtilities.invokeLater(() -> {
+            Integer previousTargetBodyId = targetBodyId;
             boolean changed = false;
 
             if (newBodyId == null) {
@@ -852,7 +983,9 @@ public class SystemTabPanel extends JPanel {
                 }
             }
 
-            if (changed) {
+            boolean bioMutated = applyBioExpandCollapseForTargetChange(previousTargetBodyId, targetBodyId);
+
+            if (changed || bioMutated) {
                 requestRebuild();
                 fireSessionStateChanged();
             } else {
@@ -937,6 +1070,12 @@ public class SystemTabPanel extends JPanel {
         state.setNonBodyCount(null);
         state.setFssProgress(null);
         state.setAllBodiesFound(null);
+        bioCollapsedDefaultsSeededForCurrentSystem = false;
+        cancelBioExpandDelayedOpenPending();
+        cancelBioHeaderAllDwellPending();
+        passthroughHoverExpandBodyIds.clear();
+        bioColumnHeaderExpandCueHover = false;
+        bioAutoExpandedForTargetBodyId = null;
 
         // 1) Load from cache if we have it
         if (cs != null) {
@@ -983,9 +1122,34 @@ public class SystemTabPanel extends JPanel {
         dedupeBodiesByName();
         updateHeaderLabel();
 
-        List<Row> rows = BioTableBuilder.buildRows(state.getBodies().values());
+        boolean justSeededBioCollapseDefaults = false;
+        if (!bioCollapsedDefaultsSeededForCurrentSystem) {
+            long addr = state.getSystemAddress();
+            if (addr != 0L && state.getBodies() != null && !state.getBodies().isEmpty()) {
+                bioDetailsCollapsedBodyIds.clear();
+                bioDetailsCollapsedBodyIds.addAll(collectExpandableBioBodyIds());
+                cancelBioExpandDelayedOpenPending();
+                cancelBioHeaderAllDwellPending();
+                passthroughHoverExpandBodyIds.clear();
+                bioColumnHeaderExpandCueHover = false;
+                bioAutoExpandedForTargetBodyId = null;
+                bioCollapsedDefaultsSeededForCurrentSystem = true;
+                justSeededBioCollapseDefaults = true;
+            }
+        }
+        if (justSeededBioCollapseDefaults) {
+            reconcileAutoExpandBioForCurrentTargetBody();
+        }
+
+        Set<Integer> hiddenBioDetails = new HashSet<>(bioDetailsCollapsedBodyIds);
+        for (Integer latched : passthroughHoverExpandBodyIds) {
+            hiddenBioDetails.remove(latched);
+        }
+        List<Row> rows = BioTableBuilder.buildRows(state.getBodies().values(), false,
+                hiddenBioDetails.isEmpty() ? null : hiddenBioDetails);
         injectIntermediateDestinationRow(rows);
         tableModel.setRows(rows);
+        table.getTableHeader().repaint();
 
         // Debug only:
         // debugDumpBioRowsToConsole();
@@ -1072,6 +1236,564 @@ public class SystemTabPanel extends JPanel {
     }
 
     // ---------------------------------------------------------------------
+    // Exobiology expand/collapse (Bio column body rows)
+    // ---------------------------------------------------------------------
+
+    private Set<Integer> collectExpandableBioBodyIds() {
+        Set<Integer> ids = new HashSet<>();
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        if (bodies == null || bodies.isEmpty()) {
+            return ids;
+        }
+        for (BodyInfo b : bodies.values()) {
+            if (b != null && BioTableBuilder.hasExpandableBioDetails(b)) {
+                ids.add(Integer.valueOf(b.getBodyId()));
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * After default "all bio collapsed" seed, expand the currently targeted body when the preference is on.
+     */
+    private void reconcileAutoExpandBioForCurrentTargetBody() {
+        if (!OverlayPreferences.isAutoExpandBioOnTargetedBody() || targetBodyId == null) {
+            return;
+        }
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        BodyInfo b = bodies != null ? bodies.get(targetBodyId) : null;
+        if (b == null || !BioTableBuilder.hasExpandableBioDetails(b)) {
+            return;
+        }
+        Integer key = Integer.valueOf(targetBodyId.intValue());
+        if (!bioDetailsCollapsedBodyIds.contains(key)) {
+            return;
+        }
+        bioDetailsCollapsedBodyIds.remove(key);
+        bioAutoExpandedForTargetBodyId = targetBodyId;
+    }
+
+    /**
+     * Expand/collapse bio details from targeting changes. Only collapses a body that was opened by auto-expand.
+     *
+     * @return true if {@link #bioDetailsCollapsedBodyIds} changed
+     */
+    private boolean applyBioExpandCollapseForTargetChange(Integer previousTarget, Integer newTarget) {
+        if (!OverlayPreferences.isAutoExpandBioOnTargetedBody()) {
+            bioAutoExpandedForTargetBodyId = null;
+            return false;
+        }
+
+        boolean mutated = false;
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+
+        if (previousTarget != null
+                && !Objects.equals(previousTarget, newTarget)
+                && Objects.equals(bioAutoExpandedForTargetBodyId, previousTarget)) {
+            BodyInfo pb = bodies != null ? bodies.get(previousTarget) : null;
+            if (pb != null && BioTableBuilder.hasExpandableBioDetails(pb)) {
+                bioDetailsCollapsedBodyIds.add(Integer.valueOf(previousTarget.intValue()));
+                mutated = true;
+            }
+            bioAutoExpandedForTargetBodyId = null;
+        }
+
+        if (newTarget == null) {
+            if (bioAutoExpandedForTargetBodyId != null) {
+                BodyInfo ab = bodies != null ? bodies.get(bioAutoExpandedForTargetBodyId) : null;
+                if (ab != null && BioTableBuilder.hasExpandableBioDetails(ab)) {
+                    bioDetailsCollapsedBodyIds.add(Integer.valueOf(bioAutoExpandedForTargetBodyId.intValue()));
+                    mutated = true;
+                }
+                bioAutoExpandedForTargetBodyId = null;
+            }
+            return mutated;
+        }
+
+        if (!Objects.equals(newTarget, previousTarget)) {
+            BodyInfo nb = bodies != null ? bodies.get(newTarget) : null;
+            if (nb != null && BioTableBuilder.hasExpandableBioDetails(nb)) {
+                Integer nk = Integer.valueOf(newTarget.intValue());
+                if (bioDetailsCollapsedBodyIds.contains(nk)) {
+                    bioDetailsCollapsedBodyIds.remove(nk);
+                    bioAutoExpandedForTargetBodyId = newTarget;
+                    mutated = true;
+                } else {
+                    bioAutoExpandedForTargetBodyId = null;
+                }
+            }
+        }
+
+        return mutated;
+    }
+
+    /** True if exobiology lines for this body are shown (includes pass-through hover latch on −/+). */
+    private boolean isBioDetailRowsVisibleForBodyId(int bodyId) {
+        Integer key = Integer.valueOf(bodyId);
+        if (!bioDetailsCollapsedBodyIds.contains(key)) {
+            return true;
+        }
+        return passthroughHoverExpandBodyIds.contains(key);
+    }
+
+    private boolean areAnyExpandableBioDetailsVisible() {
+        for (Integer id : collectExpandableBioBodyIds()) {
+            if (isBioDetailRowsVisibleForBodyId(id.intValue())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void toggleCollapseAllExpandableBioDetails() {
+        Set<Integer> ex = collectExpandableBioBodyIds();
+        if (ex.isEmpty()) {
+            return;
+        }
+        boolean anyVisible = areAnyExpandableBioDetailsVisible();
+        cancelBioExpandDelayedOpenPending();
+        cancelBioHeaderAllDwellPending();
+        passthroughHoverExpandBodyIds.clear();
+        bioColumnHeaderExpandCueHover = false;
+        bioAutoExpandedForTargetBodyId = null;
+        if (anyVisible) {
+            bioDetailsCollapsedBodyIds.addAll(ex);
+        } else {
+            bioDetailsCollapsedBodyIds.removeAll(ex);
+        }
+        rebuildTable();
+    }
+
+    private TableCellRenderer createBioColumnHeaderRenderer() {
+        return new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable tbl, Object value, boolean isSelected,
+                    boolean hasFocus, int row, int column) {
+                JLabel lab = (JLabel) super.getTableCellRendererComponent(tbl, value, false, false, row, column);
+                boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
+                lab.setOpaque(!transparent);
+                lab.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
+                lab.setForeground(EdoUi.User.MAIN_TEXT);
+                lab.setFont(uiFont.deriveFont(Font.BOLD));
+                lab.setHorizontalAlignment(SwingConstants.LEFT);
+                Set<Integer> ex = collectExpandableBioBodyIds();
+                if (!ex.isEmpty()) {
+                    Icon cue = new ExpandCueIcon(
+                            areAnyExpandableBioDetailsVisible() || bioColumnHeaderExpandCueHover, bioExpandCuePx);
+                    lab.setIcon(new FixedWidthIcon(cue, bioColumnBioLeadingSlotWidthPx()));
+                    lab.setText(value != null ? String.valueOf(value) : "");
+                    lab.setHorizontalTextPosition(SwingConstants.RIGHT);
+                    lab.setIconTextGap(4);
+                } else {
+                    lab.setIcon(null);
+                    lab.setText(value != null ? String.valueOf(value) : "");
+                }
+                return lab;
+            }
+        };
+    }
+
+    private static Integer bodyBlockIdForTableRow(SystemBodiesTableModel model, int row) {
+        if (row < 0 || row >= model.getRowCount()) {
+            return null;
+        }
+        Row r = model.getRowAt(row);
+        if (r == null) {
+            return null;
+        }
+        if (!r.detail) {
+            return r.body != null ? Integer.valueOf(r.body.getBodyId()) : null;
+        }
+        return Integer.valueOf(r.parentId);
+    }
+
+    private void tryToggleBioExpandAt(Point p) {
+        int row = table.rowAtPoint(p);
+        int col = table.columnAtPoint(p);
+        if (row < 0 || col != 2) {
+            return;
+        }
+        Row r = tableModel.getRowAt(row);
+        if (r == null || r.detail || r.body == null) {
+            return;
+        }
+        if (!BioTableBuilder.hasExpandableBioDetails(r.body)) {
+            return;
+        }
+        Rectangle cell = table.getCellRect(row, col, false);
+        int relX = p.x - cell.x;
+        int toggleW = bioExpandCuePx + EXPAND_HIT_SLOP_PX * 2;
+        if (relX < 0 || relX > toggleW) {
+            return;
+        }
+        int bid = r.body.getBodyId();
+        Integer key = Integer.valueOf(bid);
+        if (bioDetailsCollapsedBodyIds.contains(key)) {
+            bioDetailsCollapsedBodyIds.remove(key);
+        } else {
+            bioDetailsCollapsedBodyIds.add(key);
+        }
+        passthroughHoverExpandBodyIds.remove(key);
+        if (bioAutoExpandedForTargetBodyId != null && bioAutoExpandedForTargetBodyId.intValue() == bid) {
+            bioAutoExpandedForTargetBodyId = null;
+        }
+        rebuildTable();
+    }
+
+    private void cancelBioExpandDelayedOpenPending() {
+        bioExpandCueDelayedOpenPendingBodyId = null;
+        bioExpandCueDelayedPendingClose = false;
+        bioExpandCueDwellArmBodyUntilCueExit = null;
+        if (bioExpandCueDelayedOpenTimer != null) {
+            bioExpandCueDelayedOpenTimer.stop();
+        }
+    }
+
+    private void scheduleBioExpandDelayedAction(Integer bodyId, boolean closeAfterDwell) {
+        if (bodyId == null) {
+            return;
+        }
+        // Do not restart every poll tick — that resets the delay and the timer never fires.
+        if (Objects.equals(bioExpandCueDelayedOpenPendingBodyId, bodyId)
+                && bioExpandCueDelayedPendingClose == closeAfterDwell
+                && bioExpandCueDelayedOpenTimer != null
+                && bioExpandCueDelayedOpenTimer.isRunning()) {
+            return;
+        }
+        bioExpandCueDelayedOpenPendingBodyId = bodyId;
+        bioExpandCueDelayedPendingClose = closeAfterDwell;
+        bioExpandCueDelayedOpenTimer.restart();
+    }
+
+    private void commitBioExpandCueDelayedAction() {
+        Integer pending = bioExpandCueDelayedOpenPendingBodyId;
+        boolean closing = bioExpandCueDelayedPendingClose;
+        bioExpandCueDelayedOpenPendingBodyId = null;
+        bioExpandCueDelayedPendingClose = false;
+        if (pending == null || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+            return;
+        }
+        bioExpandCueDwellArmBodyUntilCueExit = pending;
+        if (closing) {
+            boolean changed = passthroughHoverExpandBodyIds.remove(pending);
+            if (bioDetailsCollapsedBodyIds.add(pending)) {
+                changed = true;
+            }
+            if (Objects.equals(bioAutoExpandedForTargetBodyId, pending)) {
+                bioAutoExpandedForTargetBodyId = null;
+            }
+            if (changed) {
+                rebuildTable();
+            }
+        } else if (passthroughHoverExpandBodyIds.add(pending)) {
+            rebuildTable();
+        }
+    }
+
+    private boolean isPointerOverBioExpandCue(Point tableLocal, int row) {
+        if (row < 0 || table.columnAtPoint(tableLocal) != 2) {
+            return false;
+        }
+        Row r = tableModel.getRowAt(row);
+        if (r == null || r.detail || r.body == null) {
+            return false;
+        }
+        if (!BioTableBuilder.hasExpandableBioDetails(r.body)) {
+            return false;
+        }
+        Rectangle cell = table.getCellRect(row, 2, false);
+        int relX = tableLocal.x - cell.x;
+        // Match the full leading icon slot (expand + leaf + optional bag), not just the small box.
+        int toggleW = bioColumnBioLeadingSlotWidthPx() + EXPAND_HIT_SLOP_PX * 2;
+        return relX >= 0 && relX <= toggleW;
+    }
+
+    /** Hit test for Bio column header −/+ (expand/collapse all), using screen coordinates. */
+    private boolean isGlobalPointerOverBioHeaderExpandCue(Point screen) {
+        if (screen == null) {
+            return false;
+        }
+        JTableHeader hdr = table.getTableHeader();
+        if (hdr == null || !hdr.isShowing()) {
+            return false;
+        }
+        try {
+            Point hpt = new Point(screen);
+            SwingUtilities.convertPointFromScreen(hpt, hdr);
+            if (!hdr.contains(hpt)) {
+                return false;
+            }
+            int c = hdr.columnAtPoint(hpt);
+            if (c != 2) {
+                return false;
+            }
+            Rectangle rr = hdr.getHeaderRect(2);
+            int rx = hpt.x - rr.x;
+            int hw = bioColumnBioLeadingSlotWidthPx() + EXPAND_HIT_SLOP_PX * 2;
+            return rx >= 0 && rx <= hw;
+        } catch (IllegalStateException ignored) {
+            return false;
+        }
+    }
+
+    private void cancelBioHeaderAllDwellPending() {
+        bioHeaderAllDwellPendingCollapse = false;
+        bioHeaderAllDwellArmUntilCueExit = false;
+        if (bioHeaderAllDwellTimer != null) {
+            bioHeaderAllDwellTimer.stop();
+        }
+    }
+
+    private void scheduleBioHeaderAllDwell(boolean closeAfterDwell) {
+        if (bioHeaderAllDwellTimer == null) {
+            return;
+        }
+        if (bioHeaderAllDwellPendingCollapse == closeAfterDwell && bioHeaderAllDwellTimer.isRunning()) {
+            return;
+        }
+        bioHeaderAllDwellPendingCollapse = closeAfterDwell;
+        bioHeaderAllDwellTimer.restart();
+    }
+
+    private void commitBioHeaderAllDwellAction() {
+        boolean closing = bioHeaderAllDwellPendingCollapse;
+        bioHeaderAllDwellPendingCollapse = false;
+        if (!OverlayPreferences.isOverlayMousePassThroughToGame()) {
+            return;
+        }
+        Set<Integer> ex = collectExpandableBioBodyIds();
+        if (ex.isEmpty()) {
+            return;
+        }
+        boolean anyVisible = areAnyExpandableBioDetailsVisible();
+        if (closing && !anyVisible) {
+            return;
+        }
+        if (!closing && anyVisible) {
+            return;
+        }
+        bioHeaderAllDwellArmUntilCueExit = true;
+        cancelBioExpandDelayedOpenPending();
+        passthroughHoverExpandBodyIds.clear();
+        bioAutoExpandedForTargetBodyId = null;
+        if (anyVisible) {
+            bioDetailsCollapsedBodyIds.addAll(ex);
+        } else {
+            bioDetailsCollapsedBodyIds.removeAll(ex);
+        }
+        rebuildTable();
+    }
+
+    /**
+     * Global mouse poll for pass-through (see {@link MiningTabPanel}'s scatter plot). Updates Bio header −/+ hover;
+     * body dwell on + latches open; dwell on − collapses (removes latch and ensures collapsed set).
+     */
+    private void syncBioColumnHeaderExpandHoverFromScreen(Point screen, boolean allowHeaderHitTest) {
+        boolean want = allowHeaderHitTest && isGlobalPointerOverBioHeaderExpandCue(screen);
+        if (bioColumnHeaderExpandCueHover != want) {
+            bioColumnHeaderExpandCueHover = want;
+            SwingUtilities.invokeLater(() -> {
+                JTableHeader h = table.getTableHeader();
+                if (h != null) {
+                    h.repaint();
+                }
+            });
+        }
+    }
+
+    private void pollBioExpandCueHoverFromGlobalMouse() {
+        if (!table.isShowing()) {
+            syncBioColumnHeaderExpandHoverFromScreen(null, false);
+            cancelBioExpandDelayedOpenPending();
+            cancelBioHeaderAllDwellPending();
+            return;
+        }
+        PointerInfo pi = MouseInfo.getPointerInfo();
+        if (pi == null) {
+            syncBioColumnHeaderExpandHoverFromScreen(null, false);
+            cancelBioHeaderAllDwellPending();
+            return;
+        }
+        Point screen = pi.getLocation();
+        if (!OverlayPreferences.isOverlayMousePassThroughToGame()) {
+            syncBioColumnHeaderExpandHoverFromScreen(null, false);
+            cancelBioExpandDelayedOpenPending();
+            cancelBioHeaderAllDwellPending();
+            return;
+        }
+        syncBioColumnHeaderExpandHoverFromScreen(screen, true);
+
+        boolean overHeaderCue = isGlobalPointerOverBioHeaderExpandCue(screen);
+        if (overHeaderCue) {
+            cancelBioExpandDelayedOpenPending();
+            Set<Integer> hex = collectExpandableBioBodyIds();
+            if (hex.isEmpty()) {
+                cancelBioHeaderAllDwellPending();
+            } else if (bioHeaderAllDwellArmUntilCueExit) {
+                return;
+            } else if (areAnyExpandableBioDetailsVisible()) {
+                scheduleBioHeaderAllDwell(true);
+            } else {
+                scheduleBioHeaderAllDwell(false);
+            }
+            return;
+        }
+        cancelBioHeaderAllDwellPending();
+
+        Point local = new Point(screen);
+        try {
+            SwingUtilities.convertPointFromScreen(local, table);
+        } catch (IllegalStateException ignored) {
+            cancelBioHeaderAllDwellPending();
+            return;
+        }
+        if (!table.contains(local)) {
+            cancelBioExpandDelayedOpenPending();
+            // Do not clear latched peek — pointer often leaves the table (game UI, title bar) while reading.
+            return;
+        }
+
+        int row = table.rowAtPoint(local);
+        Integer here = row >= 0 ? bodyBlockIdForTableRow(tableModel, row) : null;
+        if (row < 0 || here == null) {
+            cancelBioExpandDelayedOpenPending();
+            return;
+        }
+
+        boolean overCue = isPointerOverBioExpandCue(local, row);
+
+        if (bioExpandCueDwellArmBodyUntilCueExit != null && overCue
+                && !Objects.equals(here, bioExpandCueDwellArmBodyUntilCueExit)) {
+            bioExpandCueDwellArmBodyUntilCueExit = null;
+        }
+
+        if (overCue) {
+            if (bioExpandCueDwellArmBodyUntilCueExit != null
+                    && Objects.equals(here, bioExpandCueDwellArmBodyUntilCueExit)) {
+                return;
+            }
+            boolean detailsVisible = isBioDetailRowsVisibleForBodyId(here.intValue());
+            if (detailsVisible) {
+                scheduleBioExpandDelayedAction(here, true);
+            } else {
+                scheduleBioExpandDelayedAction(here, false);
+            }
+        } else {
+            cancelBioExpandDelayedOpenPending();
+        }
+    }
+
+    /** Invisible fixed width/height for spacing between stacked icons. */
+    private static final class SpacerIcon implements Icon {
+        private final int width;
+        private final int height;
+
+        SpacerIcon(int width, int height) {
+            this.width = Math.max(0, width);
+            this.height = Math.max(1, height);
+        }
+
+        @Override
+        public int getIconWidth() {
+            return width;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return height;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            // intentional blank
+        }
+    }
+
+    /**
+     * Disclosure control: same grey as unscanned exobiology names ({@link EdoUi.Internal#GRAY_180}).
+     */
+    private static final class ExpandCueIcon implements Icon {
+        private static final Color CUE = EdoUi.Internal.GRAY_180;
+
+        private final boolean expanded;
+        private final int size;
+
+        ExpandCueIcon(boolean expanded, int size) {
+            this.expanded = expanded;
+            this.size = Math.max(9, size);
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+
+                g2.setColor(CUE);
+                g2.drawRect(x, y, size - 1, size - 1);
+
+                int midX = x + size / 2;
+                int midY = y + size / 2;
+                // Half-length of each bar (classic ~9px box uses ~2px from center)
+                int arm = Math.max(2, (size - 4) / 2 - 1);
+
+                g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_SQUARE, BasicStroke.JOIN_MITER));
+                g2.drawLine(midX - arm, midY, midX + arm, midY);
+                if (!expanded) {
+                    g2.drawLine(midX, midY - arm, midX, midY + arm);
+                }
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+
+    /** Max height of Bio column leading icons (for blank spacer rows). */
+    private int bioColumnLeadingStackHeightPx() {
+        int h = Math.max(bioExpandCuePx, bioLeafIcon != null ? bioLeafIcon.getIconHeight() : bioExpandCuePx);
+        if (bioGeoIcon != null) {
+            h = Math.max(h, bioGeoIcon.getIconHeight());
+        }
+        if (bioDollarIcon != null) {
+            h = Math.max(h, bioDollarIcon.getIconHeight());
+        }
+        return h;
+    }
+
+    /**
+     * Width reserved left of Bio column text: full expand + leaf + money-bag stack so rows align with or without the bag.
+     */
+    private int bioColumnBioLeadingSlotWidthPx() {
+        int stackH = bioColumnLeadingStackHeightPx();
+        HorizontalIconStack leafMoneyMax = new HorizontalIconStack(-4);
+        leafMoneyMax.add(bioLeafIcon);
+        leafMoneyMax.add(bioDollarIcon);
+        HorizontalIconStack maxStack = new HorizontalIconStack(0);
+        maxStack.add(new ExpandCueIcon(false, bioExpandCuePx));
+        maxStack.add(new SpacerIcon(bioExpandToLeafGapPx, stackH));
+        if (leafMoneyMax.getIconWidth() > 0) {
+            maxStack.add(leafMoneyMax);
+        } else if (bioLeafIcon != null) {
+            maxStack.add(bioLeafIcon);
+        }
+        int w = maxStack.getIconWidth();
+        if (bioGeoIcon != null) {
+            w = Math.max(w, bioGeoIcon.getIconWidth());
+        }
+        return w;
+    }
+
+    // ---------------------------------------------------------------------
     // Table model
     // ---------------------------------------------------------------------
 
@@ -1120,33 +1842,29 @@ public class SystemTabPanel extends JPanel {
                 return c;
             }
 
-            // Detail rows: prepend icons before genus/ring text.
+            // Detail rows: ring geo icon; non-ring high-value lines get money bag only (leaf stays on summary row).
             if (r.detail) {
                 Icon icon = null;
-                int stackedWidth = (bioLeafIcon != null ? bioLeafIcon.getIconWidth() : 0)
-                        + 1
-                        + (bioDollarIcon != null ? bioDollarIcon.getIconWidth() : 0);
-                int slotWidth = Math.max(stackedWidth, bioGeoIcon != null ? bioGeoIcon.getIconWidth() : 0);
                 if (!r.destinationRow) {
                     if (r.isRingDetail()) {
                         icon = bioGeoIcon;
                     } else if (r.bioText != null && !r.bioText.isBlank()) {
-                        HorizontalIconStack stack = new HorizontalIconStack(-6);
-                        stack.add(bioLeafIcon);
                         Long rowCr = r.bioEstimatedPayoutCredits;
                         if (rowCr != null
                                 && rowCr.longValue()
                                         >= OverlayPreferences.getMiningExobiologyValuableBioThresholdCredits()) {
-                            stack.add(bioDollarIcon);
+                            icon = bioDollarIcon;
                         }
-                        icon = stack.getIconWidth() > 0 ? stack : bioLeafIcon;
                     }
                 }
-                c.setIcon(icon != null ? new FixedWidthIcon(icon, slotWidth) : null);
+                int slotW = bioColumnBioLeadingSlotWidthPx();
+                int stackH = bioColumnLeadingStackHeightPx();
+                Icon leading = icon != null ? new FixedWidthIcon(icon, slotW, true) : new SpacerIcon(slotW, stackH);
+                c.setIcon(leading);
                 c.setText(value != null ? String.valueOf(value) : "");
                 c.setHorizontalAlignment(SwingConstants.LEFT);
                 c.setHorizontalTextPosition(SwingConstants.RIGHT);
-                c.setIconTextGap(-4);
+                c.setIconTextGap(4);
                 return c;
             }
 
@@ -1158,9 +1876,9 @@ public class SystemTabPanel extends JPanel {
             }
 
             boolean hasBio = !BioTableBuilder.spanshExobiologyExclusionActive(b) && b.hasBio();
+            boolean showBioExpand = BioTableBuilder.hasExpandableBioDetails(b);
+            boolean bioLinesVisible = isBioDetailRowsVisibleForBodyId(b.getBodyId());
 
-            // Bio column keeps text/count only; icons are shown in Atmo/Body column.
-            c.setIcon(null);
             c.setHorizontalAlignment(SwingConstants.LEFT);
 
             // Remaining payout range + (Xm scanned) + optional FSS signal count (see
@@ -1186,9 +1904,32 @@ public class SystemTabPanel extends JPanel {
                 c.setForeground(Color.GREEN);
             }
 
+            int slotW = bioColumnBioLeadingSlotWidthPx();
+            Icon composite = null;
+            if (showBioExpand) {
+                int stackH = Math.max(bioExpandCuePx, bioLeafIcon != null ? bioLeafIcon.getIconHeight() : bioExpandCuePx);
+                HorizontalIconStack leafMoney = new HorizontalIconStack(-4);
+                leafMoney.add(bioLeafIcon);
+                long rowCr = BioTableBuilder.getMaxBioEstimatedCredits(b);
+                if (rowCr != Long.MIN_VALUE
+                        && rowCr >= OverlayPreferences.getMiningExobiologyValuableBioThresholdCredits()) {
+                    leafMoney.add(bioDollarIcon);
+                }
+                HorizontalIconStack stack = new HorizontalIconStack(0);
+                stack.add(new ExpandCueIcon(bioLinesVisible, bioExpandCuePx));
+                stack.add(new SpacerIcon(bioExpandToLeafGapPx, stackH));
+                stack.add(leafMoney.getIconWidth() > 0 ? leafMoney : bioLeafIcon);
+                if (stack.getIconWidth() > 0) {
+                    composite = new FixedWidthIcon(stack, slotW);
+                }
+            } else if (!text.isEmpty()) {
+                composite = new SpacerIcon(slotW, bioColumnLeadingStackHeightPx());
+            }
+
+            c.setIcon(composite);
             c.setText(text);
             c.setHorizontalTextPosition(SwingConstants.RIGHT);
-            c.setIconTextGap(6);
+            c.setIconTextGap(4);
             return c;
         }
     }
@@ -1250,10 +1991,17 @@ public class SystemTabPanel extends JPanel {
     private static final class FixedWidthIcon implements Icon {
         private final Icon delegate;
         private final int width;
+        /** If true, paint the delegate flush right in {@link #width} (detail-row bag/geo next to text). */
+        private final boolean alignTrailing;
 
         FixedWidthIcon(Icon delegate, int width) {
+            this(delegate, width, false);
+        }
+
+        FixedWidthIcon(Icon delegate, int width, boolean alignTrailing) {
             this.delegate = delegate;
             this.width = Math.max(0, width);
+            this.alignTrailing = alignTrailing;
         }
 
         @Override
@@ -1271,7 +2019,14 @@ public class SystemTabPanel extends JPanel {
             if (delegate == null) {
                 return;
             }
-            delegate.paintIcon(c, g, x, y);
+            int dx = 0;
+            if (alignTrailing) {
+                dx = width - delegate.getIconWidth();
+                if (dx < 0) {
+                    dx = 0;
+                }
+            }
+            delegate.paintIcon(c, g, x + dx, y);
         }
     }
 
@@ -1315,74 +2070,6 @@ public class SystemTabPanel extends JPanel {
                 }
             }
             g.drawImage(cachedImage, x, y, null);
-        }
-    }
-
-    private static final class SubtleScrollBarUI extends javax.swing.plaf.basic.BasicScrollBarUI {
-        @Override
-        protected Dimension getMinimumThumbSize() {
-            return new Dimension(10, 24);
-        }
-
-        @Override
-        protected void configureScrollBarColors() {
-            trackColor = EdoUi.Internal.TRANSPARENT;
-            thumbColor = EdoUi.withAlpha(EdoUi.User.MAIN_TEXT, 72);
-            thumbDarkShadowColor = EdoUi.Internal.TRANSPARENT;
-            thumbHighlightColor = EdoUi.Internal.TRANSPARENT;
-            thumbLightShadowColor = EdoUi.Internal.TRANSPARENT;
-            trackHighlightColor = EdoUi.Internal.TRANSPARENT;
-        }
-
-        @Override
-        protected javax.swing.JButton createDecreaseButton(int orientation) {
-            return createZeroButton();
-        }
-
-        @Override
-        protected javax.swing.JButton createIncreaseButton(int orientation) {
-            return createZeroButton();
-        }
-
-        private javax.swing.JButton createZeroButton() {
-            javax.swing.JButton b = new javax.swing.JButton();
-            b.setPreferredSize(new Dimension(0, 0));
-            b.setMinimumSize(new Dimension(0, 0));
-            b.setMaximumSize(new Dimension(0, 0));
-            b.setOpaque(false);
-            b.setFocusable(false);
-            b.setBorderPainted(false);
-            b.setContentAreaFilled(false);
-            return b;
-        }
-
-        @Override
-        protected void paintTrack(Graphics g, JComponent c, Rectangle trackBounds) {
-            // Intentionally minimal/transparent track for overlay look.
-        }
-
-        @Override
-        protected void paintThumb(Graphics g, JComponent c, Rectangle thumbBounds) {
-            if (thumbBounds == null || thumbBounds.width <= 0 || thumbBounds.height <= 0) {
-                return;
-            }
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(EdoUi.withAlpha(EdoUi.User.MAIN_TEXT, 90));
-                int padX = 2; // keep visual thumb slim inside larger hit area
-                int padY = 1;
-                int arc = Math.max(6, thumbBounds.width - padX * 2);
-                g2.fillRoundRect(
-                        thumbBounds.x + padX,
-                        thumbBounds.y + padY,
-                        Math.max(1, thumbBounds.width - padX * 2),
-                        Math.max(1, thumbBounds.height - padY * 2),
-                        arc,
-                        arc);
-            } finally {
-                g2.dispose();
-            }
         }
     }
 
@@ -2742,6 +3429,8 @@ static class Row {
     private void refreshBioIcons() {
         int fontSize = (uiFont != null) ? uiFont.getSize() : 14;
         int leafSize = Math.max(14, Math.round(fontSize * 1.15f));
+        bioExpandCuePx = Math.max(10, Math.round(fontSize * 0.7f));
+        bioExpandToLeafGapPx = Math.max(4, Math.round(fontSize * 0.32f));
         int dollarSize = Math.max(16, Math.round(fontSize * 1.45f));
         int geoSize = Math.max(14, Math.round(fontSize * 1.35f));
         int sneakerW = Math.max(20, Math.round(fontSize * 1.55f));

@@ -31,10 +31,13 @@ import org.dce.ed.util.GithubMsiUpdater;
 
 import com.github.kwhat.jnativehook.GlobalScreen;
 import com.github.kwhat.jnativehook.NativeHookException;
+import com.github.kwhat.jnativehook.NativeInputEvent;
 import com.github.kwhat.jnativehook.keyboard.NativeKeyListener;
+import com.github.kwhat.jnativehook.mouse.NativeMouseWheelEvent;
+import com.github.kwhat.jnativehook.mouse.NativeMouseWheelListener;
 import org.dce.ed.ui.EdoUi;
 
-public class EliteDangerousOverlay implements NativeKeyListener {
+public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWheelListener {
 
     private static final String PREF_WINDOW_X = "windowX";
     private static final String PREF_WINDOW_Y = "windowY";
@@ -196,6 +199,7 @@ public class EliteDangerousOverlay implements NativeKeyListener {
             @Override
             public void windowClosing(WindowEvent e) {
                 try {
+                    GlobalScreen.removeNativeMouseWheelListener(EliteDangerousOverlay.this);
                     GlobalScreen.unregisterNativeHook();
                 } catch (NativeHookException ex) {
                     ex.printStackTrace();
@@ -216,6 +220,7 @@ public class EliteDangerousOverlay implements NativeKeyListener {
         }
 
         GlobalScreen.addNativeKeyListener(this);
+        GlobalScreen.addNativeMouseWheelListener(this);
         TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
         ttsSprintf.speakf("Welcome commander");
     }
@@ -522,7 +527,63 @@ public class EliteDangerousOverlay implements NativeKeyListener {
     public void nativeKeyTyped(com.github.kwhat.jnativehook.keyboard.NativeKeyEvent e) {
         // not used
     }
-    
+
+    /**
+     * While mouse pass-through is active, forward wheel events to the System / Route / Fleet Carrier table scrollers
+     * when the pointer is over the overlay and that tab's vertical scroll bar is visible.
+     */
+    @Override
+    public void nativeMouseWheelMoved(NativeMouseWheelEvent e) {
+        if (!passThroughMode || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+            return;
+        }
+        if (passThroughFrame == null || !passThroughFrame.isVisible()) {
+            return;
+        }
+        Rectangle bounds = captureWindowOuterRect(passThroughFrame);
+        int x = e.getX();
+        int y = e.getY();
+        if (bounds == null || !bounds.contains(x, y)) {
+            return;
+        }
+        int rot = e.getWheelRotation();
+        if (rot == 0) {
+            return;
+        }
+        final boolean[] applied = { false };
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                if (!passThroughMode || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                    return;
+                }
+                EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
+                if (tp != null) {
+                    applied[0] = tp.handlePassThroughMouseWheelAtScreen(x, y, rot);
+                }
+            });
+        } catch (Exception ignored) {
+        }
+        if (applied[0]) {
+            markNativeInputEventConsumed(e);
+        }
+    }
+
+    /**
+     * Best-effort: stop propagating this native event to the OS (Windows/macOS). Unsupported on X11; uses
+     * JNativeHook's internal {@code reserved} flag (see upstream {@code doc/ConsumingEvents.md}).
+     */
+    private static void markNativeInputEventConsumed(NativeInputEvent e) {
+        if (e == null) {
+            return;
+        }
+        try {
+            java.lang.reflect.Field f = NativeInputEvent.class.getDeclaredField("reserved");
+            f.setAccessible(true);
+            f.setShort(e, (short) 0x01);
+        } catch (Exception ignored) {
+        }
+    }
+
     private void prewarmDecoratedDialog() {
     	SwingUtilities.invokeLater(() -> {
     		// Make sure the peer is created.

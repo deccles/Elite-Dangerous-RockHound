@@ -76,6 +76,8 @@ public final class OverlayPreferences {
     private static final String KEY_AUTOSWITCH_MINING_STARTUP_PLANETARY_RING = "overlay.autoswitch.mining.onStartupPlanetaryRing";
     private static final String KEY_AUTOSWITCH_BIOLOGY_NEAR_BODY = "overlay.autoswitch.biology.onNearLandableAtmosphere";
     private static final String KEY_AUTOSWITCH_FLEETCARRIER_ON_DROP = "overlay.autoswitch.fleetCarrier.onJsonDrop";
+    /** System tab: expand exobiology lines for the targeted body (dashed outline); collapse when untargeted. */
+    private static final String KEY_SYSTEM_AUTO_EXPAND_BIO_ON_TARGET = "system.autoExpandBioOnTargetedBody";
 
     // --- Mining / Prospector ---
     private static final String KEY_MINING_PROSPECTOR_MATERIALS = "mining.prospector.materials"; // comma-separated
@@ -152,6 +154,20 @@ public final class OverlayPreferences {
 
     public static boolean isPassThroughWindowActive() {
         return passThroughWindowActive;
+    }
+
+    /**
+     * Mirrors {@link org.dce.ed.OverlayFrame#isPassThroughEnabled()}: OS-level mouse pass-through to the game.
+     * Unlike {@link #isPassThroughWindowActive()}, this flips when the user toggles the pass-through hotkey.
+     */
+    private static volatile boolean overlayMousePassThroughToGame;
+
+    public static void setOverlayMousePassThroughToGame(boolean enabled) {
+        overlayMousePassThroughToGame = enabled;
+    }
+
+    public static boolean isOverlayMousePassThroughToGame() {
+        return overlayMousePassThroughToGame;
     }
 
     /**
@@ -336,6 +352,14 @@ public final class OverlayPreferences {
 
     public static void setAutoSwitchFleetCarrierOnJsonDrop(boolean enabled) {
         PREFS.putBoolean(KEY_AUTOSWITCH_FLEETCARRIER_ON_DROP, enabled);
+    }
+
+    public static boolean isAutoExpandBioOnTargetedBody() {
+        return PREFS.getBoolean(KEY_SYSTEM_AUTO_EXPAND_BIO_ON_TARGET, true);
+    }
+
+    public static void setAutoExpandBioOnTargetedBody(boolean enabled) {
+        PREFS.putBoolean(KEY_SYSTEM_AUTO_EXPAND_BIO_ON_TARGET, enabled);
     }
 
     // ---------------------------------------------------------------------

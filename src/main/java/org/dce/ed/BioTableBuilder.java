@@ -123,10 +123,19 @@ final class BioTableBuilder {
     }
 
     static List<Row> buildRows(java.util.Collection<BodyInfo> bodies) {
-        return buildRows(bodies, false);
+        return buildRows(bodies, false, null);
     }
 
     static List<Row> buildRows(java.util.Collection<BodyInfo> bodies, boolean shouldCollapse) {
+        return buildRows(bodies, shouldCollapse, null);
+    }
+
+    /**
+     * @param hideBioDetailRowsForBodyIds when non-null and containing a body id, exobiology detail rows under
+     *                                    that body are omitted (body + ring lines are still emitted).
+     */
+    static List<Row> buildRows(java.util.Collection<BodyInfo> bodies, boolean shouldCollapse,
+            Set<Integer> hideBioDetailRowsForBodyIds) {
         List<BodyInfo> sorted = new ArrayList<>(bodies);
         for (BodyInfo b : sorted) {
             if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
@@ -134,31 +143,16 @@ final class BioTableBuilder {
             }
         }
 
-        // Sorting priority:
-        //   1) Any body that has an on-foot sampled biological (green rows)
-        //      should float to the top.
-        //   2) Otherwise, sort by maximum predicted (or confirmed) payout
-        //      descending.
-        //   3) Tie-breaker: distance from arrival ascending.
+        // System tab: orbital order — closest to the primary star first (journal {@code DistanceFromArrivalLS}),
+        // furthest last. Missing distance sorts last; stable tie-break on body id.
         sorted.sort((a, b) -> {
-            boolean aObserved = hasObservedSample(a);
-            boolean bObserved = hasObservedSample(b);
-
-            if (aObserved != bObserved) {
-                return aObserved ? -1 : 1;
-            }
-
-            long aVal = maxBioValue(a);
-            long bVal = maxBioValue(b);
-
-            int cmp = Long.compare(bVal, aVal);
+            double aDist = Double.isNaN(a.getDistanceLs()) ? Double.MAX_VALUE : a.getDistanceLs();
+            double bDist = Double.isNaN(b.getDistanceLs()) ? Double.MAX_VALUE : b.getDistanceLs();
+            int cmp = Double.compare(aDist, bDist);
             if (cmp != 0) {
                 return cmp;
             }
-
-            double aDist = Double.isNaN(a.getDistanceLs()) ? Double.MAX_VALUE : a.getDistanceLs();
-            double bDist = Double.isNaN(b.getDistanceLs()) ? Double.MAX_VALUE : b.getDistanceLs();
-            return Double.compare(aDist, bDist);
+            return Integer.compare(a.getBodyId(), b.getBodyId());
         });
 
         List<Row> rows = new ArrayList<>();
@@ -182,6 +176,11 @@ final class BioTableBuilder {
             }
 
             if (!b.hasBio()) {
+                continue;
+            }
+
+            if (hideBioDetailRowsForBodyIds != null
+                    && hideBioDetailRowsForBodyIds.contains(Integer.valueOf(b.getBodyId()))) {
                 continue;
             }
 
@@ -538,15 +537,24 @@ final class BioTableBuilder {
         return rows;
     }
 
-    private static boolean hasObservedSample(BodyInfo b) {
-        if (b == null) {
+    /**
+     * True when the system tab could list one or more exobiology lines under this body (excluding Spansh-only
+     * exclusion with no local journal evidence).
+     */
+    static boolean hasExpandableBioDetails(BodyInfo b) {
+        if (b == null || !b.hasBio()) {
             return false;
         }
-        Set<String> observed = b.getObservedBioDisplayNames();
-        if (observed == null) {
-            return false;
+        ensureBioPredictionsPopulated(b);
+        if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
+            SpanshBodyExobiologyInfo info =
+                    SpanshLandmarkCache.getInstance().getIfPresent(b.getStarSystem(), b.getBodyName());
+            if (info != null) {
+                b.setSpanshLandmarks(info.getLandmarks());
+                b.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
+            }
         }
-        return !observed.isEmpty();
+        return !spanshExobiologyExclusionActive(b);
     }
 
     /**
@@ -572,6 +580,14 @@ final class BioTableBuilder {
         if (computed != null && !computed.isEmpty()) {
             b.setPredictions(computed);
         }
+    }
+
+    /**
+     * Highest single-species estimated Vista Genomics payout used for UI (money-bag threshold), or
+     * {@link Long#MIN_VALUE} if none.
+     */
+    static long getMaxBioEstimatedCredits(BodyInfo b) {
+        return maxBioValue(b);
     }
 
     private static long maxBioValue(BodyInfo b) {
