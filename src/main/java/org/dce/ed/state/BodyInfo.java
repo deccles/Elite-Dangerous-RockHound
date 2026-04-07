@@ -7,8 +7,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
+import org.dce.ed.BioColonyDistance;
 import org.dce.ed.exobiology.BodyAttributes;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.exobiology.ExobiologyData.AtmosphereType;
@@ -119,6 +121,12 @@ public class BodyInfo {
 	// NEW: sample point locations (lat/lon) recorded for each species display name.
 	// We keep up to 3 points per species, matching Odyssey's 3-sample requirement.
 	private final Map<String, List<BioSamplePoint>> bioSamplePointsByDisplayName = new HashMap<>();
+
+	/**
+	 * Sample pins for a species the player left incomplete by switching to another genus (game resets progress).
+	 * Retained for map display (e.g. purple) while a different species is active.
+	 */
+	private final Map<String, List<BioSamplePoint>> abandonedBioSamplePointsByDisplayName = new HashMap<>();
 
 	// Track the currently-in-progress bio (1/3 or 2/3). When sampling a different species,
 	// the in-game behavior discards the incomplete progress from the old species.
@@ -619,6 +627,57 @@ public class BodyInfo {
 	}
 
 	/**
+	 * Snapshot of sample pins left behind when switching to another incomplete species (still on the map in purple).
+	 */
+	public Map<String, List<BioSamplePoint>> getAbandonedBioSamplePointsSnapshot() {
+		Map<String, List<BioSamplePoint>> out = new HashMap<>();
+		for (Map.Entry<String, List<BioSamplePoint>> e : abandonedBioSamplePointsByDisplayName.entrySet()) {
+			List<BioSamplePoint> pts = e.getValue();
+			if (pts == null || pts.isEmpty()) {
+				continue;
+			}
+			out.put(e.getKey(), new ArrayList<>(pts));
+		}
+		return out;
+	}
+
+	/** Canonical key of the species currently being sampled (1/3 or 2/3), or null. */
+	public String getActiveIncompleteBioKey() {
+		return activeIncompleteBioKey;
+	}
+
+	/**
+	 * Drop parked (purple) pins and the active-incomplete marker when nothing is mid-scan (no 1/3 or 2/3).
+	 * Prevents stale purple rays when the table shows only complete or untouched species.
+	 */
+	public void clearParkedBioSampleStateWhenIdle() {
+		abandonedBioSamplePointsByDisplayName.clear();
+		activeIncompleteBioKey = null;
+	}
+
+	/**
+	 * Replace abandoned pins (used when loading from cache).
+	 */
+	public void setAbandonedBioSamplePoints(Map<String, List<BioSamplePoint>> pointsByDisplayName) {
+		abandonedBioSamplePointsByDisplayName.clear();
+		if (pointsByDisplayName == null || pointsByDisplayName.isEmpty()) {
+			return;
+		}
+		for (Map.Entry<String, List<BioSamplePoint>> e : pointsByDisplayName.entrySet()) {
+			String key = canonBioName(e.getKey());
+			List<BioSamplePoint> pts = e.getValue();
+			if (pts == null || pts.isEmpty()) {
+				continue;
+			}
+			List<BioSamplePoint> copy = new ArrayList<>(pts);
+			if (copy.size() > 3) {
+				copy = new ArrayList<>(copy.subList(0, 3));
+			}
+			abandonedBioSamplePointsByDisplayName.put(key, copy);
+		}
+	}
+
+	/**
 	 * Replace all stored sample points (used when loading from cache).
 	 */
 	public void setBioSamplePoints(Map<String, List<BioSamplePoint>> pointsByDisplayName) {
@@ -667,6 +726,12 @@ public class BodyInfo {
 		int currentCount = bioSampleCountsByDisplayName.getOrDefault(key, 0);
 		if (currentCount < 3) {
 			if (activeIncompleteBioKey != null && !activeIncompleteBioKey.equals(key)) {
+				List<BioSamplePoint> parked = bioSamplePointsByDisplayName.get(activeIncompleteBioKey);
+				if (parked != null && !parked.isEmpty()) {
+					abandonedBioSamplePointsByDisplayName.put(
+							activeIncompleteBioKey,
+							new ArrayList<>(parked));
+				}
 				bioSamplePointsByDisplayName.remove(activeIncompleteBioKey);
 				// also clear the old sample count if it wasn't complete
 				int oldCnt = bioSampleCountsByDisplayName.getOrDefault(activeIncompleteBioKey, 0);
@@ -684,6 +749,15 @@ public class BodyInfo {
 		if ("analyse".equals(st) || "analyze".equals(st)) {
 			// When analyzed, the sample is complete; keep whatever points we already captured.
 			activeIncompleteBioKey = null;
+			abandonedBioSamplePointsByDisplayName.remove(key);
+			return;
+		}
+
+		int ccr = BioColonyDistance.metersForBio(key);
+		if (ccr > 0
+				&& isWithinColonyRangeOfAnyRecordedPoint(key, latitude, longitude, pts, ccr)) {
+			// Same colony as an existing or parked pin — game would not count a new sample; undo journal increment.
+			undoLastBioSampleLog(key);
 			return;
 		}
 
@@ -696,6 +770,66 @@ public class BodyInfo {
 		}
 	}
 
+	private boolean isWithinColonyRangeOfAnyRecordedPoint(
+			String key,
+			double lat,
+			double lon,
+			List<BioSamplePoint> activePts,
+			int ccrMeters) {
+		Double radObj = radius;
+		if (radObj == null || ccrMeters <= 0) {
+			return false;
+		}
+		double rad = radObj.doubleValue();
+		if (!(rad > 0.0) || Double.isNaN(rad) || Double.isInfinite(rad)) {
+			return false;
+		}
+		if (activePts != null) {
+			for (BioSamplePoint p : activePts) {
+				if (p == null) {
+					continue;
+				}
+				double d = BioColonyDistance.greatCircleMeters(
+						lat, lon, p.getLatitude(), p.getLongitude(), rad);
+				if (d < ccrMeters) {
+					return true;
+				}
+			}
+		}
+		List<BioSamplePoint> ab = abandonedBioSamplePointsByDisplayName.get(key);
+		if (ab != null) {
+			for (BioSamplePoint p : ab) {
+				if (p == null) {
+					continue;
+				}
+				double d = BioColonyDistance.greatCircleMeters(
+						lat, lon, p.getLatitude(), p.getLongitude(), rad);
+				if (d < ccrMeters) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private void undoLastBioSampleLog(String key) {
+		if (key == null || key.isBlank()) {
+			return;
+		}
+		Integer cur = bioSampleCountsByDisplayName.get(key);
+		if (cur == null || cur.intValue() <= 0) {
+			return;
+		}
+		int next = cur.intValue() - 1;
+		if (next <= 0) {
+			bioSampleCountsByDisplayName.remove(key);
+			if (Objects.equals(key, activeIncompleteBioKey)) {
+				activeIncompleteBioKey = null;
+			}
+		} else {
+			bioSampleCountsByDisplayName.put(key, Integer.valueOf(next));
+		}
+	}
 
 	public void setAtmoOrType(String atmoOrType) {
 		this.atmoOrType = atmoOrType;

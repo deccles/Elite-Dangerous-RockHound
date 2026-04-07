@@ -59,6 +59,9 @@ public class CachedBody {
     // NEW: lat/lon positions for each logged sample point (up to 3) per species display name.
     public Map<String, List<BioSamplePoint>> bioSamplePointsByDisplayName;
 
+    /** Parked pins when the player switched away from an incomplete species (shown e.g. purple on the bio map). */
+    public Map<String, List<BioSamplePoint>> abandonedBioSamplePointsByDisplayName;
+
     public static class BioSamplePoint {
         public double latitude;
         public double longitude;

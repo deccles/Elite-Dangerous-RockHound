@@ -72,6 +72,11 @@ public class BiologyTabPanel extends JPanel {
 
     private static final int REQUIRED_SAMPLES = 3;
 
+    /** Biology map: lines to the active incomplete species (matches in-game “current scan” emphasis). */
+    private static final Color BIO_MAP_ACTIVE_SAMPLE = new Color(0x40, 0xE0, 0x70);
+    /** Biology map: parked pins from a species left incomplete after switching genus (in-game purple cue). */
+    private static final Color BIO_MAP_ABANDONED_SAMPLE = new Color(0xB8, 0x70, 0xE8);
+
     /** After a Sample scan, skip "Entering clonal colony" (new sample point lands at your feet). */
     private static final long SUPPRESS_ENTER_AFTER_SAMPLE_MS = 5_000L;
     /** If distance to last sample drops by this much in one update and we end up near the point, treat as teleport / scan pin. */
@@ -227,23 +232,45 @@ if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
 
         if (currentBodyName == null || currentBodyName.isBlank()) {
             model.setRows(Collections.emptyList());
+            mapPanel.setAbandonedSamplePins(Collections.emptyMap());
+            mapPanel.setActiveIncompleteBioKey(null);
+            mapPanel.setShowParkedPins(false);
             return;
         }
 
         SystemState state = systemTab.getState();
         if (state == null) {
             model.setRows(Collections.emptyList());
+            mapPanel.setAbandonedSamplePins(Collections.emptyMap());
+            mapPanel.setActiveIncompleteBioKey(null);
+            mapPanel.setShowParkedPins(false);
             return;
         }
 
         BodyInfo body = findBodyByName(state, currentBodyName);
         if (body == null) {
             model.setRows(Collections.emptyList());
+            mapPanel.setAbandonedSamplePins(Collections.emptyMap());
+            mapPanel.setActiveIncompleteBioKey(null);
+            mapPanel.setShowParkedPins(false);
             return;
         }
 
         List<BioRow> rows = buildRows(body);
+        boolean anyPartialScan = false;
+        for (BioRow r : rows) {
+            if (r != null && r.sampleCount > 0 && r.sampleCount < REQUIRED_SAMPLES) {
+                anyPartialScan = true;
+                break;
+            }
+        }
+        if (!anyPartialScan) {
+            body.clearParkedBioSampleStateWhenIdle();
+        }
         model.setRows(rows);
+        mapPanel.setAbandonedSamplePins(body.getAbandonedBioSamplePointsSnapshot());
+        mapPanel.setActiveIncompleteBioKey(body.getActiveIncompleteBioKey());
+        mapPanel.setShowParkedPins(anyPartialScan);
 
         center.updateFixedTableHeight(table, model);
         if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
@@ -413,8 +440,8 @@ private static List<BioRow> buildRows(BodyInfo body) {
 
         for (BioRow r : rows) {
 
-            // Elite only tracks ONE active genus at a time; snapshot counts can reflect only that active genus.
-            // If we have recorded sample points for this row, those are ground truth for progress / bubble filling.
+            // Elite only tracks ONE active genus at a time; journal counts can reset when switching.
+            // Recorded sample points (and the table) use overlay state; abandoned pins stay for the bio map.
             List<BodyInfo.BioSamplePoint> pts = lookupPoints(points, r.displayName);
             int ptsCount = (pts == null) ? 0 : pts.size();
             int countFromSnapshot = lookupCount(counts, r.displayName);
@@ -688,6 +715,22 @@ private static List<BioRow> buildRows(BodyInfo body) {
             return genusName + " " + speciesName;
         }
         return genusName;
+    }
+
+    /** Short label for map pins (matches table “Bio” column wording). */
+    private static String mapPinSpeciesHint(String displayNameOrKey) {
+        if (displayNameOrKey == null) {
+            return "";
+        }
+        String s = displayNameOrKey.trim();
+        if (s.isEmpty()) {
+            return "";
+        }
+        String[] w = s.split("\\s+");
+        if (w.length <= 2) {
+            return s;
+        }
+        return w[0] + " " + w[1];
     }
 
     private static double greatCircleMeters(double lat1Deg, double lon1Deg, double lat2Deg, double lon2Deg, double radiusM) {
@@ -1245,8 +1288,40 @@ private final class BioMapPanel extends JPanel {
 
     private double shipHeadingDeg; // 0=N, clockwise. "Up" on map.
 
+    /** Parked sample locations (canonical display-name key → points). */
+    private Map<String, List<BodyInfo.BioSamplePoint>> abandonedByKey = Collections.emptyMap();
+    private String activeIncompleteBioKey;
+    /** Purple “parked” pins only while some species is 1/3 or 2/3 (another genus may have been left behind). */
+    private boolean showParkedPins;
+
     private BioMapPanel() {
         setOpaque(false);
+    }
+
+    void setShowParkedPins(boolean show) {
+        this.showParkedPins = show;
+        repaint();
+    }
+
+    void setAbandonedSamplePins(Map<String, List<BodyInfo.BioSamplePoint>> byKey) {
+        if (byKey == null || byKey.isEmpty()) {
+            abandonedByKey = Collections.emptyMap();
+        } else {
+            Map<String, List<BodyInfo.BioSamplePoint>> copy = new HashMap<>();
+            for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : byKey.entrySet()) {
+                if (e.getKey() == null || e.getKey().isBlank() || e.getValue() == null || e.getValue().isEmpty()) {
+                    continue;
+                }
+                copy.put(e.getKey(), new ArrayList<>(e.getValue()));
+            }
+            abandonedByKey = copy.isEmpty() ? Collections.emptyMap() : copy;
+        }
+        repaint();
+    }
+
+    void setActiveIncompleteBioKey(String key) {
+        this.activeIncompleteBioKey = (key == null || key.isBlank()) ? null : key;
+        repaint();
     }
 
     private void setShipLatLon(double lat, double lon, double radiusM) {
@@ -1303,60 +1378,101 @@ private final class BioMapPanel extends JPanel {
             g2.setColor(Color.BLACK);
             g2.draw(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
 
-            // Collect target points: use all rows' recorded sample points (incomplete only)
+            // Sample pins: abandoned (purple) from prior incomplete genus, then active incomplete (green).
             java.util.List<BioRow> rows = model.getRowsSnapshot();
-            if (rows == null || rows.isEmpty()) {
+            boolean haveAbandonedPins = false;
+            if (showParkedPins && abandonedByKey != null) {
+                for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
+                    if (e.getValue() == null || e.getValue().isEmpty()) {
+                        continue;
+                    }
+                    if (activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())) {
+                        continue;
+                    }
+                    haveAbandonedPins = true;
+                    break;
+                }
+            }
+            boolean haveActivePins = false;
+            if (rows != null) {
+                for (BioRow row : rows) {
+                    if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null || row.points.isEmpty()) {
+                        continue;
+                    }
+                    haveActivePins = true;
+                    break;
+                }
+            }
+            if ((rows == null || rows.isEmpty()) && !haveAbandonedPins) {
                 g2.setColor(Color.WHITE);
                 String msg = "No specimens detected";
                 FontMetrics fm = g2.getFontMetrics();
                 int tx = x0 + (side - fm.stringWidth(msg)) / 2;
                 int ty = y0 + (side + fm.getAscent()) / 2;
                 g2.drawString(msg, tx, ty);
-            } else {
+            } else if (haveActivePins || haveAbandonedPins) {
                 double maxDistM = 1.0;
-                for (BioRow row : rows) {
-                    if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null) {
-                        continue;
-                    }
-                    for (BodyInfo.BioSamplePoint p : row.points) {
-                        if (p == null) {
+                if (showParkedPins && abandonedByKey != null) {
+                    for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
+                        if (e.getValue() == null || e.getValue().isEmpty()) {
                             continue;
                         }
-                        double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
-                        if (d > maxDistM) {
-                            maxDistM = d;
+                        if (activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())) {
+                            continue;
+                        }
+                        for (BodyInfo.BioSamplePoint p : e.getValue()) {
+                            if (p == null) {
+                                continue;
+                            }
+                            double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+                            if (d > maxDistM) {
+                                maxDistM = d;
+                            }
                         }
                     }
                 }
-                // leave margin so labels fit
+                if (rows != null) {
+                    for (BioRow row : rows) {
+                        if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null) {
+                            continue;
+                        }
+                        for (BodyInfo.BioSamplePoint p : row.points) {
+                            if (p == null) {
+                                continue;
+                            }
+                            double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+                            if (d > maxDistM) {
+                                maxDistM = d;
+                            }
+                        }
+                    }
+                }
                 double scale = (side * 0.42) / maxDistM;
 
-                for (BioRow row : rows) {
-                    if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null || row.points.isEmpty()) {
-                        continue;
+                g2.setStroke(new BasicStroke(2f));
+                if (showParkedPins && abandonedByKey != null) {
+                    for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
+                        if (e.getValue() == null || e.getValue().isEmpty()) {
+                            continue;
+                        }
+                        if (activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())) {
+                            continue;
+                        }
+                        String hint = BiologyTabPanel.mapPinSpeciesHint(e.getKey());
+                        for (BodyInfo.BioSamplePoint p : e.getValue()) {
+                            drawBioSampleRay(g2, cx, cy, scale, BIO_MAP_ABANDONED_SAMPLE, BIO_MAP_ABANDONED_SAMPLE, p, hint);
+                        }
                     }
-                    for (BodyInfo.BioSamplePoint p : row.points) {
-                        double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
-                        double brng = bearingDeg(shipLat, shipLon, p.getLatitude(), p.getLongitude());
-                        double rel = Math.toRadians(brng - shipHeadingDeg);
-
-                        double dx = Math.sin(rel) * d;
-                        double dy = -Math.cos(rel) * d;
-
-                        int tx = cx + (int) Math.round(dx * scale);
-                        int ty = cy + (int) Math.round(dy * scale);
-
-                        g2.setStroke(new BasicStroke(2f));
-                        g2.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-                        g2.draw(new Line2D.Double(cx, cy, tx, ty));
-
-                        // distance label at midpoint
-                        String label = BiologyTabPanel.formatMetersFixed(d);
-                        FontMetrics fm = g2.getFontMetrics();
-                        int mx = (cx + tx) / 2;
-                        int my = (cy + ty) / 2;
-                        g2.setColor(Color.WHITE);
-                        g2.drawString(label, mx - fm.stringWidth(label) / 2, my - 2);
+                }
+                if (rows != null) {
+                    for (BioRow row : rows) {
+                        if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null || row.points.isEmpty()) {
+                            continue;
+                        }
+                        String hint = BiologyTabPanel.mapPinSpeciesHint(row.displayName);
+                        for (BodyInfo.BioSamplePoint p : row.points) {
+                            drawBioSampleRay(g2, cx, cy, scale, BIO_MAP_ACTIVE_SAMPLE, BIO_MAP_ACTIVE_SAMPLE, p, hint);
+                        }
                     }
                 }
             }
@@ -1383,6 +1499,43 @@ private final class BioMapPanel extends JPanel {
             g2.drawString("N", nx2 - 4, ny2 - 2);
         } finally {
             g2.dispose();
+        }
+    }
+
+    private void drawBioSampleRay(
+            Graphics2D g2,
+            int cx,
+            int cy,
+            double scale,
+            Color lineColor,
+            Color labelColor,
+            BodyInfo.BioSamplePoint p,
+            String speciesHint) {
+        if (p == null) {
+            return;
+        }
+        double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+        double brng = bearingDeg(shipLat, shipLon, p.getLatitude(), p.getLongitude());
+        double rel = Math.toRadians(brng - shipHeadingDeg);
+
+        double dx = Math.sin(rel) * d;
+        double dy = -Math.cos(rel) * d;
+
+        int tx = cx + (int) Math.round(dx * scale);
+        int ty = cy + (int) Math.round(dy * scale);
+
+        g2.setColor(lineColor);
+        g2.draw(new Line2D.Double(cx, cy, tx, ty));
+
+        String label = BiologyTabPanel.formatMetersFixed(d);
+        FontMetrics fm = g2.getFontMetrics();
+        int mx = (cx + tx) / 2;
+        int my = (cy + ty) / 2;
+        g2.setColor(labelColor);
+        g2.drawString(label, mx - fm.stringWidth(label) / 2, my - 2);
+        if (speciesHint != null && !speciesHint.isEmpty()) {
+            String h = speciesHint.length() > 22 ? speciesHint.substring(0, 19) + "…" : speciesHint;
+            g2.drawString(h, mx - fm.stringWidth(h) / 2, my + fm.getAscent() + 2);
         }
     }
 }

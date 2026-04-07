@@ -10,7 +10,7 @@ import java.util.Map;
  * Keyed by genus (lower-cased). We also include a few aliases to handle different naming
  * sources (e.g., "tubas" vs "tubus").
  */
-final class BioColonyDistance {
+public final class BioColonyDistance {
 
     private static final Map<String, Integer> METERS_BY_GENUS = new HashMap<>();
 
@@ -61,5 +61,25 @@ final class BioColonyDistance {
 
         Integer v = METERS_BY_GENUS.get(genus);
         return (v == null) ? 0 : v.intValue();
+    }
+
+    /** Great-circle distance on a sphere (meters). */
+    public static double greatCircleMeters(
+            double lat1Deg, double lon1Deg, double lat2Deg, double lon2Deg, double bodyRadiusM) {
+        double lat1 = Math.toRadians(lat1Deg);
+        double lon1 = Math.toRadians(lon1Deg);
+        double lat2 = Math.toRadians(lat2Deg);
+        double lon2 = Math.toRadians(lon2Deg);
+
+        double dLat = lat2 - lat1;
+        double dLon = lon2 - lon1;
+
+        double a =
+                Math.sin(dLat / 2.0) * Math.sin(dLat / 2.0) +
+                Math.cos(lat1) * Math.cos(lat2) *
+                        Math.sin(dLon / 2.0) * Math.sin(dLon / 2.0);
+
+        double c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a));
+        return bodyRadiusM * c;
     }
 }

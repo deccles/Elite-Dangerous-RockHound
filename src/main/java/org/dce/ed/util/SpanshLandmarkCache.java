@@ -5,8 +5,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * In-memory cache for Spansh body exobiology info (landmarks + exclude-from-exobiology) keyed by (systemName, bodyName).
- * Used to avoid re-querying Spansh for the same body in one session.
+ * Spansh body exobiology info (landmarks + exclude-from-exobiology) keyed by (systemName, bodyName).
+ * Layered: in-memory → SQLite ({@link SpanshBodyExobiologySqliteStore}, same DB as {@link org.dce.ed.cache.SystemCache})
+ * → Spansh HTTP on cache miss. Successful network responses are persisted for the next session.
  */
 public final class SpanshLandmarkCache {
 
@@ -31,26 +32,42 @@ public final class SpanshLandmarkCache {
     }
 
     /**
-     * Returns cached exobiology info, or fetches from Spansh and caches on success.
-     * Returns null on API/search failure (not cached).
+     * Returns exobiology info from memory, else SQLite, else Spansh; persists successful HTTP results to SQLite.
+     * Returns null on API/search failure (not stored).
      */
     public SpanshBodyExobiologyInfo getOrFetch(String systemName, String bodyName) {
         String k = key(systemName, bodyName);
-        SpanshBodyExobiologyInfo cached = cache.get(k);
-        if (cached != null) {
-            return cached;
+        SpanshBodyExobiologyInfo mem = cache.get(k);
+        if (mem != null) {
+            return mem;
+        }
+        SpanshBodyExobiologyInfo disk = SpanshBodyExobiologySqliteStore.load(systemName, bodyName);
+        if (disk != null) {
+            cache.put(k, disk);
+            return disk;
         }
         SpanshBodyExobiologyInfo result = client.getBodyExobiologyInfo(systemName, bodyName);
         if (result != null) {
             cache.put(k, result);
+            SpanshBodyExobiologySqliteStore.save(systemName, bodyName, result);
         }
         return result;
     }
 
     /**
-     * Returns cached exobiology info if present; never performs network I/O.
+     * Returns exobiology info from memory or SQLite; never performs network I/O.
+     * Populates the in-memory cache when loaded from disk.
      */
     public SpanshBodyExobiologyInfo getIfPresent(String systemName, String bodyName) {
-        return cache.get(key(systemName, bodyName));
+        String k = key(systemName, bodyName);
+        SpanshBodyExobiologyInfo mem = cache.get(k);
+        if (mem != null) {
+            return mem;
+        }
+        SpanshBodyExobiologyInfo disk = SpanshBodyExobiologySqliteStore.load(systemName, bodyName);
+        if (disk != null) {
+            cache.put(k, disk);
+        }
+        return disk;
     }
 }

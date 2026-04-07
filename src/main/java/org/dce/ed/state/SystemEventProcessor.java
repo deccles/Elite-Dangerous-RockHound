@@ -561,7 +561,6 @@ public class SystemEventProcessor {
                         || bodyName == null
                         || bodyName.isBlank()
                         || lastBodyName.equals(bodyName)) {
-                	System.out.println("record bio sample point");
                     info.recordBioSamplePoint(
                             displayName,
                             e.getScanType(),

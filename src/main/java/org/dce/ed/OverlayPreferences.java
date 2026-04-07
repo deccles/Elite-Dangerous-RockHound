@@ -111,13 +111,18 @@ public final class OverlayPreferences {
     /** Mining scatter gather animation: asteroid line-art scale, 100 = current default artwork size. */
     private static final String KEY_MINING_ANIM_ASTEROID_SIZE_PERCENT = "mining.animation.asteroidSizePercent";
 
-    // Nearby tab (exobiology sphere search)
-    private static final String KEY_NEARBY_SPHERE_RADIUS_LY = "nearby.sphereRadiusLy";
-    private static final String KEY_NEARBY_MIN_VALUE_MILLION_CREDITS = "nearby.minValueMillionCredits";
-    private static final String KEY_NEARBY_MAX_SYSTEMS = "nearby.maxSystems";
+    /**
+     * Mining preferences ▸ Exobiology: minimum valuable exobiology threshold (million credits) — money bag, bio TTS,
+     * and any internal uses that filter on predicted bio value (default 10).
+     */
+    private static final String KEY_MINING_EXO_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS =
+            "mining.exobiology.valuableBioThresholdMillionCredits";
 
-    /** System tab: min predicted exobiology value (million credits) for dollar icon + credit TTS (default 10). */
+    /** Legacy key; read when {@link #KEY_MINING_EXO_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS} is unset. */
     private static final String KEY_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS = "exobiology.valuableThresholdMillionCredits";
+
+    /** Removed Nearby-tab UI; still read once for migration if no newer keys are set. */
+    private static final String LEGACY_NEARBY_MIN_VALUE_MILLION_CREDITS = "nearby.minValueMillionCredits";
 
     // Reuse the same prefs node as OverlayFrame so everything is in one place.
     private static final Preferences PREFS = Preferences.userNodeForPackage(OverlayFrame.class);
@@ -783,92 +788,25 @@ public static Engine getSpeechEngine() {
         return ratio;
     }
 
-    // --- Nearby tab (exobiology sphere search) ---
-
-    /** Sphere search radius in ly (default 20). EDSM API caps at 100. */
-    public static int getNearbySphereRadiusLy() {
-        String s = PREFS.get(KEY_NEARBY_SPHERE_RADIUS_LY, "10");
-        try {
-            int v = Integer.parseInt(s.trim());
-            if (v < 1) {
-                v = 1;
-            }
-            if (v > 100) {
-                v = 100;
-            }
-            return v;
-        } catch (Exception e) {
-            return 20;
-        }
-    }
-
-    public static void setNearbySphereRadiusLy(int radiusLy) {
-        int v = radiusLy;
-        if (v < 1) {
-            v = 1;
-        }
-        if (v > 100) {
-            v = 100;
-        }
-        PREFS.put(KEY_NEARBY_SPHERE_RADIUS_LY, Integer.toString(v));
-    }
-
-    /** Max number of systems to query for the Nearby table (default 40). Limits EDSM/Spansh API calls per hour. */
-    public static int getNearbyMaxSystems() {
-        String s = PREFS.get(KEY_NEARBY_MAX_SYSTEMS, "40");
-        try {
-            int v = Integer.parseInt(s.trim());
-            if (v < 1) {
-                v = 1;
-            }
-            if (v > 200) {
-                v = 200;
-            }
-            return v;
-        } catch (Exception e) {
-            return 40;
-        }
-    }
-
-    public static void setNearbyMaxSystems(int maxSystems) {
-        int v = maxSystems;
-        if (v < 1) {
-            v = 1;
-        }
-        if (v > 200) {
-            v = 200;
-        }
-        PREFS.put(KEY_NEARBY_MAX_SYSTEMS, Integer.toString(v));
-    }
-
-    /** Minimum exobiology value (million credits) to show a system in the Nearby table (default 5). */
-    public static double getNearbyMinValueMillionCredits() {
-        String s = PREFS.get(KEY_NEARBY_MIN_VALUE_MILLION_CREDITS, "5");
-        try {
-            double v = Double.parseDouble(s.trim());
-            if (v < 0.0) {
-                v = 0.0;
-            }
-            return v;
-        } catch (Exception e) {
-            return 5.0;
-        }
-    }
-
-    public static void setNearbyMinValueMillionCredits(double millionCredits) {
-        double v = millionCredits;
-        if (v < 0.0) {
-            v = 0.0;
-        }
-        PREFS.put(KEY_NEARBY_MIN_VALUE_MILLION_CREDITS, Double.toString(v));
-    }
-
     /**
-     * Minimum predicted exobiology value (million credits) for the System tab dollar icon and for speaking
-     * estimated credits on initial bio prediction. Default 10.
+     * Minimum valuable exobiology threshold (million credits): System tab money bag per species, bio-discovery TTS,
+     * and any code that filters on predicted exobiology value.
+     * <p>
+     * Stored under {@link #KEY_MINING_EXO_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS} (Mining preferences); falls back to
+     * legacy {@code exobiology.valuableThresholdMillionCredits}, then removed Nearby-tab {@code nearby.minValueMillionCredits}
+     * if neither is set. Default 10.
      */
     public static double getBioValuableThresholdMillionCredits() {
-        String s = PREFS.get(KEY_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS, "10");
+        String s = PREFS.get(KEY_MINING_EXO_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS, null);
+        if (s == null || s.isBlank()) {
+            s = PREFS.get(KEY_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS, null);
+        }
+        if (s == null || s.isBlank()) {
+            s = PREFS.get(LEGACY_NEARBY_MIN_VALUE_MILLION_CREDITS, null);
+        }
+        if (s == null || s.isBlank()) {
+            s = "10";
+        }
         try {
             double v = Double.parseDouble(s.trim());
             if (v < 0.0) {
@@ -885,11 +823,21 @@ public static Engine getSpeechEngine() {
         if (v < 0.0) {
             v = 0.0;
         }
-        PREFS.put(KEY_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS, Double.toString(v));
+        String str = Double.toString(v);
+        PREFS.put(KEY_MINING_EXO_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS, str);
+        PREFS.put(KEY_BIO_VALUABLE_THRESHOLD_MILLION_CREDITS, str);
     }
 
     /** Same as {@link #getBioValuableThresholdMillionCredits()} in credits (rounded to nearest credit). */
     public static long getBioValuableThresholdCredits() {
+        return getMiningExobiologyValuableBioThresholdCredits();
+    }
+
+    /**
+     * {@link #getBioValuableThresholdMillionCredits()} as whole credits (rounded). Kept for call-site clarity
+     * (System tab money bag, TTS, filters).
+     */
+    public static long getMiningExobiologyValuableBioThresholdCredits() {
         return Math.round(getBioValuableThresholdMillionCredits() * 1_000_000.0);
     }
 

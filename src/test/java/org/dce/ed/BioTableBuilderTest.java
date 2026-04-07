@@ -113,6 +113,113 @@ class BioTableBuilderTest {
                 "Confirmed species should appear; got: " + bioLabels);
     }
 
+    @Test
+    void collapsedPredictionsOnly_genusRowUsesSignalsSuffix() {
+        BodyInfo body = new BodyInfo();
+        body.setBodyId(BODY_ID);
+        body.setHasBio(true);
+        body.setObservedGenusPrefixes(null);
+        body.setObservedBioDisplayNames(null);
+        body.setPredictions(new ArrayList<>(List.of(
+                makeCandidate("Bacterium Acies"),
+                makeCandidate("Bacterium Albus"),
+                makeCandidate("Tardigrade Fragilis"))));
+
+        List<Row> rows = BioTableBuilder.buildRows(Collections.singletonList(body), true);
+
+        List<String> bioLabels = bioRowLabels(rows);
+        assertTrue(bioLabels.stream().anyMatch("Bacterium (2 signals)"::equals),
+                "Expected Bacterium (2 signals); got: " + bioLabels);
+        assertTrue(bioLabels.stream().anyMatch("Tardigrade (1 signal)"::equals),
+                "Expected Tardigrade (1 signal); got: " + bioLabels);
+    }
+
+    @Test
+    void collapsedPredictionsOnly_partiallyClaimed_valueShowsCreditsRemainingThenClaimed() {
+        BodyInfo body = new BodyInfo();
+        body.setBodyId(BODY_ID);
+        body.setHasBio(true);
+        body.setObservedGenusPrefixes(null);
+        body.setObservedBioDisplayNames(null);
+        body.setPredictions(new ArrayList<>(List.of(
+                makeCandidate("Bacterium Acies"),
+                makeCandidate("Bacterium Albus"))));
+        body.setBioSampleCounts(Collections.singletonMap("Bacterium Acies", 3));
+
+        List<Row> rows = BioTableBuilder.buildRows(Collections.singletonList(body), true);
+
+        List<String> bioLabels = bioRowLabels(rows);
+        assertTrue(bioLabels.stream().anyMatch("Bacterium (2 signals)"::equals),
+                "Expected genus + signal count; got: " + bioLabels);
+        assertTrue(bioRowValues(rows).stream().anyMatch(v -> v.contains("scanned") && v.contains("M")),
+                "Expected $ remaining then (Xm scanned) in value column; got: " + bioRowValues(rows));
+    }
+
+    @Test
+    void bodyBioColumnText_fssOnly_usesSignalsWord() {
+        BodyInfo body = new BodyInfo();
+        body.setHasBio(true);
+        body.setNumberOfBioSignals(4);
+        body.setPredictions(null);
+        body.setObservedBioDisplayNames(null);
+
+        assertEquals("(4 signals)", BioTableBuilder.formatBodyBioColumnText(body));
+
+        body.setNumberOfBioSignals(1);
+        assertEquals("(1 signal)", BioTableBuilder.formatBodyBioColumnText(body));
+    }
+
+    @Test
+    void bodyBioColumnText_partialClaim_showsRemainingRangeThenClaimedCredits() {
+        BodyInfo body = new BodyInfo();
+        body.setHasBio(true);
+        body.setNumberOfBioSignals(4);
+        body.setPredictions(new ArrayList<>(List.of(
+                makeCandidate("Bacterium Acies"),
+                makeCandidate("Bacterium Albus"))));
+        body.setBioSampleCounts(Collections.singletonMap("Bacterium Acies", 3));
+
+        assertEquals("5M (5M scanned)", BioTableBuilder.formatBodyBioColumnText(body));
+    }
+
+    @Test
+    void bodyBioColumnText_allClaimed_showsClaimedCreditsOnly() {
+        BodyInfo body = new BodyInfo();
+        body.setHasBio(true);
+        body.setNumberOfBioSignals(4);
+        body.setPredictions(new ArrayList<>(List.of(
+                makeCandidate("Bacterium Acies"),
+                makeCandidate("Bacterium Albus"))));
+        body.setBioSampleCounts(new java.util.HashMap<>(java.util.Map.of(
+                "Bacterium Acies", 3,
+                "Bacterium Albus", 3)));
+
+        assertEquals("(10M scanned)", BioTableBuilder.formatBodyBioColumnText(body));
+    }
+
+    @Test
+    void collapsedPredictionsOnly_allClaimed_valueShowsClaimedCredits() {
+        BodyInfo body = new BodyInfo();
+        body.setBodyId(BODY_ID);
+        body.setHasBio(true);
+        body.setObservedGenusPrefixes(null);
+        body.setObservedBioDisplayNames(null);
+        body.setPredictions(new ArrayList<>(List.of(
+                makeCandidate("Bacterium Acies"),
+                makeCandidate("Bacterium Albus"))));
+        body.setBioSampleCounts(new java.util.HashMap<>(java.util.Map.of(
+                "Bacterium Acies", 3,
+                "Bacterium Albus", 3)));
+
+        List<Row> rows = BioTableBuilder.buildRows(Collections.singletonList(body), true);
+
+        List<String> bioLabels = bioRowLabels(rows);
+        assertTrue(bioLabels.stream().anyMatch("Bacterium (2 signals)"::equals),
+                "Expected genus row label; got: " + bioLabels);
+        assertTrue(bioRowValues(rows).stream().anyMatch(v -> v.contains("(10M scanned)")),
+                "Expected scanned total in value column; got: " + bioRowValues(rows));
+    }
+
     private static List<String> bioRowLabels(List<Row> rows) {
         if (rows == null) {
             return List.of();
@@ -120,6 +227,16 @@ class BioTableBuilderTest {
         return rows.stream()
                 .filter(r -> r.detail && !r.isRingDetail() && r.bioText != null)
                 .map(r -> r.bioText)
+                .collect(Collectors.toList());
+    }
+
+    private static List<String> bioRowValues(List<Row> rows) {
+        if (rows == null) {
+            return List.of();
+        }
+        return rows.stream()
+                .filter(r -> r.detail && !r.isRingDetail() && r.bioValue != null && !r.bioValue.isEmpty())
+                .map(r -> r.bioValue)
                 .collect(Collectors.toList());
     }
 

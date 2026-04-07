@@ -77,6 +77,8 @@ public class TtsSprintf {
         registerResolver("number", TtsSprintf::resolveNumberDefault);
         registerResolver("min", TtsSprintf::resolveNumberDefault);
         registerResolver("max", TtsSprintf::resolveNumberDefault);
+        /** Whole millions (integer); templates say e.g. "from mm to mm million credits" (single "million"). */
+        registerResolver("mm", TtsSprintf::resolveNumberDefault);
 
         // Large numeric expansions (caller still writes the unit word in the template)
         // Example: "... value of {credits} credits" -> ["one", "million", "five", "hundred", "thousand"]

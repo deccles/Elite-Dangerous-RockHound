@@ -107,6 +107,9 @@ public class NearbyTabPanel extends JPanel {
     /** Max concurrent EDSM/Spansh body queries per batch; results shown in table as each batch completes. */
     private static final int NEARBY_QUERY_BATCH_SIZE = 6;
 
+    /** Sphere radius (ly) for background Nearby queries; no longer user-configurable (Nearby tab removed). */
+    private static final int DEFAULT_NEARBY_SPHERE_RADIUS_LY = 20;
+
     private final AtomicBoolean firstShowDone = new AtomicBoolean(false);
     private volatile boolean refreshRequested;
     private SystemTableHoverCopyManager systemTableHoverCopyManager;
@@ -166,7 +169,7 @@ public class NearbyTabPanel extends JPanel {
                 if (c instanceof JLabel) {
                     ((JLabel) c).setOpaque(false);
                     ((JLabel) c).setBackground(EdoUi.Internal.TRANSPARENT);
-                    long minValueCr = (long) (OverlayPreferences.getNearbyMinValueMillionCredits() * 1_000_000);
+                    long minValueCr = OverlayPreferences.getMiningExobiologyValuableBioThresholdCredits();
                     boolean highValue = false;
                     if (tableModel.getRowCount() > row && tableModel.getColumnCount() > 5) {
                         Object valObj = tableModel.getValueAt(row, 5);
@@ -348,8 +351,8 @@ public class NearbyTabPanel extends JPanel {
             return;
         }
 
-        int radiusLy = OverlayPreferences.getNearbySphereRadiusLy();
-        long minValueCr = (long) (OverlayPreferences.getNearbyMinValueMillionCredits() * 1_000_000);
+        int radiusLy = DEFAULT_NEARBY_SPHERE_RADIUS_LY;
+        final long minValueCr = OverlayPreferences.getMiningExobiologyValuableBioThresholdCredits();
 
         final String finalCenterName = centerName;
 
@@ -407,7 +410,6 @@ public class NearbyTabPanel extends JPanel {
                         bodiesBySystemFromSpansh = fetchSpanshBodiesInSphere(finalCenterName, radiusLy);
                     }
                     final Map<String, List<BodiesResponse.Body>> spanshBodies = bodiesBySystemFromSpansh;
-                    long minValueCr = (long) (OverlayPreferences.getNearbyMinValueMillionCredits() * 1_000_000);
                     nearbyRowOrder = Comparator
                             .comparingInt((Object[] r) -> ((Number) r[5]).longValue() >= minValueCr ? 0 : 1)
                             .thenComparing((Object[] a, Object[] b) -> {

@@ -146,9 +146,6 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabMiningVisibleCheckBox;
 	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
 
-	private JSpinner nearbySphereRadiusSpinner;
-	private JSpinner nearbyMaxSystemsSpinner;
-	private JSpinner nearbyMinValueMillionSpinner;
 	private JSpinner bioValuableThresholdMillionSpinner;
 
 	private boolean okPressed;
@@ -1048,84 +1045,40 @@ public class PreferencesDialog extends JDialog {
 		return panel;
 	}
 
+	/** Exobiology tab: valuable-bio threshold. */
 	private JPanel createExobiologyPanel() {
 		JPanel panel = new JPanel(new BorderLayout());
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 		panel.setOpaque(false);
 
-		JPanel content = new JPanel(new GridBagLayout());
-		content.setOpaque(false);
+		JPanel box = new JPanel(new GridBagLayout());
+		box.setOpaque(false);
+		box.setBorder(
+				BorderFactory.createTitledBorder(
+						BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+						"High-value exobiology"
+						)
+				);
 
 		GridBagConstraints gbc = new GridBagConstraints();
 		gbc.gridx = 0;
 		gbc.gridy = 0;
-		gbc.anchor = GridBagConstraints.NORTHWEST;
-		gbc.insets = new Insets(6, 6, 6, 6);
+		gbc.anchor = GridBagConstraints.WEST;
+		gbc.insets = new Insets(8, 10, 8, 10);
 
-		// --- Nearby tab (exobiology sphere search) ---
-		JPanel nearbyPanel = new JPanel(new GridBagLayout());
-		nearbyPanel.setOpaque(false);
-		nearbyPanel.setBorder(BorderFactory.createTitledBorder("Nearby tab (sphere search)"));
-
-		GridBagConstraints npc = new GridBagConstraints();
-		npc.gridx = 0;
-		npc.gridy = 0;
-		npc.anchor = GridBagConstraints.WEST;
-		npc.insets = new Insets(4, 4, 4, 4);
-
-		nearbyPanel.add(new JLabel("Sphere radius (ly):"), npc);
-		npc.gridx = 1;
-		nearbySphereRadiusSpinner = new JSpinner(new SpinnerNumberModel(
-				OverlayPreferences.getNearbySphereRadiusLy(), 1, 100, 1));
-		((JSpinner.DefaultEditor) nearbySphereRadiusSpinner.getEditor()).getTextField().setColumns(4);
-		nearbyPanel.add(nearbySphereRadiusSpinner, npc);
-
-		npc.gridx = 0;
-		npc.gridy++;
-		nearbyPanel.add(new JLabel("Max systems (closest first, limits API calls):"), npc);
-		npc.gridx = 1;
-		nearbyMaxSystemsSpinner = new JSpinner(new SpinnerNumberModel(
-				OverlayPreferences.getNearbyMaxSystems(), 1, 200, 1));
-		((JSpinner.DefaultEditor) nearbyMaxSystemsSpinner.getEditor()).getTextField().setColumns(4);
-		nearbyPanel.add(nearbyMaxSystemsSpinner, npc);
-
-		npc.gridx = 0;
-		npc.gridy++;
-		nearbyPanel.add(new JLabel("Min value (million credits):"), npc);
-		npc.gridx = 1;
-		nearbyMinValueMillionSpinner = new JSpinner(new SpinnerNumberModel(
-				OverlayPreferences.getNearbyMinValueMillionCredits(), 0.0, 1000.0, 0.5));
-		((JSpinner.DefaultEditor) nearbyMinValueMillionSpinner.getEditor()).getTextField().setColumns(6);
-		nearbyPanel.add(nearbyMinValueMillionSpinner, npc);
-
-		content.add(nearbyPanel, gbc);
-
-		gbc.gridy++;
-		JPanel systemExoPanel = new JPanel(new GridBagLayout());
-		systemExoPanel.setOpaque(false);
-		systemExoPanel.setBorder(BorderFactory.createTitledBorder("System tab"));
-
-		GridBagConstraints sec = new GridBagConstraints();
-		sec.gridx = 0;
-		sec.gridy = 0;
-		sec.anchor = GridBagConstraints.WEST;
-		sec.insets = new Insets(4, 4, 4, 4);
-
-		systemExoPanel.add(new JLabel("Valuable bio threshold (million credits):"), sec);
-		sec.gridx = 1;
+		JLabel valuableBioLabel = new JLabel("Minimum valuable exobiology (M Cr):");
+		valuableBioLabel.setToolTipText(
+				"<html>Species at or above this estimated payout (million credits) get the money bag on the System tab; "
+						+ "also used for first bio-prediction TTS and other exobiology value filters.</html>");
+		box.add(valuableBioLabel, gbc);
+		gbc.gridx = 1;
 		bioValuableThresholdMillionSpinner = new JSpinner(new SpinnerNumberModel(
 				OverlayPreferences.getBioValuableThresholdMillionCredits(), 0.0, 1000.0, 0.5));
 		((JSpinner.DefaultEditor) bioValuableThresholdMillionSpinner.getEditor()).getTextField().setColumns(6);
-		systemExoPanel.add(bioValuableThresholdMillionSpinner, sec);
+		bioValuableThresholdMillionSpinner.setToolTipText(valuableBioLabel.getToolTipText());
+		box.add(bioValuableThresholdMillionSpinner, gbc);
 
-		gbc.weighty = 0.0;
-		content.add(systemExoPanel, gbc);
-
-		gbc.gridy++;
-		gbc.weighty = 1.0;
-		content.add(new JLabel(""), gbc);
-
-		panel.add(content, BorderLayout.NORTH);
+		panel.add(box, BorderLayout.NORTH);
 		return panel;
 	}
 
@@ -1722,32 +1675,6 @@ public class PreferencesDialog extends JDialog {
             try {
                 int v = ((Number) miningAnimAsteroidSizeSpinner.getValue()).intValue();
                 OverlayPreferences.setMiningAnimationAsteroidSizePercent(v);
-            } catch (Exception e) {
-                // ignore
-            }
-        }
-
-        if (nearbySphereRadiusSpinner != null) {
-            try {
-                int r = ((Number) nearbySphereRadiusSpinner.getValue()).intValue();
-                OverlayPreferences.setNearbySphereRadiusLy(r);
-            } catch (Exception e) {
-                // ignore
-            }
-        }
-        if (nearbyMaxSystemsSpinner != null) {
-            try {
-                int m = ((Number) nearbyMaxSystemsSpinner.getValue()).intValue();
-                OverlayPreferences.setNearbyMaxSystems(m);
-            } catch (Exception e) {
-                // ignore
-            }
-        }
-
-        if (nearbyMinValueMillionSpinner != null) {
-            try {
-                double v = ((Number) nearbyMinValueMillionSpinner.getValue()).doubleValue();
-                OverlayPreferences.setNearbyMinValueMillionCredits(v);
             } catch (Exception e) {
                 // ignore
             }

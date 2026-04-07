@@ -1,6 +1,7 @@
 package org.dce.ed;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,12 +25,114 @@ final class BioTableBuilder {
         // utility
     }
 
+    /**
+     * FSS / journal shows real exobiology on this body (contradicts Spansh “no biological signals” heuristics).
+     */
+    static boolean hasLocalBioEvidence(BodyInfo b) {
+        if (b == null) {
+            return false;
+        }
+        Integer sig = b.getNumberOfBioSignals();
+        if (sig != null && sig.intValue() > 0) {
+            return true;
+        }
+        if (b.getObservedBioDisplayNames() != null && !b.getObservedBioDisplayNames().isEmpty()) {
+            return true;
+        }
+        if (b.getObservedGenusPrefixes() != null && !b.getObservedGenusPrefixes().isEmpty()) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * When true, hide exobiology-only UI that depends on Spansh’s exclude flag (no local contradiction).
+     */
+    static boolean spanshExobiologyExclusionActive(BodyInfo b) {
+        if (b == null) {
+            return false;
+        }
+        if (!Boolean.TRUE.equals(b.getSpanshExcludeFromExobiology())) {
+            return false;
+        }
+        return !hasLocalBioEvidence(b);
+    }
+
+    /**
+     * Full system-tab body-row bio column text: remaining payout range (same rule as
+     * {@link #computeBioHeaderSummary}) when any species are left, then {@code (Xm scanned)} for fully
+     * sampled species; when nothing is scanned yet, appends FSS {@code (n signals)} if known.
+     */
+    static String formatBodyBioColumnText(BodyInfo b) {
+        if (b == null) {
+            return null;
+        }
+        RemainingClaimedCredits split = collectRemainingClaimedPayoutCredits(b);
+        Integer fss = b.getNumberOfBioSignals();
+        int fssN = (fss != null && fss.intValue() > 0) ? fss.intValue() : 0;
+
+        if (split == null) {
+            return fssN > 0 ? parentheticalSignals(fssN) : null;
+        }
+
+        long claimedSum = 0L;
+        for (Long c : split.claimed) {
+            if (c != null) {
+                claimedSum += c.longValue();
+            }
+        }
+
+        String remainingStr = null;
+        if (!split.remaining.isEmpty()) {
+            long[] range = bioPayoutRangeFromRemainingCredits(split.remaining, b.getNumberOfBioSignals());
+            if (range != null) {
+                remainingStr = formatMillionSummary(range[0], range[1]);
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (remainingStr != null && !remainingStr.isEmpty()) {
+            sb.append(remainingStr);
+        }
+        if (claimedSum > 0L) {
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            String scanned = formatScannedCreditsParenthetical(claimedSum);
+            if (scanned != null) {
+                sb.append(scanned);
+            }
+        }
+        if (claimedSum <= 0L && fssN > 0) {
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(parentheticalSignals(fssN));
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private static String parentheticalSignals(int n) {
+        return "(" + n + (n == 1 ? " signal)" : " signals)");
+    }
+
+    /** e.g. {@code "(137M scanned)"} from summed credits at million scale. */
+    private static String formatScannedCreditsParenthetical(long creditsSum) {
+        String m = formatMillionSummary(creditsSum, creditsSum);
+        return (m == null) ? null : "(" + m + " scanned)";
+    }
+
     static List<Row> buildRows(java.util.Collection<BodyInfo> bodies) {
         return buildRows(bodies, false);
     }
 
     static List<Row> buildRows(java.util.Collection<BodyInfo> bodies, boolean shouldCollapse) {
         List<BodyInfo> sorted = new ArrayList<>(bodies);
+        for (BodyInfo b : sorted) {
+            if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
+                ensureBioPredictionsPopulated(b);
+            }
+        }
 
         // Sorting priority:
         //   1) Any body that has an on-foot sampled biological (green rows)
@@ -61,7 +164,11 @@ final class BioTableBuilder {
         List<Row> rows = new ArrayList<>();
 
         for (BodyInfo b : sorted) {
-            rows.add(Row.body(b));
+            String bioHeader = null;
+            if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
+                bioHeader = computeBioHeaderSummary(b);
+            }
+            rows.add(Row.body(b, bioHeader));
 
             if (b.isPlanetaryBodyForRingDisplay()) {
                 List<String> ringLines = RingSummaryFormatter.finalizeAndEnrichRingLines(
@@ -80,18 +187,6 @@ final class BioTableBuilder {
 
             // 1) Start from whatever predictions we already have
             List<ExobiologyData.BioCandidate> preds = b.getPredictions();
-
-            // If there are no predictions yet, try a one-shot calculation here
-            if (preds == null || preds.isEmpty()) {
-                BodyAttributes attrs = null;
-                try {
-                    attrs = b.buildBodyAttributes();
-                } catch (RuntimeException ex) {
-                    System.out.println("Bio attrs not ready for " + b.getShortName() + " (" + b.getBodyId() + "): " + ex);
-                }
-                // Intentionally not doing one-shot compute here (you were experimenting with this).
-                // Predictions should normally already be present on BodyInfo via SystemEventProcessor.
-            }
 
             Set<String> genusPrefixes = b.getObservedGenusPrefixes();
             Set<String> observedNamesRaw = b.getObservedBioDisplayNames();
@@ -191,16 +286,18 @@ final class BioTableBuilder {
                             valueText = String.format(Locale.US, "%dM Cr", millions);
                         }
 
-                        rows.add(Row.bio(b.getBodyId(), label, valueText));
+                        rows.add(Row.bio(b.getBodyId(), label, valueText,
+                                br.cr != null ? Long.valueOf(br.cr.longValue()) : null));
                     }
 
                     continue;
                 }
 
-                // Collapse by genus: "Genus (n)" with max CR
+                // Collapse by genus: label "Genus (n signals)"; value = remaining payout range then (Xm scanned).
                 class GenusSummary {
-                    int count = 0;
-                    Long maxCr = null;
+                    final List<Long> remaining = new ArrayList<>();
+                    final List<Long> claimed = new ArrayList<>();
+                    int rowCount = 0;
                 }
 
                 Map<String, GenusSummary> byGenus = new LinkedHashMap<>();
@@ -212,10 +309,13 @@ final class BioTableBuilder {
                         summary = new GenusSummary();
                         byGenus.put(genus, summary);
                     }
-                    summary.count++;
+                    summary.rowCount++;
                     if (br.cr != null) {
-                        if (summary.maxCr == null || br.cr > summary.maxCr) {
-                            summary.maxCr = br.cr;
+                        long cr = br.cr.longValue();
+                        if (speciesFullySampled(b, br.name)) {
+                            summary.claimed.add(Long.valueOf(cr));
+                        } else {
+                            summary.remaining.add(Long.valueOf(cr));
                         }
                     }
                 }
@@ -224,14 +324,48 @@ final class BioTableBuilder {
                     String genus = e.getKey();
                     GenusSummary gs = e.getValue();
 
-                    String label = genus + " (" + gs.count + ")";
-                    String valueText = "";
-                    if (gs.maxCr != null) {
-                        long millions = Math.round(gs.maxCr / 1_000_000.0);
-                        valueText = String.format(Locale.US, "%dM Cr", millions);
+                    int total = gs.rowCount;
+                    String label = genus + " (" + total + (total == 1 ? " signal)" : " signals)");
+
+                    String remainingStr = null;
+                    if (!gs.remaining.isEmpty()) {
+                        long[] rng = bioPayoutRangeFromRemainingCredits(
+                                new ArrayList<>(gs.remaining), Integer.valueOf(1));
+                        if (rng != null) {
+                            remainingStr = formatMillionSummary(rng[0], rng[1]);
+                        }
+                    }
+                    long claimedSum = 0L;
+                    for (Long c : gs.claimed) {
+                        if (c != null) {
+                            claimedSum += c.longValue();
+                        }
                     }
 
-                    rows.add(Row.bio(b.getBodyId(), label, valueText));
+                    StringBuilder vb = new StringBuilder();
+                    if (remainingStr != null && !remainingStr.isEmpty()) {
+                        vb.append(remainingStr);
+                    }
+                    if (claimedSum > 0L) {
+                        if (vb.length() > 0) {
+                            vb.append(' ');
+                        }
+                        String scanned = formatScannedCreditsParenthetical(claimedSum);
+                        if (scanned != null) {
+                            vb.append(scanned);
+                        }
+                    }
+                    String valueText = vb.toString();
+
+                    Long maxRem = null;
+                    for (Long cr : gs.remaining) {
+                        if (cr != null && (maxRem == null || cr.longValue() > maxRem.longValue())) {
+                            maxRem = cr;
+                        }
+                    }
+
+                    rows.add(Row.bio(b.getBodyId(), label, valueText,
+                            maxRem != null ? Long.valueOf(maxRem.longValue()) : null));
                 }
 
                 continue;
@@ -371,7 +505,8 @@ final class BioTableBuilder {
                             valueText = String.format(Locale.US, "%dM Cr", millions);
                         }
                         int samples = b.getBioSampleCount(sr.name);
-                        Row bio = Row.bio(b.getBodyId(), sr.name, valueText, samples);
+                        Row bio = Row.bio(b.getBodyId(), sr.name, valueText, samples,
+                                sr.cr != null ? Long.valueOf(sr.cr.longValue()) : null);
 
                         bio.setObservedGenusHeader(true); // green styling
                         rows.add(bio);
@@ -394,7 +529,7 @@ final class BioTableBuilder {
                         long cr = cand.getEstimatedPayout(firstBonus);
                         long millions = Math.round(cr / 1_000_000.0);
                         String valueText = String.format(Locale.US, "%dM Cr", millions);
-                        rows.add(Row.bio(b.getBodyId(), name, valueText));
+                        rows.add(Row.bio(b.getBodyId(), name, valueText, Long.valueOf(cr)));
                     }
                 }
             }
@@ -414,6 +549,31 @@ final class BioTableBuilder {
         return !observed.isEmpty();
     }
 
+    /**
+     * Fills {@link BodyInfo#getPredictions()} when the journal already marked the body as having bio
+     * but the processor has not attached candidates yet (common when scans precede full prediction events).
+     */
+    private static void ensureBioPredictionsPopulated(BodyInfo b) {
+        if (b == null) {
+            return;
+        }
+        List<ExobiologyData.BioCandidate> preds = b.getPredictions();
+        if (preds != null && !preds.isEmpty()) {
+            return;
+        }
+        BodyAttributes attrs = null;
+        try {
+            attrs = b.buildBodyAttributes();
+        } catch (RuntimeException ex) {
+            System.out.println("Bio attrs not ready for " + b.getShortName() + " (" + b.getBodyId() + "): " + ex);
+            return;
+        }
+        List<ExobiologyData.BioCandidate> computed = ExobiologyData.predict(attrs);
+        if (computed != null && !computed.isEmpty()) {
+            b.setPredictions(computed);
+        }
+    }
+
     private static long maxBioValue(BodyInfo b) {
         if (b == null) {
             return Long.MIN_VALUE;
@@ -431,7 +591,7 @@ final class BioTableBuilder {
                 b.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
             }
         }
-        if (Boolean.TRUE.equals(b.getSpanshExcludeFromExobiology())) {
+        if (spanshExobiologyExclusionActive(b)) {
             return Long.MIN_VALUE;
         }
         boolean firstBonus = FirstBonusHelper.firstBonusApplies(b);
@@ -526,6 +686,238 @@ final class BioTableBuilder {
         }
         String[] parts = s.trim().split("\\s+");
         return parts.length > 0 ? parts[0] : "";
+    }
+
+    private static boolean speciesFullySampled(BodyInfo b, String canonDisplayName) {
+        if (b == null || canonDisplayName == null || canonDisplayName.isBlank()) {
+            return false;
+        }
+        return b.getBioSampleCount(canonDisplayName) >= 3;
+    }
+
+    /**
+     * Min/max sum of {@code k} payouts (k = FSS bio count when known, else all remaining species),
+     * same rule as INITIAL bio TTS, over credits already filtered to “still in play”.
+     */
+    private static long[] bioPayoutRangeFromRemainingCredits(List<Long> payoutCredits, Integer fssBioSignalCount) {
+        if (payoutCredits == null || payoutCredits.isEmpty()) {
+            return null;
+        }
+        List<Long> sorted = new ArrayList<>(payoutCredits);
+        Collections.sort(sorted);
+        int signalCount = (fssBioSignalCount != null && fssBioSignalCount.intValue() > 0)
+                ? fssBioSignalCount.intValue()
+                : Math.max(1, sorted.size());
+        signalCount = Math.min(signalCount, sorted.size());
+        if (signalCount <= 0) {
+            return null;
+        }
+        long minTotal = 0L;
+        for (int i = 0; i < signalCount; i++) {
+            minTotal += sorted.get(i).longValue();
+        }
+        long maxTotal = 0L;
+        for (int i = sorted.size() - signalCount; i < sorted.size(); i++) {
+            maxTotal += sorted.get(i).longValue();
+        }
+        return new long[] { minTotal, maxTotal, signalCount };
+    }
+
+    private static String formatMillionSummary(long minTotal, long maxTotal) {
+        if (maxTotal <= 0L) {
+            return null;
+        }
+        long minM = Math.round(minTotal / 1_000_000.0);
+        long maxM = Math.round(maxTotal / 1_000_000.0);
+        if (minM == maxM) {
+            return minM + "M";
+        }
+        return minM + "\u2013" + maxM + "M";
+    }
+
+    private static final class RemainingClaimedCredits {
+        final List<Long> remaining = new ArrayList<>();
+        final List<Long> claimed = new ArrayList<>();
+    }
+
+    /**
+     * Vista Genomics credits still in play vs already fully sampled (3/3), using the same CASE A/B
+     * species set as the bio table. {@code null} when exobiology payouts cannot be computed from state.
+     */
+    private static RemainingClaimedCredits collectRemainingClaimedPayoutCredits(BodyInfo b) {
+        if (b == null) {
+            return null;
+        }
+        if (!b.hasBio()) {
+            return null;
+        }
+        if (spanshExobiologyExclusionActive(b)) {
+            return null;
+        }
+        ensureBioPredictionsPopulated(b);
+
+        if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
+            SpanshBodyExobiologyInfo sinfo =
+                    SpanshLandmarkCache.getInstance().getIfPresent(b.getStarSystem(), b.getBodyName());
+            if (sinfo != null) {
+                b.setSpanshLandmarks(sinfo.getLandmarks());
+                b.setSpanshExcludeFromExobiology(sinfo.isExcludeFromExobiology());
+            }
+        }
+        if (spanshExobiologyExclusionActive(b)) {
+            return null;
+        }
+
+        List<ExobiologyData.BioCandidate> preds = b.getPredictions();
+        Set<String> genusPrefixes = b.getObservedGenusPrefixes();
+        Set<String> observedNamesRaw = b.getObservedBioDisplayNames();
+
+        boolean hasGenusPrefixes = genusPrefixes != null && !genusPrefixes.isEmpty();
+        boolean hasObservedNames = observedNamesRaw != null && !observedNamesRaw.isEmpty();
+        boolean hasPreds = preds != null && !preds.isEmpty();
+
+        if (!hasGenusPrefixes && !hasObservedNames && !hasPreds) {
+            return null;
+        }
+
+        boolean firstBonus = FirstBonusHelper.firstBonusApplies(b);
+        RemainingClaimedCredits out = new RemainingClaimedCredits();
+        boolean caseA = !hasGenusPrefixes && !hasObservedNames;
+
+        if (caseA) {
+            for (ExobiologyData.BioCandidate cand : preds) {
+                String name = canonicalBioName(cand.getDisplayName());
+                long cr = cand.getEstimatedPayout(firstBonus);
+                if (speciesFullySampled(b, name)) {
+                    out.claimed.add(Long.valueOf(cr));
+                } else {
+                    out.remaining.add(Long.valueOf(cr));
+                }
+            }
+        } else {
+            Map<String, List<ExobiologyData.BioCandidate>> predictedByGenus = new LinkedHashMap<>();
+            Map<String, ExobiologyData.BioCandidate> predictedByCanonName = new LinkedHashMap<>();
+            Map<String, List<String>> confirmedByGenus = new LinkedHashMap<>();
+
+            if (preds != null) {
+                for (ExobiologyData.BioCandidate cand : preds) {
+                    String canon = canonicalBioName(cand.getDisplayName());
+                    predictedByCanonName.put(canon, cand);
+                    String genus = firstWord(canon).toLowerCase(Locale.ROOT);
+                    predictedByGenus.computeIfAbsent(genus, k -> new ArrayList<>()).add(cand);
+                }
+            }
+
+            if (observedNamesRaw != null) {
+                for (String raw : observedNamesRaw) {
+                    String canon = canonicalBioName(raw);
+                    String genus = firstWord(canon).toLowerCase(Locale.ROOT);
+                    confirmedByGenus.computeIfAbsent(genus, k -> new ArrayList<>()).add(canon);
+                }
+            }
+
+            Set<String> observedGenusLower = new HashSet<>();
+            if (genusPrefixes != null) {
+                for (String gp : genusPrefixes) {
+                    if (gp != null && !gp.isEmpty()) {
+                        observedGenusLower.add(firstWord(gp).toLowerCase(Locale.ROOT));
+                    }
+                }
+            }
+
+            List<String> genusOrder = new ArrayList<>();
+            if (genusPrefixes != null) {
+                for (String gp : genusPrefixes) {
+                    if (gp == null || gp.isBlank()) {
+                        continue;
+                    }
+                    String g = firstWord(gp).trim().toLowerCase(Locale.ROOT);
+                    if (!genusOrder.contains(g)) {
+                        genusOrder.add(g);
+                    }
+                }
+            }
+            for (String g : predictedByGenus.keySet()) {
+                if (!genusOrder.contains(g)) {
+                    genusOrder.add(g);
+                }
+            }
+
+            genusOrder.sort((g1, g2) -> {
+                boolean g1Observed = observedGenusLower.contains(g1);
+                boolean g2Observed = observedGenusLower.contains(g2);
+                if (g1Observed != g2Observed) {
+                    return g1Observed ? -1 : 1;
+                }
+
+                long g1Val = genusMaxValue(g1, predictedByGenus, predictedByCanonName, confirmedByGenus, firstBonus);
+                long g2Val = genusMaxValue(g2, predictedByGenus, predictedByCanonName, confirmedByGenus, firstBonus);
+                int cmp = Long.compare(g2Val, g1Val);
+                if (cmp != 0) {
+                    return cmp;
+                }
+
+                return g1.compareToIgnoreCase(g2);
+            });
+
+            for (String genusKey : genusOrder) {
+                List<ExobiologyData.BioCandidate> predictedForGenus = predictedByGenus.get(genusKey);
+                List<String> confirmedForGenus = confirmedByGenus.get(genusKey);
+
+                boolean hasAnySpecies =
+                        (confirmedForGenus != null && !confirmedForGenus.isEmpty())
+                        || (predictedForGenus != null && !predictedForGenus.isEmpty());
+                if (!hasAnySpecies) {
+                    continue;
+                }
+
+                if (confirmedForGenus != null && !confirmedForGenus.isEmpty()) {
+                    for (String canonName : confirmedForGenus) {
+                        ExobiologyData.BioCandidate cand = predictedByCanonName.get(canonName);
+                        if (cand == null) {
+                            continue;
+                        }
+                        long cr = cand.getEstimatedPayout(firstBonus);
+                        if (speciesFullySampled(b, canonName)) {
+                            out.claimed.add(Long.valueOf(cr));
+                        } else {
+                            out.remaining.add(Long.valueOf(cr));
+                        }
+                    }
+                } else if (predictedForGenus != null && !predictedForGenus.isEmpty()) {
+                    for (ExobiologyData.BioCandidate cand : predictedForGenus) {
+                        String name = canonicalBioName(cand.getDisplayName());
+                        long cr = cand.getEstimatedPayout(firstBonus);
+                        if (speciesFullySampled(b, name)) {
+                            out.claimed.add(Long.valueOf(cr));
+                        } else {
+                            out.remaining.add(Long.valueOf(cr));
+                        }
+                    }
+                }
+            }
+        }
+
+        if (out.remaining.isEmpty() && out.claimed.isEmpty()) {
+            return null;
+        }
+        return out;
+    }
+
+    /**
+     * System tab body-row bio summary: same species set as the table (CASE A/B), excluding species
+     * already fully analysed (3/3). Recomputes every table rebuild as scans progress.
+     */
+    static String computeBioHeaderSummary(BodyInfo b) {
+        RemainingClaimedCredits split = collectRemainingClaimedPayoutCredits(b);
+        if (split == null || split.remaining.isEmpty()) {
+            return null;
+        }
+        long[] range = bioPayoutRangeFromRemainingCredits(split.remaining, b.getNumberOfBioSignals());
+        if (range == null) {
+            return null;
+        }
+        return formatMillionSummary(range[0], range[1]);
     }
 
 }

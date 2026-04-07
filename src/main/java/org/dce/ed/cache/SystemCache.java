@@ -342,7 +342,23 @@ public final class SystemCache implements SystemStore {
                     info.setBioSamplePoints(pts);
                 }
             }
-            
+            if (cb.abandonedBioSamplePointsByDisplayName != null && !cb.abandonedBioSamplePointsByDisplayName.isEmpty()) {
+                Map<String, List<BodyInfo.BioSamplePoint>> ab = new HashMap<>();
+                for (Map.Entry<String, List<CachedBody.BioSamplePoint>> e : cb.abandonedBioSamplePointsByDisplayName.entrySet()) {
+                    if (e.getValue() == null || e.getValue().isEmpty()) {
+                        continue;
+                    }
+                    List<BodyInfo.BioSamplePoint> out = new ArrayList<>();
+                    for (CachedBody.BioSamplePoint p : e.getValue()) {
+                        out.add(new BodyInfo.BioSamplePoint(p.latitude, p.longitude));
+                    }
+                    ab.put(e.getKey(), out);
+                }
+                if (!ab.isEmpty()) {
+                    info.setAbandonedBioSamplePoints(ab);
+                }
+            }
+
             if (cb.predictions != null && !cb.predictions.isEmpty()) {
                 info.setPredictions(new ArrayList<BioCandidate>(cb.predictions));
             }
@@ -785,6 +801,28 @@ public final class SystemCache implements SystemStore {
                 cb.bioSamplePointsByDisplayName = null;
             }
 
+            Map<String, List<BodyInfo.BioSamplePoint>> abandonedPts = b.getAbandonedBioSamplePointsSnapshot();
+            if (abandonedPts != null && !abandonedPts.isEmpty()) {
+                Map<String, List<CachedBody.BioSamplePoint>> abOut = new HashMap<>();
+                for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedPts.entrySet()) {
+                    if (e.getValue() == null || e.getValue().isEmpty()) {
+                        continue;
+                    }
+                    List<CachedBody.BioSamplePoint> pts = new ArrayList<>();
+                    for (BodyInfo.BioSamplePoint p : e.getValue()) {
+                        pts.add(new CachedBody.BioSamplePoint(p.getLatitude(), p.getLongitude()));
+                    }
+                    abOut.put(e.getKey(), pts);
+                }
+                cb.abandonedBioSamplePointsByDisplayName = abOut.isEmpty() ? null : abOut;
+            } else if (prev != null
+                    && prev.abandonedBioSamplePointsByDisplayName != null
+                    && !prev.abandonedBioSamplePointsByDisplayName.isEmpty()) {
+                cb.abandonedBioSamplePointsByDisplayName = prev.abandonedBioSamplePointsByDisplayName;
+            } else {
+                cb.abandonedBioSamplePointsByDisplayName = null;
+            }
+
             if (b.getObservedGenusPrefixes() != null && !b.getObservedGenusPrefixes().isEmpty()) {
                 cb.observedGenusPrefixes = new java.util.HashSet<>(b.getObservedGenusPrefixes());
             } else {
@@ -880,8 +918,9 @@ public final class SystemCache implements SystemStore {
      * Absolute path to the SQLite system-cache database file (same rules as the internal cache).
      * Intended for developer tools; does not open a connection.
      * <p>
-     * Tables include {@code systems} (per-system {@code payload_json}) and {@code overlay_global_state}
-     * (singleton row for app-wide values such as unsold exobiology credits).
+     * Tables include {@code systems} (per-system {@code payload_json}), {@code overlay_global_state}
+     * (singleton row for app-wide values such as unsold exobiology credits), and {@code spansh_body_exobiology}
+     * (persisted Spansh body exobiology lookups).
      */
     public static Path getSqliteCacheDbPath() {
         String override = System.getProperty(CACHE_DB_PATH_PROPERTY);

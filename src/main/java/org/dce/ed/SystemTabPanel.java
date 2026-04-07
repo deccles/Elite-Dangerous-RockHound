@@ -50,7 +50,6 @@ import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.edsm.BodiesResponse;
 import org.dce.ed.edsm.UtilTable;
-import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
@@ -499,6 +498,71 @@ public class SystemTabPanel extends JPanel {
     }
 
     // ---------------------------------------------------------------------
+    // Bio payout range (FSS signal count × predicted species): min sum vs max sum of k payouts.
+    // Used for System tab body-row Bio column and INITIAL bio TTS.
+    // ---------------------------------------------------------------------
+
+    /**
+     * @return {@code [minCredits, maxCredits, signalCountUsed]} or {@code null}
+     */
+    private static long[] bioPayoutRangeForCandidates(List<BioCandidate> candidates,
+            boolean firstBonusApplies,
+            Integer fssBioSignalCount) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        int signalCount = (fssBioSignalCount != null && fssBioSignalCount.intValue() > 0)
+                ? fssBioSignalCount.intValue()
+                : Math.max(1, candidates.size());
+        List<Long> payouts = new ArrayList<>(candidates.size());
+        for (BioCandidate bio : candidates) {
+            payouts.add(Long.valueOf(bio.getEstimatedPayout(firstBonusApplies)));
+        }
+        Collections.sort(payouts);
+        signalCount = Math.min(signalCount, payouts.size());
+        if (signalCount <= 0) {
+            return null;
+        }
+        long minTotal = 0L;
+        for (int i = 0; i < signalCount; i++) {
+            minTotal += payouts.get(i).longValue();
+        }
+        long maxTotal = 0L;
+        for (int i = payouts.size() - signalCount; i < payouts.size(); i++) {
+            maxTotal += payouts.get(i).longValue();
+        }
+        return new long[] { minTotal, maxTotal, signalCount };
+    }
+
+    /** Drops species the player has fully analysed (3/3) so TTS matches the remaining pool. */
+    private static List<BioCandidate> filterBioCandidatesExcludingFullySampled(
+            BodyInfo body, List<BioCandidate> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (body == null) {
+            return new ArrayList<>(candidates);
+        }
+        List<BioCandidate> out = new ArrayList<>(candidates.size());
+        for (BioCandidate c : candidates) {
+            if (c == null) {
+                continue;
+            }
+            String name = canonicalBioName(c.getDisplayName());
+            if (body.getBioSampleCount(name) >= 3) {
+                continue;
+            }
+            out.add(c);
+        }
+        return out;
+    }
+
+    /** Fallback when {@link Row#getBioHeaderSummary()} is blank (e.g. stale model). */
+    private static String formatBioHeaderValueOrRange(BodyInfo b) {
+        return BioTableBuilder.computeBioHeaderSummary(b);
+    }
+
+    // ---------------------------------------------------------------------
     // Event forwarding
     // ---------------------------------------------------------------------
 
@@ -525,70 +589,73 @@ public class SystemTabPanel extends JPanel {
             BioScanPredictionEvent e = (BioScanPredictionEvent) event;
 
             List<BioCandidate> candidates = e.getCandidates();
-            if (candidates == null || candidates.isEmpty()) {
-                return;
-            }
-
-            // Look up the body so we can use the actual number of bio signals (if known)
-            Integer signals = null;
-            try {
-                if (state != null) {
-                    BodyInfo body = state.getBodies().get(e.getBodyId());
-                    if (body != null) {
-                        signals = body.getNumberOfBioSignals();
+            if (candidates != null && !candidates.isEmpty()) {
+                BodyInfo bodyForBio = null;
+                Integer signals = null;
+                try {
+                    if (state != null) {
+                        bodyForBio = state.getBodies().get(e.getBodyId());
+                        if (bodyForBio != null) {
+                            signals = bodyForBio.getNumberOfBioSignals();
+                        }
                     }
+                } catch (Exception ignored) {
+                    // best-effort; fall back below
                 }
-            } catch (Exception ignored) {
-                // best-effort; fall back below
-            }
 
-            int signalCount = (signals != null && signals.intValue() > 0)
-                    ? signals.intValue()
-                    : Math.max(1, candidates.size());
+                List<BioCandidate> candidatesForSpeech =
+                        filterBioCandidatesExcludingFullySampled(bodyForBio, candidates);
+                long[] payoutRange = bioPayoutRangeForCandidates(
+                        candidatesForSpeech, e.getBonusApplies(), signals);
+                if (payoutRange != null && e.getKind() == PredictionKind.INITIAL) {
+                    long minTotal = payoutRange[0];
+                    long maxTotal = payoutRange[1];
+                    int signalCount = (int) payoutRange[2];
 
-            // Compute payout range based on candidate values and number of signals.
-            List<Long> payouts = new java.util.ArrayList<>(candidates.size());
-            for (BioCandidate bio : candidates) {
-                payouts.add(Long.valueOf(bio.getEstimatedPayout(e.getBonusApplies())));
-            }
-            Collections.sort(payouts);
-
-            signalCount = Math.min(signalCount, payouts.size());
-
-            long minTotal = 0L;
-            for (int i = 0; i < signalCount; i++) {
-                minTotal += payouts.get(i).longValue();
-            }
-
-            long maxTotal = 0L;
-            for (int i = payouts.size() - signalCount; i < payouts.size(); i++) {
-                maxTotal += payouts.get(i).longValue();
-            }
-
-            TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
-
-            if (e.getKind() == PredictionKind.INITIAL) {
-                if (maxTotal >= OverlayPreferences.getBioValuableThresholdCredits()) {
-                    long speakMin = TtsSprintf.roundCreditsForSpeech(minTotal);
-                    long speakMax = TtsSprintf.roundCreditsForSpeech(maxTotal);
-                    if (speakMin == speakMax) {
-                        ttsSprintf.speakf(
-                                "{n} signals on planetary body {body} with guaranteed exobiology value of {credits} credits",
-                                Integer.valueOf(signalCount),
-                                e.getBodyName(),
-                                Long.valueOf(speakMax));
-                    } else {
-                        ttsSprintf.speakf(
-                                "{n} signals on planetary body {body} with estimated value between {min} and {max} credits",
-                                Integer.valueOf(signalCount),
-                                e.getBodyName(),
-                                Long.valueOf(speakMin),
-                                Long.valueOf(speakMax));
+                    long thresholdCr = OverlayPreferences.getMiningExobiologyValuableBioThresholdCredits();
+                    long maxSingleSpecies = 0L;
+                    for (BioCandidate c : candidatesForSpeech) {
+                        if (c == null) {
+                            continue;
+                        }
+                        long p = c.getEstimatedPayout(e.getBonusApplies());
+                        if (p > maxSingleSpecies) {
+                            maxSingleSpecies = p;
+                        }
                     }
-                } else {
-                    ttsSprintf.speakf("{n} species discovered on planetary body {body}",
-                            Integer.valueOf(candidates.size()),
-                            e.getBodyName());
+                    if (maxSingleSpecies >= thresholdCr) {
+                        TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
+                        long speakMin = TtsSprintf.roundCreditsForSpeech(minTotal);
+                        long speakMax = TtsSprintf.roundCreditsForSpeech(maxTotal);
+                        boolean singleValue = speakMin == speakMax;
+                        boolean rangeAsWholeMillions = !singleValue
+                                && speakMin >= 1_000_000L
+                                && speakMax >= 1_000_000L
+                                && speakMin % 1_000_000L == 0L
+                                && speakMax % 1_000_000L == 0L;
+
+                        if (singleValue) {
+                            ttsSprintf.speakf(
+                                    "{n} signals on planetary body {body} with guaranteed exobiology value of {credits} credits",
+                                    Integer.valueOf(signalCount),
+                                    e.getBodyName(),
+                                    Long.valueOf(speakMax));
+                        } else if (rangeAsWholeMillions) {
+                            ttsSprintf.speakf(
+                                    "{n} signals on planetary body {body} with estimated exobiology value from {mm} to {mm} million credits",
+                                    Integer.valueOf(signalCount),
+                                    e.getBodyName(),
+                                    Long.valueOf(speakMin / 1_000_000L),
+                                    Long.valueOf(speakMax / 1_000_000L));
+                        } else {
+                            ttsSprintf.speakf(
+                                    "{n} signals on planetary body {body} with estimated value between {credits} and {credits} credits",
+                                    Integer.valueOf(signalCount),
+                                    e.getBodyName(),
+                                    Long.valueOf(speakMin),
+                                    Long.valueOf(speakMax));
+                        }
+                    }
                 }
             }
         }
@@ -1066,14 +1133,11 @@ public class SystemTabPanel extends JPanel {
                     } else if (r.bioText != null && !r.bioText.isBlank()) {
                         HorizontalIconStack stack = new HorizontalIconStack(-6);
                         stack.add(bioLeafIcon);
-                        BodyInfo parent = state.getBodies().get(Integer.valueOf(r.parentId));
-                        if (parent != null) {
-                            boolean excludeFromExobiology = Boolean.TRUE.equals(parent.getSpanshExcludeFromExobiology());
-                            // Renderer path: keep this lightweight and never trigger remote fetches.
-                            long maxPredictedBioValue = excludeFromExobiology ? Long.MIN_VALUE : getMaxPredictedBioValueNoFetch(parent);
-                            if (maxPredictedBioValue >= OverlayPreferences.getBioValuableThresholdCredits()) {
-                                stack.add(bioDollarIcon);
-                            }
+                        Long rowCr = r.bioEstimatedPayoutCredits;
+                        if (rowCr != null
+                                && rowCr.longValue()
+                                        >= OverlayPreferences.getMiningExobiologyValuableBioThresholdCredits()) {
+                            stack.add(bioDollarIcon);
                         }
                         icon = stack.getIconWidth() > 0 ? stack : bioLeafIcon;
                     }
@@ -1093,27 +1157,34 @@ public class SystemTabPanel extends JPanel {
                 return c;
             }
 
-            boolean excludeFromExobiology = Boolean.TRUE.equals(b.getSpanshExcludeFromExobiology());
-            boolean hasBio = !excludeFromExobiology && b.hasBio();
+            boolean hasBio = !BioTableBuilder.spanshExobiologyExclusionActive(b) && b.hasBio();
 
             // Bio column keeps text/count only; icons are shown in Atmo/Body column.
             c.setIcon(null);
             c.setHorizontalAlignment(SwingConstants.LEFT);
 
-            // Keep text minimal when iconography already conveys type.
+            // Remaining payout range + (Xm scanned) + optional FSS signal count (see
+            // {@link BioTableBuilder#formatBodyBioColumnText}); fallback if stale row model.
             String text = "";
-
-            // If we are showing the $ indicator, also show the bio signal count as "(n)" after the icons.
-            // This is populated from FSSBodySignals / SAASignalsFound.
-            Integer bioSignals = b.getNumberOfBioSignals();
-            if (hasBio && bioSignals != null && bioSignals.intValue() > 0) {
-            	if (text.isEmpty()) {
-            		text = "(" + bioSignals + ")";
-            	} else {
-            		text = text + " (" + bioSignals + ")";
-            	}
+            if (hasBio) {
+                String cell = BioTableBuilder.formatBodyBioColumnText(b);
+                if (cell != null && !cell.isEmpty()) {
+                    text = cell;
+                }
+            }
+            if (text.isEmpty()) {
+                String valueOrRange = r.getBioHeaderSummary();
+                if (valueOrRange == null || valueOrRange.isEmpty()) {
+                    valueOrRange = formatBioHeaderValueOrRange(b);
+                }
+                if (valueOrRange != null && !valueOrRange.isEmpty()) {
+                    text = valueOrRange;
+                }
             }
 
+            if (text.indexOf('M') >= 0 && !isSelected) {
+                c.setForeground(Color.GREEN);
+            }
 
             c.setText(text);
             c.setHorizontalTextPosition(SwingConstants.RIGHT);
@@ -1121,34 +1192,6 @@ public class SystemTabPanel extends JPanel {
             return c;
         }
     }
-
-    /**
-     * Lightweight variant for paint/render paths.
-     * Uses only already-available prediction data and never performs Spansh/network fetches.
-     */
-    private static long getMaxPredictedBioValueNoFetch(BodyInfo b) {
-        if (b == null) {
-            return Long.MIN_VALUE;
-        }
-        List<ExobiologyData.BioCandidate> preds = b.getPredictions();
-        if (preds == null || preds.isEmpty()) {
-            return Long.MIN_VALUE;
-        }
-        boolean firstBonus = FirstBonusHelper.firstBonusApplies(b);
-        long max = Long.MIN_VALUE;
-        for (ExobiologyData.BioCandidate c : preds) {
-            if (c == null) {
-                continue;
-            }
-            long v = c.getEstimatedPayout(firstBonus);
-            if (v > max) {
-                max = v;
-            }
-        }
-        return max;
-    }
-
-
 
     private static final class HorizontalIconStack implements Icon {
         private final java.util.List<Icon> icons = new java.util.ArrayList<>();
@@ -1950,9 +1993,17 @@ static class Row {
         final int parentId;
         final String bioText;
         final String bioValue;
+        /** Estimated Vista Genomics payout for this row (for money-bag vs prefs threshold); null if unknown. */
+        final Long bioEstimatedPayoutCredits;
+        /** Body row: precomputed {@code NN–MMM} summary; null if none. */
+        final String bioHeaderSummary;
         private int bioSampleCount;
         
         private boolean observedGenusHeader;
+
+        String getBioHeaderSummary() {
+            return bioHeaderSummary;
+        }
 
         boolean isRingDetail() {
             return ringDetail;
@@ -1971,7 +2022,9 @@ static class Row {
                     boolean ringDetail,
                     int parentId,
                     String bioText,
-                    String bioValue) {
+                    String bioValue,
+                    Long bioEstimatedPayoutCredits,
+                    String bioHeaderSummary) {
             this.body = body;
             this.detail = detail;
             this.destinationRow = destinationRow;
@@ -1979,6 +2032,8 @@ static class Row {
             this.parentId = parentId;
             this.bioText = bioText;
             this.bioValue = bioValue;
+            this.bioEstimatedPayoutCredits = bioEstimatedPayoutCredits;
+            this.bioHeaderSummary = bioHeaderSummary;
             this.bioSampleCount = 0;
         }
         int getBioSampleCount() {
@@ -1990,26 +2045,39 @@ static class Row {
         }
 
         static Row bio(int parentId, String text, String val, int bioSampleCount) {
-            Row r = new Row(null, true, false, false, parentId, text, val);
+            return bio(parentId, text, val, bioSampleCount, null);
+        }
+
+        static Row bio(int parentId, String text, String val, int bioSampleCount, Long estimatedCredits) {
+            Row r = new Row(null, true, false, false, parentId, text, val, estimatedCredits, null);
             r.setBioSampleCount(bioSampleCount);
             return r;
         }
+
         static Row body(BodyInfo b) {
-            return new Row(b, false, false, false, -1, null, null);
+            return body(b, null);
+        }
+
+        static Row body(BodyInfo b, String bioHeaderSummary) {
+            return new Row(b, false, false, false, -1, null, null, null, bioHeaderSummary);
         }
 
         static Row bio(int parentId, String text, String val) {
-            return new Row(null, true, false, false, parentId, text, val);
+            return new Row(null, true, false, false, parentId, text, val, null, null);
+        }
+
+        static Row bio(int parentId, String text, String val, Long estimatedCredits) {
+            return new Row(null, true, false, false, parentId, text, val, estimatedCredits, null);
         }
 
         static Row ring(int parentId, String text) {
             String t = (text != null) ? text : "";
-            return new Row(null, true, false, true, parentId, t, "");
+            return new Row(null, true, false, true, parentId, t, "", null, null);
         }
 
         static Row destination(int parentId, String destinationName) {
             String name = (destinationName != null) ? destinationName : "";
-            return new Row(null, true, true, false, parentId, name, null);
+            return new Row(null, true, true, false, parentId, name, null, null, null);
         }
     }
 
@@ -2030,6 +2098,24 @@ static class Row {
             int col = columnAtPoint(p);
             if (viewRow < 0 || col < 0) {
                 return super.getToolTipText(event);
+            }
+            if (col == 2) {
+                Row r = tableModel.getRowAt(viewRow);
+                if (r != null && !r.detail && r.body != null) {
+                    String hdr = BioTableBuilder.formatBodyBioColumnText(r.body);
+                    if (hdr == null || hdr.isBlank()) {
+                        hdr = r.getBioHeaderSummary();
+                    }
+                    if (hdr == null || hdr.isBlank()) {
+                        hdr = formatBioHeaderValueOrRange(r.body);
+                    }
+                    if (hdr != null && !hdr.isBlank()) {
+                        return "<html><body style='font-size:11px'>Estimated exobiology on this body: "
+                                + "remaining payout range (from FSS signal count and plausible species), "
+                                + "plus credits for fully scanned species in parentheses, as shown: "
+                                + hdr + " (million-credit scale).</body></html>";
+                    }
+                }
             }
             if (col == 3) {
                 Row r = tableModel.getRowAt(viewRow);
@@ -2377,8 +2463,10 @@ static class Row {
                     atmo = atmo.replaceAll("atmosphere",  "");
                     return atmo;
                 case 2:
-                    // Spansh has signals but none Biological → eliminate from exobiology display
-                    if (Boolean.TRUE.equals(b.getSpanshExcludeFromExobiology())) return "";
+                    // Spansh “no bio signals” unless journal/FSS contradicts
+                    if (BioTableBuilder.spanshExobiologyExclusionActive(b)) {
+                        return "";
+                    }
                     if (b.hasBio() && b.hasGeo()) return "Bio + Geo";
                     if (b.hasGeo()) return "Geo";
                     return "";
