@@ -169,7 +169,7 @@ final class BioTableBuilder {
 
         String toHtml(long valuableThresholdCredits) {
             Color subdued = EdoUi.Internal.GRAY_180;
-            Color valuable = Color.GREEN;
+            Color valuable = EdoUi.User.PRIMARY_HIGHLIGHT;
             String sub = htmlRgb(subdued);
             String val = htmlRgb(valuable);
             StringBuilder sb = new StringBuilder("<html><body style='margin:0'>");
@@ -204,7 +204,7 @@ final class BioTableBuilder {
     private static String singleMillionSummaryHtml(String summary, long valuableThresholdCredits) {
         Long maxCr = parseMaxCreditsFromMillionSummaryLabel(summary);
         Color subdued = EdoUi.Internal.GRAY_180;
-        Color valuable = Color.GREEN;
+        Color valuable = EdoUi.User.PRIMARY_HIGHLIGHT;
         String sub = htmlRgb(subdued);
         String val = htmlRgb(valuable);
         boolean hi = maxCr != null && maxCr.longValue() >= valuableThresholdCredits;

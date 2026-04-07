@@ -34,6 +34,12 @@ public final class EdoUi {
 
         /** System tab: landable sneaker icon — canvas / upper (preferences). */
         public static Color SNEAKER = new Color(206, 44, 44);
+
+        /** Completed exobiology (3/3); prospector row matching configured high-value material filters (preferences). */
+        public static Color PRIMARY_HIGHLIGHT = new Color(0, 200, 0);
+
+        /** Exobiology in progress (1–2 samples) on System and Exobiology tabs (preferences). */
+        public static Color SECONDARY_HIGHLIGHT = new Color(255, 255, 0);
     }
 
     /**

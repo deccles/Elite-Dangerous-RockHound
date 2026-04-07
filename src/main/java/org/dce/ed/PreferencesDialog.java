@@ -136,6 +136,8 @@ public class PreferencesDialog extends JDialog {
 	private JButton uiMainTextColorButton;
 	private JButton uiBackgroundColorButton;
 	private JButton uiSneakerColorButton;
+	private JButton uiPrimaryHighlightColorButton;
+	private JButton uiSecondaryHighlightColorButton;
 
 	// Mining-tab fields
 	private JTextField prospectorMaterialsField;
@@ -184,6 +186,8 @@ public class PreferencesDialog extends JDialog {
 	private final int originalUiMainTextRgb;
 	private final int originalUiBackgroundRgb;
 	private final int originalUiSneakerRgb;
+	private final int originalUiPrimaryHighlightRgb;
+	private final int originalUiSecondaryHighlightRgb;
 
 
 	public static final String[] STANDARD_US_ENGLISH_VOICES = new String[] {
@@ -211,6 +215,8 @@ public class PreferencesDialog extends JDialog {
 		this.originalUiMainTextRgb = OverlayPreferences.getUiMainTextRgb();
 		this.originalUiBackgroundRgb = OverlayPreferences.getUiBackgroundRgb();
 		this.originalUiSneakerRgb = OverlayPreferences.getUiSneakerRgb();
+		this.originalUiPrimaryHighlightRgb = OverlayPreferences.getUiPrimaryHighlightRgb();
+		this.originalUiSecondaryHighlightRgb = OverlayPreferences.getUiSecondaryHighlightRgb();
 
 
 		this.okPressed = false;
@@ -550,6 +556,8 @@ public class PreferencesDialog extends JDialog {
 		int initialMainRgb = OverlayPreferences.getUiMainTextRgb();
 		int initialBgRgb = OverlayPreferences.getUiBackgroundRgb();
 		int initialSneakerRgb = OverlayPreferences.getUiSneakerRgb();
+		int initialPrimaryHighlightRgb = OverlayPreferences.getUiPrimaryHighlightRgb();
+		int initialSecondaryHighlightRgb = OverlayPreferences.getUiSecondaryHighlightRgb();
 
 		JPanel grid = new JPanel(new GridBagLayout());
 		grid.setOpaque(false);
@@ -613,6 +621,44 @@ public class PreferencesDialog extends JDialog {
 
 		gbc.gridx = 0;
 		gbc.gridy++;
+		gbc.gridwidth = 1;
+		gbc.anchor = GridBagConstraints.WEST;
+		grid.add(new JLabel("Primary highlight (complete exob, prospector match):"), gbc);
+
+		gbc.gridx = 1;
+		uiPrimaryHighlightColorButton = new JButton("Choose...");
+		uiPrimaryHighlightColorButton.setBackground(rgbToColor(initialPrimaryHighlightRgb));
+		uiPrimaryHighlightColorButton.setOpaque(true);
+		uiPrimaryHighlightColorButton.addActionListener(e -> {
+			Color chosen = JColorChooser.showDialog(this, "Choose primary highlight color",
+					uiPrimaryHighlightColorButton.getBackground());
+			if (chosen != null) {
+				uiPrimaryHighlightColorButton.setBackground(chosen);
+				applyLiveColorPreviewFromButtons();
+			}
+		});
+		grid.add(uiPrimaryHighlightColorButton, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
+		grid.add(new JLabel("Secondary highlight (exob in progress):"), gbc);
+
+		gbc.gridx = 1;
+		uiSecondaryHighlightColorButton = new JButton("Choose...");
+		uiSecondaryHighlightColorButton.setBackground(rgbToColor(initialSecondaryHighlightRgb));
+		uiSecondaryHighlightColorButton.setOpaque(true);
+		uiSecondaryHighlightColorButton.addActionListener(e -> {
+			Color chosen = JColorChooser.showDialog(this, "Choose secondary highlight color",
+					uiSecondaryHighlightColorButton.getBackground());
+			if (chosen != null) {
+				uiSecondaryHighlightColorButton.setBackground(chosen);
+				applyLiveColorPreviewFromButtons();
+			}
+		});
+		grid.add(uiSecondaryHighlightColorButton, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
 		gbc.gridwidth = 2;
 		gbc.anchor = GridBagConstraints.CENTER;
 
@@ -621,6 +667,8 @@ public class PreferencesDialog extends JDialog {
 			uiMainTextColorButton.setBackground(new Color(255, 140, 0));
 			uiBackgroundColorButton.setBackground(new Color(10, 10, 10));
 			uiSneakerColorButton.setBackground(new Color(206, 44, 44));
+			uiPrimaryHighlightColorButton.setBackground(new Color(0, 200, 0));
+			uiSecondaryHighlightColorButton.setBackground(new Color(255, 255, 0));
 			applyLiveColorPreviewFromButtons();
 		});
 		grid.add(resetColorsButton, gbc);
@@ -663,16 +711,20 @@ public class PreferencesDialog extends JDialog {
 		return panel;
 	}
 	private void applyLiveColorPreviewFromButtons() {
-		if (uiMainTextColorButton == null || uiBackgroundColorButton == null || uiSneakerColorButton == null) {
+		if (uiMainTextColorButton == null || uiBackgroundColorButton == null || uiSneakerColorButton == null
+				|| uiPrimaryHighlightColorButton == null || uiSecondaryHighlightColorButton == null) {
 			return;
 		}
 		int mainRgb = colorToRgb(uiMainTextColorButton.getBackground());
 		int bgRgb = colorToRgb(uiBackgroundColorButton.getBackground());
 		int sneakerRgb = colorToRgb(uiSneakerColorButton.getBackground());
-		applyLiveColorPreview(mainRgb, bgRgb, sneakerRgb);
+		int primaryHiRgb = colorToRgb(uiPrimaryHighlightColorButton.getBackground());
+		int secondaryHiRgb = colorToRgb(uiSecondaryHighlightColorButton.getBackground());
+		applyLiveColorPreview(mainRgb, bgRgb, sneakerRgb, primaryHiRgb, secondaryHiRgb);
 	}
 
-	private void applyLiveColorPreview(int mainRgb, int bgRgb, int sneakerRgb) {
+	private void applyLiveColorPreview(int mainRgb, int bgRgb, int sneakerRgb, int primaryHighlightRgb,
+			int secondaryHighlightRgb) {
 		// Live preview: write to preferences so the existing theme plumbing picks it up.
 		// If the user cancels, revertLivePreviewIfNeeded() restores the original values.
 		OverlayPreferences.setUiMainTextRgb(mainRgb);
@@ -680,6 +732,8 @@ public class PreferencesDialog extends JDialog {
 		OverlayPreferences.setNormalBackgroundRgb(bgRgb);
 		OverlayPreferences.setPassThroughBackgroundRgb(bgRgb);
 		OverlayPreferences.setUiSneakerRgb(sneakerRgb);
+		OverlayPreferences.setUiPrimaryHighlightRgb(primaryHighlightRgb);
+		OverlayPreferences.setUiSecondaryHighlightRgb(secondaryHighlightRgb);
 		OverlayPreferences.applyThemeToEdoUi();
 
 		if (getOwner() instanceof OverlayUiPreviewHost) {
@@ -1175,6 +1229,8 @@ public class PreferencesDialog extends JDialog {
 		OverlayPreferences.setUiMainTextRgb(originalUiMainTextRgb);
 		OverlayPreferences.setUiBackgroundRgb(originalUiBackgroundRgb);
 		OverlayPreferences.setUiSneakerRgb(originalUiSneakerRgb);
+		OverlayPreferences.setUiPrimaryHighlightRgb(originalUiPrimaryHighlightRgb);
+		OverlayPreferences.setUiSecondaryHighlightRgb(originalUiSecondaryHighlightRgb);
 		OverlayPreferences.applyThemeToEdoUi();
 
 		// Revert font (clear preview overrides so icon sizing matches saved prefs)
@@ -1631,6 +1687,12 @@ public class PreferencesDialog extends JDialog {
         }
         if (uiSneakerColorButton != null) {
             OverlayPreferences.setUiSneakerRgb(colorToRgb(uiSneakerColorButton.getBackground()));
+        }
+        if (uiPrimaryHighlightColorButton != null) {
+            OverlayPreferences.setUiPrimaryHighlightRgb(colorToRgb(uiPrimaryHighlightColorButton.getBackground()));
+        }
+        if (uiSecondaryHighlightColorButton != null) {
+            OverlayPreferences.setUiSecondaryHighlightRgb(colorToRgb(uiSecondaryHighlightColorButton.getBackground()));
         }
 
         // Mining

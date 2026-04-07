@@ -161,11 +161,6 @@ public final class OverlayMenuStatusBar {
     }
 
     private static void addSortedToolsMenuItems(JMenu toolsMenu, Window parent) {
-        JMenuItem backfill = new JMenuItem(OverlayToolsLaunchers.backfillMiningRunTimesMenuLabel());
-        styleMenuItem(backfill);
-        backfill.addActionListener(e -> OverlayToolsLaunchers.backfillMiningRunTimes(parent));
-        toolsMenu.add(backfill);
-
         JMenuItem updates = new JMenuItem("Check for Updates");
         styleMenuItem(updates);
         updates.addActionListener(e -> OverlayToolsLaunchers.checkForUpdates(parent));
@@ -175,11 +170,6 @@ public final class OverlayMenuStatusBar {
         styleMenuItem(exoDbg);
         exoDbg.addActionListener(e -> OverlayToolsLaunchers.launchExoPredictionDebugger(parent));
         toolsMenu.add(exoDbg);
-
-        JMenuItem fixRuns = new JMenuItem("Fix mining runs in Google Sheet");
-        styleMenuItem(fixRuns);
-        fixRuns.addActionListener(e -> OverlayToolsLaunchers.fixMiningRunsInGoogleSheet(parent));
-        toolsMenu.add(fixRuns);
 
         JMenuItem journal = new JMenuItem("Journal Monitor");
         styleMenuItem(journal);

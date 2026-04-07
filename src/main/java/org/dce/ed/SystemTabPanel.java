@@ -359,9 +359,9 @@ public class SystemTabPanel extends JPanel {
                     int samples = r.getBioSampleCount();
 
                     if (samples >= 3) {
-                        c.setForeground(Color.GREEN);
+                        c.setForeground(EdoUi.User.PRIMARY_HIGHLIGHT);
                     } else if (samples > 0) {
-                        c.setForeground(Color.YELLOW);
+                        c.setForeground(EdoUi.User.SECONDARY_HIGHLIGHT);
                     } else {
                         c.setForeground(EdoUi.Internal.GRAY_180); // gray for biologicals
                     }
@@ -1838,9 +1838,9 @@ public class SystemTabPanel extends JPanel {
                 } else {
                     int samples = r.getBioSampleCount();
                     if (samples >= 3) {
-                        c.setForeground(Color.GREEN);
+                        c.setForeground(EdoUi.User.PRIMARY_HIGHLIGHT);
                     } else if (samples > 0) {
-                        c.setForeground(Color.YELLOW);
+                        c.setForeground(EdoUi.User.SECONDARY_HIGHLIGHT);
                     } else {
                         c.setForeground(EdoUi.Internal.GRAY_180);
                     }
@@ -2108,18 +2108,42 @@ public class SystemTabPanel extends JPanel {
             return h;
         }
 
-        private final Color fillColor = new Color(81, 189, 87);
-        private final Color highlightColor = new Color(135, 228, 137);
         private final Color outlineColor = EdoUi.Internal.BLACK_ALPHA_180;
-        private final Color veinColor = new Color(51, 130, 56, 220);
         private final Color stemColor = new Color(113, 76, 44);
         private final Color accentLineColor = new Color(194, 156, 112, 220);
+
+        /** Leaf body / veins track {@link EdoUi.User#PRIMARY_HIGHLIGHT} (prefs). */
+        private static Color leafFillFromPrimary(Color primary) {
+            float[] hsb = Color.RGBtoHSB(primary.getRed(), primary.getGreen(), primary.getBlue(), null);
+            float s = Math.min(1f, hsb[1] * 0.92f + 0.08f);
+            float b = Math.min(1f, hsb[2] * 0.88f);
+            return Color.getHSBColor(hsb[0], s, b);
+        }
+
+        private static Color leafHighlightFromPrimary(Color primary) {
+            float[] hsb = Color.RGBtoHSB(primary.getRed(), primary.getGreen(), primary.getBlue(), null);
+            float s = Math.min(1f, hsb[1] * 0.55f + 0.20f);
+            float br = Math.min(1f, hsb[2] * 1.12f);
+            return Color.getHSBColor(hsb[0], s, br);
+        }
+
+        private static Color leafVeinFromPrimary(Color primary) {
+            float[] hsb = Color.RGBtoHSB(primary.getRed(), primary.getGreen(), primary.getBlue(), null);
+            float s = Math.min(1f, hsb[1] * 1.05f);
+            float br = Math.min(1f, hsb[2] * 0.58f);
+            return EdoUi.withAlpha(Color.getHSBColor(hsb[0], s, br), 220);
+        }
 
         @Override
         public void paintIcon(Component c, Graphics g, int x, int y) {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                Color primary = EdoUi.User.PRIMARY_HIGHLIGHT;
+                Color fillColor = leafFillFromPrimary(primary);
+                Color highlightColor = leafHighlightFromPrimary(primary);
+                Color veinColor = leafVeinFromPrimary(primary);
 
                 // Inset drawing area by 1px so outline/strokes do not clip at icon bounds.
                 // (ix, iy) is the top-left anchor of the drawable area.
@@ -2192,7 +2216,7 @@ public class SystemTabPanel extends JPanel {
 
                 // Lower-right offshoot vein:
                 // root stays at the same central branch point; endpoint trends toward tip.
-                drawTaperedVein(g2,
+                drawTaperedVein(g2, veinColor,
                     ix + iw * 0.44, iy + ih * 0.56, // offshoot root (aligned to central vein)
                     ix + iw * 0.57, iy + ih * 0.67, // lower offshoot control
                     ix + iw * 0.72, iy + ih * 0.58  // lower offshoot termination (right/lower)
@@ -2200,7 +2224,7 @@ public class SystemTabPanel extends JPanel {
 
                 // Upper-right offshoot vein:
                 // same root as lower offshoot, terminating above it toward the tip.
-                drawTaperedVein(g2,
+                drawTaperedVein(g2, veinColor,
                     ix + iw * 0.44, iy + ih * 0.56, // offshoot root (shared, aligned to central vein)
                     ix + iw * 0.43, iy + ih * 0.34, // upper offshoot control (mid-height, shifted further left)
                     ix + iw * 0.58, iy + ih * 0.24  // upper offshoot termination (near top, more vertical)
@@ -2209,12 +2233,12 @@ public class SystemTabPanel extends JPanel {
                 // Secondary (short) offshoot veins:
                 // start about halfway between the primary offshoot root and stem root,
                 // and use roughly half-length / half-curve versions of the two primary branches.
-                drawTaperedVein(g2,
+                drawTaperedVein(g2, veinColor,
                     ix + iw * 0.30, iy + ih * 0.70, // secondary shared root (shifted ~25% toward stem)
                     ix + iw * 0.43, iy + ih * 0.78, // lower secondary control
                     ix + iw * 0.53, iy + ih * 0.75  // lower secondary termination (near lower edge)
                 );
-                drawTaperedVein(g2,
+                drawTaperedVein(g2, veinColor,
                     ix + iw * 0.30, iy + ih * 0.70, // secondary shared root (shifted ~25% toward stem)
                     ix + iw * 0.25, iy + ih * 0.51, // upper secondary control (shifted with root)
                     ix + iw * 0.37, iy + ih * 0.37  // upper secondary termination (shifted with root)
@@ -2249,6 +2273,7 @@ public class SystemTabPanel extends JPanel {
         }
 
         private void drawTaperedVein(Graphics2D g2,
+                                     Color veinColor,
                                      double x0, double y0,
                                      double cx, double cy,
                                      double x1, double y1) {

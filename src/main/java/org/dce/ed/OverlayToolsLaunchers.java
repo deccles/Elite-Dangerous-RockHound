@@ -6,9 +6,7 @@ import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 
 import org.dce.ed.exobiology.audit.ExoPredictionDebuggerMain;
-import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.tools.EdoSqliteDatabaseFrame;
-import org.dce.ed.tools.RunTimesBackfill;
 import org.dce.ed.ui.ShowConsoleAction;
 import org.dce.ed.util.EdsmQueryTool;
 import org.dce.ed.util.GithubMsiUpdater;
@@ -63,14 +61,6 @@ public final class OverlayToolsLaunchers {
         GithubMsiUpdater.checkAndUpdate(parent);
     }
 
-    public static void fixMiningRunsInGoogleSheet(Component parent) {
-        GoogleSheetsBackend.renumberRunsAndSortUsingPreferences(parent);
-    }
-
-    public static void backfillMiningRunTimes(Component parent) {
-        RunTimesBackfill.backfillUsingPreferences(parent);
-    }
-
     public static void launchSqliteCacheBrowser(Component parent) {
         EdoSqliteDatabaseFrame.showDefaultOrBringToFront(parent);
     }
@@ -86,14 +76,5 @@ public final class OverlayToolsLaunchers {
                         JOptionPane.ERROR_MESSAGE);
             }
         });
-    }
-
-    /** Label for the backfill action (includes commander name when configured). */
-    public static String backfillMiningRunTimesMenuLabel() {
-        String cmdrName = OverlayPreferences.getMiningLogCommanderName();
-        if (cmdrName == null || cmdrName.isBlank()) {
-            return "Backfill mining run times from journals";
-        }
-        return String.format("Backfill mining run times from %s's journals", cmdrName);
     }
 }

@@ -826,10 +826,10 @@ private static List<BioRow> buildRows(BodyInfo body) {
 
     private static Color colorForSamples(int samples) {
         if (samples >= 3) {
-            return Color.GREEN;
+            return EdoUi.User.PRIMARY_HIGHLIGHT;
         }
         if (samples > 0) {
-            return Color.YELLOW;
+            return EdoUi.User.SECONDARY_HIGHLIGHT;
         }
         return EdoUi.User.MAIN_TEXT;
     }

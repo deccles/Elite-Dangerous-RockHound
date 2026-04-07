@@ -1060,7 +1060,7 @@ private final JLayer<JTable> cargoLayer;
 					return CORE_COLOR;
 				}
 				if (isHighlightedProspectorRow(r)) {
-					return NON_CORE_GREEN;
+					return EdoUi.User.PRIMARY_HIGHLIGHT;
 				}
 				if (r.getEstimatedValue() > GREEN_THRESHOLD_AVG_CR_PER_TON) {
 					return NON_CORE_GREEN;

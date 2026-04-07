@@ -48,6 +48,8 @@ public final class OverlayPreferences {
     private static final String KEY_UI_MAIN_TEXT_RGB = "ui.colors.mainTextRgb"; // 0xRRGGBB
     private static final String KEY_UI_BACKGROUND_RGB = "ui.colors.backgroundRgb"; // 0xRRGGBB
     private static final String KEY_UI_SNEAKER_RGB = "ui.colors.sneakerRgb"; // 0xRRGGBB
+    private static final String KEY_UI_PRIMARY_HIGHLIGHT_RGB = "ui.colors.primaryHighlightRgb"; // 0xRRGGBB
+    private static final String KEY_UI_SECONDARY_HIGHLIGHT_RGB = "ui.colors.secondaryHighlightRgb"; // 0xRRGGBB
 
     // --- Speech / Polly (new) ---
     private static final String KEY_SPEECH_ENABLED = "speech.enabled";
@@ -1149,6 +1151,24 @@ public static Engine getSpeechEngine() {
         PREFS.putInt(KEY_UI_SNEAKER_RGB, rgb & 0x00FFFFFF);
     }
 
+    public static int getUiPrimaryHighlightRgb() {
+        // Default rgb(0, 200, 0) — matches {@link EdoUi.User#PRIMARY_HIGHLIGHT}
+        return PREFS.getInt(KEY_UI_PRIMARY_HIGHLIGHT_RGB, 0x00C800);
+    }
+
+    public static void setUiPrimaryHighlightRgb(int rgb) {
+        PREFS.putInt(KEY_UI_PRIMARY_HIGHLIGHT_RGB, rgb & 0x00FFFFFF);
+    }
+
+    public static int getUiSecondaryHighlightRgb() {
+        // Default rgb(255, 255, 0) — matches {@link EdoUi.User#SECONDARY_HIGHLIGHT}
+        return PREFS.getInt(KEY_UI_SECONDARY_HIGHLIGHT_RGB, 0xFFFF00);
+    }
+
+    public static void setUiSecondaryHighlightRgb(int rgb) {
+        PREFS.putInt(KEY_UI_SECONDARY_HIGHLIGHT_RGB, rgb & 0x00FFFFFF);
+    }
+
     /**
      * Apply persisted theme preferences into {@link EdoUi.User} and refresh derived colors.
      * Safe to call multiple times.
@@ -1157,6 +1177,8 @@ public static Engine getSpeechEngine() {
         EdoUi.User.MAIN_TEXT = EdoUi.fromRgbInt(getUiMainTextRgb());
         EdoUi.User.BACKGROUND = EdoUi.fromRgbInt(getUiBackgroundRgb());
         EdoUi.User.SNEAKER = EdoUi.fromRgbInt(getUiSneakerRgb());
+        EdoUi.User.PRIMARY_HIGHLIGHT = EdoUi.fromRgbInt(getUiPrimaryHighlightRgb());
+        EdoUi.User.SECONDARY_HIGHLIGHT = EdoUi.fromRgbInt(getUiSecondaryHighlightRgb());
         EdoUi.refreshDerivedColors();
     }
 
