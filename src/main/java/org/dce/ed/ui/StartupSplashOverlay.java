@@ -24,7 +24,9 @@ import org.dce.ed.util.AppIconUtil;
  */
 public final class StartupSplashOverlay {
 
-    /** Fade duration (ms). */
+    /** Initial fully-opaque hold before fading starts (ms). */
+    private static final int HOLD_MS = 3000;
+    /** Fade duration (ms), after the hold period. */
     private static final int FADE_MS = 6000;
     private static final int TICK_MS = 16;
 
@@ -85,7 +87,7 @@ public final class StartupSplashOverlay {
         }
 
         private void onTick() {
-            if (fadeProgress() >= 1f) {
+            if (isFadeComplete()) {
                 timer.stop();
                 dismiss();
                 return;
@@ -139,11 +141,25 @@ public final class StartupSplashOverlay {
                 return 0f;
             }
             long elapsedNanos = System.nanoTime() - fadeStartNanos;
+            double holdNanos = HOLD_MS * 1_000_000.0;
+            if (elapsedNanos <= holdNanos) {
+                return 0f;
+            }
             double durationNanos = FADE_MS * 1_000_000.0;
             if (durationNanos <= 0.0) {
                 return 1f;
             }
-            return (float) Math.max(0.0, Math.min(1.0, elapsedNanos / durationNanos));
+            double fadeElapsedNanos = elapsedNanos - holdNanos;
+            return (float) Math.max(0.0, Math.min(1.0, fadeElapsedNanos / durationNanos));
+        }
+
+        private boolean isFadeComplete() {
+            if (fadeStartNanos <= 0L) {
+                return false;
+            }
+            long elapsedNanos = System.nanoTime() - fadeStartNanos;
+            long totalNanos = (long) ((HOLD_MS + (double) FADE_MS) * 1_000_000.0);
+            return elapsedNanos >= totalNanos;
         }
 
         private float easeOutCubic(float t) {
