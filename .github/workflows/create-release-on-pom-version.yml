@@ -92,8 +92,8 @@ jobs:
 
           echo "jar=$JAR" >> "$GITHUB_OUTPUT"
           echo "src=$SRC" >> "$GITHUB_OUTPUT"
-          echo "jar_name=EliteDangerousOverlay-$VERSION.jar" >> "$GITHUB_OUTPUT"
-          echo "src_name=EliteDangerousOverlay-$VERSION-src.zip" >> "$GITHUB_OUTPUT"
+          echo "jar_name=RockHound-$VERSION.jar" >> "$GITHUB_OUTPUT"
+          echo "src_name=RockHound-$VERSION-src.zip" >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
         if: steps.decide.outputs.release == 'true'
@@ -200,11 +200,11 @@ jobs:
           $version = "${{ steps.ver.outputs.version }}"
           $tag = "${{ steps.decide.outputs.tag }}"
 
-          $msi = Get-ChildItem -Path . -Recurse -Filter "EDO Overlay-$version.msi" | Select-Object -First 1
+          $msi = Get-ChildItem -Path . -Recurse -Filter "*$version.msi" | Select-Object -First 1
           if (-not $msi) {
-            Write-Error "MSI not found. Searched for: EDO Overlay-$version.msi"
+            Write-Error "MSI not found. Searched for: *$version.msi"
             Get-ChildItem -Path . -Recurse -Filter "*.msi" | ForEach-Object { $_.FullName }
             exit 1
           }
 
-          gh release upload $tag "$($msi.FullName)#EDO Overlay-$version.msi" --clobber
+          gh release upload $tag "$($msi.FullName)#RockHound-$version.msi" --clobber
