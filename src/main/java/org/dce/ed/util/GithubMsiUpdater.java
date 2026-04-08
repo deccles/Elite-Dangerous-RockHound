@@ -32,7 +32,7 @@ import com.google.gson.JsonParser;
 public final class GithubMsiUpdater {
 
     private static final String OWNER = "deccles";
-    private static final String REPO = "EDO";
+    private static final String REPO = "Elite-Dangerous-RockHound";
 
     // Must match your Maven coords for pom.properties lookup
     private static final String MAVEN_GROUP_ID = "org.dce";

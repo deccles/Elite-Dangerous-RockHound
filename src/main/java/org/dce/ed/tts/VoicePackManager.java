@@ -39,7 +39,7 @@ import com.google.gson.JsonParser;
 public final class VoicePackManager {
 
     private static final String OWNER = "deccles";
-    private static final String REPO = "EDO";
+    private static final String REPO = "Elite-Dangerous-RockHound";
     private static final String VOICE_PACK_PREFIX = "voice-";
     private static final String VOICE_PACK_SUFFIX = ".zip";
 
