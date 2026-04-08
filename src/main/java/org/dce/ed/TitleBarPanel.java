@@ -17,7 +17,11 @@ import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.GeneralPath;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
 
+import javax.imageio.ImageIO;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
@@ -498,6 +502,11 @@ public class TitleBarPanel extends JPanel {
      */
     public static class HammerButton extends JPanel {
 
+        private static final String HAMMER_ICON_RESOURCE = "/org/dce/ed/hammer-tools.png";
+
+        private static volatile BufferedImage hammerIconWhite;
+        private static volatile boolean hammerIconLoadTried;
+
         private boolean hover = false;
 
         HammerButton() {
@@ -510,6 +519,73 @@ public class TitleBarPanel extends JPanel {
         public void setHover(boolean hover) {
             this.hover = hover;
             repaint();
+        }
+
+        /**
+         * Black (or dark) pixels become opaque white; light background becomes transparent.
+         * Preserves soft edges when the source is anti-aliased.
+         */
+        private static BufferedImage blackSilhouetteToWhiteTransparent(BufferedImage src) {
+            int w = src.getWidth();
+            int h = src.getHeight();
+            BufferedImage argb = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D gx = argb.createGraphics();
+            try {
+                gx.drawImage(src, 0, 0, null);
+            } finally {
+                gx.dispose();
+            }
+            BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    int rgb = argb.getRGB(x, y);
+                    int aIn = (rgb >>> 24) & 0xff;
+                    int r = (rgb >> 16) & 0xff;
+                    int g = (rgb >> 8) & 0xff;
+                    int b = rgb & 0xff;
+                    int lum = (r * 30 + g * 59 + b * 11) / 100;
+                    int outAlpha = aIn * (255 - lum) / 255;
+                    if (outAlpha < 8) {
+                        continue;
+                    }
+                    out.setRGB(x, y, (outAlpha << 24) | 0xffffff);
+                }
+            }
+            return out;
+        }
+
+        private static BufferedImage hammerIconForPaint() {
+            if (hammerIconLoadTried) {
+                return hammerIconWhite;
+            }
+            synchronized (HammerButton.class) {
+                if (hammerIconLoadTried) {
+                    return hammerIconWhite;
+                }
+                hammerIconLoadTried = true;
+                try (InputStream in = TitleBarPanel.class.getResourceAsStream(HAMMER_ICON_RESOURCE)) {
+                    if (in != null) {
+                        BufferedImage raw = ImageIO.read(in);
+                        if (raw != null) {
+                            hammerIconWhite = blackSilhouetteToWhiteTransparent(raw);
+                        }
+                    }
+                } catch (IOException ignored) {
+                    hammerIconWhite = null;
+                }
+                return hammerIconWhite;
+            }
+        }
+
+        private static void paintFallbackVectorHammer(Graphics2D g2, int w, int h) {
+            g2.setColor(Color.WHITE);
+            int cx = w / 2;
+            g2.fillRoundRect(4, 5, 15, 5, 2, 2);
+            g2.fillRoundRect(cx - 2, 10, 4, 10, 2, 2);
+            g2.setStroke(new java.awt.BasicStroke(1.4f, java.awt.BasicStroke.CAP_ROUND,
+                    java.awt.BasicStroke.JOIN_ROUND));
+            g2.drawLine(17, 5, 19, 8);
+            g2.drawLine(17, 10, 19, 7);
         }
 
         @Override
@@ -525,15 +601,25 @@ public class TitleBarPanel extends JPanel {
                 g2.setColor(hover ? hoverColor : base);
                 g2.fillRoundRect(0, 0, w - 1, h - 1, 6, 6);
 
-                g2.setColor(Color.WHITE);
-                // Recognizable claw-hammer silhouette: horizontal head + vertical handle + small claw.
-                int cx = w / 2;
-                g2.fillRoundRect(4, 5, 15, 5, 2, 2);
-                g2.fillRoundRect(cx - 2, 10, 4, 10, 2, 2);
-                g2.setStroke(new java.awt.BasicStroke(1.4f, java.awt.BasicStroke.CAP_ROUND,
-                        java.awt.BasicStroke.JOIN_ROUND));
-                g2.drawLine(17, 5, 19, 8);
-                g2.drawLine(17, 10, 19, 7);
+                BufferedImage hammer = hammerIconForPaint();
+                if (hammer != null) {
+                    int pad = 3;
+                    int avail = Math.min(w, h) - pad * 2;
+                    if (avail > 0) {
+                        int iw = hammer.getWidth();
+                        int ih = hammer.getHeight();
+                        double scale = Math.min((double) avail / iw, (double) avail / ih);
+                        int dw = Math.max(1, (int) Math.round(iw * scale));
+                        int dh = Math.max(1, (int) Math.round(ih * scale));
+                        int dx = (w - dw) / 2;
+                        int dy = (h - dh) / 2;
+                        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                        g2.drawImage(hammer, dx, dy, dw, dh, null);
+                    }
+                } else {
+                    paintFallbackVectorHammer(g2, w, h);
+                }
             } finally {
                 g2.dispose();
             }
