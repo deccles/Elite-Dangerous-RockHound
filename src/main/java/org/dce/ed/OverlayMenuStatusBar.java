@@ -1,6 +1,7 @@
 package org.dce.ed;
 
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Window;
 import java.awt.event.MouseAdapter;
@@ -29,6 +30,13 @@ import org.dce.ed.util.GithubMsiUpdater;
  * {@code true} plus a runnable that switches to the pass-through {@link OverlayFrame}.
  */
 public final class OverlayMenuStatusBar {
+
+    /**
+     * Decorated mode’s status row includes 24px toolbar controls, which inflates {@link JMenuBar} height.
+     * Pass-through mode uses the same bar without those controls, so Swing would pick a shorter height;
+     * we normalize both to at least this value so the strip matches visually.
+     */
+    private static final int STATUS_BAR_MIN_HEIGHT_PX = 32;
 
     public static final Color MENU_POPUP_BG = EdoUi.Internal.DARK_14;
     public static final Color MENU_POPUP_FG = EdoUi.Internal.MENU_FG_LIGHT;
@@ -102,7 +110,15 @@ public final class OverlayMenuStatusBar {
         if (includeToolbarIcons) {
             bar.add(createDecoratedToolbar(parent, clientKey, toolsMenu, onRequestPassThrough));
         }
+        applyStatusBarRowHeight(bar);
         return new Result(bar, statusLabel, toolsMenu);
+    }
+
+    private static void applyStatusBarRowHeight(JMenuBar bar) {
+        Dimension pref = bar.getPreferredSize();
+        int h = Math.max(pref.height, STATUS_BAR_MIN_HEIGHT_PX);
+        bar.setPreferredSize(new Dimension(pref.width, h));
+        bar.setMinimumSize(new Dimension(0, h));
     }
 
     private static javax.swing.JPanel createDecoratedToolbar(

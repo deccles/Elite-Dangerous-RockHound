@@ -36,8 +36,6 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.Timer;
-import javax.swing.BorderFactory;
-import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 
 import org.dce.ed.ui.OverlayBackgroundPanel;
@@ -303,13 +301,6 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         this.toolsMenu = passThroughMenu.toolsMenu;
         titleBar = new TitleBarPanel(this, "Elite Dangerous RockHound", passThroughMenu.toolsMenu);
         passThroughStatusLabel = passThroughMenu.statusLabel;
-
-        // Keep the status row visible even when there is no message (otherwise the label is hidden and
-        // the menu bar can collapse to an unreadable strip in pass-through mode).
-        passThroughMenuBar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, EdoUi.Internal.MENU_ACCENT),
-                new EmptyBorder(1, 6, 2, 6)));
-        passThroughMenuBar.setMinimumSize(new Dimension(0, 26));
 
         JPanel northStack = new JPanel(new BorderLayout(0, 0));
         northStack.setOpaque(false);
