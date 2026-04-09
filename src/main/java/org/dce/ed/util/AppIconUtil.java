@@ -15,8 +15,13 @@ import javax.imageio.ImageIO;
 
 public final class AppIconUtil {
 
-    /** Main overlay / dialog window icon (classpath resource). */
-    public static final String APP_ICON_RESOURCE = "/org/dce/ed/RockHound.png";
+    /**
+     * Window + taskbar icon (classpath). Zoomed-in branding for small chrome; splash uses {@code RockHound.png}.
+     */
+    public static final String APP_ICON_RESOURCE = "/org/dce/ed/RockHound-window.png";
+
+    /** Wider framing for startup splash only (not used for window / taskbar icons). */
+    private static final String SPLASH_ICON_RESOURCE = "/org/dce/ed/RockHound.png";
 
     private static final String LEGACY_APP_ICON_RESOURCE = "/org/dce/ed/edsm/locate_icon.png";
 
@@ -33,12 +38,15 @@ public final class AppIconUtil {
     }
 
     /**
-     * Loads the same artwork used for the window icon, trimmed for transparency, for a startup splash overlay.
+     * Loads splash artwork (wider framing than the window icon), trimmed for transparency.
      *
      * @return non-null image, or {@code null} if no resource is available
      */
     public static BufferedImage loadAppIconForSplash() {
-        BufferedImage src = loadIconBuffered(APP_ICON_RESOURCE);
+        BufferedImage src = loadIconBuffered(SPLASH_ICON_RESOURCE);
+        if (src == null) {
+            src = loadIconBuffered(APP_ICON_RESOURCE);
+        }
         if (src == null) {
             src = loadIconBuffered(LEGACY_APP_ICON_RESOURCE);
         }
