@@ -1,6 +1,7 @@
 package org.dce.ed.route;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -68,6 +69,33 @@ class RouteSessionTest {
         session.applyNavRouteReloadParsed(List.of(sampleEntry("A", 1L)));
         assertTrue(session.getTargetState().getTargetSystemName() == null
                 || session.getTargetState().getTargetSystemName().isEmpty());
+    }
+
+    @Test
+    void applyPersistenceSnapshotRestartsJumpFlashWhenPendingLockedPresent() {
+        RoutePersistenceSnapshot snap = new RoutePersistenceSnapshot(
+                "Sol", 1L, null,
+                null, null, null, null, null,
+                "Paesui Xena", 42L,
+                Boolean.FALSE);
+        session.applyPersistenceSnapshot(snap);
+        assertTrue(flash.running);
+        assertEquals("Paesui Xena", session.getPendingJumpLockedName());
+        assertEquals(42L, session.getPendingJumpLockedAddress());
+    }
+
+    @Test
+    void applyPersistenceSnapshotStopsJumpFlashWhenPendingLockedAbsent() {
+        session.startCarrierPendingJumpBlink("Temp", 99L);
+        assertTrue(flash.running);
+        RoutePersistenceSnapshot cleared = new RoutePersistenceSnapshot(
+                "Sol", 1L, null,
+                null, null, null, null, null,
+                null, null,
+                Boolean.FALSE);
+        session.applyPersistenceSnapshot(cleared);
+        assertFalse(flash.running);
+        assertEquals(0L, session.getPendingJumpLockedAddress());
     }
 
     private static RouteEntry sampleEntry(String name, long addr) {

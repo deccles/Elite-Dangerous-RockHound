@@ -21,6 +21,11 @@ public final class FleetCarrierSessionData {
     private Boolean inHyperspace;
     private List<RouteEntryPersisted> baseRouteEntries;
 
+    /**
+     * Last destination system name typed into the Fleet Carrier tab "Calculate" field (Spansh plot).
+     */
+    private String spanshDestinationQuery;
+
     public FleetCarrierSessionData() {
     }
 
@@ -118,6 +123,14 @@ public final class FleetCarrierSessionData {
 
     public void setBaseRouteEntries(List<RouteEntryPersisted> baseRouteEntries) {
         this.baseRouteEntries = baseRouteEntries;
+    }
+
+    public String getSpanshDestinationQuery() {
+        return spanshDestinationQuery;
+    }
+
+    public void setSpanshDestinationQuery(String spanshDestinationQuery) {
+        this.spanshDestinationQuery = spanshDestinationQuery;
     }
 
     /** Gson may deserialize null; normalize to mutable list. */

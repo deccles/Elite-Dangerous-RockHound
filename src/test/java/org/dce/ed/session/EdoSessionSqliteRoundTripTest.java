@@ -45,13 +45,16 @@ class EdoSessionSqliteRoundTripTest {
         e.systemAddress = 200L;
         e.status = RouteScanStatus.UNKNOWN;
         rs.replaceBaseRouteEntries(List.of(e));
-        written.setFleetCarrier(FleetCarrierSessionMapper.fromRouteSession(rs));
+        FleetCarrierSessionData fc = FleetCarrierSessionMapper.fromRouteSession(rs);
+        fc.setSpanshDestinationQuery("Beagle Point");
+        written.setFleetCarrier(fc);
 
         cache.saveEdoSessionState(written);
 
         EdoSessionState read = cache.loadEdoSessionState();
         assertEquals(42_000L, read.getExobiologyCreditsTotalUnsold().longValue());
         assertNotNull(read.getFleetCarrier());
+        assertEquals("Beagle Point", read.getFleetCarrier().getSpanshDestinationQuery());
         RouteSession restored = new RouteSession(null, j -> true);
         FleetCarrierSessionMapper.applyToRouteSession(restored, read.getFleetCarrier());
         assertEquals("From", restored.getCurrentSystemName());

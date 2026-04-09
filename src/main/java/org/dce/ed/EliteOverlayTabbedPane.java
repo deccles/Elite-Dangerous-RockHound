@@ -404,7 +404,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		}
 
 		if (event instanceof StatusEvent flagEvent && flagEvent.isFsdCharging()) {
-			onFsdTargetTabFromStatus(flagEvent, null);
+			onFsdTargetTabFromStatus(flagEvent, null, null);
 		}
 
 		systemTab.handleLogEvent(event);
@@ -523,7 +523,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		if (event instanceof StartJumpEvent sj) {
 			StatusEvent snap = readStatusSnapshotFromDisk();
-			onFsdTargetTabFromStatus(snap, sj.getSystemAddress());
+			onFsdTargetTabFromStatus(snap, sj.getSystemAddress(), sj);
 		}
 		if (event instanceof SupercruiseExitEvent e) {
 		    miningTab.updateFromSupercruiseExit(e);
@@ -555,11 +555,25 @@ public class EliteOverlayTabbedPane extends JPanel {
 	}
 
 	/**
-	 * System tab when Status shows a body/station target (non-zero Destination.Body); Route tab for system-only.
+	 * System tab when Status shows a body/station target (non-zero Destination.Body); Route tab for system-only
+	 * ship hyperspace; Fleet Carrier tab when the commander is still docked during a carrier hyperspace jump
+	 * (normal FSD jumps are never docked).
+	 *
+	 * @param startJumpOrNull journal {@code StartJump} when this decision is tied to that event; otherwise null
 	 */
-	private void onFsdTargetTabFromStatus(StatusEvent status, Long jumpTargetSystemAddress) {
+	private void onFsdTargetTabFromStatus(StatusEvent status, Long jumpTargetSystemAddress,
+			StartJumpEvent startJumpOrNull) {
 		if (!OverlayPreferences.isAutoSwitchTabOnFsdTarget()) {
 			return;
+		}
+		if (status != null && status.isDocked()) {
+			boolean hyperspaceStart = startJumpOrNull != null
+					&& "Hyperspace".equalsIgnoreCase(trimOrEmpty(startJumpOrNull.getJumpType()));
+			boolean jumpCharge = status.isFsdCharging() || status.isFsdHyperdriveCharging();
+			if (hyperspaceStart || jumpCharge) {
+				showFleetCarrierTabFromStatusWatcher();
+				return;
+			}
 		}
 		long cur = currentOverlaySystemAddressOrZero();
 		if (SystemTabTargetLogic.preferSystemTabForFsdTarget(status, jumpTargetSystemAddress, cur)) {
@@ -567,6 +581,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 		} else {
 			showRouteTabFromStatusWatcher();
 		}
+	}
+
+	private static String trimOrEmpty(String s) {
+		return s == null ? "" : s.trim();
 	}
 
 	private void showMiningTabFromStatusWatcher() {
@@ -957,6 +975,16 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private void showRouteTabFromStatusWatcher() {
 		// Note: this is used by the GuiFocus watcher; preference check is handled there.
 		SwingUtilities.invokeLater(() -> selectTab(CARD_ROUTE, routeButton));
+	}
+
+	private void showFleetCarrierTabFromStatusWatcher() {
+		SwingUtilities.invokeLater(() -> {
+			if (fleetCarrierButton != null && fleetCarrierButton.isVisible()) {
+				selectTab(CARD_FLEET_CARRIER, fleetCarrierButton);
+			} else {
+				selectTab(CARD_ROUTE, routeButton);
+			}
+		});
 	}
 
 	private void showSystemTabFromStatusWatcher() {

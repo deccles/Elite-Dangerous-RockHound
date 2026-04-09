@@ -19,6 +19,8 @@ import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 import org.dce.ed.logreader.EliteEventType;
@@ -27,6 +29,7 @@ import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.session.FleetCarrierSessionData;
 import org.dce.ed.session.FleetCarrierSessionMapper;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
@@ -92,6 +95,25 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		destinationField.setToolTipText("Destination system name (EDSM autocomplete, resolved via Spansh for fetch)");
 
 		new SystemNameAutocomplete(destinationField, edsmClient());
+
+		Timer destinationPersistDebounce = new Timer(750, e -> fireSessionStateChanged());
+		destinationPersistDebounce.setRepeats(false);
+		destinationField.getDocument().addDocumentListener(new DocumentListener() {
+			@Override
+			public void insertUpdate(DocumentEvent e) {
+				destinationPersistDebounce.restart();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e) {
+				destinationPersistDebounce.restart();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e) {
+				destinationPersistDebounce.restart();
+			}
+		});
 
 		calculateButton = new JButton("Calculate");
 		calculateButton.setFocusable(false);
@@ -258,7 +280,12 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		if (state == null) {
 			return;
 		}
-		state.setFleetCarrier(FleetCarrierSessionMapper.fromRouteSession(routeSession));
+		FleetCarrierSessionData d = FleetCarrierSessionMapper.fromRouteSession(routeSession);
+		if (destinationField != null) {
+			String t = destinationField.getText();
+			d.setSpanshDestinationQuery(t != null && !t.isBlank() ? t.trim() : null);
+		}
+		state.setFleetCarrier(d);
 	}
 
 	@Override
@@ -267,7 +294,12 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			return;
 		}
 		if (state.getFleetCarrier() != null) {
-			FleetCarrierSessionMapper.applyToRouteSession(routeSession, state.getFleetCarrier());
+			FleetCarrierSessionData d = state.getFleetCarrier();
+			FleetCarrierSessionMapper.applyToRouteSession(routeSession, d);
+			if (destinationField != null) {
+				String q = d.getSpanshDestinationQuery();
+				destinationField.setText(q != null ? q : "");
+			}
 		}
 		int n = state.getFleetCarrier() != null ? state.getFleetCarrier().baseRouteEntriesOrEmpty().size() : 0;
 		spanshRouteLoaded = n > 0;
@@ -296,6 +328,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			statusLabel.setText("Invalid/unsupported Spansh fleet-carrier JSON or CSV");
 		} else {
 			statusLabel.setText(defaultStatusText);
+			flushSessionToDisk();
 		}
 		return ok;
 	}
@@ -308,8 +341,16 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			statusLabel.setText("Invalid/unsupported Spansh fleet-carrier JSON.");
 		} else {
 			statusLabel.setText(defaultStatusText);
+			flushSessionToDisk();
 		}
 		return ok;
+	}
+
+	private static void flushSessionToDisk() {
+		OverlayFrame frame = OverlayFrame.overlayFrame;
+		if (frame != null) {
+			frame.flushSessionStateNow();
+		}
 	}
 
 	private void doImport(Path file) {

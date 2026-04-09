@@ -204,7 +204,7 @@ public class RouteTabPanel extends JPanel {
 		this.sessionStateChangeCallback = callback;
 	}
 
-	private void fireSessionStateChanged() {
+	protected void fireSessionStateChanged() {
 		if (sessionStateChangeCallback != null) {
 			sessionStateChangeCallback.run();
 		}

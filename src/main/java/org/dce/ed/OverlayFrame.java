@@ -44,6 +44,7 @@ import org.dce.ed.cache.SystemCache;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.session.EdoSessionPersistence;
 import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.session.FleetCarrierSessionData;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.LiveJournalMonitor;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
@@ -375,6 +376,18 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         restoreSessionState();
     }
 
+    /**
+     * Persist overlay session immediately (full snapshot). Use after fleet-route / carrier UI changes where
+     * the 500 ms debounced save might not run before exit.
+     */
+    public void flushSessionStateNow() {
+        if (SwingUtilities.isEventDispatchThread()) {
+            saveSessionState();
+        } else {
+            SwingUtilities.invokeLater(this::saveSessionState);
+        }
+    }
+
     private void saveSessionState() {
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         if (tabs == null) return;
@@ -428,10 +441,44 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 carrierJumpCountdownTimer.setRepeats(true);
                 carrierJumpCountdownTimer.start();
                 updateCarrierJumpCountdown();
+                syncFleetCarrierPendingBlinkIfCountdownRestoredWithoutRouteLatch(state);
             }
         } catch (Exception e) {
             // ignore invalid or old timestamp
         }
+    }
+
+    /**
+     * Title-bar countdown can be restored from session while the fleet route snapshot has no
+     * {@code pendingJumpLocked*} fields (e.g. older saves). Re-latch the tab blink from the saved target name.
+     */
+    private void syncFleetCarrierPendingBlinkIfCountdownRestoredWithoutRouteLatch(EdoSessionState state) {
+        if (fleetCarrierSessionHasPendingJumpLocked(state != null ? state.getFleetCarrier() : null)) {
+            return;
+        }
+        String tgt = carrierJumpTargetSystem;
+        if (tgt == null || tgt.isBlank()) {
+            return;
+        }
+        final String targetTrim = tgt.trim();
+        SwingUtilities.invokeLater(() -> {
+            EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+            if (tabs != null) {
+                tabs.getFleetCarrierTabPanel().startPendingJumpBlink(targetTrim, 0L);
+            }
+        });
+    }
+
+    private static boolean fleetCarrierSessionHasPendingJumpLocked(FleetCarrierSessionData fc) {
+        if (fc == null) {
+            return false;
+        }
+        String n = fc.getPendingJumpLockedName();
+        if (n != null && !n.isBlank()) {
+            return true;
+        }
+        Long a = fc.getPendingJumpLockedAddress();
+        return a != null && a.longValue() != 0L;
     }
 
     /** Single journal listener that delegates to the current tabbed pane. Prevents duplicate prospector/CSV handling. */

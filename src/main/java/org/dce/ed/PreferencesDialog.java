@@ -376,7 +376,8 @@ public class PreferencesDialog extends JDialog {
 		autoSwitchPanel.add(autoSwitchSystemMapToSystemCheckBox, agc);
 
 		agc.gridy++;
-		autoSwitchTabOnFsdTargetCheckBox = new JCheckBox("Start FSD jump → Route/System tab");
+		autoSwitchTabOnFsdTargetCheckBox = new JCheckBox(
+				"Start hyperspace jump → Route / System tab (Fleet Carrier tab if docked on a carrier)");
 		autoSwitchTabOnFsdTargetCheckBox.setOpaque(false);
 		autoSwitchTabOnFsdTargetCheckBox.setSelected(OverlayPreferences.isAutoSwitchTabOnFsdTarget());
 		autoSwitchPanel.add(autoSwitchTabOnFsdTargetCheckBox, agc);

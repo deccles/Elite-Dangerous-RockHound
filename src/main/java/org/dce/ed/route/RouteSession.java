@@ -336,6 +336,18 @@ public final class RouteSession {
         if (snap.inHyperspace() != null) {
             inHyperspace = snap.inHyperspace().booleanValue();
         }
+        // Marker assignment and the hollow-triangle renderer only "charge blink" while jumpFlash.isTimerRunning().
+        // Live journal events start the timer; after session restore we must restart it or the pending row
+        // stays static (especially common after restart with a scheduled carrier jump).
+        boolean hasPendingJumpHighlight = (pendingJumpLockedName != null && !pendingJumpLockedName.isBlank())
+                || pendingJumpLockedAddress != 0L;
+        if (hasPendingJumpHighlight) {
+            pendingJumpSystemName = pendingJumpLockedName;
+            jumpFlash.startTimer();
+        } else {
+            pendingJumpSystemName = null;
+            jumpFlash.stopTimer();
+        }
     }
 
     public RouteDisplaySnapshot buildDisplaySnapshot(Consumer<List<RouteEntry>> afterDeepCopyBeforeSynthetics,
