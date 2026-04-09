@@ -412,10 +412,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 		biologyTab.handleLogEvent(event);
 		fleetCarrierTab.handleLogEvent(event);
 
-		if (event instanceof FsdJumpEvent) {
-			FsdJumpEvent e = (FsdJumpEvent) event;
-			nearbyTab.onCurrentSystemChanged(e.getStarSystem(), e.getSystemAddress());
-		}
+		// Nearby panel is no longer user-facing; avoid background sphere scans on every jump.
+		// Those scans can trigger broad exobiology/Spansh work across many cached systems.
 	}
 
 	public SystemTabPanel getSystemTabPanel() {
