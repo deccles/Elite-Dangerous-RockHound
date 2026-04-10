@@ -26,6 +26,8 @@ public final class EdoSessionState {
     /** ISO-8601 instant when carrier jump completes. */
     private String carrierJumpDepartureTime;
     private String carrierJumpTargetSystem;
+    /** ISO-8601 instant when fleet-carrier jump cooldown ends (5 min window after jump). */
+    private String carrierJumpCooldownEndTime;
 
     // --- System tab (target/near body, intermediate destination) ---
     private Integer targetBodyId;
@@ -166,6 +168,14 @@ public final class EdoSessionState {
 
     public void setCarrierJumpTargetSystem(String carrierJumpTargetSystem) {
         this.carrierJumpTargetSystem = carrierJumpTargetSystem;
+    }
+
+    public String getCarrierJumpCooldownEndTime() {
+        return carrierJumpCooldownEndTime;
+    }
+
+    public void setCarrierJumpCooldownEndTime(String carrierJumpCooldownEndTime) {
+        this.carrierJumpCooldownEndTime = carrierJumpCooldownEndTime;
     }
 
     public Integer getTargetBodyId() {

@@ -208,4 +208,20 @@ public final class EdoUi {
         // so it's obvious where to add any background-derived cached colors in the future.
     }
 
+    /** {@code rgb(r,g,b)} for HTML in {@link javax.swing.JLabel}. */
+    public static String htmlRgb(Color c) {
+        if (c == null) {
+            return "rgb(255,255,255)";
+        }
+        return String.format(java.util.Locale.ROOT, "rgb(%d,%d,%d)", c.getRed(), c.getGreen(), c.getBlue());
+    }
+
+    /** Minimal escaping for plain text embedded in HTML status labels. */
+    public static String escapeHtmlMinimal(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
 }

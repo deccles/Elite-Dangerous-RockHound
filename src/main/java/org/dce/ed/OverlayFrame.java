@@ -161,11 +161,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         this.rightStatusListener = listener;
     }
 
-    private void publishRightStatusText(String text) {
+    private void publishRightStatusText() {
         Consumer<String> extra = rightStatusListener;
         if (extra != null) {
             try {
-                extra.accept(text);
+                extra.accept(buildRightStatusHtml());
             } catch (Exception ignored) {
             }
         }
@@ -173,7 +173,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     }
 
     public void refreshRightStatusDisplay() {
-        publishRightStatusText(getRightStatusText());
+        publishRightStatusText();
     }
 
     public void setUpdateAvailableVersion(String latestVersion) {
@@ -194,8 +194,23 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         refreshPassThroughUnifiedStatus();
     }
 
+    /**
+     * Plain right status (no HTML). Prefer {@link #buildRightStatusHtml()} for menu/pass-through labels
+     * so fleet jump / cooldown colors apply.
+     */
     public String getRightStatusText() {
-        String base;
+        String base = getRightStatusMainPlain();
+        String hint = getRightStatusUpdateHintPlain();
+        if (hint != null) {
+            if (base == null || base.isBlank()) {
+                return hint;
+            }
+            return base + " | " + hint;
+        }
+        return base != null ? base : "";
+    }
+
+    private String getRightStatusMainPlain() {
         if (carrierJumpDepartureTime != null) {
             long seconds = Math.max(0, carrierJumpDepartureTime.getEpochSecond() - Instant.now().getEpochSecond());
             long minutes = seconds / 60;
@@ -211,26 +226,75 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
                 countdown += " → " + carrierJumpTargetSystem;
             }
-            base = countdown;
+            return countdown;
         }
-        else if (carrierJumpCooldownEndTime != null) {
+        if (carrierJumpCooldownEndTime != null) {
             long seconds = Math.max(0, carrierJumpCooldownEndTime.getEpochSecond() - Instant.now().getEpochSecond());
             long minutes = seconds / 60;
             long secs = seconds % 60;
-            base = String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs);
-        } else {
-            base = formatExoCredits(exoCreditsTotal);
+            return String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs);
         }
+        return formatExoCredits(exoCreditsTotal);
+    }
 
-        // Append update hint if available
-        if (updateAvailableVersion != null && !updateAvailableVersion.isBlank()) {
-            String hint = "New version " + updateAvailableVersion + " available";
-            if (base == null || base.isBlank()) {
-                return hint;
-            }
-            return base + " | " + hint;
+    private String getRightStatusUpdateHintPlain() {
+        if (updateAvailableVersion == null || updateAvailableVersion.isBlank()) {
+            return null;
         }
-        return base;
+        return "New version " + updateAvailableVersion + " available";
+    }
+
+    private Color getRightStatusMainForeground() {
+        if (carrierJumpDepartureTime != null) {
+            return EdoUi.User.ERROR;
+        }
+        if (carrierJumpCooldownEndTime != null) {
+            return EdoUi.User.CORE_BLUE;
+        }
+        return EdoUi.Internal.MENU_FG_LIGHT;
+    }
+
+    private void appendRightStatusInnerHtml(StringBuilder sb) {
+        String main = getRightStatusMainPlain();
+        if (main == null) {
+            main = "";
+        }
+        main = main.trim();
+        sb.append("<span style='color:").append(EdoUi.htmlRgb(getRightStatusMainForeground())).append(";'>")
+                .append(EdoUi.escapeHtmlMinimal(main)).append("</span>");
+        String hint = getRightStatusUpdateHintPlain();
+        if (hint != null) {
+            sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.SUCCESS)).append(";'> | ")
+                    .append(EdoUi.escapeHtmlMinimal(hint)).append("</span>");
+        }
+    }
+
+    private String buildRightStatusHtml() {
+        StringBuilder sb = new StringBuilder("<html>");
+        appendRightStatusInnerHtml(sb);
+        sb.append("</html>");
+        return sb.toString();
+    }
+
+    /**
+     * Decorated window status bar: {@code rightStatusHtml} is usually {@link #buildRightStatusHtml()} from the
+     * pass-through frame listener; optionally append the limpet warning in red.
+     */
+    static String buildDecoratedMenuStatusHtml(String rightStatusHtml, boolean limpet) {
+        String right = rightStatusHtml != null ? rightStatusHtml.trim() : "";
+        String limpetSpan = "<span style='color:" + EdoUi.htmlRgb(EdoUi.User.ERROR) + ";'>"
+                + (right.isEmpty() ? "" : "  |  ") + "Low Limpet Warning!</span>";
+        if (!limpet) {
+            return right;
+        }
+        if (right.isEmpty()) {
+            return "<html>" + limpetSpan + "</html>";
+        }
+        if (right.startsWith("<html>") && right.endsWith("</html>")) {
+            String inner = right.substring(6, right.length() - 7);
+            return "<html>" + inner + limpetSpan + "</html>";
+        }
+        return "<html>" + EdoUi.escapeHtmlMinimal(right) + limpetSpan + "</html>";
     }
     
     public static OverlayFrame overlayFrame = null;
@@ -407,6 +471,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             state.setCarrierJumpDepartureTime(carrierJumpDepartureTime.toString());
         }
         state.setCarrierJumpTargetSystem(carrierJumpTargetSystem);
+        if (carrierJumpCooldownEndTime != null) {
+            state.setCarrierJumpCooldownEndTime(carrierJumpCooldownEndTime.toString());
+        }
     }
 
     private void restoreSessionState() {
@@ -427,25 +494,53 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     }
 
     private void applyCarrierSessionState(EdoSessionState state) {
-        if (state == null || state.getCarrierJumpDepartureTime() == null || state.getCarrierJumpDepartureTime().isBlank()) return;
+        if (state == null) {
+            return;
+        }
         try {
-            Instant departure = Instant.parse(state.getCarrierJumpDepartureTime());
-            if (departure.isAfter(Instant.now())) {
-                carrierJumpDepartureTime = departure;
-                carrierJumpTargetSystem = state.getCarrierJumpTargetSystem();
-                setTitleBarText("");
-                if (carrierJumpCountdownTimer != null) {
-                    carrierJumpCountdownTimer.stop();
+            String depStr = state.getCarrierJumpDepartureTime();
+            if (depStr != null && !depStr.isBlank()) {
+                Instant departure = Instant.parse(depStr);
+                if (departure.isAfter(Instant.now())) {
+                    carrierJumpDepartureTime = departure;
+                    carrierJumpTargetSystem = state.getCarrierJumpTargetSystem();
+                    setTitleBarText("");
+                    if (carrierJumpCountdownTimer != null) {
+                        carrierJumpCountdownTimer.stop();
+                    }
+                    carrierJumpCountdownTimer = new Timer(500, e -> updateCarrierJumpCountdown());
+                    carrierJumpCountdownTimer.setRepeats(true);
+                    carrierJumpCountdownTimer.start();
+                    updateCarrierJumpCountdown();
+                    syncFleetCarrierPendingBlinkIfCountdownRestoredWithoutRouteLatch(state);
+                    return;
                 }
-                carrierJumpCountdownTimer = new Timer(500, e -> updateCarrierJumpCountdown());
-                carrierJumpCountdownTimer.setRepeats(true);
-                carrierJumpCountdownTimer.start();
-                updateCarrierJumpCountdown();
-                syncFleetCarrierPendingBlinkIfCountdownRestoredWithoutRouteLatch(state);
+            }
+            String coolStr = state.getCarrierJumpCooldownEndTime();
+            if (coolStr != null && !coolStr.isBlank()) {
+                Instant end = Instant.parse(coolStr);
+                if (end.isAfter(Instant.now())) {
+                    resumeCarrierJumpCooldownWithPersistedEnd(end);
+                }
             }
         } catch (Exception e) {
             // ignore invalid or old timestamp
         }
+    }
+
+    /** Restore cooldown UI/timer after restart; does not recompute end from jump time. */
+    private void resumeCarrierJumpCooldownWithPersistedEnd(Instant endTime) {
+        if (endTime == null || !endTime.isAfter(Instant.now())) {
+            return;
+        }
+        carrierJumpCooldownEndTime = endTime;
+        if (carrierJumpCooldownTimer != null) {
+            carrierJumpCooldownTimer.stop();
+        }
+        carrierJumpCooldownTimer = new javax.swing.Timer(500, e -> updateCarrierJumpCooldown());
+        carrierJumpCooldownTimer.setRepeats(true);
+        carrierJumpCooldownTimer.start();
+        publishRightStatusText();
     }
 
     /**
@@ -575,28 +670,7 @@ private void updateCarrierJumpCountdown() {
 
     Instant jumpCompleteTime = carrierJumpDepartureTime;
 
-    long seconds = jumpCompleteTime.getEpochSecond() - Instant.now().getEpochSecond();
-    if (seconds < 0) {
-        seconds = 0;
-    }
-
-    long minutes = seconds / 60;
-    long secs = seconds % 60;
-
-    String countdown;
-    if (minutes >= 60) {
-        long hours = minutes / 60;
-        minutes = minutes % 60;
-        countdown = String.format("FC jump T-%d:%02d:%02d", hours, minutes, secs);
-    } else {
-        countdown = String.format("FC jump T-%d:%02d", minutes, secs);
-    }
-
-    if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
-        countdown += " → " + carrierJumpTargetSystem;
-    }
-
-    publishRightStatusText(countdown);
+    publishRightStatusText();
 
     if (carrierJumpCooldownEndTime == null && Instant.now().isAfter(jumpCompleteTime.plusSeconds(5))) {
         // Start cooldown based on when the jump was scheduled to complete, not when we detect it.
@@ -637,10 +711,7 @@ private void updateCarrierJumpCooldown() {
     if (carrierJumpCooldownEndTime == null) {
         return;
     }
-    long seconds = Math.max(0, carrierJumpCooldownEndTime.getEpochSecond() - Instant.now().getEpochSecond());
-    long minutes = seconds / 60;
-    long secs = seconds % 60;
-    publishRightStatusText(String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs));
+    publishRightStatusText();
     if (Instant.now().compareTo(carrierJumpCooldownEndTime) >= 0) {
         if (carrierJumpCooldownTimer != null) {
             carrierJumpCooldownTimer.stop();
@@ -670,7 +741,7 @@ private void updateRightStatusDefault() {
     if (carrierJumpDepartureTime != null || carrierJumpCooldownEndTime != null) {
         return;
     }
-    publishRightStatusText(formatExoCredits(exoCreditsTotal));
+    publishRightStatusText();
 }
 
 private static String formatExoCredits(long credits) {
@@ -801,6 +872,14 @@ private void installLowLimpetStatusUpdater() {
  * Same combined status string as {@link DecoratedOverlayDialog#updateStatusLabel()}, plus transient
  * exception text when {@link #reportExceptionToTitleBar} is active.
  */
+private boolean isRightStatusEffectivelyEmpty() {
+    String main = getRightStatusMainPlain();
+    if (main != null && !main.trim().isEmpty()) {
+        return false;
+    }
+    return getRightStatusUpdateHintPlain() == null;
+}
+
 private void refreshPassThroughUnifiedStatus() {
     if (passThroughStatusLabel == null) {
         return;
@@ -817,34 +896,49 @@ private void refreshPassThroughUnifiedStatus() {
         String miningErr = miningSheetsStatusError;
         boolean showMiningErr = miningErr != null && !miningErr.isBlank();
 
-        String right = getRightStatusText();
-        if (right != null) {
-            right = right.trim();
-        } else {
-            right = "";
-        }
+        boolean rightEmpty = isRightStatusEffectivelyEmpty();
 
-        String full;
-        if (showErr) {
-            full = err + (right.isEmpty() ? "" : "  |  " + right);
-        } else if (showMiningErr) {
-            full = miningErr + (right.isEmpty() ? "" : "  |  " + right);
-        } else if (limpet) {
-            full = right + (right.isEmpty() ? "" : "  |  ") + "Low Limpet Warning!";
-        } else {
-            full = right;
-        }
-
-        String display = full.isEmpty() ? "\u2014" : full;
-        passThroughStatusLabel.setText(display);
-        if (limpet || showErr || showMiningErr) {
-            passThroughStatusLabel.setForeground(EdoUi.User.ERROR);
+        if (!showErr && !showMiningErr && !limpet && rightEmpty) {
+            passThroughStatusLabel.setText("\u2014");
+            passThroughStatusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
-        } else if (full.contains("New version")) {
-            passThroughStatusLabel.setForeground(EdoUi.User.SUCCESS);
+            passThroughStatusLabel.setVisible(true);
+            return;
+        }
+
+        String sep = "<span style='color:" + EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT) + ";'>  |  </span>";
+        StringBuilder html = new StringBuilder("<html>");
+        if (showErr) {
+            html.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.ERROR)).append(";'>")
+                    .append(EdoUi.escapeHtmlMinimal(err)).append("</span>");
+            if (!rightEmpty) {
+                html.append(sep);
+                appendRightStatusInnerHtml(html);
+            }
+        } else if (showMiningErr) {
+            html.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.ERROR)).append(";'>")
+                    .append(EdoUi.escapeHtmlMinimal(miningErr)).append("</span>");
+            if (!rightEmpty) {
+                html.append(sep);
+                appendRightStatusInnerHtml(html);
+            }
+        } else if (limpet) {
+            appendRightStatusInnerHtml(html);
+            html.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.ERROR)).append(";'>");
+            if (!rightEmpty) {
+                html.append("  |  ");
+            }
+            html.append("Low Limpet Warning!</span>");
+        } else {
+            appendRightStatusInnerHtml(html);
+        }
+        html.append("</html>");
+        passThroughStatusLabel.setText(html.toString());
+        // JLabel ignores this for most HTML content; kept for non-HTML edge cases.
+        passThroughStatusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
+        if (getRightStatusUpdateHintPlain() != null && !showErr && !showMiningErr) {
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         } else {
-            passThroughStatusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
         }
         passThroughStatusLabel.setVisible(true);

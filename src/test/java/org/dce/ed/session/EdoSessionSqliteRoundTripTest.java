@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 
 import org.dce.ed.TestEnvironment;
@@ -80,6 +81,17 @@ class EdoSessionSqliteRoundTripTest {
         assertEquals("LegacyShip", loaded.getCurrentSystemName());
         assertEquals("Tarantula", loaded.getCarrierJumpTargetSystem());
         assertFalse(Files.isRegularFile(legacyPath), "legacy JSON should be deleted after successful migration write");
+    }
+
+    @Test
+    void saveAndLoad_carrierJumpCooldownEndTime() {
+        SystemCache cache = SystemCache.getInstance();
+        EdoSessionState written = new EdoSessionState();
+        String end = Instant.now().plusSeconds(3600).toString();
+        written.setCarrierJumpCooldownEndTime(end);
+        cache.saveEdoSessionState(written);
+        EdoSessionState read = cache.loadEdoSessionState();
+        assertEquals(end, read.getCarrierJumpCooldownEndTime());
     }
 
     @Test

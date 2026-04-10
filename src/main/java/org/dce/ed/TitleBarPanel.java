@@ -408,14 +408,16 @@ public class TitleBarPanel extends JPanel {
                 g2.setColor(hover ? hoverColor : base);
                 g2.fillRoundRect(0, 0, w - 1, h - 1, 6, 6);
 
-                g2.setColor(Color.WHITE);
                 if (passThroughActive) {
-                    // Line behind the arrow; outlined arrow drawn ~2px right of the line.
+                    // Arrow first, then red strike on top so the bar clearly crosses the pointer.
+                    g2.setColor(Color.WHITE);
+                    drawArrowOutline(g2, 2);
                     g2.setStroke(new java.awt.BasicStroke(2f, java.awt.BasicStroke.CAP_ROUND,
                             java.awt.BasicStroke.JOIN_ROUND));
+                    g2.setColor(EdoUi.User.ERROR);
                     g2.drawLine(3, 19, 20, 3);
-                    drawArrowOutline(g2, 2);
                 } else {
+                    g2.setColor(Color.WHITE);
                     drawArrowOutline(g2, 0);
                 }
             } finally {
