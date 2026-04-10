@@ -13,6 +13,7 @@ import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JMenuBar;
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import org.dce.ed.util.AppIconUtil;
@@ -44,6 +45,8 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 
 	private JMenuBar menuBar;
 	private JLabel statusLabel;
+	private JPanel fleetCarrierTimeBadgeHost;
+	private JLabel fleetCarrierTimeLabel;
 	private volatile CargoMonitor.Snapshot lastCargoSnapshot;
 	private String lastRightStatusText = "";
 	private JComponent transitionShield;
@@ -221,6 +224,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		}
 
 		Runnable r = () -> {
+			OverlayFrame.updateFleetCarrierTimeBadgeExternal(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
 			boolean limpet = shouldShowLowLimpetWarning();
 			String right = lastRightStatusText != null ? lastRightStatusText.trim() : "";
 			String full = OverlayFrame.buildDecoratedMenuStatusHtml(right, limpet);
@@ -262,6 +266,8 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 	private JMenuBar createMenuBar() {
 		OverlayMenuStatusBar.Result r = OverlayMenuStatusBar.build(this, clientKey, true, this::firePassThroughRequest);
 		statusLabel = r.statusLabel;
+		fleetCarrierTimeBadgeHost = r.fleetCarrierTimeBadgeHost;
+		fleetCarrierTimeLabel = r.fleetCarrierTimeLabel;
 		return r.menuBar;
 	}
 
@@ -329,6 +335,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 	 */
 	private void refreshMenuBarAccentColors() {
 		OverlayMenuStatusBar.refreshMenuBarTheme(menuBar);
+		OverlayFrame.updateFleetCarrierTimeBadgeExternal(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
 	}
 
 	@Override

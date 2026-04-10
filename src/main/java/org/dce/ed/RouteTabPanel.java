@@ -21,6 +21,7 @@ import java.util.EventObject;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.BooleanSupplier;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -232,10 +233,8 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		routeSession.applyPersistenceSnapshot(RoutePersistenceAdapter.fromEdoSession(state));
-		if (state.getCurrentSystemName() != null) {
-			setCurrentSystemName(state.getCurrentSystemName());
-		} else if (routeSession.getCurrentSystemName() != null) {
-			tableModel.setCurrentSystemName(routeSession.getCurrentSystemName());
+		if (state.getCurrentSystemName() != null && !state.getCurrentSystemName().isBlank()) {
+			routeSession.setCurrentSystemName(state.getCurrentSystemName());
 		}
 		reconcileRouteCurrentWithPostRescanCache();
 		rebuildDisplayedEntries();
@@ -532,6 +531,9 @@ public class RouteTabPanel extends JPanel {
 		RouteJournalApplyOutcome outcome = routeSession.applySecondaryJournalEvent(event);
 		if (outcome.refreshDisplayedRows()) {
 			rebuildDisplayedEntries();
+		} else {
+			// Session current system can move without a full row rebuild; keep Ly column / blank-current in sync.
+			syncTableCurrentFromRouteSession();
 		}
 		if (outcome.exitHandleLogWithoutSessionPersist()) {
 			return;
@@ -812,6 +814,7 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	protected void rebuildDisplayedEntries() {
+		syncTableCurrentFromRouteSession();
 		RouteDisplaySnapshot snap = routeSession.buildDisplaySnapshot(this::applyRememberedScanStatuses, this::resolveSystemCoords);
 		tableModel.setEntries(snap.displayedEntries());
 		maybeScheduleTargetCoordsFetch(snap.displayedEntries());
@@ -1280,7 +1283,7 @@ public class RouteTabPanel extends JPanel {
 				return;
 			}
 			routeSession.applyKnownCurrentSystem(cs.systemName, cs.systemAddress, cs.starPos);
-			tableModel.setCurrentSystemName(cs.systemName);
+			tableModel.setCurrentSystemIdentity(cs.systemName, cs.systemAddress);
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -1315,6 +1318,18 @@ public class RouteTabPanel extends JPanel {
 		routeSession.setCurrentSystemName(name);
 		tableModel.setCurrentSystemName(name);
 	}
+
+	/** Copies {@link RouteSession}'s current system into the table model so distance / “you are here” use live journal state. */
+	private void syncTableCurrentFromRouteSession() {
+		if (tableModel == null) {
+			return;
+		}
+		String n = routeSession.getCurrentSystemName();
+		if (n == null || n.isBlank()) {
+			return;
+		}
+		tableModel.setCurrentSystemIdentity(n, routeSession.getCurrentSystemAddress());
+	}
 	// ---------------------------------------------------------------------
 	// Model + table
 	// ---------------------------------------------------------------------
@@ -1323,22 +1338,30 @@ public class RouteTabPanel extends JPanel {
 		private final List<RouteEntry> entries = new ArrayList<>();
 		private boolean sumDistances = true;
 		private String currentSystemName;
+		private long currentSystemAddress;
+
+		void setCurrentSystemIdentity(String name, long systemAddress) {
+			if (Objects.equals(this.currentSystemName, name) && this.currentSystemAddress == systemAddress) {
+				return;
+			}
+			this.currentSystemName = name;
+			this.currentSystemAddress = systemAddress;
+			fireTableDataChanged();
+		}
+
 		void setCurrentSystemName(String currentSystemName) {
+			if (Objects.equals(this.currentSystemName, currentSystemName)) {
+				return;
+			}
 			this.currentSystemName = currentSystemName;
 			fireTableDataChanged();
 		}
 
 		private int findCurrentSystemRow() {
-			if (currentSystemName == null) {
+			if (currentSystemName == null || currentSystemName.isBlank()) {
 				return -1;
 			}
-			for (int i = 0; i < entries.size(); i++) {
-				String name = entries.get(i).systemName;
-				if (currentSystemName.equals(name)) {
-					return i;
-				}
-			}
-			return -1;
+			return RouteGeometry.findSystemRow(entries, currentSystemName, currentSystemAddress);
 		}
 
 		void setSumDistances(boolean sumDistances) {
@@ -1470,8 +1493,11 @@ public class RouteTabPanel extends JPanel {
 			 * - If currentSystemName doesn't exist in the new route, also default to row 0.
 			 */
 			if (!entries.isEmpty()) {
-				if (currentSystemName == null || findCurrentSystemRow() < 0) {
-					currentSystemName = entries.get(0).systemName;
+				if (currentSystemName == null || currentSystemName.isBlank()
+						|| RouteGeometry.findSystemRow(entries, currentSystemName, currentSystemAddress) < 0) {
+					RouteEntry z = entries.get(0);
+					currentSystemName = z.systemName;
+					currentSystemAddress = z.systemAddress;
 				}
 			}
 			fireTableDataChanged();

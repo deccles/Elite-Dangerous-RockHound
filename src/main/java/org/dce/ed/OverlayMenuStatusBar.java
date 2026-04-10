@@ -1,5 +1,6 @@
 package org.dce.ed;
 
+import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -10,11 +11,14 @@ import java.awt.event.MouseEvent;
 import org.dce.ed.ui.EdoUi;
 
 import javax.swing.Box;
+import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 
@@ -44,12 +48,25 @@ public final class OverlayMenuStatusBar {
     public static final class Result {
         public final JMenuBar menuBar;
         public final JLabel statusLabel;
+        /**
+         * Bordered strip at the left of the status row showing only the fleet jump / cooldown token (e.g. {@code T-5:00}).
+         * Hidden when neither countdown is active.
+         */
+        public final JPanel fleetCarrierTimeBadgeHost;
+        public final JLabel fleetCarrierTimeLabel;
         /** Standalone Tools menu (not shown on menu bar); used by hammer button and title bar. */
         public final JMenu toolsMenu;
 
-        public Result(JMenuBar menuBar, JLabel statusLabel, JMenu toolsMenu) {
+        public Result(
+                JMenuBar menuBar,
+                JLabel statusLabel,
+                JPanel fleetCarrierTimeBadgeHost,
+                JLabel fleetCarrierTimeLabel,
+                JMenu toolsMenu) {
             this.menuBar = menuBar;
             this.statusLabel = statusLabel;
+            this.fleetCarrierTimeBadgeHost = fleetCarrierTimeBadgeHost;
+            this.fleetCarrierTimeLabel = fleetCarrierTimeLabel;
             this.toolsMenu = toolsMenu;
         }
     }
@@ -59,6 +76,29 @@ public final class OverlayMenuStatusBar {
 
     public static Color opaquePlate(Color c) {
         return new Color(c.getRed(), c.getGreen(), c.getBlue(), 255);
+    }
+
+    /**
+     * Inner padding for the fleet-carrier time badge. Slightly more top than bottom offsets cap-height
+     * glyphs (e.g. {@code T-15:14}) so they read visually centered in the bordered box.
+     */
+    public static EmptyBorder fleetTimeBadgeInnerPadding() {
+        return new EmptyBorder(5, 4, 4, 4);
+    }
+
+    /**
+     * {@link JMenuBar} uses horizontal {@link javax.swing.BoxLayout}; default {@link JPanel} maximum width is
+     * unbounded, so the badge would absorb extra space. This panel stays exactly as wide as its content.
+     */
+    private static final class FleetCarrierTimeBadgePanel extends JPanel {
+        FleetCarrierTimeBadgePanel() {
+            super(new BorderLayout(0, 0));
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return getPreferredSize();
+        }
     }
 
     /**
@@ -89,6 +129,21 @@ public final class OverlayMenuStatusBar {
         statusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD));
 
+        FleetCarrierTimeBadgePanel fleetCarrierTimeBadgeHost = new FleetCarrierTimeBadgePanel();
+        fleetCarrierTimeBadgeHost.setOpaque(true);
+        fleetCarrierTimeBadgeHost.setBackground(opaquePlate(EdoUi.User.BACKGROUND));
+        fleetCarrierTimeBadgeHost.setVisible(false);
+        JLabel fleetCarrierTimeLabel = new JLabel("");
+        fleetCarrierTimeLabel.setOpaque(false);
+        fleetCarrierTimeLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
+        fleetCarrierTimeLabel.setFont(fleetCarrierTimeLabel.getFont().deriveFont(Font.BOLD));
+        fleetCarrierTimeLabel.setHorizontalAlignment(SwingConstants.LEADING);
+        fleetCarrierTimeLabel.setVerticalAlignment(SwingConstants.CENTER);
+        fleetCarrierTimeBadgeHost.add(fleetCarrierTimeLabel, BorderLayout.CENTER);
+        fleetCarrierTimeBadgeHost.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(EdoUi.Internal.MENU_FG_LIGHT, 1),
+                fleetTimeBadgeInnerPadding()));
+
         if (parent != null) {
             statusLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -104,6 +159,8 @@ public final class OverlayMenuStatusBar {
             });
         }
 
+        bar.add(fleetCarrierTimeBadgeHost);
+        bar.add(Box.createHorizontalStrut(6));
         bar.add(Box.createHorizontalGlue());
         bar.add(statusLabel);
         bar.add(Box.createHorizontalStrut(includeToolbarIcons ? 10 : 4));
@@ -111,7 +168,7 @@ public final class OverlayMenuStatusBar {
             bar.add(createDecoratedToolbar(parent, clientKey, toolsMenu, onRequestPassThrough));
         }
         applyStatusBarRowHeight(bar);
-        return new Result(bar, statusLabel, toolsMenu);
+        return new Result(bar, statusLabel, fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel, toolsMenu);
     }
 
     private static void applyStatusBarRowHeight(JMenuBar bar) {

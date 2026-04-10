@@ -27,6 +27,7 @@ import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.prefs.Preferences;
 
+import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -111,6 +112,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private final TitleBarPanel titleBar;
     private final JMenuBar passThroughMenuBar;
     private final JLabel passThroughStatusLabel;
+    private final JPanel fleetCarrierTimeBadgeHost;
+    private final JLabel fleetCarrierTimeLabel;
     /** Same Tools menu as status-bar hammer (Preferences dialog is separate). */
     private final JMenu toolsMenu;
     private final OverlayContentPanel contentPanel;
@@ -210,31 +213,64 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         return base != null ? base : "";
     }
 
+    /**
+     * Plain main line for APIs: includes the time token next to {@code FC jump} / {@code Cooldown} when active.
+     */
     private String getRightStatusMainPlain() {
+        String time = getFleetCarrierTimeBadgeTextOnly();
+        if (time != null) {
+            if (carrierJumpDepartureTime != null) {
+                String s = "FC jump " + time;
+                if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
+                    s += " → " + carrierJumpTargetSystem;
+                }
+                return s;
+            }
+            if (carrierJumpCooldownEndTime != null) {
+                return "Cooldown " + time;
+            }
+        }
+        return formatExoCredits(exoCreditsTotal);
+    }
+
+    /**
+     * Text shown in the HTML status label (and “is main empty” checks): no time token when the left badge shows it.
+     */
+    private String getRightStatusMainSuffixPlain() {
+        if (carrierJumpDepartureTime != null) {
+            String s = "FC jump";
+            if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
+                s += " → " + carrierJumpTargetSystem;
+            }
+            return s;
+        }
+        if (carrierJumpCooldownEndTime != null) {
+            return "Cooldown";
+        }
+        return formatExoCredits(exoCreditsTotal);
+    }
+
+    private String getFleetCarrierTimeBadgeTextOnly() {
         if (carrierJumpDepartureTime != null) {
             long seconds = Math.max(0, carrierJumpDepartureTime.getEpochSecond() - Instant.now().getEpochSecond());
-            long minutes = seconds / 60;
-            long secs = seconds % 60;
-            String countdown;
-            if (minutes >= 60) {
-                long hours = minutes / 60;
-                minutes = minutes % 60;
-                countdown = String.format(Locale.US, "FC jump T-%d:%02d:%02d", hours, minutes, secs);
-            } else {
-                countdown = String.format(Locale.US, "FC jump T-%d:%02d", minutes, secs);
-            }
-            if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
-                countdown += " → " + carrierJumpTargetSystem;
-            }
-            return countdown;
+            return formatCarrierCountdownToken(seconds);
         }
         if (carrierJumpCooldownEndTime != null) {
             long seconds = Math.max(0, carrierJumpCooldownEndTime.getEpochSecond() - Instant.now().getEpochSecond());
-            long minutes = seconds / 60;
-            long secs = seconds % 60;
-            return String.format(Locale.US, "Cooldown T-%d:%02d", minutes, secs);
+            return formatCarrierCountdownToken(seconds);
         }
-        return formatExoCredits(exoCreditsTotal);
+        return null;
+    }
+
+    private static String formatCarrierCountdownToken(long seconds) {
+        long minutes = seconds / 60;
+        long secs = seconds % 60;
+        if (minutes >= 60) {
+            long hours = minutes / 60;
+            minutes = minutes % 60;
+            return String.format(Locale.US, "T-%d:%02d:%02d", hours, minutes, secs);
+        }
+        return String.format(Locale.US, "T-%d:%02d", minutes, secs);
     }
 
     private String getRightStatusUpdateHintPlain() {
@@ -255,7 +291,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     }
 
     private void appendRightStatusInnerHtml(StringBuilder sb) {
-        String main = getRightStatusMainPlain();
+        String main = getRightStatusMainSuffixPlain();
         if (main == null) {
             main = "";
         }
@@ -295,6 +331,41 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             return "<html>" + inner + limpetSpan + "</html>";
         }
         return "<html>" + EdoUi.escapeHtmlMinimal(right) + limpetSpan + "</html>";
+    }
+
+    /**
+     * Keeps a status-row fleet time badge in sync with {@link #overlayFrame}'s carrier countdown state
+     * (used by {@link DecoratedOverlayDialog}).
+     */
+    static void updateFleetCarrierTimeBadgeExternal(JPanel host, JLabel label) {
+        OverlayFrame f = overlayFrame;
+        if (f == null) {
+            if (host != null) {
+                host.setVisible(false);
+            }
+            return;
+        }
+        f.applyFleetCarrierTimeBadge(host, label);
+    }
+
+    private void applyFleetCarrierTimeBadge(JPanel host, JLabel label) {
+        if (host == null || label == null) {
+            return;
+        }
+        String token = getFleetCarrierTimeBadgeTextOnly();
+        if (token == null || token.isBlank()) {
+            host.setVisible(false);
+            return;
+        }
+        label.setText(token);
+        Color border = carrierJumpDepartureTime != null ? EdoUi.User.ERROR : EdoUi.User.CORE_BLUE;
+        host.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(border, 1),
+                OverlayMenuStatusBar.fleetTimeBadgeInnerPadding()));
+        host.setBackground(OverlayMenuStatusBar.opaquePlate(EdoUi.User.BACKGROUND));
+        label.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
+        host.setVisible(true);
+        host.revalidate();
     }
     
     public static OverlayFrame overlayFrame = null;
@@ -366,6 +437,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         this.toolsMenu = passThroughMenu.toolsMenu;
         titleBar = new TitleBarPanel(this, "Elite Dangerous RockHound", passThroughMenu.toolsMenu);
         passThroughStatusLabel = passThroughMenu.statusLabel;
+        fleetCarrierTimeBadgeHost = passThroughMenu.fleetCarrierTimeBadgeHost;
+        fleetCarrierTimeLabel = passThroughMenu.fleetCarrierTimeLabel;
 
         JPanel northStack = new JPanel(new BorderLayout(0, 0));
         northStack.setOpaque(false);
@@ -873,7 +946,7 @@ private void installLowLimpetStatusUpdater() {
  * exception text when {@link #reportExceptionToTitleBar} is active.
  */
 private boolean isRightStatusEffectivelyEmpty() {
-    String main = getRightStatusMainPlain();
+    String main = getRightStatusMainSuffixPlain();
     if (main != null && !main.trim().isEmpty()) {
         return false;
     }
@@ -903,6 +976,7 @@ private void refreshPassThroughUnifiedStatus() {
             passThroughStatusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
             passThroughStatusLabel.setVisible(true);
+            applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
             return;
         }
 
@@ -942,6 +1016,7 @@ private void refreshPassThroughUnifiedStatus() {
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
         }
         passThroughStatusLabel.setVisible(true);
+        applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
     };
 
     if (SwingUtilities.isEventDispatchThread()) {
@@ -1057,6 +1132,7 @@ private void refreshPassThroughUnifiedStatus() {
 
         if (passThroughMenuBar != null) {
             OverlayMenuStatusBar.refreshMenuBarTheme(passThroughMenuBar);
+            applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
         }
 
         if (contentPanel != null) {
@@ -1134,6 +1210,7 @@ private void refreshPassThroughUnifiedStatus() {
 
         if (passThroughMenuBar != null) {
             OverlayMenuStatusBar.refreshMenuBarTheme(passThroughMenuBar);
+            applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
         }
 
         revalidate();
