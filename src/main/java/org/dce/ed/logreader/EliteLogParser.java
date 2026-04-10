@@ -138,6 +138,8 @@ public class EliteLogParser {
             
             case CARRIER_JUMP_CANCELLED:
                 return new GenericEvent(ts, type, obj);
+            case CARRIER_STATS:
+                return new GenericEvent(ts, type, obj);
             case SUPERCRUISE_EXIT:
                 return parseSupercruiseExit(ts, obj);
 

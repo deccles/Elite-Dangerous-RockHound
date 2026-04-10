@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 import javax.swing.ButtonGroup;
@@ -119,6 +120,14 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	/** Current card name (same values as {@code CARD_*}) for pass-through wheel routing. */
 	private volatile String visibleCardName = CARD_SYSTEM;
+
+	/**
+	 * After {@code CarrierStats} (owner opened carrier management), treat the next galaxy map open as carrier routing
+	 * if {@code GuiFocus} was right panel (1) or station services (5). TTL avoids stale matches.
+	 */
+	private static final long CARRIER_STATS_GALAXY_MAP_LATCH_MS = TimeUnit.MINUTES.toMillis(12);
+
+	private volatile long carrierStatsGalaxyMapLatchUntilMs;
 
 	private static final TtsSprintf tts = new TtsSprintf(new PollyTtsCached());
 
@@ -507,6 +516,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (event.getType() == EliteEventType.UNDOCKED) {
 			setCurrentlyDocked(false);
 			SwingUtilities.invokeLater(() -> maybeRemindAboutLimpets());
+		}
+
+		if (event.getType() == EliteEventType.CARRIER_STATS) {
+			armCarrierStatsGalaxyMapLatch();
 		}
 
 		if (event instanceof FsdJumpEvent e) {
@@ -972,6 +985,32 @@ public class EliteOverlayTabbedPane extends JPanel {
 		button.setBorder(createTabBorder(c));
 	}
 
+	private void armCarrierStatsGalaxyMapLatch() {
+		carrierStatsGalaxyMapLatchUntilMs = System.currentTimeMillis() + CARRIER_STATS_GALAXY_MAP_LATCH_MS;
+	}
+
+	private boolean isCarrierStatsGalaxyMapLatchActive() {
+		return System.currentTimeMillis() < carrierStatsGalaxyMapLatchUntilMs;
+	}
+
+	private boolean isFleetCarrierTabCurrentlyShown() {
+		return CARD_FLEET_CARRIER.equals(visibleCardName);
+	}
+
+	/**
+	 * Prefer Fleet Carrier tab when opening the galaxy map from the carrier-management flow: a recent
+	 * {@code CarrierStats} (owner opened management) and prior {@code GuiFocus} was the right panel or station services.
+	 * Docked-on-carrier alone is not enough—you might be plotting a ship route to leave.
+	 *
+	 * @param previousGuiFocus last GuiFocus before the map; {@code 1} = right panel, {@code 5} = station services
+	 */
+	private boolean preferFleetCarrierTabForGalaxyMap(int previousGuiFocus) {
+		if (!isCarrierStatsGalaxyMapLatchActive()) {
+			return false;
+		}
+		return previousGuiFocus == 1 || previousGuiFocus == 5;
+	}
+
 	private void showRouteTabFromStatusWatcher() {
 		// Note: this is used by the GuiFocus watcher; preference check is handled there.
 		SwingUtilities.invokeLater(() -> selectTab(CARD_ROUTE, routeButton));
@@ -1041,7 +1080,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	/**
 	 * Watches Elite Dangerous Status.json and switches tabs when the player
-	 * opens the Galaxy Map (Route tab) or System Map (System tab).
+	 * opens the Galaxy Map or System Map. Galaxy map uses {@code CarrierStats} + prior {@code GuiFocus} heuristics
+	 * (see {@link #preferFleetCarrierTabForGalaxyMap(int)}) because ship and carrier maps share {@code GuiFocus 6}.
 	 */
 	private static class GuiFocusWatcher implements Runnable {
 
@@ -1106,9 +1146,18 @@ public class EliteOverlayTabbedPane extends JPanel {
 		}
 
 		private void handleGuiFocusChange(int guiFocus) {
-			// 6 = Galaxy Map -> Route tab
+			// 6 = Galaxy Map -> Route tab, or Fleet Carrier after carrier management (CarrierStats) + prior panel focus
 			if (guiFocus == 6) {
-				if (OverlayPreferences.isAutoSwitchRouteOnGalaxyMap()) {
+				if (!OverlayPreferences.isAutoSwitchRouteOnGalaxyMap()) {
+					return;
+				}
+				if (parent.isFleetCarrierTabCurrentlyShown()) {
+					return;
+				}
+				int previousGuiFocus = lastGuiFocus;
+				if (parent.preferFleetCarrierTabForGalaxyMap(previousGuiFocus)) {
+					parent.showFleetCarrierTabFromStatusWatcher();
+				} else {
 					parent.showRouteTabFromStatusWatcher();
 				}
 			}

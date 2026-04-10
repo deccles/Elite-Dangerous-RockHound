@@ -61,7 +61,7 @@ public class SystemState {
         allBodiesFound = null;
         edsmBodyCount = null;
         docked = false;
-        
+
         bodies.clear();
     }
 

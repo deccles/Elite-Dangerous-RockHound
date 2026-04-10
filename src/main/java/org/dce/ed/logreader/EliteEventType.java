@@ -43,6 +43,8 @@ public enum EliteEventType {
     CARRIER_JUMP("CarrierJump"),
     CARRIER_JUMP_REQUEST("CarrierJumpRequest"),
     CARRIER_JUMP_CANCELLED("CarrierJumpCancelled"),
+    /** Written when the carrier owner opens carrier management (journal). */
+    CARRIER_STATS("CarrierStats"),
     SELL_ORGANIC_DATA("SellOrganicData"),
     RECEIVE_TEXT("ReceiveText"),
     MUSIC("Music"),

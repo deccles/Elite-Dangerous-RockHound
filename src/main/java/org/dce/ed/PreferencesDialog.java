@@ -364,7 +364,8 @@ public class PreferencesDialog extends JDialog {
 		agc.anchor = GridBagConstraints.WEST;
 		agc.insets = new Insets(2, 4, 2, 4);
 
-		autoSwitchGalaxyMapToRouteCheckBox = new JCheckBox("Open Galaxy Map → Route tab");
+		autoSwitchGalaxyMapToRouteCheckBox = new JCheckBox(
+				"Open Galaxy Map → Route tab (Fleet Carrier only after carrier management, then map from right panel / station services)");
 		autoSwitchGalaxyMapToRouteCheckBox.setOpaque(false);
 		autoSwitchGalaxyMapToRouteCheckBox.setSelected(OverlayPreferences.isAutoSwitchRouteOnGalaxyMap());
 		autoSwitchPanel.add(autoSwitchGalaxyMapToRouteCheckBox, agc);
