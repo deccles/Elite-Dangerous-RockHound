@@ -25,6 +25,7 @@ import java.time.LocalTime;
 import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
+import org.dce.ed.tts.VoicePackManager;
 import org.dce.ed.ui.ConsoleMonitor;
 import org.dce.ed.ui.StartupSplashOverlay;
 import org.dce.ed.util.AppIconUtil;
@@ -226,6 +227,9 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         GlobalScreen.addNativeMouseWheelListener(this);
         TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
         ttsSprintf.speakf("Welcome commander");
+
+        Window voicePackHost = passThroughMode ? passThroughFrame : decoratedDialog;
+        SwingUtilities.invokeLater(() -> VoicePackManager.checkAutoVoicePackOnStartup(voicePackHost));
     }
 
     private void setPassThroughMode(boolean enablePassThrough) {

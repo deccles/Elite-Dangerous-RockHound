@@ -401,7 +401,9 @@ public class TtsSprintf {
         normalized = normalized.trim();
         if (!normalized.isEmpty()) {
             out.add(normalized);
-            cacheKeys.add(normalized);
+            // Null: let finalizeSpeechPlan apply computeCacheKey() so literals match the SSML mark path
+            // (T|...|MID vs |END) and VoiceCacheWarmer. A raw string key would wrongly use mid/ only.
+            cacheKeys.add(null);
         }
     }
 

@@ -14,7 +14,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.Locale;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -38,11 +40,14 @@ import com.google.gson.JsonParser;
  * Voice packs are zip files named like "voice-salli.zip" attached to releases.
  * They contain the cached WAV files (end/ and mid/ subdirectories) plus manifest.tsv.
  * 
- * <p><b>Where to publish packs (maintainers):</b> create a release whose <b>tag</b> is
- * {@value #VOICE_PACKS_RELEASE_TAG} and attach the {@code voice-*.zip} assets there.
- * You can add or replace assets on that release whenever packs change; application
- * releases do not need to include voice packs. If that tagged release does not exist,
- * download falls back to the repository's {@code latest} release (legacy).
+ * <p><b>Where to publish packs (maintainers):</b> upload each {@code voice-*.zip} as a
+ * <b>release binary asset</b> (the “Attach binaries” area when editing a release).
+ * Links in the release description are <em>not</em> visible to the GitHub API and will
+ * not be found. Prefer a release tagged {@value #VOICE_PACKS_RELEASE_TAG}; otherwise
+ * the app tries {@code /releases/latest}, then scans recent releases for the asset.
+ *
+ * <p>Bump {@link #SPEECH_PACK_REVISION} whenever you publish new pack zips so clients with
+ * “Use AWS” disabled refresh their cache on next startup.
  */
 public final class VoicePackManager {
 
@@ -54,6 +59,12 @@ public final class VoicePackManager {
      * update its assets when packs change — not tied to app version tags.
      */
     public static final String VOICE_PACKS_RELEASE_TAG = "tts-voice-packs";
+
+    /**
+     * Increment when GitHub {@code voice-*.zip} assets change. Users with speech enabled and
+     * AWS synthesis off will auto re-download and replace the selected voice’s cache at startup.
+     */
+    public static final int SPEECH_PACK_REVISION = 1;
 
     private static final String VOICE_PACK_PREFIX = "voice-";
     private static final String VOICE_PACK_SUFFIX = ".zip";
@@ -95,14 +106,50 @@ public final class VoicePackManager {
     }
 
     /**
+     * If speech is on, AWS synthesis is off, and the app’s {@link #SPEECH_PACK_REVISION} is newer than
+     * the last installed pack (or the selected voice changed), download the GitHub pack in the background
+     * (no progress dialog) and replace the voice cache folder.
+     *
+     * @param errorParent optional window for failure dialogs; may be null (errors only logged)
+     */
+    public static void checkAutoVoicePackOnStartup(Component errorParent) {
+        if (!OverlayPreferences.isSpeechEnabled()) {
+            return;
+        }
+        if (OverlayPreferences.isSpeechUseAwsSynthesis()) {
+            return;
+        }
+        String voice = OverlayPreferences.getSpeechVoiceName();
+        if (voice == null || voice.isBlank()) {
+            return;
+        }
+        int installed = OverlayPreferences.getSpeechPackInstalledRevision();
+        String installedVoice = OverlayPreferences.getSpeechPackInstalledVoice();
+        if (installed >= SPEECH_PACK_REVISION
+                && !installedVoice.isBlank()
+                && installedVoice.equalsIgnoreCase(voice.trim())) {
+            return;
+        }
+        downloadAndInstallVoicePack(errorParent, voice, false, null);
+    }
+
+    /**
      * Download and install a voice pack for the given voice name.
      * Shows a progress dialog during download.
-     * 
+     *
      * @param parent Parent component for dialogs
      * @param voiceName Voice name (e.g., "Salli", "Joanna")
      * @param onComplete Callback when complete (success or failure)
      */
     public static void downloadAndInstallVoicePack(Component parent, String voiceName, Runnable onComplete) {
+        downloadAndInstallVoicePack(parent, voiceName, true, onComplete);
+    }
+
+    /**
+     * @param showProgressDialog if false, runs download/extract on a worker thread with no modal UI (startup path)
+     */
+    public static void downloadAndInstallVoicePack(Component parent, String voiceName, boolean showProgressDialog,
+            Runnable onComplete) {
         if (voiceName == null || voiceName.isBlank()) {
             if (onComplete != null) {
                 onComplete.run();
@@ -110,24 +157,34 @@ public final class VoicePackManager {
             return;
         }
 
-        String normalizedVoice = voiceName.trim().toLowerCase(Locale.ROOT);
+        final String voiceNameFinal = voiceName.trim();
+        String normalizedVoice = voiceNameFinal.toLowerCase(Locale.ROOT);
         String zipName = VOICE_PACK_PREFIX + normalizedVoice + VOICE_PACK_SUFFIX;
 
-        JDialog dialog = new JDialog(
-                SwingUtilities.getWindowAncestor(parent),
-                "Downloading Voice Pack",
-                Dialog.ModalityType.APPLICATION_MODAL);
-        dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        JDialog dialog = null;
+        JLabel label = null;
+        JProgressBar bar = null;
+        if (showProgressDialog) {
+            dialog = new JDialog(
+                    SwingUtilities.getWindowAncestor(parent),
+                    "Downloading Voice Pack",
+                    Dialog.ModalityType.APPLICATION_MODAL);
+            dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
-        JLabel label = new JLabel("Downloading voice pack for " + voiceName + "...");
-        JProgressBar bar = new JProgressBar();
-        bar.setIndeterminate(true);
+            label = new JLabel("Downloading voice pack for " + voiceNameFinal + "...");
+            bar = new JProgressBar();
+            bar.setIndeterminate(true);
 
-        dialog.getContentPane().setLayout(new java.awt.BorderLayout(10, 10));
-        dialog.getContentPane().add(label, java.awt.BorderLayout.NORTH);
-        dialog.getContentPane().add(bar, java.awt.BorderLayout.CENTER);
-        dialog.setSize(400, 100);
-        dialog.setLocationRelativeTo(parent);
+            dialog.getContentPane().setLayout(new java.awt.BorderLayout(10, 10));
+            dialog.getContentPane().add(label, java.awt.BorderLayout.NORTH);
+            dialog.getContentPane().add(bar, java.awt.BorderLayout.CENTER);
+            dialog.setSize(400, 100);
+            dialog.setLocationRelativeTo(parent);
+        }
+
+        final JDialog dialogFinal = dialog;
+        final JLabel labelFinal = label;
+        final JProgressBar barFinal = bar;
 
         SwingWorker<Boolean, Void> worker = new SwingWorker<Boolean, Void>() {
 
@@ -136,14 +193,12 @@ public final class VoicePackManager {
             @Override
             protected Boolean doInBackground() {
                 try {
-                    // Tagged voice-pack release first, then latest (legacy)
                     String assetUrl = findVoicePackAssetUrl(zipName);
                     if (assetUrl == null) {
                         throw new IOException("Voice pack not found: " + zipName);
                     }
 
-                    // Download and extract
-                    downloadAndExtract(assetUrl, voiceName, bar, label);
+                    downloadAndExtract(assetUrl, voiceNameFinal, barFinal, labelFinal);
                     return true;
 
                 } catch (Exception ex) {
@@ -154,7 +209,9 @@ public final class VoicePackManager {
 
             @Override
             protected void done() {
-                dialog.dispose();
+                if (dialogFinal != null) {
+                    dialogFinal.dispose();
+                }
 
                 if (failure != null) {
                     String msg = failure.getMessage();
@@ -162,17 +219,24 @@ public final class VoicePackManager {
                         msg = failure.getClass().getSimpleName();
                     }
 
-                    // Don't show error for "not found" - just means no pre-built pack exists
                     if (!msg.contains("not found")) {
-                        JOptionPane.showMessageDialog(parent,
-                                "Unable to download voice pack:\n" + msg,
-                                "Voice Pack Download Failed",
-                                JOptionPane.WARNING_MESSAGE);
+                        if (showProgressDialog) {
+                            JOptionPane.showMessageDialog(parent,
+                                    "Unable to download voice pack:\n" + msg,
+                                    "Voice Pack Download Failed",
+                                    JOptionPane.WARNING_MESSAGE);
+                        } else {
+                            System.err.println("[EDO] Voice pack auto-update failed: " + msg);
+                        }
                     } else {
-                        System.out.println("Voice pack not available for download: " + voiceName);
+                        System.out.println("Voice pack not available for download: " + voiceNameFinal + " (" + zipName + ")");
+                        System.out.println("Hint: upload " + zipName
+                                + " as a release binary (Assets on GitHub), not only a link in the description.");
                     }
                 } else {
-                    System.out.println("Voice pack installed: " + voiceName);
+                    OverlayPreferences.setSpeechPackInstalledInfo(SPEECH_PACK_REVISION, voiceNameFinal);
+                    OverlayPreferences.flushBackingStore();
+                    System.out.println("Voice pack installed: " + voiceNameFinal);
                 }
 
                 if (onComplete != null) {
@@ -182,12 +246,14 @@ public final class VoicePackManager {
         };
 
         worker.execute();
-        dialog.setVisible(true);
+        if (dialogFinal != null) {
+            dialogFinal.setVisible(true);
+        }
     }
 
     /**
-     * Find the download URL for a voice pack: release tagged {@link #VOICE_PACKS_RELEASE_TAG}
-     * first, then {@code /releases/latest} if the asset was not found.
+     * Find the download URL for a voice pack: release tagged {@link #VOICE_PACKS_RELEASE_TAG},
+     * then {@code /releases/latest}, then recent releases (e.g. tag {@code 1.0.1}).
      */
     private static String findVoicePackAssetUrl(String zipName) throws IOException, InterruptedException {
         HttpClient client = HttpClient.newBuilder()
@@ -201,7 +267,61 @@ public final class VoicePackManager {
         }
 
         String latest = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
-        return findVoicePackAssetUrlInRelease(client, zipName, latest);
+        url = findVoicePackAssetUrlInRelease(client, zipName, latest);
+        if (url != null) {
+            return url;
+        }
+
+        return findVoicePackAssetUrlInRecentReleases(client, zipName);
+    }
+
+    /**
+     * Walk recent releases (newest first) and return the first matching {@code voice-*.zip} asset.
+     */
+    private static String findVoicePackAssetUrlInRecentReleases(HttpClient client, String zipName)
+            throws IOException, InterruptedException {
+
+        String apiUrl = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases?per_page=40";
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(apiUrl))
+                .timeout(HTTP_TIMEOUT)
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "EDO-Overlay")
+                .GET()
+                .build();
+
+        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200) {
+            throw new IOException("GitHub API returned " + resp.statusCode() + " listing releases");
+        }
+
+        JsonElement root = JsonParser.parseString(resp.body());
+        if (!root.isJsonArray()) {
+            return null;
+        }
+
+        String wantName = zipName.toLowerCase(Locale.ROOT);
+        for (JsonElement relEl : root.getAsJsonArray()) {
+            if (!relEl.isJsonObject()) {
+                continue;
+            }
+            JsonObject release = relEl.getAsJsonObject();
+            JsonArray assets = release.getAsJsonArray("assets");
+            if (assets == null) {
+                continue;
+            }
+            for (JsonElement el : assets) {
+                JsonObject asset = el.getAsJsonObject();
+                String name = asset.has("name") ? asset.get("name").getAsString() : "";
+                if (name.toLowerCase(Locale.ROOT).equals(wantName)) {
+                    return asset.has("browser_download_url")
+                            ? asset.get("browser_download_url").getAsString()
+                            : null;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static String apiUrlForReleaseByTag(String tag) {
@@ -252,7 +372,10 @@ public final class VoicePackManager {
     }
 
     /**
-     * Download a zip file and extract it to the voice cache directory.
+     * Download a zip file and extract it to the voice cache directory (replacing previous pack files).
+     *
+     * @param bar progress bar, or null when no UI
+     * @param label status label, or null when no UI
      */
     private static void downloadAndExtract(String url, String voiceName, JProgressBar bar, JLabel label)
             throws IOException, InterruptedException {
@@ -278,7 +401,7 @@ public final class VoicePackManager {
         }
 
         long contentLength = resp.headers().firstValueAsLong("Content-Length").orElse(-1L);
-        if (contentLength > 0) {
+        if (contentLength > 0 && bar != null) {
             SwingUtilities.invokeLater(() -> {
                 bar.setIndeterminate(false);
                 bar.setMinimum(0);
@@ -300,7 +423,7 @@ public final class VoicePackManager {
                     out.write(buf, 0, r);
                     totalRead += r;
 
-                    if (contentLength > 0) {
+                    if (contentLength > 0 && bar != null && label != null) {
                         final int pct = (int) ((totalRead * 100L) / contentLength);
                         SwingUtilities.invokeLater(() -> {
                             bar.setValue(pct);
@@ -310,16 +433,42 @@ public final class VoicePackManager {
                 }
             }
 
-            SwingUtilities.invokeLater(() -> {
-                bar.setIndeterminate(true);
-                label.setText("Extracting voice pack...");
-            });
+            if (bar != null && label != null) {
+                SwingUtilities.invokeLater(() -> {
+                    bar.setIndeterminate(true);
+                    label.setText("Extracting voice pack...");
+                });
+            }
 
-            // Extract zip to voice directory
+            // Only clear after a full download succeeds (avoid wiping cache on network failure).
+            clearVoicePackDirContents(voiceDir);
             extractZip(tempZip, voiceDir);
 
         } finally {
             Files.deleteIfExists(tempZip);
+        }
+    }
+
+    private static void clearVoicePackDirContents(Path voiceDir) throws IOException {
+        if (!Files.isDirectory(voiceDir)) {
+            return;
+        }
+        try (Stream<Path> stream = Files.list(voiceDir)) {
+            for (Path child : stream.toList()) {
+                deletePathRecursive(child);
+            }
+        }
+    }
+
+    private static void deletePathRecursive(Path path) throws IOException {
+        if (Files.isDirectory(path)) {
+            try (Stream<Path> walk = Files.walk(path)) {
+                for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(p);
+                }
+            }
+        } else {
+            Files.deleteIfExists(path);
         }
     }
 

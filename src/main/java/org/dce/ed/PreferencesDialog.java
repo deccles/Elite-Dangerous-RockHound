@@ -11,6 +11,11 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Window;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.stream.Stream;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -1358,8 +1363,65 @@ public class PreferencesDialog extends JDialog {
 			}
 		});
 
+		JButton clearSpeechCacheButton = new JButton("Clear cache");
+		clearSpeechCacheButton.addActionListener(e -> {
+			String pathStr = speechCacheDirField.getText().trim();
+			if (pathStr.isEmpty()) {
+				JOptionPane.showMessageDialog(PreferencesDialog.this,
+						"Set a cache directory path first.",
+						"Speech cache",
+						JOptionPane.WARNING_MESSAGE);
+				return;
+			}
+			Path root = Path.of(pathStr);
+			if (!Files.exists(root)) {
+				JOptionPane.showMessageDialog(PreferencesDialog.this,
+						"The folder does not exist:\n" + root.toAbsolutePath(),
+						"Speech cache",
+						JOptionPane.INFORMATION_MESSAGE);
+				return;
+			}
+			if (!Files.isDirectory(root)) {
+				JOptionPane.showMessageDialog(PreferencesDialog.this,
+						"Not a directory:\n" + root.toAbsolutePath(),
+						"Speech cache",
+						JOptionPane.WARNING_MESSAGE);
+				return;
+			}
+			int choice = JOptionPane.showConfirmDialog(PreferencesDialog.this,
+					"Delete everything inside this folder?\n\n" + root.toAbsolutePath()
+							+ "\n\nAll cached speech (every voice) will be removed. The folder itself will remain.",
+					"Clear speech cache",
+					JOptionPane.OK_CANCEL_OPTION,
+					JOptionPane.WARNING_MESSAGE);
+			if (choice != JOptionPane.OK_OPTION) {
+				return;
+			}
+			try {
+				deleteSpeechCacheDirectoryContents(root);
+				JOptionPane.showMessageDialog(PreferencesDialog.this,
+						"Speech cache cleared.",
+						"Speech cache",
+						JOptionPane.INFORMATION_MESSAGE);
+			} catch (Exception ex) {
+				String msg = ex.getMessage();
+				if (msg == null || msg.isBlank()) {
+					msg = ex.getClass().getSimpleName();
+				}
+				JOptionPane.showMessageDialog(PreferencesDialog.this,
+						"Could not clear cache:\n" + msg,
+						"Speech cache",
+						JOptionPane.ERROR_MESSAGE);
+			}
+		});
+
+		JPanel cacheButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+		cacheButtons.setOpaque(false);
+		cacheButtons.add(browseCacheButton);
+		cacheButtons.add(clearSpeechCacheButton);
+
 		cachePanel.add(speechCacheDirField, BorderLayout.CENTER);
-		cachePanel.add(browseCacheButton, BorderLayout.EAST);
+		cachePanel.add(cacheButtons, BorderLayout.EAST);
 		content.add(cachePanel, gbc);
 
 		// Sample rate (PCM)
@@ -1382,6 +1444,7 @@ public class PreferencesDialog extends JDialog {
 			speechAwsProfileField.setEnabled(enabled);
 			speechCacheDirField.setEnabled(enabled);
 			browseCacheButton.setEnabled(enabled);
+			clearSpeechCacheButton.setEnabled(enabled);
 			speechSampleRateField.setEnabled(enabled);
 			speechUseAwsCheckBox.setEnabled(enabled);
 		};
@@ -1627,11 +1690,10 @@ public class PreferencesDialog extends JDialog {
 
         if (speechVoiceCombo != null && speechVoiceCombo.getSelectedItem() != null) {
             String newVoice = speechVoiceCombo.getSelectedItem().toString();
-            String oldVoice = OverlayPreferences.getSpeechVoiceName();
             OverlayPreferences.setSpeechVoiceId(newVoice);
 
-            // If voice changed and no local cache exists, try to download voice pack
-            if (!newVoice.equalsIgnoreCase(oldVoice) && !VoicePackManager.isVoicePackInstalled(newVoice)) {
+            // If this voice has no local WAV cache (e.g. user cleared the folder), try GitHub pack download
+            if (!VoicePackManager.isVoicePackInstalled(newVoice)) {
                 VoicePackManager.downloadAndInstallVoicePack(this, newVoice, null);
             }
         }
@@ -1810,6 +1872,32 @@ public class PreferencesDialog extends JDialog {
 
         OverlayPreferences.flushBackingStore();
     }
+
+	/**
+	 * Removes all files and subfolders under {@code dir}; leaves {@code dir} itself.
+	 */
+	private static void deleteSpeechCacheDirectoryContents(Path dir) throws IOException {
+		if (!Files.isDirectory(dir)) {
+			return;
+		}
+		try (Stream<Path> stream = Files.list(dir)) {
+			for (Path child : stream.toList()) {
+				deletePathRecursive(child);
+			}
+		}
+	}
+
+	private static void deletePathRecursive(Path path) throws IOException {
+		if (Files.isDirectory(path)) {
+			try (Stream<Path> walk = Files.walk(path)) {
+				for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
+					Files.deleteIfExists(p);
+				}
+			}
+		} else {
+			Files.deleteIfExists(path);
+		}
+	}
 
 		private void applyLiveOverlayBackgroundPreview(boolean passThroughSection) {
 			if (!(getOwner() instanceof OverlayUiPreviewHost)) {

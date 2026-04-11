@@ -60,6 +60,10 @@ public final class OverlayPreferences {
     private static final String KEY_SPEECH_AWS_PROFILE = "speech.awsProfile"; // optional, blank means default chain
     private static final String KEY_SPEECH_CACHE_DIR = "speech.cacheDir";
     private static final String KEY_SPEECH_SAMPLE_RATE = "speech.sampleRate"; // PCM sample rate in Hz (as string)
+    /** Last {@link org.dce.ed.tts.VoicePackManager#SPEECH_PACK_REVISION} successfully installed while AWS synthesis was off. */
+    private static final String KEY_SPEECH_PACK_INSTALLED_REVISION = "speech.packInstalledRevision";
+    /** Voice id matching the last successful GitHub pack install (see {@link #KEY_SPEECH_PACK_INSTALLED_REVISION}). */
+    private static final String KEY_SPEECH_PACK_INSTALLED_VOICE = "speech.packInstalledVoiceId";
 
 
     private static final String KEY_NON_OVERLAY_ALWAYS_ON_TOP = "window.nonOverlay.alwaysOnTop"; // Decorated window (non-overlay mode)
@@ -575,6 +579,30 @@ public static Engine getSpeechEngine() {
             sampleRateHz = 8000;
         }
         PREFS.put(KEY_SPEECH_SAMPLE_RATE, Integer.toString(sampleRateHz));
+    }
+
+    /**
+     * Revision of the pre-built voice pack last installed from GitHub (AWS-off path). See
+     * {@link org.dce.ed.tts.VoicePackManager#SPEECH_PACK_REVISION}.
+     */
+    public static int getSpeechPackInstalledRevision() {
+        return PREFS.getInt(KEY_SPEECH_PACK_INSTALLED_REVISION, 0);
+    }
+
+    public static String getSpeechPackInstalledVoice() {
+        return PREFS.get(KEY_SPEECH_PACK_INSTALLED_VOICE, "").trim();
+    }
+
+    /**
+     * Record a successful GitHub voice-pack install so startup can skip until the app revision bumps again.
+     */
+    public static void setSpeechPackInstalledInfo(int revision, String voiceId) {
+        PREFS.putInt(KEY_SPEECH_PACK_INSTALLED_REVISION, Math.max(0, revision));
+        if (voiceId == null || voiceId.isBlank()) {
+            PREFS.put(KEY_SPEECH_PACK_INSTALLED_VOICE, "");
+        } else {
+            PREFS.put(KEY_SPEECH_PACK_INSTALLED_VOICE, voiceId.trim());
+        }
     }
 
     // ----------------------------

@@ -147,10 +147,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private Instant carrierJumpCooldownEndTime;
     private javax.swing.Timer carrierJumpCooldownTimer;
 
-    /**
-     * Suppress duplicate "Jump complete" speech when both the scheduled countdown and {@code CarrierJump}
-     * journal handling start the same cooldown window.
-     */
+    /** Suppress duplicate "Jump complete" speech if cooldown is restarted for the same jump. */
     private boolean carrierJumpCompleteSpokenForCurrentJump;
 
     private long exoCreditsTotal;
@@ -725,21 +722,22 @@ private void installCarrierJumpTitleUpdater() {
             }
 
             if (event.getType() == EliteEventType.CARRIER_JUMP && event instanceof CarrierJumpEvent jump) {
-                // `CarrierStats` tends to arrive after `CarrierJump`.
-                // If our countdown-based heuristic started cooldown late, we may currently
-                // be showing too much remaining time. Resync backwards here using the
-                // earlier `CarrierJump` timestamp (Docked=true) without extending it.
+                // Jump completion must follow the journal `CarrierJump` line, not `DepartureTime` from
+                // `CarrierJumpRequest` (hyperspace can run long after that) and not `CarrierLocation`.
+                // `CarrierStats` tends to arrive after `CarrierJump`; resync cooldown backwards when
+                // a heuristic left us with too much remaining time, without extending it.
                 Instant jumpTs = event.getTimestamp();
                 SwingUtilities.invokeLater(() -> {
+                    boolean hadPendingCountdown = carrierJumpDepartureTime != null;
                     clearCarrierJumpCountdownStateOnly();
-                    if (!jump.isDocked() || jumpTs == null) {
+                    if (jumpTs == null) {
                         return;
                     }
-
                     Instant newEndTime = jumpTs.plusSeconds(CARRIER_JUMP_COOLDOWN_SECONDS_EFFECTIVE);
-                    boolean shouldResync = (carrierJumpCooldownEndTime == null)
-                            || newEndTime.isBefore(carrierJumpCooldownEndTime);
-                    if (shouldResync) {
+                    boolean shouldStartOrResync = hadPendingCountdown
+                            || ((carrierJumpCooldownEndTime != null)
+                                    && newEndTime.isBefore(carrierJumpCooldownEndTime));
+                    if (shouldStartOrResync) {
                         startCarrierJumpCooldown(jumpTs);
                     }
                 });
@@ -772,17 +770,7 @@ private void updateCarrierJumpCountdown() {
     if (carrierJumpDepartureTime == null) {
         return;
     }
-
-    Instant jumpCompleteTime = carrierJumpDepartureTime;
-
     publishRightStatusText();
-
-    if (carrierJumpCooldownEndTime == null && Instant.now().isAfter(jumpCompleteTime.plusSeconds(5))) {
-        // Start cooldown based on when the jump was scheduled to complete, not when we detect it.
-        // This avoids showing a slightly-extended remaining time when logs are delayed.
-        clearCarrierJumpCountdownStateOnly();
-        startCarrierJumpCooldown(jumpCompleteTime);
-    }
 }
 
 /** Clears only the jump countdown state and timer; does not touch cooldown or right status. */

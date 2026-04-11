@@ -33,7 +33,7 @@ import software.amazon.awssdk.services.polly.model.VoiceId;
  * Or from the command line (voice is matched case-insensitively to a Polly {@link VoiceId}):
  *   java ... org.dce.ed.tts.VoiceCacheWarmer salli
  *   java ... org.dce.ed.tts.VoiceCacheWarmer salli -create
- * With {@code -create}, also writes {@code target/voice-&lt;voice&gt;.zip} for release upload.
+ * With {@code -create} (or {@code --create}), also writes {@code target/voice-&lt;voice&gt;.zip} for release upload.
  */
 public final class VoiceCacheWarmer {
 
@@ -54,15 +54,20 @@ public final class VoiceCacheWarmer {
             throw new IllegalArgumentException("Unknown Polly voice: " + voiceName);
         }
 
+        boolean priorUseAws = OverlayPreferences.isSpeechUseAwsSynthesis();
         String priorVoice = OverlayPreferences.getSpeechVoiceName();
         try {
+            // Warmer must synthesize via Polly; respect user's "use AWS" choice in UI otherwise skips generation.
+            OverlayPreferences.setSpeechUseAwsSynthesis(true);
             OverlayPreferences.setSpeechVoiceId(canon);
             OverlayPreferences.flushBackingStore();
             warmAllUsingCurrentPreferences();
         } finally {
+            OverlayPreferences.setSpeechUseAwsSynthesis(priorUseAws);
             if (priorVoice != null && !priorVoice.isBlank()) {
                 OverlayPreferences.setSpeechVoiceId(priorVoice);
             }
+            OverlayPreferences.flushBackingStore();
         }
     }
 
@@ -502,17 +507,28 @@ public final class VoiceCacheWarmer {
     }
 
     /**
-     * If the launcher passes one string ({@code "salli -create"}), split into tokens.
+     * If the launcher passes one string ({@code "salli -create"}), split on whitespace (space, tab, etc.).
      */
     private static String[] normalizeProgramArgs(String[] args) {
         if (args == null || args.length != 1 || args[0] == null) {
             return args;
         }
-        String a = args[0].trim();
-        if (a.contains(" ")) {
-            return a.split("\\s+");
+        String trimmed = args[0].trim();
+        String[] parts = trimmed.split("\\s+");
+        if (parts.length > 1) {
+            return parts;
         }
         return args;
+    }
+
+    private static boolean isCreatePackFlag(String t) {
+        if (t == null) {
+            return false;
+        }
+        String s = t.trim();
+        return "-create".equalsIgnoreCase(s)
+                || "--create".equalsIgnoreCase(s)
+                || "/create".equalsIgnoreCase(s);
     }
 
     public static void main(String[] args) {
@@ -531,7 +547,7 @@ public final class VoiceCacheWarmer {
                 continue;
             }
             String t = a.trim();
-            if ("-create".equalsIgnoreCase(t)) {
+            if (isCreatePackFlag(t)) {
                 createZip = true;
                 continue;
             }
@@ -563,15 +579,24 @@ public final class VoiceCacheWarmer {
         try {
             warmAll(voice);
             System.out.println("Done warming cache for voice: " + voice);
-            if (createZip) {
-                Path outDir = Path.of("target");
+        } catch (Exception e) {
+            System.err.println("Warm failed (pack zip will still be attempted if -create): " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        if (createZip) {
+            Path outDir = Path.of("target");
+            try {
                 Files.createDirectories(outDir);
                 Path zip = outDir.resolve("voice-" + voice.toLowerCase(Locale.ROOT) + ".zip");
+                Path absZip = zip.toAbsolutePath().normalize();
+                System.out.println("Creating voice pack: " + absZip);
                 VoicePackManager.createVoicePackZip(voice, zip);
-                System.out.println("Created pack: " + zip.toAbsolutePath().normalize());
+                System.out.println("Created pack: " + absZip);
+            } catch (Exception e) {
+                System.err.println("Pack zip failed: " + e.getMessage());
+                e.printStackTrace();
             }
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 }
