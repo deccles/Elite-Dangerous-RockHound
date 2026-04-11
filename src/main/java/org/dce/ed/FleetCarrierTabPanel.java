@@ -53,7 +53,7 @@ import com.google.gson.JsonParser;
 public class FleetCarrierTabPanel extends RouteTabPanel {
 	private static final long serialVersionUID = 1L;
 
-	private final String defaultStatusText = "Drop a Spansh fleet-carrier JSON or CSV to load the route";
+	private final String defaultStatusText = "Drop a Spansh file to import";
 
 	private volatile boolean spanshRouteLoaded = false;
 
@@ -126,7 +126,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		calculateButton.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 		calculateButton.addActionListener(e -> fetchRouteFromSpansh());
 
-		importButton = new JButton("Import Spansh Fleet Carrier (JSON or CSV)");
+		importButton = new JButton("Import Spansh");
 		importButton.setFocusable(false);
 		importButton.setForeground(EdoUi.User.MAIN_TEXT);
 		importButton.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());

@@ -13,6 +13,11 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.Window;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
+import java.io.File;
+import java.io.IOException;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
@@ -39,8 +44,10 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.swing.Box;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -128,6 +135,9 @@ public class LogTabPanel extends JPanel {
     private LocalDate currentDate;
 
     private final JLabel dateLabel;
+
+    /** Journal.*.log files for {@link #currentDate}; the selected item drives Copy path. */
+    private final JComboBox<Path> journalFileCombo;
 
     private JTextField searchField;
     private TableRowSorter<LogTableModel> rowSorter;
@@ -281,16 +291,39 @@ public class LogTabPanel extends JPanel {
         dateLabel.setBorder(new EmptyBorder(0, 8, 0, 8));
         dateLabel.setForeground(JOURNAL_TEXT);
 
+        journalFileCombo = new JComboBox<>();
+        journalFileCombo.setEnabled(false);
+        journalFileCombo.setToolTipText("Journal log file for the selected date.");
+        journalFileCombo.setMaximumRowCount(16);
+        Dimension comboPref = journalFileCombo.getPreferredSize();
+        journalFileCombo.setPreferredSize(new Dimension(280, comboPref.height));
+        journalFileCombo.setMaximumSize(new Dimension(400, comboPref.height));
+        journalFileCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                    boolean isSelected, boolean cellHasFocus) {
+                Object label = (value instanceof Path p) ? p.getFileName().toString() : value;
+                return super.getListCellRendererComponent(list, label, index, isSelected, cellHasFocus);
+            }
+        });
+
         JButton reloadButton = new JButton("Reload");
+        JButton copyJournalPathButton = new JButton("Copy path");
+        copyJournalPathButton.setToolTipText(
+                "Copy the selected journal file's path (text and file reference where supported).");
         JButton filterButton = new JButton("Filter...");
 
         toolBar.add(prevDayButton);
         toolBar.add(dateLabel);
         toolBar.add(nextDayButton);
+        toolBar.add(Box.createHorizontalStrut(8));
+        toolBar.add(journalFileCombo);
         toolBar.add(Box.createHorizontalStrut(16));
         
         
         toolBar.add(reloadButton);
+        toolBar.add(Box.createHorizontalStrut(8));
+        toolBar.add(copyJournalPathButton);
         toolBar.add(Box.createHorizontalStrut(8));
         toolBar.add(filterButton);
         toolBar.add(Box.createHorizontalStrut(8));
@@ -482,6 +515,7 @@ simPlayButton.addActionListener(e -> startSimulation());
 
         // Wire actions
         reloadButton.addActionListener(e -> reloadLogs());
+        copyJournalPathButton.addActionListener(e -> copyJournalFileReferencesToClipboard());
         filterButton.addActionListener(e -> showFilterDialog());
 
         prevDayButton.addActionListener(e -> moveToRelativeDate(-1));
@@ -816,6 +850,50 @@ simPlayButton.addActionListener(e -> startSimulation());
 
     /* ---------- Reload & formatting of rows ---------- */
 
+    private void copyJournalFileReferencesToClipboard() {
+        final String title = "Copy path";
+        Path selected = getSelectedJournalFilePath();
+        if (selected == null) {
+            JOptionPane.showMessageDialog(this,
+                    "Choose a journal file in the drop-down (next to the date).",
+                    title,
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new JournalPathTransferable(selected), null);
+    }
+
+    private Path getSelectedJournalFilePath() {
+        if (!journalFileCombo.isEnabled()) {
+            return null;
+        }
+        Object item = journalFileCombo.getSelectedItem();
+        return (item instanceof Path p) ? p : null;
+    }
+
+    private void clearJournalFileCombo() {
+        journalFileCombo.removeAllItems();
+        journalFileCombo.setEnabled(false);
+    }
+
+    private void repopulateJournalFileCombo(EliteJournalReader reader) throws IOException {
+        journalFileCombo.removeAllItems();
+        if (currentDate == null) {
+            journalFileCombo.setEnabled(false);
+            return;
+        }
+        List<Path> paths = reader.listJournalPathsForDate(currentDate);
+        if (paths.isEmpty()) {
+            journalFileCombo.setEnabled(false);
+            return;
+        }
+        for (Path p : paths) {
+            journalFileCombo.addItem(p);
+        }
+        journalFileCombo.setSelectedIndex(paths.size() - 1);
+        journalFileCombo.setEnabled(true);
+    }
+
     private void reloadLogs() {
         knownEventNames.clear();
 
@@ -839,6 +917,7 @@ simPlayButton.addActionListener(e -> startSimulation());
             rows.add(new LogRow(null, msg));
             tableModel.setRows(rows);
             dateLabel.setText("-");
+            clearJournalFileCombo();
             return;
         }
 
@@ -849,6 +928,7 @@ simPlayButton.addActionListener(e -> startSimulation());
                 List<LogRow> rows = new ArrayList<>();
                 rows.add(new LogRow(null, "No Elite Dangerous journal files found."));
                 tableModel.setRows(rows);
+                clearJournalFileCombo();
                 return;
             }
         }
@@ -864,6 +944,11 @@ simPlayButton.addActionListener(e -> startSimulation());
             List<LogRow> rows = new ArrayList<>();
             rows.add(new LogRow(null, msg));
             tableModel.setRows(rows);
+            try {
+                repopulateJournalFileCombo(journalReader);
+            } catch (IOException ioe) {
+                clearJournalFileCombo();
+            }
             return;
         }
 
@@ -889,6 +974,12 @@ simPlayButton.addActionListener(e -> startSimulation());
         }
 
         tableModel.setRows(visibleRows);
+
+        try {
+            repopulateJournalFileCombo(journalReader);
+        } catch (IOException ex) {
+            clearJournalFileCombo();
+        }
         
         SwingUtilities.invokeLater(() -> {
             int last = logTable.getRowCount() - 1;
@@ -1466,5 +1557,52 @@ simPlayButton.addActionListener(e -> startSimulation());
 	        logTable.scrollRectToVisible(r);
 	    }
 	}
+
+    /**
+     * Clipboard payload for one journal file: absolute path as text and, when possible,
+     * {@link DataFlavor#javaFileListFlavor} (e.g. paste into File Explorer).
+     */
+    private static final class JournalPathTransferable implements Transferable {
+
+        private final List<File> files;
+        private final String pathLine;
+
+        JournalPathTransferable(Path path) {
+            Path abs = path.toAbsolutePath().normalize();
+            this.pathLine = abs.toString();
+            File f = abs.toFile();
+            this.files = f.isFile() ? List.of(f) : List.of();
+        }
+
+        @Override
+        public DataFlavor[] getTransferDataFlavors() {
+            if (files.isEmpty()) {
+                return new DataFlavor[] { DataFlavor.stringFlavor };
+            }
+            return new DataFlavor[] { DataFlavor.javaFileListFlavor, DataFlavor.stringFlavor };
+        }
+
+        @Override
+        public boolean isDataFlavorSupported(DataFlavor flavor) {
+            if (DataFlavor.stringFlavor.equals(flavor)) {
+                return true;
+            }
+            return !files.isEmpty() && DataFlavor.javaFileListFlavor.equals(flavor);
+        }
+
+        @Override
+        public Object getTransferData(DataFlavor flavor) throws UnsupportedFlavorException {
+            if (DataFlavor.stringFlavor.equals(flavor)) {
+                return pathLine;
+            }
+            if (DataFlavor.javaFileListFlavor.equals(flavor)) {
+                if (files.isEmpty()) {
+                    throw new UnsupportedFlavorException(flavor);
+                }
+                return files;
+            }
+            throw new UnsupportedFlavorException(flavor);
+        }
+    }
 
 }

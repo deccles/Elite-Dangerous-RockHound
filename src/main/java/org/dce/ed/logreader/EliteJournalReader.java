@@ -199,16 +199,7 @@ public class EliteJournalReader {
             return List.of();
         }
 
-        List<Path> journalFiles = listJournalFiles();
-
-        String datePart = date.toString(); // yyyy-MM-dd
-        List<Path> matchingFiles = new ArrayList<>();
-        for (Path p : journalFiles) {
-            String name = p.getFileName().toString();
-            if (name.contains(datePart)) {
-                matchingFiles.add(p);
-            }
-        }
+        List<Path> matchingFiles = listJournalFilesMatchingDate(date);
 
         if (matchingFiles.isEmpty()) {
             return List.of();
@@ -248,6 +239,30 @@ public class EliteJournalReader {
         }
 
         return events;
+    }
+
+    /**
+     * Absolute paths of all {@code Journal.*.log} files for the given date (same rule as
+     * {@link #readEventsForDate}), in filename order.
+     */
+    public List<Path> listJournalPathsForDate(LocalDate date) throws IOException {
+        return List.copyOf(listJournalFilesMatchingDate(date));
+    }
+
+    private List<Path> listJournalFilesMatchingDate(LocalDate date) throws IOException {
+        if (date == null) {
+            return List.of();
+        }
+        List<Path> journalFiles = listJournalFiles();
+        String datePart = date.toString(); // yyyy-MM-dd
+        List<Path> matchingFiles = new ArrayList<>();
+        for (Path p : journalFiles) {
+            String name = p.getFileName().toString();
+            if (name.contains(datePart)) {
+                matchingFiles.add(p);
+            }
+        }
+        return matchingFiles;
     }
 
     /**
