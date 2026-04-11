@@ -233,8 +233,10 @@ public final class OverlayMenuStatusBar {
 
         bar.add(fleetCarrierTimeBadgeHost);
         bar.add(Box.createHorizontalStrut(6));
-        bar.add(Box.createHorizontalGlue());
+        // Status text immediately after the fleet slot so it stays left-aligned (glue after the label
+        // only absorbs space to the right, toward the decorated toolbar when present).
         bar.add(statusLabel);
+        bar.add(Box.createHorizontalGlue());
         bar.add(Box.createHorizontalStrut(includeToolbarIcons ? 10 : 4));
         if (includeToolbarIcons) {
             bar.add(createDecoratedToolbar(parent, clientKey, toolsMenu, onRequestPassThrough));

@@ -291,17 +291,36 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     }
 
     private void appendRightStatusInnerHtml(StringBuilder sb) {
-        String main = getRightStatusMainSuffixPlain();
-        if (main == null) {
-            main = "";
+        if (carrierJumpDepartureTime != null) {
+            appendFcJumpRightStatusHtml(sb);
+        } else {
+            String main = getRightStatusMainSuffixPlain();
+            if (main == null) {
+                main = "";
+            }
+            main = main.trim();
+            sb.append("<span style='color:").append(EdoUi.htmlRgb(getRightStatusMainForeground())).append(";'>")
+                    .append(EdoUi.escapeHtmlMinimal(main)).append("</span>");
         }
-        main = main.trim();
-        sb.append("<span style='color:").append(EdoUi.htmlRgb(getRightStatusMainForeground())).append(";'>")
-                .append(EdoUi.escapeHtmlMinimal(main)).append("</span>");
         String hint = getRightStatusUpdateHintPlain();
         if (hint != null) {
             sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.SUCCESS)).append(";'> | ")
                     .append(EdoUi.escapeHtmlMinimal(hint)).append("</span>");
+        }
+    }
+
+    /** HTML for fleet-carrier jump line: light, bold, slightly larger arrow between label and target. */
+    private void appendFcJumpRightStatusHtml(StringBuilder sb) {
+        Color fg = getRightStatusMainForeground();
+        String fgHtml = EdoUi.htmlRgb(fg);
+        sb.append("<span style='color:").append(fgHtml).append(";'>FC jump</span>");
+        String tgt = carrierJumpTargetSystem;
+        if (tgt != null && !tgt.isBlank()) {
+            String arrowRgb = EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT);
+            sb.append("<span style='font-weight:700;font-size:1.22em;color:").append(arrowRgb)
+                    .append(";'> \u2192 </span>");
+            sb.append("<span style='color:").append(fgHtml).append(";'>")
+                    .append(EdoUi.escapeHtmlMinimal(tgt.trim())).append("</span>");
         }
     }
 

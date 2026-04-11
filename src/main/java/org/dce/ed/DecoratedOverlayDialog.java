@@ -72,7 +72,7 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 
 
 	public DecoratedOverlayDialog(OverlayContentPanel contentPanel, String clientKey) {
-		super("Elite Dangerous RockHound");
+		super("RockHound");
 
 		this.contentPanel = contentPanel;
 		this.clientKey = clientKey;

@@ -3,6 +3,7 @@ package org.dce.ed;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -133,6 +135,8 @@ public class RouteTabPanel extends JPanel {
 	private final JPanel routeTitleRow;
 	private final JButton lyModeFromCurrentButton;
 	private final JButton lyModePerLegButton;
+	private boolean lyModeFromCurrentHovered;
+	private boolean lyModePerLegHovered;
 	private JTable table=null;
 	private JScrollPane routeScrollPane;
 	private final RouteTableModel tableModel;
@@ -194,6 +198,8 @@ public class RouteTabPanel extends JPanel {
 
 	private final Map<Long, RouteScanStatus> lastKnownScanStatusByAddress = new ConcurrentHashMap<>();
 	private final Map<Long, EdsmScanSummary> edsmSummaryByAddress = new ConcurrentHashMap<>();
+	/** Dedupe concurrent EDSM body fetches per system address while updating route row status. */
+	private final Set<Long> edsmRouteStatusInFlight = ConcurrentHashMap.newKeySet();
 
 	/** Same-package test access (not part of public API). */
 	RouteSession routeSessionForTests() {
@@ -271,6 +277,32 @@ public class RouteTabPanel extends JPanel {
 		lyModePerLegButton = new JButton(new LyPerLegIcon(18));
 		configureLyModeToggleButton(lyModeFromCurrentButton, "Show distance from your current system along the route");
 		configureLyModeToggleButton(lyModePerLegButton, "Show each jump length from the previous system");
+		lyModeFromCurrentButton.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mouseEntered(MouseEvent e) {
+				lyModeFromCurrentHovered = true;
+				updateLyModeToggleAppearance();
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e) {
+				lyModeFromCurrentHovered = false;
+				updateLyModeToggleAppearance();
+			}
+		});
+		lyModePerLegButton.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mouseEntered(MouseEvent e) {
+				lyModePerLegHovered = true;
+				updateLyModeToggleAppearance();
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e) {
+				lyModePerLegHovered = false;
+				updateLyModeToggleAppearance();
+			}
+		});
 		lyModeFromCurrentButton.addActionListener(e -> {
 			tableModel.setLyFromCurrentSystem(true);
 			updateLyModeToggleAppearance();
@@ -716,6 +748,35 @@ public class RouteTabPanel extends JPanel {
 		b.setFocusPainted(false);
 		b.setOpaque(false);
 		b.setForeground(EdoUi.User.MAIN_TEXT);
+		b.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
+	}
+
+	private void applyLyModeToggleButtonHoverChrome(JButton b, boolean selected, boolean hovered) {
+		Color ink = EdoUi.User.MAIN_TEXT;
+		Color hoverLine = EdoUi.Internal.MAIN_TEXT_ALPHA_200;
+		Color hoverFill = EdoUi.Internal.MAIN_TEXT_ALPHA_40;
+
+		if (selected) {
+			b.setBorder(BorderFactory.createCompoundBorder(
+					BorderFactory.createLineBorder(ink, hovered ? 2 : 1),
+					new EmptyBorder(hovered ? 1 : 2, 3, hovered ? 1 : 2, 3)));
+			if (hovered) {
+				b.setOpaque(true);
+				b.setBackground(hoverFill);
+			} else {
+				b.setOpaque(false);
+			}
+		} else if (hovered) {
+			b.setBorder(BorderFactory.createCompoundBorder(
+					BorderFactory.createLineBorder(hoverLine, 1),
+					new EmptyBorder(2, 4, 2, 4)));
+			b.setOpaque(true);
+			b.setBackground(hoverFill);
+		} else {
+			b.setBorder(new EmptyBorder(3, 5, 3, 5));
+			b.setOpaque(false);
+		}
+		b.setCursor(Cursor.getPredefinedCursor(hovered ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
 	}
 
 	private void updateLyModeToggleAppearance() {
@@ -723,13 +784,10 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		boolean fromCur = tableModel.isLyFromCurrentSystem();
-		Color activeOutline = EdoUi.User.MAIN_TEXT;
-		lyModeFromCurrentButton.setBorder(fromCur ? BorderFactory.createCompoundBorder(
-				BorderFactory.createLineBorder(activeOutline, 1),
-				new EmptyBorder(2, 4, 2, 4)) : new EmptyBorder(3, 5, 3, 5));
-		lyModePerLegButton.setBorder(!fromCur ? BorderFactory.createCompoundBorder(
-				BorderFactory.createLineBorder(activeOutline, 1),
-				new EmptyBorder(2, 4, 2, 4)) : new EmptyBorder(3, 5, 3, 5));
+		applyLyModeToggleButtonHoverChrome(lyModeFromCurrentButton, fromCur, lyModeFromCurrentHovered);
+		applyLyModeToggleButtonHoverChrome(lyModePerLegButton, !fromCur, lyModePerLegHovered);
+		lyModeFromCurrentButton.repaint();
+		lyModePerLegButton.repaint();
 	}
 	private void reloadFromNavRouteFile() {
 		Path dir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
@@ -878,9 +936,34 @@ public class RouteTabPanel extends JPanel {
 		tableModel.setEntries(snap.displayedEntries());
 		maybeScheduleTargetCoordsFetch(snap.displayedEntries());
 		SwingUtilities.invokeLater(() -> {
+			kickEdsmForBehindCurrentUnknownRows();
 			startEdsmUpdatesForVisibleRows();
 			scrollToKeepCurrentRowAtOffset();
 		});
+	}
+
+	/**
+	 * Fleet / FSD progress: systems at or before the current row have been reached, so EDSM rows should use
+	 * {@code *_VISITED} variants even when {@link SystemCache} has no entry yet for that hop.
+	 */
+	private void kickEdsmForBehindCurrentUnknownRows() {
+		if (tableModel == null) {
+			return;
+		}
+		int cur = tableModel.getCurrentSystemRowIndex();
+		if (cur < 0) {
+			return;
+		}
+		for (int r = 0; r <= cur; r++) {
+			RouteEntry e = tableModel.getEntries(r);
+			if (e == null || e.isBodyRow) {
+				continue;
+			}
+			if (e.status != RouteScanStatus.UNKNOWN) {
+				continue;
+			}
+			updateStatusFromEdsm(e, r);
+		}
 	}
 
 	private void maybeScheduleTargetCoordsFetch(List<RouteEntry> displayed) {
@@ -1078,7 +1161,11 @@ public class RouteTabPanel extends JPanel {
 		if (entries == null) {
 			return;
 		}
-		for (RouteEntry e : entries) {
+		int curRow = RouteGeometry.findSystemRow(entries,
+				routeSession.getCurrentSystemName(),
+				routeSession.getCurrentSystemAddress());
+		for (int i = 0; i < entries.size(); i++) {
+			RouteEntry e = entries.get(i);
 			if (e == null) {
 				continue;
 			}
@@ -1102,6 +1189,43 @@ public class RouteTabPanel extends JPanel {
 				}
 			}
 		}
+		// Past / current hops along the plotted route count as "visited" for icon variants even if
+		// SystemCache has not caught up yet (common right after a carrier jump).
+		if (curRow >= 0) {
+			for (int i = 0; i <= curRow && i < entries.size(); i++) {
+				RouteEntry e = entries.get(i);
+				if (e == null || e.isBodyRow) {
+					continue;
+				}
+				e.status = promoteNotVisitedToVisitedForRouteProgress(e.status);
+			}
+		}
+	}
+
+	private static RouteScanStatus promoteNotVisitedToVisitedForRouteProgress(RouteScanStatus s) {
+		if (s == null) {
+			return RouteScanStatus.UNKNOWN;
+		}
+		switch (s) {
+		case FULLY_DISCOVERED_NOT_VISITED:
+			return RouteScanStatus.FULLY_DISCOVERED_VISITED;
+		case DISCOVERY_MISSING_NOT_VISITED:
+			return RouteScanStatus.DISCOVERY_MISSING_VISITED;
+		case BODYCOUNT_MISMATCH_NOT_VISITED:
+			return RouteScanStatus.BODYCOUNT_MISMATCH_VISITED;
+		default:
+			return s;
+		}
+	}
+
+	private static boolean routeEntryMatches(RouteEntry e, long expectedAddress, String expectedName) {
+		if (e == null) {
+			return false;
+		}
+		if (expectedAddress != 0L) {
+			return e.systemAddress == expectedAddress;
+		}
+		return Objects.equals(e.systemName, expectedName);
 	}
 
 	private static final class EdsmScanSummary {
@@ -1150,57 +1274,104 @@ public class RouteTabPanel extends JPanel {
 		return null;
 	}
 	private void updateStatusFromEdsm(RouteEntry entry, int row) {
-		if (entry == null) {
+		if (entry == null || row < 0) {
 			return;
 		}
-		// Prefer LOCAL scan state first (this matches in-game "Bodies: N of N Complete")
 		RouteScanStatus local = getLocalScanStatus(entry);
 		if (local != RouteScanStatus.UNKNOWN) {
-			entry.status = local;
-			rememberScanStatus(entry, local);
-			SwingUtilities.invokeLater(() -> tableModel.fireRowChanged(row));
+			SwingUtilities.invokeLater(() -> applyEdsmDerivedStatusToRow(row, entry.systemAddress, entry.systemName, local));
 			return;
 		}
-		boolean v = isVisited(entry);
-		try {
-			BodiesResponse bodies = edsmClient.showBodies(entry.systemName);
-			RouteScanStatus newStatus = RouteScanStatus.UNKNOWN;
-			if (bodies != null && bodies.bodies != null) {
-				int returnedBodies = bodies.bodies.size();
-				boolean hasBodies = returnedBodies > 0;
-				Integer bodyCount = Integer.valueOf(bodies.bodyCount);
-				if (entry.systemAddress != 0L) {
-					edsmSummaryByAddress.put(Long.valueOf(entry.systemAddress),
-							new EdsmScanSummary(bodyCount, Integer.valueOf(returnedBodies)));
-				}
-				if (hasBodies) {
-					if (bodies.bodyCount != returnedBodies) {
-						newStatus = v
-								? RouteScanStatus.BODYCOUNT_MISMATCH_VISITED
-										: RouteScanStatus.BODYCOUNT_MISMATCH_NOT_VISITED;
-					} else {
-						newStatus = v
-								? RouteScanStatus.FULLY_DISCOVERED_VISITED
-										: RouteScanStatus.FULLY_DISCOVERED_NOT_VISITED;
+		final long addr = entry.systemAddress;
+		final String sysName = entry.systemName;
+		if (addr != 0L && !edsmRouteStatusInFlight.add(Long.valueOf(addr))) {
+			return;
+		}
+		new Thread(() -> {
+			BodiesResponse bodies = null;
+			try {
+				bodies = edsmClient.showBodies(sysName);
+			} catch (Exception ex) {
+				ex.printStackTrace();
+			}
+			final BodiesResponse bodiesFinal = bodies;
+			SwingUtilities.invokeLater(() -> {
+				try {
+					applyBodiesResponseToRouteRow(row, addr, sysName, bodiesFinal);
+				} finally {
+					if (addr != 0L) {
+						edsmRouteStatusInFlight.remove(Long.valueOf(addr));
 					}
-				} else {
-					newStatus = RouteScanStatus.UNKNOWN;
 				}
-			}
-			if (newStatus != RouteScanStatus.UNKNOWN) {
-				entry.status = newStatus;
-				rememberScanStatus(entry, newStatus);
-				SwingUtilities.invokeLater(() -> tableModel.fireRowChanged(row));
-			} else {
-				// Don't downgrade a known status back to UNKNOWN.
-				if (entry.status == null || entry.status == RouteScanStatus.UNKNOWN) {
-					entry.status = RouteScanStatus.UNKNOWN;
-					SwingUtilities.invokeLater(() -> tableModel.fireRowChanged(row));
-				}
-			}
+			});
+		}, "RouteEdsm-" + (sysName != null ? sysName : "row" + row)).start();
+	}
 
-		} catch (Exception e) {
-			e.printStackTrace();
+	private void applyEdsmDerivedStatusToRow(int row, long expectedAddress, String expectedName, RouteScanStatus status) {
+		if (tableModel == null || row < 0 || row >= tableModel.getRowCount()) {
+			return;
+		}
+		RouteEntry live = tableModel.getEntries(row);
+		if (!routeEntryMatches(live, expectedAddress, expectedName)) {
+			return;
+		}
+		live.status = status;
+		rememberScanStatus(live, status);
+		tableModel.fireRowChanged(row);
+	}
+
+	private void applyBodiesResponseToRouteRow(int row, long expectedAddress, String expectedName, BodiesResponse bodies) {
+		if (tableModel == null || row < 0 || row >= tableModel.getRowCount()) {
+			return;
+		}
+		RouteEntry live = tableModel.getEntries(row);
+		if (!routeEntryMatches(live, expectedAddress, expectedName)) {
+			return;
+		}
+		RouteScanStatus local = getLocalScanStatus(live);
+		if (local != RouteScanStatus.UNKNOWN) {
+			live.status = local;
+			rememberScanStatus(live, local);
+			tableModel.fireRowChanged(row);
+			return;
+		}
+		int curRow = tableModel.getCurrentSystemRowIndex();
+		boolean v = isVisited(live) || (curRow >= 0 && row <= curRow);
+		RouteScanStatus newStatus = RouteScanStatus.UNKNOWN;
+		if (bodies != null && bodies.bodies != null) {
+			int returnedBodies = bodies.bodies.size();
+			boolean hasBodies = returnedBodies > 0;
+			Integer bodyCount = Integer.valueOf(bodies.bodyCount);
+			if (live.systemAddress != 0L) {
+				edsmSummaryByAddress.put(Long.valueOf(live.systemAddress),
+						new EdsmScanSummary(bodyCount, Integer.valueOf(returnedBodies)));
+			}
+			if (hasBodies) {
+				if (bodies.bodyCount != returnedBodies) {
+					newStatus = v
+							? RouteScanStatus.BODYCOUNT_MISMATCH_VISITED
+							: RouteScanStatus.BODYCOUNT_MISMATCH_NOT_VISITED;
+				} else {
+					newStatus = v
+							? RouteScanStatus.FULLY_DISCOVERED_VISITED
+							: RouteScanStatus.FULLY_DISCOVERED_NOT_VISITED;
+				}
+			}
+		}
+		if (newStatus != RouteScanStatus.UNKNOWN) {
+			newStatus = promoteNotVisitedToVisitedForRouteProgress(newStatus);
+			live.status = newStatus;
+			rememberScanStatus(live, newStatus);
+			tableModel.fireRowChanged(row);
+		} else if (live.status == null || live.status == RouteScanStatus.UNKNOWN) {
+			// Reached this hop per route progress but EDSM gave nothing useful — still show a visited-incomplete glyph.
+			if (curRow >= 0 && row <= curRow) {
+				live.status = RouteScanStatus.DISCOVERY_MISSING_VISITED;
+				rememberScanStatus(live, RouteScanStatus.DISCOVERY_MISSING_VISITED);
+			} else {
+				live.status = RouteScanStatus.UNKNOWN;
+			}
+			tableModel.fireRowChanged(row);
 		}
 	}
 	private RouteScanStatus getLocalScanStatus(RouteEntry entry) {
@@ -1422,6 +1593,10 @@ public class RouteTabPanel extends JPanel {
 				return -1;
 			}
 			return RouteGeometry.findSystemRow(entries, currentSystemName, currentSystemAddress);
+		}
+
+		int getCurrentSystemRowIndex() {
+			return findCurrentSystemRow();
 		}
 
 		void setLyFromCurrentSystem(boolean lyFromCurrentSystem) {
