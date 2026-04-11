@@ -1167,6 +1167,14 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
     public void setPassThroughEnabled(boolean enabled) {
+        setPassThroughEnabled(enabled, false);
+    }
+
+    /**
+     * @param persistUserPreference when true, save {@code enabled} for the next session (title-bar toggle /
+     *                              hover dwell). When false, only apply native/UI state (mode switches, startup).
+     */
+    public void setPassThroughEnabled(boolean enabled, boolean persistUserPreference) {
         if (this.passThroughEnabled == enabled) {
             // Keep title-bar controls in sync even when caller re-applies the same mode.
             titleBar.setPassThrough(this.passThroughEnabled);
@@ -1177,6 +1185,9 @@ private void refreshPassThroughUnifiedStatus() {
         this.passThroughEnabled = enabled;
         resetPassThroughCloseHoverState();
         OverlayPreferences.setOverlayMousePassThroughToGame(enabled);
+        if (persistUserPreference) {
+            OverlayPreferences.putOverlayMousePassThroughToGamePersisted(enabled);
+        }
         applyPassThrough(this.passThroughEnabled);
         applyOverlayBackgroundFromPreferences(this.passThroughEnabled);
 
@@ -1186,7 +1197,7 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
     public void togglePassThrough() {
-        setPassThroughEnabled(!passThroughEnabled);
+        setPassThroughEnabled(!passThroughEnabled, true);
     }
 
     public boolean isPassThroughEnabled() {
@@ -1692,7 +1703,7 @@ private void refreshPassThroughUnifiedStatus() {
             if (passThroughToggleHoverStartMs < 0L) {
                 passThroughToggleHoverStartMs = now;
             } else if (now - passThroughToggleHoverStartMs >= PASS_THROUGH_TOGGLE_DWELL_MS) {
-                setPassThroughEnabled(false);
+                setPassThroughEnabled(false, true);
             }
             return;
         }

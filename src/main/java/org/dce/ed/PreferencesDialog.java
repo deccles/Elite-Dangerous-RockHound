@@ -1274,32 +1274,7 @@ public class PreferencesDialog extends JDialog {
 		gbc.gridx = 1;
 		content.add(speechEnabledCheckBox, gbc);
 
-
-		// Use AWS to generate missing speech
-		gbc.gridx = 0;
-		gbc.gridy++;
-		JLabel useAwsLabel = new JLabel("Use AWS to generate speech:");
-		content.add(useAwsLabel, gbc);
-
-		gbc.gridx = 1;
-		speechUseAwsCheckBox = new JCheckBox();
-		speechUseAwsCheckBox.setOpaque(false);
-		speechUseAwsCheckBox.setSelected(OverlayPreferences.isSpeechUseAwsSynthesis());
-		content.add(speechUseAwsCheckBox, gbc);
-
-
-		// Engine (Standard only by default)
-		gbc.gridx = 0;
-		gbc.gridy++;
-		JLabel engineLabel = new JLabel("Engine:");
-		content.add(engineLabel, gbc);
-
-		gbc.gridx = 1;
-		speechEngineCombo = new JComboBox<>(new String[] { "standard", "neural" });
-		speechEngineCombo.setSelectedItem(OverlayPreferences.getSpeechEngine());
-		content.add(speechEngineCombo, gbc);
-
-		// Voice (keep list small and “safe”)
+		// Voice (keep list small and “safe”) — used for Polly and for offline voice packs
 		gbc.gridx = 0;
 		gbc.gridy++;
 		JLabel voiceLabel = new JLabel("Voice (Standard):");
@@ -1309,28 +1284,6 @@ public class PreferencesDialog extends JDialog {
 		speechVoiceCombo = new JComboBox<>(STANDARD_US_ENGLISH_VOICES);
 		speechVoiceCombo.setSelectedItem(OverlayPreferences.getSpeechVoiceName());
 		content.add(speechVoiceCombo, gbc);
-
-		// Region
-		gbc.gridx = 0;
-		gbc.gridy++;
-		JLabel regionLabel = new JLabel("AWS Region:");
-		content.add(regionLabel, gbc);
-
-		gbc.gridx = 1;
-		speechRegionField = new JTextField(12);
-		speechRegionField.setText(OverlayPreferences.getSpeechAwsRegion());
-		content.add(speechRegionField, gbc);
-
-		// Profile
-		gbc.gridx = 0;
-		gbc.gridy++;
-		JLabel profileLabel = new JLabel("AWS profile (optional):");
-		content.add(profileLabel, gbc);
-
-		gbc.gridx = 1;
-		speechAwsProfileField = new JTextField(18);
-		speechAwsProfileField.setText(OverlayPreferences.getSpeechAwsProfile());
-		content.add(speechAwsProfileField, gbc);
 
 		// Cache dir
 		gbc.gridx = 0;
@@ -1435,21 +1388,94 @@ public class PreferencesDialog extends JDialog {
 		speechSampleRateField.setText(Integer.toString(OverlayPreferences.getSpeechSampleRateHz()));
 		content.add(speechSampleRateField, gbc);
 
-		// Enable/disable everything but the checkbox based on enabled
-		Runnable updateEnabled = () -> {
-			boolean enabled = speechEnabledCheckBox.isSelected();
-			speechEngineCombo.setEnabled(enabled);
-			speechVoiceCombo.setEnabled(enabled);
-			speechRegionField.setEnabled(enabled);
-			speechAwsProfileField.setEnabled(enabled);
-			speechCacheDirField.setEnabled(enabled);
-			browseCacheButton.setEnabled(enabled);
-			clearSpeechCacheButton.setEnabled(enabled);
-			speechSampleRateField.setEnabled(enabled);
-			speechUseAwsCheckBox.setEnabled(enabled);
+		// --- AWS / Polly (bottom block) ---
+		gbc.gridx = 0;
+		gbc.gridy++;
+		gbc.gridwidth = 2;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.weightx = 1.0;
+		gbc.insets = new Insets(16, 4, 4, 4);
+
+		JPanel awsPanel = new JPanel(new GridBagLayout());
+		awsPanel.setOpaque(false);
+		awsPanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120, 1),
+				"AWS (Amazon Polly)"));
+
+		GridBagConstraints agbc = new GridBagConstraints();
+		agbc.gridx = 0;
+		agbc.gridy = 0;
+		agbc.anchor = GridBagConstraints.WEST;
+		agbc.insets = new Insets(4, 8, 4, 4);
+
+		JLabel useAwsLabel = new JLabel("Use AWS to generate speech:");
+		awsPanel.add(useAwsLabel, agbc);
+		agbc.gridx = 1;
+		speechUseAwsCheckBox = new JCheckBox();
+		speechUseAwsCheckBox.setOpaque(false);
+		speechUseAwsCheckBox.setSelected(OverlayPreferences.isSpeechUseAwsSynthesis());
+		awsPanel.add(speechUseAwsCheckBox, agbc);
+
+		agbc.gridx = 0;
+		agbc.gridy++;
+		JLabel engineLabel = new JLabel("Engine:");
+		awsPanel.add(engineLabel, agbc);
+		agbc.gridx = 1;
+		speechEngineCombo = new JComboBox<>(new String[] { "standard", "neural" });
+		speechEngineCombo.setSelectedItem(OverlayPreferences.getSpeechEngine());
+		awsPanel.add(speechEngineCombo, agbc);
+
+		agbc.gridx = 0;
+		agbc.gridy++;
+		JLabel regionLabel = new JLabel("AWS Region:");
+		awsPanel.add(regionLabel, agbc);
+		agbc.gridx = 1;
+		speechRegionField = new JTextField(12);
+		speechRegionField.setText(OverlayPreferences.getSpeechAwsRegion());
+		awsPanel.add(speechRegionField, agbc);
+
+		agbc.gridx = 0;
+		agbc.gridy++;
+		JLabel profileLabel = new JLabel("AWS profile (optional):");
+		awsPanel.add(profileLabel, agbc);
+		agbc.gridx = 1;
+		speechAwsProfileField = new JTextField(18);
+		speechAwsProfileField.setText(OverlayPreferences.getSpeechAwsProfile());
+		awsPanel.add(speechAwsProfileField, agbc);
+
+		content.add(awsPanel, gbc);
+		gbc.gridwidth = 1;
+		gbc.fill = GridBagConstraints.NONE;
+		gbc.weightx = 0;
+		gbc.insets = new Insets(4, 4, 4, 4);
+
+		// Enable/disable: speech master switch; AWS fields only when “Use AWS” is checked
+		Runnable updateSpeechPanelEnabled = () -> {
+			boolean speechOn = speechEnabledCheckBox.isSelected();
+			boolean awsOn = speechOn && speechUseAwsCheckBox.isSelected();
+
+			voiceLabel.setEnabled(speechOn);
+			speechVoiceCombo.setEnabled(speechOn);
+			cacheDirLabel.setEnabled(speechOn);
+			speechCacheDirField.setEnabled(speechOn);
+			browseCacheButton.setEnabled(speechOn);
+			clearSpeechCacheButton.setEnabled(speechOn);
+			rateLabel.setEnabled(speechOn);
+			speechSampleRateField.setEnabled(speechOn);
+
+			useAwsLabel.setEnabled(speechOn);
+			speechUseAwsCheckBox.setEnabled(speechOn);
+
+			engineLabel.setEnabled(awsOn);
+			speechEngineCombo.setEnabled(awsOn);
+			regionLabel.setEnabled(awsOn);
+			speechRegionField.setEnabled(awsOn);
+			profileLabel.setEnabled(awsOn);
+			speechAwsProfileField.setEnabled(awsOn);
 		};
-		speechEnabledCheckBox.addActionListener(e -> updateEnabled.run());
-		updateEnabled.run();
+		speechEnabledCheckBox.addActionListener(e -> updateSpeechPanelEnabled.run());
+		speechUseAwsCheckBox.addActionListener(e -> updateSpeechPanelEnabled.run());
+		updateSpeechPanelEnabled.run();
 
 		panel.add(content, BorderLayout.NORTH);
 		return panel;
@@ -1501,7 +1527,7 @@ public class PreferencesDialog extends JDialog {
 				+ "3. Enable the Google Sheets API: APIs & Services → Library → search \"Google Sheets API\" → Enable.\n"
 				+ "4. Configure OAuth consent screen: APIs & Services → OAuth consent screen. Choose \"External\" if others will use this. Add your app name and support email.\n"
 				+ "5. Create credentials: APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID.\n"
-				+ "6. Application type: \"Desktop app\". Name it (e.g. \"EDO Overlay\") and click Create.\n"
+				+ "6. Application type: \"Desktop app\". Name it (e.g. \"RockHound\") and click Create.\n"
 				+ "7. Copy the Client ID and Client Secret from the credentials page into the fields above.\n"
 				+ "8. Paste your Google Sheet edit URL (from the browser) into the URL field. The sheet should have a header row: Run, Body, Timestamp, Type, Percentage, Before Amount, After Amount, Actual, Email Address (or the app will append it).\n"
 				+ "   Mining data is read only from worksheets whose names start with \"CMDR \" (letters CMDR + space) followed by the commander name, e.g. CMDR Villunus. Other tabs in the same file are ignored.\n"

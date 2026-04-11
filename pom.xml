@@ -260,7 +260,8 @@
 				bin\jpackage.exe -->
 				<jdk.home>${env.JAVA_HOME}</jdk.home>
 
-				<app.name>EDO Overlay</app.name>
+				<!-- jpackage MSI/exe/install dir name (no spaces → clean RockHound-1.2.3.msi filename) -->
+				<app.name>RockHound</app.name>
 				<app.version>${project.version}</app.version>
 
 				<!-- Where jpackage will read the jar from -->
@@ -345,7 +346,7 @@
 										<argument>--win-shortcut</argument>
 										<argument>--win-dir-chooser</argument>
 
-										<!-- Windows jpackage requires .ico; convert RockHound-window.png (taskbar/title bar art) into edo.ico to match in-app icons. -->
+										<!-- Windows jpackage requires .ico. Must match AppIconUtil (zoomed RockHound-window.png); regenerate with scripts/generate-windows-installer-icon.ps1 -->
 										<argument>--icon</argument>
 										<argument>
 											${project.basedir}\src\main\resources\edo.ico</argument>

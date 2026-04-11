@@ -149,7 +149,7 @@ public class TitleBarPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e)) {
-                    frame.setPassThroughEnabled(!frame.isPassThroughEnabled());
+                    frame.setPassThroughEnabled(!frame.isPassThroughEnabled(), true);
                 }
             }
 

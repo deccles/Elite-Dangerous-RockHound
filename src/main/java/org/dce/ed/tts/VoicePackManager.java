@@ -109,6 +109,9 @@ public final class VoicePackManager {
      * If speech is on, AWS synthesis is off, and the app’s {@link #SPEECH_PACK_REVISION} is newer than
      * the last installed pack (or the selected voice changed), download the GitHub pack in the background
      * (no progress dialog) and replace the voice cache folder.
+     * <p>
+     * Also downloads when preferences claim an up-to-date pack but {@link #isVoicePackInstalled(String)}
+     * finds no WAV cache (deleted cache, failed extract, new machine, etc.).
      *
      * @param errorParent optional window for failure dialogs; may be null (errors only logged)
      */
@@ -123,11 +126,13 @@ public final class VoicePackManager {
         if (voice == null || voice.isBlank()) {
             return;
         }
+        String voiceTrim = voice.trim();
         int installed = OverlayPreferences.getSpeechPackInstalledRevision();
         String installedVoice = OverlayPreferences.getSpeechPackInstalledVoice();
         if (installed >= SPEECH_PACK_REVISION
                 && !installedVoice.isBlank()
-                && installedVoice.equalsIgnoreCase(voice.trim())) {
+                && installedVoice.equalsIgnoreCase(voiceTrim)
+                && isVoicePackInstalled(voiceTrim)) {
             return;
         }
         downloadAndInstallVoicePack(errorParent, voice, false, null);

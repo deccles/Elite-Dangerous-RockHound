@@ -22,6 +22,12 @@ public final class OverlayPreferences {
 
     private static final String KEY_IS_OVERLAY_TRANSPARENT = "overlay.transparent";
 
+    /**
+     * User choice: mouse clicks pass through the undecorated overlay to the game (WS_EX_TRANSPARENT).
+     * Independent of {@code overlay.startInPassThrough} (window mode). Persisted so it survives restarts.
+     */
+    private static final String KEY_OVERLAY_MOUSE_PASS_THROUGH_TO_GAME = "overlay.mousePassThroughToGame";
+
     // New overlay background preferences (normal + pass-through)
     private static final String KEY_OVERLAY_BG_RGB = "overlay.bg.rgb"; // 0xRRGGBB
     private static final String KEY_OVERLAY_BG_TRANSPARENCY_PCT = "overlay.bg.transparencyPct"; // 0-100
@@ -175,6 +181,21 @@ public final class OverlayPreferences {
 
     public static boolean isOverlayMousePassThroughToGame() {
         return overlayMousePassThroughToGame;
+    }
+
+    /**
+     * Last saved mouse pass-through preference for overlay (undecorated) mode.
+     *
+     * @param defaultIfUnset used when the key has never been written (migration: use {@code true} to match
+     *                       legacy “overlay on ⇒ clicks pass through” behavior)
+     */
+    public static boolean getOverlayMousePassThroughToGamePersisted(boolean defaultIfUnset) {
+        return PREFS.getBoolean(KEY_OVERLAY_MOUSE_PASS_THROUGH_TO_GAME, defaultIfUnset);
+    }
+
+    public static void putOverlayMousePassThroughToGamePersisted(boolean enabled) {
+        PREFS.putBoolean(KEY_OVERLAY_MOUSE_PASS_THROUGH_TO_GAME, enabled);
+        flushBackingStore();
     }
 
     /**

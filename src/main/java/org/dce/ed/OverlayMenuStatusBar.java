@@ -224,7 +224,7 @@ public final class OverlayMenuStatusBar {
         applyFleetBadgePlaceholderLayout(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
 
         if (parent != null) {
-            statusLabel.addMouseListener(new MouseAdapter() {
+            MouseAdapter statusClick = new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     if (!SwingUtilities.isLeftMouseButton(e)) {
@@ -235,7 +235,9 @@ public final class OverlayMenuStatusBar {
                         GithubMsiUpdater.checkAndUpdate(parent);
                     }
                 }
-            });
+            };
+            statusLabel.addMouseListener(statusClick);
+            statusScroll.addGhostMouseListener(statusClick);
         }
 
         bar.add(fleetCarrierTimeBadgeHost);

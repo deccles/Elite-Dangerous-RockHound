@@ -38,8 +38,9 @@ public final class GithubMsiUpdater {
     private static final String MAVEN_GROUP_ID = "org.dce";
     private static final String MAVEN_ARTIFACT_ID = "EliteDangerousOverlay";
 
-    private static final String INSTALL_DIR_NAME = "EDO Overlay";
-    private static final String EXE_NAME = "EDO Overlay.exe";
+    /** Must match {@code jpackage --name} in the installer Maven profile ({@code pom.xml} {@code app.name}). */
+    private static final String INSTALL_DIR_NAME = "RockHound";
+    private static final String EXE_NAME = "RockHound.exe";
 
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(20);
 
@@ -361,7 +362,7 @@ public final class GithubMsiUpdater {
 
         String safeName = toSafeFilename(msiName);
         if (safeName == null || safeName.isBlank()) {
-            safeName = "EDO-Overlay-Update.msi";
+            safeName = "RockHound-Update.msi";
         }
         if (!safeName.toLowerCase(Locale.ROOT).endsWith(".msi")) {
             safeName = safeName + ".msi";
@@ -477,8 +478,8 @@ public final class GithubMsiUpdater {
                 "Start-Sleep -Seconds 1\n" +
                 "\n" +
                 "try {\n" +
-                "  Log 'Killing any running EDO Overlay.exe'\n" +
-                "  Get-Process -Name 'EDO Overlay' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue\n" +
+                "  Log 'Killing any running RockHound.exe'\n" +
+                "  Get-Process -Name 'RockHound' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue\n" +
                 "} catch { Log ('Kill failed: ' + $_) }\n" +
                 "\n" +
                 "Log ('Launching msiexec with verbose log ' + $MsiLog)\n" +

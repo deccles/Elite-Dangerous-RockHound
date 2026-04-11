@@ -71,7 +71,10 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         this.contentPanel = new OverlayContentPanel(() -> passThroughMode);
 
         this.passThroughFrame = new OverlayFrame(contentPanel);
-        this.passThroughFrame.setPassThroughEnabled(this.passThroughMode);
+        boolean initialMousePassThrough = this.passThroughMode
+                ? OverlayPreferences.getOverlayMousePassThroughToGamePersisted(true)
+                : false;
+        this.passThroughFrame.setPassThroughEnabled(initialMousePassThrough, false);
 
         this.decoratedDialog = new DecoratedOverlayDialog(passThroughFrame, contentPanel, clientKey);
         this.decoratedDialog.setOnRequestSwitchToPassThrough(() -> SwingUtilities.invokeLater(() -> setPassThroughMode(true)));
@@ -265,7 +268,8 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     		passThroughFrame.setBounds(outerBounds);
     		// Add content before pass-through styling so layout / background apply to the full hierarchy.
     		passThroughFrame.add(contentPanel, java.awt.BorderLayout.CENTER);
-    		passThroughFrame.setPassThroughEnabled(true);
+    		passThroughFrame.setPassThroughEnabled(
+    				OverlayPreferences.getOverlayMousePassThroughToGamePersisted(true), false);
     		passThroughFrame.prepareForShow(true);
     		passThroughFrame.setRightStatusListener(null);
     		passThroughFrame.refreshRightStatusDisplay();
