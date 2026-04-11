@@ -2,6 +2,7 @@ package org.dce.ed;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Window;
@@ -9,6 +10,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.MarqueeStatusScrollPane;
 
 import javax.swing.Box;
 import javax.swing.BorderFactory;
@@ -201,8 +203,13 @@ public final class OverlayMenuStatusBar {
         JLabel statusLabel = new JLabel("");
         statusLabel.setOpaque(false);
         statusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
+        statusLabel.setHorizontalAlignment(SwingConstants.LEFT);
+        statusLabel.setVerticalAlignment(SwingConstants.CENTER);
         Font statusRowFont = statusRowFontFromPreferences();
         statusLabel.setFont(statusRowFont);
+
+        MarqueeStatusScrollPane statusScroll = new MarqueeStatusScrollPane(statusLabel);
+        statusScroll.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         FleetCarrierTimeBadgePanel fleetCarrierTimeBadgeHost = new FleetCarrierTimeBadgePanel();
         fleetCarrierTimeBadgeHost.setOpaque(true);
@@ -233,10 +240,8 @@ public final class OverlayMenuStatusBar {
 
         bar.add(fleetCarrierTimeBadgeHost);
         bar.add(Box.createHorizontalStrut(6));
-        // Status text immediately after the fleet slot so it stays left-aligned (glue after the label
-        // only absorbs space to the right, toward the decorated toolbar when present).
-        bar.add(statusLabel);
-        bar.add(Box.createHorizontalGlue());
+        // Scroll region fills space between fleet badge and toolbar; scrolls when HTML status is wider than the slot.
+        bar.add(statusScroll);
         bar.add(Box.createHorizontalStrut(includeToolbarIcons ? 10 : 4));
         if (includeToolbarIcons) {
             bar.add(createDecoratedToolbar(parent, clientKey, toolsMenu, onRequestPassThrough));

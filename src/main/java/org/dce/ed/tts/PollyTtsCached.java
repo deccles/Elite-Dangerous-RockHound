@@ -1,6 +1,8 @@
 package org.dce.ed.tts;
 
+import java.awt.Component;
 import java.awt.Desktop;
+import java.awt.Frame;
 import java.awt.Window;
 import java.io.BufferedOutputStream;
 import java.io.Closeable;
@@ -28,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
@@ -37,7 +40,6 @@ import javax.sound.sampled.LineEvent;
 import javax.swing.JEditorPane;
 import javax.swing.JOptionPane;
 import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
@@ -59,6 +61,40 @@ import software.amazon.awssdk.services.polly.model.TextType;
 import software.amazon.awssdk.services.polly.model.VoiceId;
 
 public class PollyTtsCached implements Closeable {
+
+    /**
+     * Owner for TTS-related {@link JOptionPane}s. When null, Swing may place modals behind the overlay on
+     * Windows while still blocking input (looks “frozen”). Set from the main UI host on startup.
+     */
+    private static volatile Window speechDialogParentWindow;
+
+    public static void setSpeechDialogParentWindow(Window window) {
+        speechDialogParentWindow = window;
+    }
+
+    /**
+     * When set (e.g. from the main overlay), speech cache misses are reported here instead of a modal dialog.
+     */
+    private static volatile Consumer<String> speechCacheMissBannerReporter;
+
+    public static void setSpeechCacheMissBannerReporter(Consumer<String> reporter) {
+        speechCacheMissBannerReporter = reporter;
+    }
+
+    private static Component speechDialogParentComponent() {
+        Window w = speechDialogParentWindow;
+        if (w != null && w.isDisplayable()) {
+            return w;
+        }
+        Frame[] frames = Frame.getFrames();
+        for (int i = frames.length - 1; i >= 0; i--) {
+            Frame f = frames[i];
+            if (f != null && f.isDisplayable() && f.isVisible()) {
+                return f;
+            }
+        }
+        return null;
+    }
 
     /** Avoid spamming the same modal when many TTS calls fail for the same reason. */
     private static final AtomicBoolean AWS_CREDENTIAL_POPUP_SHOWN = new AtomicBoolean(false);
@@ -610,7 +646,7 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
                     }
                 } catch (IOException ex) {
                     JOptionPane.showMessageDialog(
-                            null,
+                            speechDialogParentComponent(),
                             "Could not open your browser.\n\n" + url,
                             "Open Link Failed",
                             JOptionPane.WARNING_MESSAGE
@@ -625,7 +661,7 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
         scroll.getViewport().setOpaque(false);
 
         JOptionPane.showMessageDialog(
-                null,
+                speechDialogParentComponent(),
                 scroll,
                 "Text-to-Speech Unavailable",
                 JOptionPane.WARNING_MESSAGE
@@ -637,42 +673,21 @@ private static void showMissingSpeechCachePopup(String voiceName, Path voiceDir,
         return;
     }
 
-    StringBuilder sb = new StringBuilder();
-    sb.append("AWS TTS generation is disabled, and the following speech clips were not found in the cache.\n\n");
-    if (voiceName != null && !voiceName.isBlank()) {
-        sb.append("Voice: ").append(voiceName).append("\n");
-    }
-    if (voiceDir != null) {
-        sb.append("Cache dir: ").append(voiceDir.toAbsolutePath()).append("\n");
-    }
-    sb.append("\nMissing clips:\n");
-    for (String m : missing) {
-        if (m == null || m.isBlank()) {
-            continue;
+    String vn = voiceName != null && !voiceName.isBlank() ? voiceName.trim() : "selected voice";
+    String msg = "Speech cache: " + missing.size() + " clip(s) missing (" + vn + ") — enable AWS or voice pack";
+    Consumer<String> rep = speechCacheMissBannerReporter;
+    if (rep != null) {
+        SwingUtilities.invokeLater(() -> rep.accept(msg));
+    } else {
+        System.out.println("[EDO] " + msg);
+        if (voiceDir != null) {
+            System.out.println("[EDO] Cache dir: " + voiceDir.toAbsolutePath());
         }
-        sb.append(" - ").append(m).append("\n");
-    }
-
-    JTextArea area = new JTextArea(sb.toString(), 18, 70);
-    area.setEditable(false);
-    area.setLineWrap(true);
-    area.setWrapStyleWord(true);
-
-    Runnable show = () -> JOptionPane.showMessageDialog(
-            null,
-            new JScrollPane(area),
-            "Speech Cache Miss",
-            JOptionPane.WARNING_MESSAGE
-    );
-
-    if (SwingUtilities.isEventDispatchThread()) {
-        show.run();
-        return;
-    }
-
-    try {
-        SwingUtilities.invokeAndWait(show);
-    } catch (Exception ignored) {
+        for (String m : missing) {
+            if (m != null && !m.isBlank()) {
+                System.out.println("[EDO]   " + m);
+            }
+        }
     }
 }
 

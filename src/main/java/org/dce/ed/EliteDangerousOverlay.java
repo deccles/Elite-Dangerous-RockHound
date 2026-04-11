@@ -223,12 +223,15 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
             return;
         }
 
+        Window voicePackHost = passThroughMode ? passThroughFrame : decoratedDialog;
+        PollyTtsCached.setSpeechDialogParentWindow(voicePackHost);
+        PollyTtsCached.setSpeechCacheMissBannerReporter(passThroughFrame::setSpeechCacheMissBanner);
+
         GlobalScreen.addNativeKeyListener(this);
         GlobalScreen.addNativeMouseWheelListener(this);
         TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
         ttsSprintf.speakf("Welcome commander");
 
-        Window voicePackHost = passThroughMode ? passThroughFrame : decoratedDialog;
         SwingUtilities.invokeLater(() -> VoicePackManager.checkAutoVoicePackOnStartup(voicePackHost));
     }
 
@@ -314,6 +317,8 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     		passThroughFrame.setPassThroughEnabled(false);
     	    forceWindowToFront(toWindow);
     	}
+
+        PollyTtsCached.setSpeechDialogParentWindow(toWindow);
     }
 
     /**

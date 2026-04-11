@@ -161,6 +161,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     /** Persistent mining / Google Sheets error line (red) until cleared on success. */
     private volatile String miningSheetsStatusError;
 
+    /** Transient TTS cache-miss hint (warning color); cleared automatically after a delay. */
+    private volatile String speechCacheMissBanner;
+    private Timer speechCacheMissBannerClearTimer;
+    private static final int SPEECH_CACHE_MISS_BANNER_CLEAR_MS = 45_000;
+
     /**
      * Optional additional right-hand status sink.
      * The OverlayFrame title bar is always updated; this lets the decorated window mirror it.
@@ -202,6 +207,38 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     public void clearMiningSheetsStatusError() {
         miningSheetsStatusError = null;
         refreshPassThroughUnifiedStatus();
+    }
+
+    /**
+     * Shows a short, non-blocking speech-cache miss message in the right status area (pass-through and decorated).
+     * Clears after about 45 seconds; each call restarts the timer.
+     */
+    public void setSpeechCacheMissBanner(String message) {
+        Runnable apply = () -> {
+            speechCacheMissBanner = (message != null && !message.isBlank()) ? message.trim() : null;
+            if (speechCacheMissBannerClearTimer != null) {
+                speechCacheMissBannerClearTimer.stop();
+                speechCacheMissBannerClearTimer = null;
+            }
+            if (speechCacheMissBanner != null) {
+                speechCacheMissBannerClearTimer = new Timer(SPEECH_CACHE_MISS_BANNER_CLEAR_MS, e -> {
+                    speechCacheMissBanner = null;
+                    if (speechCacheMissBannerClearTimer != null) {
+                        speechCacheMissBannerClearTimer.stop();
+                        speechCacheMissBannerClearTimer = null;
+                    }
+                    publishRightStatusText();
+                });
+                speechCacheMissBannerClearTimer.setRepeats(false);
+                speechCacheMissBannerClearTimer.start();
+            }
+            publishRightStatusText();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            apply.run();
+        } else {
+            SwingUtilities.invokeLater(apply);
+        }
     }
 
     /**
@@ -314,6 +351,17 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.SUCCESS)).append(";'> | ")
                     .append(EdoUi.escapeHtmlMinimal(hint)).append("</span>");
         }
+        appendSpeechCacheMissBannerHtml(sb);
+    }
+
+    private void appendSpeechCacheMissBannerHtml(StringBuilder sb) {
+        String s = speechCacheMissBanner;
+        if (s == null || s.isBlank()) {
+            return;
+        }
+        sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT)).append(";'> | </span>");
+        sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.WARNING)).append(";'>")
+                .append(EdoUi.escapeHtmlMinimal(s)).append("</span>");
     }
 
     /** HTML for fleet-carrier jump line: light, bold, slightly larger arrow between label and target. */
@@ -976,7 +1024,11 @@ private boolean isRightStatusEffectivelyEmpty() {
     if (main != null && !main.trim().isEmpty()) {
         return false;
     }
-    return getRightStatusUpdateHintPlain() == null;
+    if (getRightStatusUpdateHintPlain() != null) {
+        return false;
+    }
+    String speech = speechCacheMissBanner;
+    return speech == null || speech.isBlank();
 }
 
 private void refreshPassThroughUnifiedStatus() {

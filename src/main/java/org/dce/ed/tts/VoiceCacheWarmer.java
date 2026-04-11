@@ -33,7 +33,9 @@ import software.amazon.awssdk.services.polly.model.VoiceId;
  * Or from the command line (voice is matched case-insensitively to a Polly {@link VoiceId}):
  *   java ... org.dce.ed.tts.VoiceCacheWarmer salli
  *   java ... org.dce.ed.tts.VoiceCacheWarmer salli -create
- * With {@code -create} (or {@code --create}), also writes {@code target/voice-&lt;voice&gt;.zip} for release upload.
+ *   java ... org.dce.ed.tts.VoiceCacheWarmer all -create
+ * Use {@code all} to warm every voice in {@link PollyTtsCached#STANDARD_US_ENGLISH_VOICES}. With
+ * {@code -create} (or {@code --create}), also writes {@code target/voice-&lt;voice&gt;.zip} per voice.
  */
 public final class VoiceCacheWarmer {
 
@@ -534,9 +536,7 @@ public final class VoiceCacheWarmer {
     public static void main(String[] args) {
         args = normalizeProgramArgs(args);
         if (args == null || args.length == 0) {
-            System.err.println("Usage: VoiceCacheWarmer <voice> [-create]");
-            System.err.println("  voice    Polly voice id, case-insensitive (e.g. salli, Joanna)");
-            System.err.println("  -create  after warming, write target/voice-<voice>.zip");
+            printUsage();
             return;
         }
 
@@ -553,12 +553,12 @@ public final class VoiceCacheWarmer {
             }
             if (t.startsWith("-")) {
                 System.err.println("Unknown option: " + t);
-                System.err.println("Usage: VoiceCacheWarmer <voice> [-create]");
+                printUsage();
                 return;
             }
             if (voiceRaw != null) {
                 System.err.println("Unexpected extra argument: " + t);
-                System.err.println("Usage: VoiceCacheWarmer <voice> [-create]");
+                printUsage();
                 return;
             }
             voiceRaw = t;
@@ -566,21 +566,47 @@ public final class VoiceCacheWarmer {
 
         if (voiceRaw == null) {
             System.err.println("Voice name required.");
-            System.err.println("Usage: VoiceCacheWarmer <voice> [-create]");
+            printUsage();
+            return;
+        }
+
+        if ("all".equalsIgnoreCase(voiceRaw)) {
+            List<String> voices = PollyTtsCached.STANDARD_US_ENGLISH_VOICES;
+            System.out.println("Warming " + voices.size() + " standard US English voices: " + voices);
+            for (String voice : voices) {
+                warmAndMaybeZipOneVoice(voice, createZip);
+            }
+            System.out.println("Finished all voices.");
             return;
         }
 
         String voice = canonicalPollyVoiceName(voiceRaw);
         if (voice == null) {
             System.err.println("Unknown Polly voice: " + voiceRaw);
+            printUsage();
             return;
         }
 
+        warmAndMaybeZipOneVoice(voice, createZip);
+    }
+
+    private static void printUsage() {
+        System.err.println("Usage: VoiceCacheWarmer <voice|all> [-create]");
+        System.err.println("  voice    Polly voice id, case-insensitive (e.g. salli, Joanna)");
+        System.err.println("  all      warm every voice in PollyTtsCached.STANDARD_US_ENGLISH_VOICES");
+        System.err.println("  -create  after warming, write target/voice-<voice>.zip (one zip per voice)");
+    }
+
+    /**
+     * Warm one canonical voice name and optionally create {@code target/voice-<lower>.zip}.
+     */
+    private static void warmAndMaybeZipOneVoice(String voice, boolean createZip) {
         try {
             warmAll(voice);
             System.out.println("Done warming cache for voice: " + voice);
         } catch (Exception e) {
-            System.err.println("Warm failed (pack zip will still be attempted if -create): " + e.getMessage());
+            System.err.println("Warm failed for " + voice + " (pack zip will still be attempted if -create): "
+                    + e.getMessage());
             e.printStackTrace();
         }
 
@@ -594,7 +620,7 @@ public final class VoiceCacheWarmer {
                 VoicePackManager.createVoicePackZip(voice, zip);
                 System.out.println("Created pack: " + absZip);
             } catch (Exception e) {
-                System.err.println("Pack zip failed: " + e.getMessage());
+                System.err.println("Pack zip failed for " + voice + ": " + e.getMessage());
                 e.printStackTrace();
             }
         }
