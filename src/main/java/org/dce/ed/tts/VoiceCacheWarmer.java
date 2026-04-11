@@ -21,6 +21,8 @@ import org.dce.ed.OverlayPreferences;
 import org.dce.ed.exobiology.ExobiologyData.SpeciesConstraint;
 import org.dce.ed.exobiology.ExobiologyDataConstraints;
 
+import software.amazon.awssdk.services.polly.model.VoiceId;
+
 /**
  * Developer helper that exercises the speech system to pre-populate the TTS cache
  * (including MID vs END variants).
@@ -28,8 +30,10 @@ import org.dce.ed.exobiology.ExobiologyDataConstraints;
  * Intended usage:
  *   VoiceCacheWarmer.warmAll("Joanna");
  *
- * Or from the command line:
- *   java ... org.dce.ed.tts.VoiceCacheWarmer Joanna
+ * Or from the command line (voice is matched case-insensitively to a Polly {@link VoiceId}):
+ *   java ... org.dce.ed.tts.VoiceCacheWarmer salli
+ *   java ... org.dce.ed.tts.VoiceCacheWarmer salli -create
+ * With {@code -create}, also writes {@code target/voice-&lt;voice&gt;.zip} for release upload.
  */
 public final class VoiceCacheWarmer {
 
@@ -45,9 +49,15 @@ public final class VoiceCacheWarmer {
             throw new IllegalArgumentException("voiceName is required");
         }
 
+        String canon = canonicalPollyVoiceName(voiceName);
+        if (canon == null) {
+            throw new IllegalArgumentException("Unknown Polly voice: " + voiceName);
+        }
+
         String priorVoice = OverlayPreferences.getSpeechVoiceName();
         try {
-            OverlayPreferences.setSpeechVoiceId(voiceName);
+            OverlayPreferences.setSpeechVoiceId(canon);
+            OverlayPreferences.flushBackingStore();
             warmAllUsingCurrentPreferences();
         } finally {
             if (priorVoice != null && !priorVoice.isBlank()) {
@@ -459,11 +469,107 @@ public final class VoiceCacheWarmer {
         return found;
     }
 
+    /**
+     * Map CLI or config input to Polly's canonical voice id (e.g. {@code salli} → {@code Salli}).
+     *
+     * @return canonical name, or {@code null} if no matching {@link VoiceId}
+     */
+    static String canonicalPollyVoiceName(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String v = raw.trim();
+        if ("null".equalsIgnoreCase(v)) {
+            return null;
+        }
+        try {
+            VoiceId id = VoiceId.fromValue(v);
+            if (!VoiceId.UNKNOWN_TO_SDK_VERSION.equals(id)) {
+                return id.toString();
+            }
+        } catch (Exception ignored) {
+        }
+        String normalized = v.toLowerCase(Locale.ROOT);
+        for (VoiceId id : VoiceId.values()) {
+            if (VoiceId.UNKNOWN_TO_SDK_VERSION.equals(id)) {
+                continue;
+            }
+            if (id.toString().toLowerCase(Locale.ROOT).equals(normalized)) {
+                return id.toString();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * If the launcher passes one string ({@code "salli -create"}), split into tokens.
+     */
+    private static String[] normalizeProgramArgs(String[] args) {
+        if (args == null || args.length != 1 || args[0] == null) {
+            return args;
+        }
+        String a = args[0].trim();
+        if (a.contains(" ")) {
+            return a.split("\\s+");
+        }
+        return args;
+    }
+
     public static void main(String[] args) {
-        String voice = (args != null && args.length > 0) ? args[0] : "Salli";
+        args = normalizeProgramArgs(args);
+        if (args == null || args.length == 0) {
+            System.err.println("Usage: VoiceCacheWarmer <voice> [-create]");
+            System.err.println("  voice    Polly voice id, case-insensitive (e.g. salli, Joanna)");
+            System.err.println("  -create  after warming, write target/voice-<voice>.zip");
+            return;
+        }
+
+        boolean createZip = false;
+        String voiceRaw = null;
+        for (String a : args) {
+            if (a == null || a.isBlank()) {
+                continue;
+            }
+            String t = a.trim();
+            if ("-create".equalsIgnoreCase(t)) {
+                createZip = true;
+                continue;
+            }
+            if (t.startsWith("-")) {
+                System.err.println("Unknown option: " + t);
+                System.err.println("Usage: VoiceCacheWarmer <voice> [-create]");
+                return;
+            }
+            if (voiceRaw != null) {
+                System.err.println("Unexpected extra argument: " + t);
+                System.err.println("Usage: VoiceCacheWarmer <voice> [-create]");
+                return;
+            }
+            voiceRaw = t;
+        }
+
+        if (voiceRaw == null) {
+            System.err.println("Voice name required.");
+            System.err.println("Usage: VoiceCacheWarmer <voice> [-create]");
+            return;
+        }
+
+        String voice = canonicalPollyVoiceName(voiceRaw);
+        if (voice == null) {
+            System.err.println("Unknown Polly voice: " + voiceRaw);
+            return;
+        }
+
         try {
             warmAll(voice);
             System.out.println("Done warming cache for voice: " + voice);
+            if (createZip) {
+                Path outDir = Path.of("target");
+                Files.createDirectories(outDir);
+                Path zip = outDir.resolve("voice-" + voice.toLowerCase(Locale.ROOT) + ".zip");
+                VoicePackManager.createVoicePackZip(voice, zip);
+                System.out.println("Created pack: " + zip.toAbsolutePath().normalize());
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }

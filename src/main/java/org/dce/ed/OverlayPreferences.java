@@ -506,11 +506,15 @@ public static Engine getSpeechEngine() {
 
     public static String getSpeechVoiceName() {
         // Default voice: "Joanna" (standard, decent baseline)
-        return PREFS.get(KEY_SPEECH_VOICE, "Joanna");
+        String v = PREFS.get(KEY_SPEECH_VOICE, "Joanna");
+        if (v == null || v.isBlank() || "null".equalsIgnoreCase(v.trim())) {
+            return "Joanna";
+        }
+        return v.trim();
     }
 
     public static void setSpeechVoiceId(String voiceId) {
-        if (voiceId == null || voiceId.isBlank()) {
+        if (voiceId == null || voiceId.isBlank() || "null".equalsIgnoreCase(voiceId.trim())) {
             voiceId = "Joanna";
         }
         PREFS.put(KEY_SPEECH_VOICE, voiceId.trim());

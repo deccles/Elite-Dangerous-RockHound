@@ -1026,17 +1026,23 @@ private static VoiceId resolveVoiceId(String voiceName) {
     }
 
     String v = voiceName.trim();
-    if (v.isEmpty()) {
+    if (v.isEmpty() || "null".equalsIgnoreCase(v)) {
         return null;
     }
 
     try {
-        return VoiceId.fromValue(v);
+        VoiceId id = VoiceId.fromValue(v);
+        if (!VoiceId.UNKNOWN_TO_SDK_VERSION.equals(id)) {
+            return id;
+        }
     } catch (Exception ignored) {
     }
 
     String normalized = v.toLowerCase(Locale.ROOT);
     for (VoiceId id : VoiceId.values()) {
+        if (VoiceId.UNKNOWN_TO_SDK_VERSION.equals(id)) {
+            continue;
+        }
         if (id.toString().toLowerCase(Locale.ROOT).equals(normalized)) {
             return id;
         }

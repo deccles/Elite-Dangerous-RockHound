@@ -5,9 +5,11 @@ import java.awt.Dialog;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -35,11 +37,24 @@ import com.google.gson.JsonParser;
  * 
  * Voice packs are zip files named like "voice-salli.zip" attached to releases.
  * They contain the cached WAV files (end/ and mid/ subdirectories) plus manifest.tsv.
+ * 
+ * <p><b>Where to publish packs (maintainers):</b> create a release whose <b>tag</b> is
+ * {@value #VOICE_PACKS_RELEASE_TAG} and attach the {@code voice-*.zip} assets there.
+ * You can add or replace assets on that release whenever packs change; application
+ * releases do not need to include voice packs. If that tagged release does not exist,
+ * download falls back to the repository's {@code latest} release (legacy).
  */
 public final class VoicePackManager {
 
     private static final String OWNER = "deccles";
     private static final String REPO = "Elite-Dangerous-RockHound";
+
+    /**
+     * Git tag for the release that holds voice-pack zips. One long-lived release;
+     * update its assets when packs change — not tied to app version tags.
+     */
+    public static final String VOICE_PACKS_RELEASE_TAG = "tts-voice-packs";
+
     private static final String VOICE_PACK_PREFIX = "voice-";
     private static final String VOICE_PACK_SUFFIX = ".zip";
 
@@ -121,7 +136,7 @@ public final class VoicePackManager {
             @Override
             protected Boolean doInBackground() {
                 try {
-                    // Find the voice pack asset URL from latest release
+                    // Tagged voice-pack release first, then latest (legacy)
                     String assetUrl = findVoicePackAssetUrl(zipName);
                     if (assetUrl == null) {
                         throw new IOException("Voice pack not found: " + zipName);
@@ -171,14 +186,34 @@ public final class VoicePackManager {
     }
 
     /**
-     * Find the download URL for a voice pack asset in the latest release.
+     * Find the download URL for a voice pack: release tagged {@link #VOICE_PACKS_RELEASE_TAG}
+     * first, then {@code /releases/latest} if the asset was not found.
      */
     private static String findVoicePackAssetUrl(String zipName) throws IOException, InterruptedException {
-        String apiUrl = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
-
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(HTTP_TIMEOUT)
                 .build();
+
+        String tagged = apiUrlForReleaseByTag(VOICE_PACKS_RELEASE_TAG);
+        String url = findVoicePackAssetUrlInRelease(client, zipName, tagged);
+        if (url != null) {
+            return url;
+        }
+
+        String latest = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
+        return findVoicePackAssetUrlInRelease(client, zipName, latest);
+    }
+
+    private static String apiUrlForReleaseByTag(String tag) {
+        String enc = URLEncoder.encode(tag.trim(), StandardCharsets.UTF_8).replace("+", "%20");
+        return "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/tags/" + enc;
+    }
+
+    /**
+     * @return asset download URL, or null if release not found (404), no assets, or zip missing
+     */
+    private static String findVoicePackAssetUrlInRelease(HttpClient client, String zipName, String apiUrl)
+            throws IOException, InterruptedException {
 
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrl))
@@ -189,6 +224,9 @@ public final class VoicePackManager {
                 .build();
 
         HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() == 404) {
+            return null;
+        }
         if (resp.statusCode() != 200) {
             throw new IOException("GitHub API returned " + resp.statusCode());
         }
