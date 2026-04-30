@@ -11,13 +11,18 @@ public final class ProspectorLogBackendFactory {
     }
 
     /**
-     * Returns the backend to use: Google Sheets if backend is "google" and URL is set, otherwise local CSV.
+     * Returns the backend selected by preferences.
+     * <p>
+     * Important: when backend is "google", we do not silently fall back to local CSV if setup is incomplete.
+     * The Google backend reports setup/auth/connectivity errors so the UI can keep Google selected and prompt
+     * the user to reconnect.
+     * </p>
      */
     public static ProspectorLogBackend create() {
         String backend = OverlayPreferences.getMiningLogBackend();
         String url = OverlayPreferences.getMiningGoogleSheetsUrl();
 
-        if ("google".equals(backend) && url != null && !url.isBlank()) {
+        if ("google".equals(backend)) {
             return new GoogleSheetsBackend(url);
         }
         return new LocalCsvBackend();

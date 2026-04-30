@@ -329,12 +329,6 @@ private final JLayer<JTable> cargoLayer;
 		if (!"google".equals(OverlayPreferences.getMiningLogBackend())) {
 			return;
 		}
-		if (OverlayPreferences.getMiningGoogleSheetsUrl().isBlank()) {
-			return;
-		}
-		if (!GoogleSheetsReconnectDialog.isLikelyAuthOrSetupFailure(detailMessage)) {
-			return;
-		}
 		long now = System.currentTimeMillis();
 		if (now - lastGoogleSheetsReconnectDialogMs < 90_000L) {
 			return;
@@ -1611,7 +1605,8 @@ return EdoUi.User.MAIN_TEXT;
 			//   ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow (+ unit tests).
 			// - Run *end* is written only on dock, on a single canonical row; see ProspectorMiningLogPolicy /
 			//   MiningRunNumberResolver class docs and mining package tests.
-			Instant runStart = !wroteRowsThisRun ? (lastUndockTime != null ? lastUndockTime : ts) : null;
+			boolean asteroidA = "A".equalsIgnoreCase(asteroidId != null ? asteroidId.trim() : "");
+			Instant runStart = (!wroteRowsThisRun && asteroidA) ? (lastUndockTime != null ? lastUndockTime : ts) : null;
 			Instant runEnd = null;
 			rows.add(new ProspectorLogRow(run, asteroidId, fullBodyName, ts, material, pct, beforeAdjusted, afterAdjusted, difference, commander, shipTypeForProspectorLog(), coreType, duds, runStart, runEnd));
 		}
@@ -2224,8 +2219,7 @@ return EdoUi.User.MAIN_TEXT;
 			return;
 		}
 		String backend = OverlayPreferences.getMiningLogBackend();
-		String url = OverlayPreferences.getMiningGoogleSheetsUrl();
-		if ("google".equals(backend) && url != null && !url.isBlank()) {
+		if ("google".equals(backend)) {
 			prospectorLogSourceLabel.setText("Log source: Google Sheets");
 			prospectorLogSourceLabel.setForeground(EdoUi.User.MAIN_TEXT);
 		} else {

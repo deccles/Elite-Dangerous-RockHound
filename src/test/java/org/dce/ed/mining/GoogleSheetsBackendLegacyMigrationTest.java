@@ -31,7 +31,11 @@ class GoogleSheetsBackendLegacyMigrationTest {
     void restorePrefs() {
         OverlayPreferences.setMiningGoogleSheetsLayoutVersion(savedLayoutVersion);
         OverlayPreferences.setMiningLogBackend(savedBackend);
-        OverlayPreferences.setMiningGoogleSheetsUrl(savedUrl);
+        if (savedUrl == null || savedUrl.isBlank()) {
+            OverlayPreferences.clearMiningGoogleSheetsUrl();
+        } else {
+            OverlayPreferences.setMiningGoogleSheetsUrl(savedUrl);
+        }
     }
 
     @Test
@@ -92,7 +96,7 @@ class GoogleSheetsBackendLegacyMigrationTest {
         assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration());
 
         OverlayPreferences.setMiningLogBackend("google");
-        OverlayPreferences.setMiningGoogleSheetsUrl("  ");
+        OverlayPreferences.clearMiningGoogleSheetsUrl();
         assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration());
     }
 }

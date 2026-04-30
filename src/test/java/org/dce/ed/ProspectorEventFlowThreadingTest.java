@@ -18,7 +18,7 @@ class ProspectorEventFlowThreadingTest {
     @Test
     void prospectedAsteroidFlow_fromNonEdt_updatesMiningOnEdt() throws Exception {
         OverlayPreferences.setMiningLogBackend("local");
-        OverlayPreferences.setMiningGoogleSheetsUrl("");
+        OverlayPreferences.clearMiningGoogleSheetsUrl();
         EliteOverlayTabbedPane tabs = new EliteOverlayTabbedPane(() -> false);
         MiningTabPanel mining = tabs.getMiningTabPanel();
 

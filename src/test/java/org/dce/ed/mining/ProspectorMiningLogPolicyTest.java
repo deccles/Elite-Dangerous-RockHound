@@ -18,29 +18,42 @@ class ProspectorMiningLogPolicyTest {
 
     @Test
     void shouldWriteRunStart_nullIncoming_neverWrites() {
-        assertFalse(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("", null));
-        assertFalse(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("4/1/2026 10:00:00", null));
+        assertFalse(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("A", "", null));
+        assertFalse(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("A", "4/1/2026 10:00:00", null));
     }
 
     @Test
     void shouldWriteRunStart_blankExisting_writes() {
         Instant st = Instant.parse("2026-04-02T15:19:04Z");
-        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("", st));
-        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("   ", st));
-        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow(null, st));
+        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("A", "", st));
+        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("A", "   ", st));
+        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("A", null, st));
     }
 
     @Test
     void shouldWriteRunStart_nonBlankExisting_preservesCanonicalStart() {
         Instant st = Instant.parse("2026-04-02T15:19:04Z");
-        assertFalse(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("4/2/2026 15:19:04", st));
+        assertFalse(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("A", "4/2/2026 15:19:04", st));
+    }
+
+    @Test
+    void shouldWriteRunStart_shipNameInStartSlot_overwritesSoSheetCanHeal() {
+        Instant st = Instant.parse("2026-04-02T15:19:04Z");
+        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("A", "lakonminer", st));
     }
 
     @Test
     void shouldWriteRunStart_dashPlaceholderExisting_writes() {
         Instant st = Instant.parse("2026-04-02T15:19:04Z");
-        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("-", st));
-        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("  -  ", st));
+        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("A", "-", st));
+        assertTrue(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("A", "  -  ", st));
+
+    }
+
+    @Test
+    void shouldWriteRunStart_nonA_asteroidNeverWrites() {
+        Instant st = Instant.parse("2026-04-02T15:19:04Z");
+        assertFalse(ProspectorMiningLogPolicy.shouldWriteRunStartOnUpsertExistingRow("D", "", st));
     }
 
     @Test
@@ -97,7 +110,15 @@ class ProspectorMiningLogPolicyTest {
         List<List<Object>> values = new ArrayList<>();
         values.add(Arrays.asList("Run", "Asteroid", "T", "Mat", "P", "Bef", "Af", "Act", "Core", "D", "Sys", "Body", "Cmdr", "Start", "End"));
         values.add(Arrays.asList(6, "A", "t", "m", 0, 0, 0, 0, "-", 0, "S", "B", "Z", "", ""));
-        assertEquals(-1, ProspectorMiningLogPolicy.findDataRowIndexForCanonicalRunEnd(values, 6, "Z"));
+        assertEquals(1, ProspectorMiningLogPolicy.findDataRowIndexForCanonicalRunEnd(values, 6, "Z"));
+    }
+
+    @Test
+    void findCanonicalRunEndRow_shipNameInStartSlot_skipped() {
+        List<List<Object>> values = new ArrayList<>();
+        values.add(Arrays.asList("Run", "Asteroid", "T", "Mat", "P", "Bef", "Af", "Act", "Core", "D", "Sys", "Body", "Cmdr", "Ship", "Start", "End"));
+        values.add(Arrays.asList(7, "A", "t", "m", 0, 0, 0, 0, "-", 0, "S", "B", "Z", "lak", "lakonminer", ""));
+        assertEquals(1, ProspectorMiningLogPolicy.findDataRowIndexForCanonicalRunEnd(values, 7, "Z"));
     }
 
     /** Legacy "-" in Start time is not a real run anchor; do not pick that row for run end. */
@@ -106,6 +127,6 @@ class ProspectorMiningLogPolicyTest {
         List<List<Object>> values = new ArrayList<>();
         values.add(Arrays.asList("Run", "Asteroid", "T", "Mat", "P", "Bef", "Af", "Act", "Core", "D", "Sys", "Body", "Cmdr", "Start", "End"));
         values.add(Arrays.asList(7, "A", "t", "m", 0, 0, 0, 0, "-", 0, "S", "B", "Z", "-", ""));
-        assertEquals(-1, ProspectorMiningLogPolicy.findDataRowIndexForCanonicalRunEnd(values, 7, "Z"));
+        assertEquals(1, ProspectorMiningLogPolicy.findDataRowIndexForCanonicalRunEnd(values, 7, "Z"));
     }
 }

@@ -182,6 +182,20 @@ class GoogleSheetsBackendUpsertAndCellTest {
             int idx = GoogleSheetsBackend.findProspectorUpsertRowIndex(values, 1, "A", "Painite", "C", "S", "B");
             assertEquals(1, idx);
         }
+
+        @Test
+        void duplicateMatches_prefersNewestTimestampRow() {
+            List<List<Object>> values = new ArrayList<>();
+            values.add(List.of("Run", "A", "T", "Mat", "0", "0", "0", "0", "c", "0", "Sys", "Body", "Cmdr"));
+            List<Object> older = dataRow(3, "D", "Tritium", "Byua", "6", "Villunus");
+            older.set(2, "4/30/2026 12:00:00");
+            List<Object> newer = dataRow(3, "D", "Tritium", "Byua", "6", "Villunus");
+            newer.set(2, "4/30/2026 12:10:00");
+            values.add(older);
+            values.add(newer);
+            int idx = GoogleSheetsBackend.findProspectorUpsertRowIndex(values, 3, "D", "Tritium", "Villunus", "Byua", "6");
+            assertEquals(2, idx);
+        }
     }
 
     @Nested
@@ -247,6 +261,184 @@ class GoogleSheetsBackendUpsertAndCellTest {
         void unixSeconds_numeric() {
             Instant t = GoogleSheetsBackend.parseTimestampCell(1_700_000_000.0);
             assertEquals(Instant.ofEpochSecond(1_700_000_000L), t);
+        }
+    }
+
+    @Nested
+    class ProspectorRowWidthNormalization {
+        private List<Object> modernHeader16() {
+            return List.of(
+                    "Run",
+                    "Asteroid",
+                    "Timestamp",
+                    "Type",
+                    "%",
+                    "Before",
+                    "After",
+                    "Actual",
+                    "Core",
+                    "Duds",
+                    "System",
+                    "Body",
+                    "Commander",
+                    "Ship",
+                    "Start time",
+                    "End time");
+        }
+
+        @Test
+        void headerDefinesShip_whenColumnNIsShip() {
+            assertTrue(GoogleSheetsBackend.headerDefinesProspectorShipColumn(modernHeader16()));
+            assertFalse(GoogleSheetsBackend.headerDefinesProspectorShipColumn(
+                    List.of("Run", "A", "T", "M", "0", "0", "0", "0", "c", "0", "S", "B", "C", "Start time", "End time")));
+        }
+
+        @Test
+        void modernLayout_trailingEndOmittedFromApi_padOnly_keepsShipAndStartColumns() {
+            List<Object> header = modernHeader16();
+            List<Object> row = new ArrayList<>();
+            row.add(38);
+            row.add("L");
+            row.add("4/12/2026 9:18:27");
+            row.add("Tritium");
+            row.add(0.0);
+            row.add(0);
+            row.add(0);
+            row.add(0);
+            row.add("-");
+            row.add(0);
+            row.add("Eol Prou LW-L d");
+            row.add("Hotspot");
+            row.add("6 UkeBard");
+            row.add("lakonminer");
+            row.add("4/12/2026 12:29:00");
+            GoogleSheetsBackend.normalizeProspectorDataRowForHeader(header, row);
+            assertEquals(16, row.size());
+            assertEquals("lakonminer", row.get(13).toString());
+            assertEquals("4/12/2026 12:29:00", row.get(14).toString());
+            assertEquals("", row.get(15).toString());
+        }
+
+        @Test
+        void recoverMisplacedShip_movesNameFromEndWhenShipSlotEmpty() {
+            List<Object> header = modernHeader16();
+            List<Object> row = new ArrayList<>();
+            for (int i = 0; i < 13; i++) {
+                row.add(i == 0 ? 3 : (i == 1 ? "B" : 0));
+            }
+            row.add("");
+            row.add("");
+            row.add("lakonminer");
+            GoogleSheetsBackend.normalizeProspectorDataRowForHeader(header, row);
+            assertEquals("lakonminer", row.get(13).toString());
+            assertEquals("", row.get(14).toString());
+            assertEquals("", row.get(15).toString());
+        }
+
+        @Test
+        void recoverMisplacedShip_movesNameFromStartWhenEndEmpty() {
+            List<Object> header = modernHeader16();
+            List<Object> row = new ArrayList<>();
+            for (int i = 0; i < 13; i++) {
+                row.add(i < 2 ? (i == 0 ? 3 : "C") : 0);
+            }
+            row.add("");
+            row.add("lakonminer");
+            row.add("");
+            GoogleSheetsBackend.normalizeProspectorDataRowForHeader(header, row);
+            assertEquals("lakonminer", row.get(13).toString());
+            assertEquals("", row.get(14).toString());
+            assertEquals("", row.get(15).toString());
+        }
+
+        @Test
+        void repairDuplicateShip_clearsStartEndWhenSameAsShipAndNotTimestamps() {
+            List<Object> row = new ArrayList<>();
+            for (int i = 0; i < 13; i++) {
+                row.add(i == 0 ? 1 : (i == 1 ? "A" : 0));
+            }
+            row.add("lakonminer");
+            row.add("lakonminer");
+            row.add("lakonminer");
+            GoogleSheetsBackend.repairDuplicateShipInRunTimeColumns(row);
+            assertEquals("lakonminer", row.get(13).toString());
+            assertEquals("", row.get(14).toString());
+            assertEquals("", row.get(15).toString());
+        }
+
+        @Test
+        void normalizeSheetInPlace_upgradesFifteenWideCommanderStartEndRows() {
+            List<List<Object>> values = new ArrayList<>();
+            values.add(new ArrayList<>(List.of(
+                    "Run",
+                    "Asteroid",
+                    "Timestamp",
+                    "Type",
+                    "%",
+                    "Before",
+                    "After",
+                    "Actual",
+                    "Core",
+                    "Duds",
+                    "System",
+                    "Body",
+                    "Commander",
+                    "Start time",
+                    "End time")));
+            List<Object> row = new ArrayList<>();
+            row.add(1);
+            row.add("A");
+            row.add("4/1/2026 10:00:00");
+            row.add("Painite");
+            row.add(0.0);
+            row.add(0);
+            row.add(0);
+            row.add(0);
+            row.add("-");
+            row.add(0);
+            row.add("Sol");
+            row.add("Ring");
+            row.add("Cmdr");
+            row.add("4/1/2026 11:00:00");
+            row.add("4/1/2026 12:00:00");
+            values.add(row);
+            GoogleSheetsBackend.normalizeProspectorSheetValuesInPlace(values);
+            assertTrue(GoogleSheetsBackend.headerDefinesProspectorShipColumn(values.get(0)));
+            assertEquals(16, values.get(1).size());
+            assertEquals("Cmdr", values.get(1).get(12).toString());
+            assertEquals("", values.get(1).get(13).toString());
+            assertEquals("4/1/2026 11:00:00", values.get(1).get(14).toString());
+            assertEquals("4/1/2026 12:00:00", values.get(1).get(15).toString());
+        }
+
+        @Test
+        void normalizeSheetInPlace_wrongHeaderButSixteenWideRows_replacesHeaderOnly() {
+            List<List<Object>> values = new ArrayList<>();
+            values.add(new ArrayList<>(List.of(
+                    "Run", "A", "T", "M", "0", "0", "0", "0", "c", "0", "Sys", "Body", "Commander", "Start time", "End time", "X")));
+            List<Object> row = new ArrayList<>();
+            row.add(3);
+            row.add("A");
+            row.add("4/30/2026 10:00:00");
+            row.add("Tritium");
+            row.add(0.0);
+            row.add(0);
+            row.add(0);
+            row.add(0);
+            row.add("-");
+            row.add(0);
+            row.add("S");
+            row.add("B");
+            row.add("Villunus");
+            row.add("lakonminer");
+            row.add("4/30/2026 11:00:00");
+            row.add("4/30/2026 11:50");
+            values.add(row);
+            GoogleSheetsBackend.normalizeProspectorSheetValuesInPlace(values);
+            assertTrue(GoogleSheetsBackend.headerDefinesProspectorShipColumn(values.get(0)));
+            assertEquals("lakonminer", values.get(1).get(13).toString());
+            assertEquals("4/30/2026 11:00:00", values.get(1).get(14).toString());
+            assertEquals("4/30/2026 11:50", values.get(1).get(15).toString());
         }
     }
 }

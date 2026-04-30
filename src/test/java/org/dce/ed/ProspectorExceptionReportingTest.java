@@ -38,7 +38,7 @@ class ProspectorExceptionReportingTest {
             // Avoid Google Sheets I/O on the EDT during syncAsteroidCounterFromBackendForCurrentLocation
             // (would delay buildProspectorAnnouncement and this test's latch).
             OverlayPreferences.setMiningLogBackend("local");
-            OverlayPreferences.setMiningGoogleSheetsUrl("");
+            OverlayPreferences.clearMiningGoogleSheetsUrl();
 
             EliteOverlayTabbedPane tabs = new EliteOverlayTabbedPane(() -> false);
 

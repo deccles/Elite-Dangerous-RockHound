@@ -3,6 +3,7 @@ package org.dce.ed.mining;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Shared, testable rules for how prospector mining logs treat <strong>run start</strong> and
@@ -11,8 +12,9 @@ import java.util.Objects;
  * See {@link MiningRunNumberResolver} for run <em>number</em> selection. This class covers:
  * </p>
  * <ul>
- *   <li><strong>Upsert run start (column O / index 14 when Ship column is present, else 13):</strong> never overwrite a non-blank cell — cargo
- *       updates after a new undock must not replace the original trip start.</li>
+ *   <li><strong>Upsert run start (column O / index 14 when Ship column is present, else 13):</strong> never overwrite a cell that already holds a
+ *       <em>recognisable</em> run-start timestamp — cargo updates after a new undock must not replace the original trip start. Non-date text in that
+ *       cell (e.g. a ship name shifted by a column bug) is not treated as canonical start and may be replaced.</li>
  *   <li><strong>Run end placement:</strong> only one sheet row per run should receive end time on dock —
  *       prefer asteroid {@code A} with a meaningful start time, else the first data row with a meaningful start
  *       (empty or legacy {@code "-"} start cells do not count).</li>
@@ -24,19 +26,31 @@ import java.util.Objects;
  */
 public final class ProspectorMiningLogPolicy {
 
+    private static final Pattern RUN_START_TEXT_LIKE =
+            Pattern.compile("\\d{1,2}/\\d{1,2}/\\d{4}|\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T");
+
     private ProspectorMiningLogPolicy() {
     }
 
     /**
-     * When upserting an existing sheet row, write run start into column 13 only if the incoming row carries
-     * a start instant and the cell is still empty. Preserves the canonical start time across later cargo upserts.
-     * Legacy sheets used {@code "-"} in optional columns; treat that like blank so a real timestamp can be written.
+     * When upserting an existing sheet row, write run start only on asteroid {@code A} and only if the incoming row
+     * carries a start instant while the cell is empty, legacy {@code "-"}, or holds non-date text (corrupt placement).
+     * Preserves a real timestamp already in the cell across later cargo upserts.
      */
-    public static boolean shouldWriteRunStartOnUpsertExistingRow(String existingStartCellText, Instant incomingRunStart) {
+    public static boolean shouldWriteRunStartOnUpsertExistingRow(
+            String asteroidId,
+            String existingStartCellText,
+            Instant incomingRunStart) {
+        if (!"A".equalsIgnoreCase(asteroidId != null ? asteroidId.trim() : "")) {
+            return false;
+        }
         if (incomingRunStart == null) {
             return false;
         }
-        return !hasMeaningfulRunStartCell(existingStartCellText);
+        if (!hasMeaningfulRunStartCell(existingStartCellText)) {
+            return true;
+        }
+        return !looksLikeRunStartTimestamp(existingStartCellText);
     }
 
     /**
@@ -48,6 +62,28 @@ public final class ProspectorMiningLogPolicy {
         }
         String t = cell.trim();
         return !t.isEmpty() && !"-".equals(t);
+    }
+
+    /**
+     * True when the run-start cell text looks like a date/time (or Sheets serial), not arbitrary text such as a ship name.
+     */
+    static boolean looksLikeRunStartTimestamp(String cell) {
+        if (cell == null) {
+            return false;
+        }
+        String t = cell.trim();
+        if (t.isEmpty() || "-".equals(t)) {
+            return false;
+        }
+        if (RUN_START_TEXT_LIKE.matcher(t).find()) {
+            return true;
+        }
+        try {
+            double d = Double.parseDouble(t);
+            return d > 20_000 && d < 80_000;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     /**
@@ -66,6 +102,10 @@ public final class ProspectorMiningLogPolicy {
         if (preferA >= 0) {
             return preferA;
         }
+        int fallbackA = findFirstAsteroidA(values, run, cmdr);
+        if (fallbackA >= 0) {
+            return fallbackA;
+        }
         return findFirstMatching(values, run, cmdr, false);
     }
 
@@ -79,7 +119,7 @@ public final class ProspectorMiningLogPolicy {
             String rowCommander = str(row.get(12));
             int startCol = row.size() >= 16 ? 14 : 13;
             String rowStart = row.size() > startCol ? str(row.get(startCol)) : "";
-            if (rowRun != run || !Objects.equals(rowCommander, cmdr) || !hasMeaningfulRunStartCell(rowStart)) {
+            if (rowRun != run || !Objects.equals(rowCommander, cmdr) || !looksLikeRunStartTimestamp(rowStart)) {
                 continue;
             }
             if (requireAsteroidA) {
@@ -89,6 +129,22 @@ public final class ProspectorMiningLogPolicy {
                 }
             }
             return i;
+        }
+        return -1;
+    }
+
+    private static int findFirstAsteroidA(List<List<Object>> values, int run, String cmdr) {
+        for (int i = 1; i < values.size(); i++) {
+            List<Object> row = values.get(i);
+            if (row == null || row.size() < 13) {
+                continue;
+            }
+            int rowRun = parseInt(row.get(0), 0);
+            String rowCommander = str(row.get(12));
+            String asteroid = str(row.get(1));
+            if (rowRun == run && Objects.equals(rowCommander, cmdr) && "A".equalsIgnoreCase(asteroid)) {
+                return i;
+            }
         }
         return -1;
     }

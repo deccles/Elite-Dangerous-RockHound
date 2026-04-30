@@ -163,6 +163,7 @@ public class PreferencesDialog extends JDialog {
 	private JButton miningGoogleConnectButton;
 	private JButton miningGoogleSetupHelpButton;
 	private JButton miningGoogleMigrateLegacyButton;
+	private JButton miningGoogleRepairLayoutButton;
 
 	// Mining tab: limpet reminder
 	private JCheckBox miningLowLimpetReminderEnabledCheckBox;
@@ -988,6 +989,13 @@ public class PreferencesDialog extends JDialog {
 				"Splits a legacy mixed-commander first worksheet into CMDR … tabs (one per commander). Use if automatic migration failed or you restored an old sheet.");
 		miningGoogleMigrateLegacyButton.addActionListener(e -> runMiningSheetLegacyMigration());
 		migrateRow.add(miningGoogleMigrateLegacyButton);
+		miningGoogleRepairLayoutButton = new JButton("Repair CMDR sheet columns…");
+		miningGoogleRepairLayoutButton.setToolTipText(
+				"For Google Sheets: rewrites each CMDR … tab (A:P). Fixes row 1 when it skipped the Ship column (Commander / "
+						+ "Start / End only), pads short rows to 16 columns, moves a ship name stuck under Start/End back into "
+						+ "Ship when that cell is empty, and clears duplicate ship text in time columns. Make a Drive copy first.");
+		miningGoogleRepairLayoutButton.addActionListener(e -> runMiningSheetLayoutRepair());
+		migrateRow.add(miningGoogleRepairLayoutButton);
 		logBackendBox.add(migrateRow, gbcLog);
 		updateMiningGoogleMigrateLegacyButtonEnabled();
 		miningGoogleSheetsUrlField.getDocument().addDocumentListener(new DocumentListener() {
@@ -1581,6 +1589,9 @@ public class PreferencesDialog extends JDialog {
 		JButton cancel = new JButton("Cancel");
 
 		ok.addActionListener(e -> {
+			if (!validateMiningGoogleSettingsBeforeSave()) {
+				return;
+			}
 			okPressed = true;
 			applyAndSavePreferences();
 
@@ -1609,6 +1620,23 @@ public class PreferencesDialog extends JDialog {
 		panel.add(cancel);
 		panel.add(ok);
 		return panel;
+	}
+
+	private boolean validateMiningGoogleSettingsBeforeSave() {
+		if (miningLogBackendGoogleRadio == null || !miningLogBackendGoogleRadio.isSelected()) {
+			return true;
+		}
+		String url = miningGoogleSheetsUrlField != null ? miningGoogleSheetsUrlField.getText() : "";
+		if (url != null && !url.trim().isEmpty()) {
+			return true;
+		}
+		JOptionPane.showMessageDialog(
+				this,
+				"Google Sheets is selected but the Google Sheets URL is empty.\n"
+						+ "Paste your sheet URL first, or switch back to Local CSV.",
+				"Mining preferences",
+				JOptionPane.WARNING_MESSAGE);
+		return false;
 	}
 
 	/**
@@ -1718,7 +1746,11 @@ public class PreferencesDialog extends JDialog {
 		}
 		boolean google = miningLogBackendGoogleRadio != null && miningLogBackendGoogleRadio.isSelected();
 		String url = miningGoogleSheetsUrlField != null ? miningGoogleSheetsUrlField.getText().trim() : "";
-		miningGoogleMigrateLegacyButton.setEnabled(google && !url.isEmpty());
+		boolean enable = google && !url.isEmpty();
+		miningGoogleMigrateLegacyButton.setEnabled(enable);
+		if (miningGoogleRepairLayoutButton != null) {
+			miningGoogleRepairLayoutButton.setEnabled(enable);
+		}
 	}
 
 	private void runMiningSheetLegacyMigration() {
@@ -1780,6 +1812,79 @@ public class PreferencesDialog extends JDialog {
 					OverlayFrame of = OverlayFrame.overlayFrame;
 					if (of != null) {
 						of.setMiningSheetsStatusError("Mining sheet migration: " + msg);
+					}
+				}
+			}
+		};
+		worker.execute();
+	}
+
+	private void runMiningSheetLayoutRepair() {
+		String url = miningGoogleSheetsUrlField != null ? miningGoogleSheetsUrlField.getText().trim() : "";
+		if (url.isEmpty()) {
+			JOptionPane.showMessageDialog(this, "Enter the Google Sheets URL first.", "Mining sheet",
+					JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+		int confirm = JOptionPane.showConfirmDialog(this,
+				"This rewrites every worksheet whose name starts with \"CMDR \" (columns A through P).\n"
+						+ "If row 1 is missing the Ship column (Commander then Start time), it is corrected to the standard header.\n"
+						+ "Short rows are padded to 16 columns; Start/End cells that only repeat the ship name (no real date) are cleared.\n\n"
+						+ "Missing start/end times are not inferred from journals by this action.\n\n"
+						+ "Tip: make a copy in Google Drive first.\n\n"
+						+ "Continue?",
+				"Repair mining sheets",
+				JOptionPane.OK_CANCEL_OPTION,
+				JOptionPane.WARNING_MESSAGE);
+		if (confirm != JOptionPane.OK_OPTION) {
+			return;
+		}
+		if (miningGoogleRepairLayoutButton != null) {
+			miningGoogleRepairLayoutButton.setEnabled(false);
+		}
+		if (miningGoogleMigrateLegacyButton != null) {
+			miningGoogleMigrateLegacyButton.setEnabled(false);
+		}
+		SwingWorker<ProspectorWriteResult, Void> worker = new SwingWorker<>() {
+			@Override
+			protected ProspectorWriteResult doInBackground() {
+				return new GoogleSheetsBackend(url).repairAllCmdrMiningWorksheetLayoutsResult();
+			}
+
+			@Override
+			protected void done() {
+				updateMiningGoogleMigrateLegacyButtonEnabled();
+				try {
+					ProspectorWriteResult r = get();
+					if (r != null && r.isOk()) {
+						JOptionPane.showMessageDialog(PreferencesDialog.this,
+								"Repair finished. Open your spreadsheet and confirm CMDR tabs look correct.",
+								"Mining sheet",
+								JOptionPane.INFORMATION_MESSAGE);
+						OverlayFrame of = OverlayFrame.overlayFrame;
+						if (of != null) {
+							of.clearMiningSheetsStatusError();
+						}
+					} else {
+						String msg = r != null ? r.getMessage() : "Unknown error";
+						JOptionPane.showMessageDialog(PreferencesDialog.this,
+								"Repair failed:\n" + msg,
+								"Mining sheet",
+								JOptionPane.ERROR_MESSAGE);
+						OverlayFrame of = OverlayFrame.overlayFrame;
+						if (of != null) {
+							of.setMiningSheetsStatusError("Mining sheet repair: " + msg);
+						}
+					}
+				} catch (Exception ex) {
+					String msg = ex.getMessage() != null ? ex.getMessage() : ex.toString();
+					JOptionPane.showMessageDialog(PreferencesDialog.this,
+							"Repair failed:\n" + msg,
+							"Mining sheet",
+							JOptionPane.ERROR_MESSAGE);
+					OverlayFrame of = OverlayFrame.overlayFrame;
+					if (of != null) {
+						of.setMiningSheetsStatusError("Mining sheet repair: " + msg);
 					}
 				}
 			}

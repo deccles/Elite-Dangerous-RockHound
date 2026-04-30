@@ -740,7 +740,21 @@ public static Engine getSpeechEngine() {
     }
 
     public static void setMiningGoogleSheetsUrl(String url) {
-        PREFS.put(KEY_MINING_GOOGLE_SHEETS_URL, url != null ? url.trim() : "");
+        String next = url != null ? url.trim() : "";
+        // Defensive merge-save: transient blank UI reads (or failed connectivity flows) must not
+        // erase an already configured spreadsheet URL. Use clearMiningGoogleSheetsUrl() to reset.
+        if (next.isEmpty()) {
+            String existing = PREFS.get(KEY_MINING_GOOGLE_SHEETS_URL, "").trim();
+            if (!existing.isEmpty()) {
+                return;
+            }
+        }
+        PREFS.put(KEY_MINING_GOOGLE_SHEETS_URL, next);
+    }
+
+    /** Explicitly clears the saved Google Sheets URL from preferences. */
+    public static void clearMiningGoogleSheetsUrl() {
+        PREFS.put(KEY_MINING_GOOGLE_SHEETS_URL, "");
     }
 
     /**
