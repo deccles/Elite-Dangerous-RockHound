@@ -91,6 +91,14 @@ class GoogleSheetsBackendUpsertAndCellTest {
             assertFalse(GoogleSheetsBackend.locationsCompatibleForUpsert("A", "B", "A", "C"));
             assertFalse(GoogleSheetsBackend.locationsCompatibleForUpsert("A", "B", "C", "B"));
         }
+
+        @Test
+        void sameSystem_bodyHotspotSuffixDrift_matches() {
+            assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert(
+                    "Byua Aim WZ-V", "Byua Aim WZ-V Tritium Hotspot", "Byua Aim WZ-V", "Byua Aim WZ-V"));
+            assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert(
+                    "Byua Aim WZ-V", "Byua Aim WZ-V", "Byua Aim WZ-V", "Byua Aim WZ-V Tritium Hotspot"));
+        }
     }
 
     @Nested
@@ -195,6 +203,22 @@ class GoogleSheetsBackendUpsertAndCellTest {
             values.add(newer);
             int idx = GoogleSheetsBackend.findProspectorUpsertRowIndex(values, 3, "D", "Tritium", "Villunus", "Byua", "6");
             assertEquals(2, idx);
+        }
+
+        @Test
+        void nonBlankIncoming_matchesRowWhenBodyGainsHotspotSuffix() {
+            List<List<Object>> values = new ArrayList<>();
+            values.add(List.of("Run", "A", "T", "Mat", "0", "0", "0", "0", "c", "0", "Sys", "Body", "Cmdr"));
+            values.add(dataRow(8, "F", "Tritium", "Byua Aim WZ-V", "Byua Aim WZ-V", "UkeBard"));
+            int idx = GoogleSheetsBackend.findProspectorUpsertRowIndex(
+                    values,
+                    8,
+                    "F",
+                    "Tritium",
+                    "UkeBard",
+                    "Byua Aim WZ-V",
+                    "Byua Aim WZ-V Tritium Hotspot");
+            assertEquals(1, idx);
         }
     }
 

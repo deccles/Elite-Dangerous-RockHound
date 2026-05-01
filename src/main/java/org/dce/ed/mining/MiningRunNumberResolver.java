@@ -27,7 +27,8 @@ import java.util.Set;
  *       with {@code runStartTime != null && runEndTime == null} <em>and</em> that run id is not in the
  *       closed set from rule (2).</li>
  *   <li><strong>Location continuation:</strong> if there is no active run but the latest row at the current
- *       system/body belongs to a run that is <em>not</em> closed, continue that run number; otherwise allocate
+ *       system (body may drift with a space-separated journal suffix such as hotspot labels) belongs to a run
+ *       that is <em>not</em> closed, continue that run number; otherwise allocate
  *       {@code lastRunForThisCommander + 1}.</li>
  *   <li><strong>Run numbers are per commander</strong> (1..n within each commander), not globally unique across commanders.</li>
  * </ol>
@@ -113,7 +114,10 @@ public final class MiningRunNumberResolver {
                 rowSystem = "";
                 rowBody = "";
             }
-            boolean sameLocation = Objects.equals(rowSystem, system) && Objects.equals(rowBody, body);
+            boolean sameBody = Objects.equals(rowBody, body)
+                    || GoogleSheetsBackend.bodiesDriftCompatible(
+                            rowBody != null ? rowBody : "", body != null ? body : "");
+            boolean sameLocation = Objects.equals(rowSystem, system) && sameBody;
             if (sameLocation) {
                 if (latestTsForCommanderAtLocation == null || ts.isAfter(latestTsForCommanderAtLocation)) {
                     latestTsForCommanderAtLocation = ts;

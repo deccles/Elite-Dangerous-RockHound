@@ -133,6 +133,13 @@ class MiningRunNumberResolverTest {
     }
 
     @Test
+    void bodyHotspotSuffixDrift_stillCountsAsSameLocationForContinuation() {
+        Instant t = Instant.parse("2026-04-02T15:00:00Z");
+        List<ProspectorLogRow> rows = List.of(mat(4, "A", t, null, null));
+        assertEquals(4, MiningRunNumberResolver.compute(CMDR, SYS, BODY + " Tritium Hotspot", false, rows));
+    }
+
+    @Test
     void normalizeCommander_blankBecomesDash() {
         assertEquals("-", MiningRunNumberResolver.normalizeCommander(null));
         assertEquals("-", MiningRunNumberResolver.normalizeCommander(""));

@@ -687,7 +687,19 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                     String existingBody = str(row.get(11));
 
                     String outSystem = !isBlankSheetCell(incSystem) ? incSystem : existingSystem;
-                    String outBody = !isBlankSheetCell(incBody) ? incBody : existingBody;
+                    String outBody;
+                    if (!isBlankSheetCell(incBody)) {
+                        String ni = normSheetCell(incBody);
+                        String ex = normSheetCell(existingBody);
+                        if (!ex.isEmpty() && bodiesDriftCompatible(ni, ex) && !ni.equals(ex)) {
+                            // Keep the shorter body label so hotspot suffix churn does not rewrite the row.
+                            outBody = ni.length() < ex.length() ? ni : ex;
+                        } else {
+                            outBody = incBody;
+                        }
+                    } else {
+                        outBody = existingBody;
+                    }
                     if (isBlankSheetCell(outSystem)) {
                         outSystem = "";
                     }
@@ -1198,8 +1210,28 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
     }
 
     /**
+     * True when the game reports the same body with an extra space-separated suffix (e.g. {@code … Tritium Hotspot}).
+     * Used so journal body drift does not split upserts or run continuation.
+     */
+    static boolean bodiesDriftCompatible(String a, String b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        String ta = a.trim();
+        String tb = b.trim();
+        if (ta.isEmpty() || tb.isEmpty()) {
+            return false;
+        }
+        if (ta.equals(tb)) {
+            return true;
+        }
+        return ta.startsWith(tb + " ") || tb.startsWith(ta + " ");
+    }
+
+    /**
      * When upserting, match rows even if system/body temporarily went blank in the journal (or were written as "-").
      * Incoming blank does not create a second row; existing blank can be filled by incoming coordinates.
+     * Same star system with body string suffix drift (hotspot / ring labels) still matches one row.
      */
     static boolean locationsCompatibleForUpsert(String incSys, String incBody, String existingSys, String existingBody) {
         String nis = normSheetCell(incSys);
@@ -1212,7 +1244,13 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
         if (nis.isEmpty() && nib.isEmpty()) {
             return true;
         }
-        return es.isEmpty() && eb.isEmpty();
+        if (es.isEmpty() && eb.isEmpty()) {
+            return true;
+        }
+        if (nis.equals(es) && bodiesDriftCompatible(nib, eb)) {
+            return true;
+        }
+        return false;
     }
 
     private static boolean upsertCoreKeyMatches(List<Object> row, int run, String asteroid, String material, String commander) {

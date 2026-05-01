@@ -2681,15 +2681,6 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 			rows.add(new Row(shownName + " (Core)", Double.NaN, avg, tons, value, true));
 		}
 
-		if (rows.isEmpty()) {
-			System.err.println(
-					"[EDO][Debug][MiningTabPanel] updateFromProspector built 0 rows. ts=" + event.getTimestamp()
-							+ " materials=" + (event.getMaterials() != null ? event.getMaterials().size() : -1)
-							+ " motherlode=" + motherlode
-							+ " content=" + content
-			);
-		}
-
 		ProspectorAnnouncement ann = buildProspectorAnnouncement(event, rows);
 
 		rows.sort(Comparator

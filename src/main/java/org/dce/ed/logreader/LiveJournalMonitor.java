@@ -24,7 +24,6 @@ import java.util.stream.Stream;
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.ExceptionReporting;
 import org.dce.ed.logreader.event.StatusEvent;
-import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -593,26 +592,10 @@ public final class LiveJournalMonitor {
                 if (line.isEmpty()) {
                     continue;
                 }
-                boolean looksLikeProspectedAsteroid = line.contains("ProspectedAsteroid");
 
                 try {
                     EliteLogEvent event = parser.parseRecord(line);
                     if (event != null) {
-                        if (event.getType() == EliteEventType.PROSPECTED_ASTEROID) {
-                            if (event instanceof ProspectedAsteroidEvent pae) {
-                                int materialCount = pae.getMaterials() != null ? pae.getMaterials().size() : -1;
-                                System.err.println(
-                                        "[EDO][Debug][ProspectedAsteroid] ts=" + pae.getTimestamp()
-                                                + " materials=" + materialCount
-                                                + " motherlode=" + pae.getMotherlodeMaterial()
-                                                + " content=" + pae.getContent()
-                                );
-                            } else {
-                                System.err.println(
-                                        "[EDO][Debug][ProspectedAsteroid] ts=" + event.getTimestamp()
-                                );
-                            }
-                        }
                         Instant ts = event.getTimestamp();
                         if (ts != null && lastProcessedJournalTimestamp != null && ts.isBefore(lastProcessedJournalTimestamp)) {
                             continue;
@@ -622,14 +605,6 @@ public final class LiveJournalMonitor {
                     }
                 } catch (JsonSyntaxException | IllegalStateException ex) {
                     // malformed line – skip
-                    if (looksLikeProspectedAsteroid) {
-                        String msg = ex.getMessage();
-                        if (msg == null) msg = ex.getClass().getSimpleName();
-                        System.err.println(
-                                "[EDO][Debug][ProspectedAsteroid][PARSE_FAIL] msg=" + msg
-                                        + " linePrefix=" + line.substring(0, Math.min(220, line.length()))
-                        );
-                    }
                 }
             }
         } catch (IOException ex) {
