@@ -1,7 +1,6 @@
 package org.dce.ed.mining;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -22,7 +21,7 @@ class GoogleSheetsBackendSplitAndTimestampTest {
     @Test
     void locationsCompatibleForUpsert_exactMatch() {
         assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert("Sol", "Mars", "Sol", "Mars"));
-        assertFalse(GoogleSheetsBackend.locationsCompatibleForUpsert("Sol", "Mars", "Sol", "Phobos"));
+        assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert("Sol", "Mars", "Sol", "Phobos"));
     }
 
     @Test

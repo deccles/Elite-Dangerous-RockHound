@@ -133,10 +133,13 @@ class MiningRunNumberResolverTest {
     }
 
     @Test
-    void bodyHotspotSuffixDrift_stillCountsAsSameLocationForContinuation() {
+    void openRun_continuesAcrossJournalLocationWithoutDock() {
         Instant t = Instant.parse("2026-04-02T15:00:00Z");
-        List<ProspectorLogRow> rows = List.of(mat(4, "A", t, null, null));
-        assertEquals(4, MiningRunNumberResolver.compute(CMDR, SYS, BODY + " Tritium Hotspot", false, rows));
+        Instant start = Instant.parse("2026-04-02T14:00:00Z");
+        String otherLoc = "OtherSys > OtherBody";
+        List<ProspectorLogRow> rows = List.of(
+                new ProspectorLogRow(6, "A", otherLoc, t, "X", 10, 0, 1, 1, CMDR, "", "", 0, start, null));
+        assertEquals(6, MiningRunNumberResolver.compute(CMDR, SYS, BODY, false, rows));
     }
 
     @Test

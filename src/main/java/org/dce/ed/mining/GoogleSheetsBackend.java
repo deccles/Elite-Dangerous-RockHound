@@ -621,8 +621,8 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
     }
 
     /**
-     * Insert or update prospector rows keyed by (run, asteroid, material, commander, system, body).
-     * If a matching row already exists, it is updated in-place; otherwise a new row is appended.
+     * Insert or update prospector rows keyed by (run, asteroid, material, commander). System/body columns
+     * are not part of row identity; existing non-blank location cells are preserved on update.
      */
     public ProspectorWriteResult upsertRowsResult(List<ProspectorLogRow> rows) {
         if (rows == null || rows.isEmpty()) {
@@ -686,20 +686,13 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                     String existingSystem = str(row.get(10));
                     String existingBody = str(row.get(11));
 
-                    String outSystem = !isBlankSheetCell(incSystem) ? incSystem : existingSystem;
-                    String outBody;
-                    if (!isBlankSheetCell(incBody)) {
-                        String ni = normSheetCell(incBody);
-                        String ex = normSheetCell(existingBody);
-                        if (!ex.isEmpty() && bodiesDriftCompatible(ni, ex) && !ni.equals(ex)) {
-                            // Keep the shorter body label so hotspot suffix churn does not rewrite the row.
-                            outBody = ni.length() < ex.length() ? ni : ex;
-                        } else {
-                            outBody = incBody;
-                        }
-                    } else {
-                        outBody = existingBody;
-                    }
+                    // Keep existing system/body when already set so journal location churn does not rewrite columns.
+                    String outSystem = !isBlankSheetCell(existingSystem)
+                            ? existingSystem
+                            : (!isBlankSheetCell(incSystem) ? incSystem : "");
+                    String outBody = !isBlankSheetCell(existingBody)
+                            ? existingBody
+                            : (!isBlankSheetCell(incBody) ? incBody : "");
                     if (isBlankSheetCell(outSystem)) {
                         outSystem = "";
                     }
@@ -1210,47 +1203,12 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
     }
 
     /**
-     * True when the game reports the same body with an extra space-separated suffix (e.g. {@code … Tritium Hotspot}).
-     * Used so journal body drift does not split upserts or run continuation.
+     * Row identity for prospector upserts is (run, asteroid, material, commander) only — not system/body.
+     * Location columns are display data; journal system/body changes must never skip an upsert and append a duplicate row.
      */
-    static boolean bodiesDriftCompatible(String a, String b) {
-        if (a == null || b == null) {
-            return false;
-        }
-        String ta = a.trim();
-        String tb = b.trim();
-        if (ta.isEmpty() || tb.isEmpty()) {
-            return false;
-        }
-        if (ta.equals(tb)) {
-            return true;
-        }
-        return ta.startsWith(tb + " ") || tb.startsWith(ta + " ");
-    }
-
-    /**
-     * When upserting, match rows even if system/body temporarily went blank in the journal (or were written as "-").
-     * Incoming blank does not create a second row; existing blank can be filled by incoming coordinates.
-     * Same star system with body string suffix drift (hotspot / ring labels) still matches one row.
-     */
+    @SuppressWarnings("unused")
     static boolean locationsCompatibleForUpsert(String incSys, String incBody, String existingSys, String existingBody) {
-        String nis = normSheetCell(incSys);
-        String nib = normSheetCell(incBody);
-        String es = normSheetCell(existingSys);
-        String eb = normSheetCell(existingBody);
-        if (nis.equals(es) && nib.equals(eb)) {
-            return true;
-        }
-        if (nis.isEmpty() && nib.isEmpty()) {
-            return true;
-        }
-        if (es.isEmpty() && eb.isEmpty()) {
-            return true;
-        }
-        if (nis.equals(es) && bodiesDriftCompatible(nib, eb)) {
-            return true;
-        }
-        return false;
+        return true;
     }
 
     private static boolean upsertCoreKeyMatches(List<Object> row, int run, String asteroid, String material, String commander) {
@@ -1269,7 +1227,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
 
     /**
      * Find a data row (index into {@code values}) to upsert, or -1. When incoming system/body are blank,
-     * prefers matches with a populated location. Among multiple compatible rows, prefer the most recent by
+     * prefers matches with a populated location. Among multiple rows matching the core key, prefer the most recent by
      * timestamp (column C), then the last row index.
      */
     static int findProspectorUpsertRowIndex(List<List<Object>> values, int run, String asteroid, String material,

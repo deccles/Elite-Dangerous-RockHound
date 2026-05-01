@@ -3,7 +3,6 @@ package org.dce.ed.mining;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -26,10 +25,9 @@ import java.util.Set;
  *   <li><strong>“Active” / in-progress run</strong> = highest run id for this commander where there exists a row
  *       with {@code runStartTime != null && runEndTime == null} <em>and</em> that run id is not in the
  *       closed set from rule (2).</li>
- *   <li><strong>Location continuation:</strong> if there is no active run but the latest row at the current
- *       system (body may drift with a space-separated journal suffix such as hotspot labels) belongs to a run
- *       that is <em>not</em> closed, continue that run number; otherwise allocate
- *       {@code lastRunForThisCommander + 1}.</li>
+ *   <li><strong>Continuation without dock:</strong> if there is no active run but the commander’s most recent
+ *       sheet row (by timestamp) belongs to a run that is <em>not</em> closed, continue that run number.
+ *       System/body are ignored so mining across systems or journal location churn stays one run until dock.</li>
  *   <li><strong>Run numbers are per commander</strong> (1..n within each commander), not globally unique across commanders.</li>
  * </ol>
  */
@@ -42,8 +40,8 @@ public final class MiningRunNumberResolver {
      * Computes which run number new mining rows should use.
      *
      * @param commander     normalized mining log commander (blank becomes {@code "-"} when matching rows)
-     * @param system        current star system name (may be empty)
-     * @param body          current body name (may be empty)
+     * @param system        ignored for run selection (kept for API stability with callers)
+     * @param body          ignored for run selection (kept for API stability with callers)
      * @param forceNewRun   when true, allocate {@code lastRunForThisCommander + 1} if there is no active run
      * @param existingRows  all rows from the backend for this commander (or merged list; other commanders are ignored); may be empty, never null from callers
      * @return run number to use for new writes
@@ -57,9 +55,9 @@ public final class MiningRunNumberResolver {
         List<ProspectorLogRow> existing = existingRows != null ? existingRows : List.of();
 
         int lastRunForCommander = 0;
-        int lastRunForCommanderAtLocation = 0;
+        int lastRunForCommanderAtLatestRow = 0;
         int activeRunForCommander = 0;
-        Instant latestTsForCommanderAtLocation = null;
+        Instant latestTsForCommander = null;
 
         Set<Integer> runsWithEndForCommander = new HashSet<>();
         for (ProspectorLogRow r : existing) {
@@ -98,31 +96,9 @@ public final class MiningRunNumberResolver {
                     activeRunForCommander = rRun;
                 }
             }
-            String rowSystem;
-            String rowBody;
-            String fb = r.getFullBodyName();
-            if (fb != null && !fb.isBlank()) {
-                String[] parts = fb.split(">");
-                if (parts.length == 2) {
-                    rowSystem = parts[0].trim();
-                    rowBody = parts[1].trim();
-                } else {
-                    rowSystem = "";
-                    rowBody = fb.trim();
-                }
-            } else {
-                rowSystem = "";
-                rowBody = "";
-            }
-            boolean sameBody = Objects.equals(rowBody, body)
-                    || GoogleSheetsBackend.bodiesDriftCompatible(
-                            rowBody != null ? rowBody : "", body != null ? body : "");
-            boolean sameLocation = Objects.equals(rowSystem, system) && sameBody;
-            if (sameLocation) {
-                if (latestTsForCommanderAtLocation == null || ts.isAfter(latestTsForCommanderAtLocation)) {
-                    latestTsForCommanderAtLocation = ts;
-                    lastRunForCommanderAtLocation = rRun;
-                }
+            if (latestTsForCommander == null || ts.isAfter(latestTsForCommander)) {
+                latestTsForCommander = ts;
+                lastRunForCommanderAtLatestRow = rRun;
             }
         }
 
@@ -135,8 +111,8 @@ public final class MiningRunNumberResolver {
         if (forceNewRun) {
             return lastRunForCommander + 1;
         }
-        if (lastRunForCommanderAtLocation > 0 && !runsWithEndForCommander.contains(lastRunForCommanderAtLocation)) {
-            return lastRunForCommanderAtLocation;
+        if (lastRunForCommanderAtLatestRow > 0 && !runsWithEndForCommander.contains(lastRunForCommanderAtLatestRow)) {
+            return lastRunForCommanderAtLatestRow;
         }
         return lastRunForCommander + 1;
     }

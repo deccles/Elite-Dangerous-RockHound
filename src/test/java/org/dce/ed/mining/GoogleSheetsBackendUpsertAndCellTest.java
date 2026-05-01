@@ -79,25 +79,13 @@ class GoogleSheetsBackendUpsertAndCellTest {
         }
 
         @Test
-        void incomingFillsOnlyWhenExistingBlank() {
+        void locationDifferences_ignoredForUpsertIdentity() {
             assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert("Sol", "2", "", ""));
             assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert("Sol", "2", "-", "-"));
-            assertFalse(GoogleSheetsBackend.locationsCompatibleForUpsert("Sol", "2", "Other", ""));
-            assertFalse(GoogleSheetsBackend.locationsCompatibleForUpsert("Sol", "2", "", "Moon"));
-        }
-
-        @Test
-        void mismatchWhenBothSidesHaveValues() {
-            assertFalse(GoogleSheetsBackend.locationsCompatibleForUpsert("A", "B", "A", "C"));
-            assertFalse(GoogleSheetsBackend.locationsCompatibleForUpsert("A", "B", "C", "B"));
-        }
-
-        @Test
-        void sameSystem_bodyHotspotSuffixDrift_matches() {
-            assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert(
-                    "Byua Aim WZ-V", "Byua Aim WZ-V Tritium Hotspot", "Byua Aim WZ-V", "Byua Aim WZ-V"));
-            assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert(
-                    "Byua Aim WZ-V", "Byua Aim WZ-V", "Byua Aim WZ-V", "Byua Aim WZ-V Tritium Hotspot"));
+            assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert("Sol", "2", "Other", ""));
+            assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert("Sol", "2", "", "Moon"));
+            assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert("A", "B", "A", "C"));
+            assertTrue(GoogleSheetsBackend.locationsCompatibleForUpsert("A", "B", "C", "B"));
         }
     }
 
@@ -124,7 +112,7 @@ class GoogleSheetsBackendUpsertAndCellTest {
         }
 
         @Test
-        void nonBlankIncoming_skipsWhenLocationIncompatible() {
+        void nonBlankIncoming_duplicateCoreKeyDifferentLocation_prefersNewerOrLaterRow() {
             List<List<Object>> values = new ArrayList<>();
             values.add(List.of("Run", "A", "T", "Mat", "0", "0", "0", "0", "c", "0", "Sys", "Body", "Cmdr"));
             values.add(dataRow(3, "A", "Painite", "Alpha", "R1", "Villunus"));
