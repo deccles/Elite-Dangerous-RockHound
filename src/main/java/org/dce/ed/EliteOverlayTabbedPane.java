@@ -515,11 +515,10 @@ public class EliteOverlayTabbedPane extends JPanel {
         }
 
         if (event instanceof org.dce.ed.logreader.event.StatusEvent se) {
-        	boolean wasDocked = isCurrentlyDocked();
+        	// Do not tie limpet reminders to Status dock transitions: when Elite exits, Status.json often
+        	// resets (e.g. Flags=0) so Docked clears while our cached state was still docked, which falsely
+        	// matched "just undocked". Real undocks still emit journal {@link EliteEventType#UNDOCKED}.
         	setCurrentlyDocked(se.isDocked());
-        	if (wasDocked && !se.isDocked()) {
-        		SwingUtilities.invokeLater(() -> maybeRemindAboutLimpets());
-        	}
         } else if (event instanceof org.dce.ed.logreader.event.LocationEvent le) {
         	setCurrentlyDocked(le.isDocked());
         }
