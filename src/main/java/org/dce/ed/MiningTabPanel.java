@@ -2701,28 +2701,20 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		model.setRows(rows);
 		prospectorScan.startProspectorScan(prospectorLayer);
 
-			if (!OverlayPreferences.isSpeechEnabled()) {
-				return;
-			}
-			
-			if (ann != null) {
-				lastProspectorAnnouncementSig = ann.sig;
-
-				if (ann.single) {
-					tts.speakf("Prospector found {material} at {n} percent.", ann.material, ann.pct);
-				} else {
-					tts.speakf("Prospector found {list} from {min} to {max} percent.", ann.listText, ann.minPct, ann.maxPct);
-				}
-			}
-
-
-
-				String hdr = "Mining (" + (content == null ? "" : content) + ")";
+		String hdr = "Mining (" + (content == null ? "" : content) + ")";
 		if (motherlode != null && !motherlode.isBlank()) {
 			hdr += " - Motherlode: " + motherlode;
 		}
 		headerLabel.setText(hdr);
 
+		if (OverlayPreferences.isSpeechEnabled() && ann != null) {
+			lastProspectorAnnouncementSig = ann.sig;
+			if (ann.single) {
+				tts.speakf("Prospector found {material} at {n} percent.", ann.material, ann.pct);
+			} else {
+				tts.speakf("Prospector found {list} from {min} to {max} percent.", ann.listText, ann.minPct, ann.maxPct);
+			}
+		}
 	}
 
 	/** For tests: number of rows in the prospector (latest scan) table. */
@@ -3276,6 +3268,17 @@ String getName() {
 				table.repaint();
 
 				if (scanY > scanEndY + 10) {
+					if (revealOnCross) {
+						// Scan line can miss rows (dynamic heights, EDT timing); never leave prospector text at alpha 0.
+						int rc = table.getModel().getRowCount();
+						for (int mr = 0; mr < rc; mr++) {
+							revealAlphaByModelRow.put(mr, 1.0f);
+						}
+						table.repaint();
+						if (layer != null) {
+							layer.repaint();
+						}
+					}
 					((Timer)e.getSource()).stop();
 					return;
 				}
