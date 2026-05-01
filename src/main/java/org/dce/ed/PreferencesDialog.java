@@ -214,22 +214,82 @@ public class PreferencesDialog extends JDialog {
 				new PreferenceSpeechTestClip("Did you forget your limpets again commander?"),
 				new PreferenceSpeechTestClip("Jump complete"),
 				new PreferenceSpeechTestClip("Cooldown complete"),
+				// Prospector {n}: digits, teens, compound tens+ones, max-ish
 				new PreferenceSpeechTestClip("Prospector found {material} at {n} percent.", "Grandidierite", Integer.valueOf(50)),
+				new PreferenceSpeechTestClip("Prospector found {material} at {n} percent.", "Grandidierite", Integer.valueOf(1)),
+				new PreferenceSpeechTestClip("Prospector found {material} at {n} percent.", "Grandidierite", Integer.valueOf(11)),
+				new PreferenceSpeechTestClip("Prospector found {material} at {n} percent.", "Grandidierite", Integer.valueOf(19)),
+				new PreferenceSpeechTestClip("Prospector found {material} at {n} percent.", "Grandidierite", Integer.valueOf(21)),
+				new PreferenceSpeechTestClip("Prospector found {material} at {n} percent.", "Grandidierite", Integer.valueOf(99)),
+				new PreferenceSpeechTestClip("Prospector found {material} at {n} percent.", "Grandidierite", Integer.valueOf(100)),
+				// Prospector list {min}/{max}
 				new PreferenceSpeechTestClip("Prospector found {list} from {min} to {max} percent.",
 						prospectorListTwo, Integer.valueOf(10), Integer.valueOf(90)),
+				new PreferenceSpeechTestClip("Prospector found {list} from {min} to {max} percent.",
+						prospectorListTwo, Integer.valueOf(5), Integer.valueOf(95)),
+				new PreferenceSpeechTestClip("Prospector found {list} from {min} to {max} percent.",
+						prospectorListTwo, Integer.valueOf(11), Integer.valueOf(19)),
+				new PreferenceSpeechTestClip("Prospector found {list} from {min} to {max} percent.",
+						prospectorListTwo, Integer.valueOf(1), Integer.valueOf(100)),
+				// Biology {meters}
 				new PreferenceSpeechTestClip("Entering clonal colony range of {species}. Minimum {meters} meters.",
 						"Bacterium Acies", Integer.valueOf(10)),
+				new PreferenceSpeechTestClip("Entering clonal colony range of {species}. Minimum {meters} meters.",
+						"Bacterium Acies", Integer.valueOf(1)),
+				new PreferenceSpeechTestClip("Entering clonal colony range of {species}. Minimum {meters} meters.",
+						"Bacterium Acies", Integer.valueOf(500)),
+				new PreferenceSpeechTestClip("Entering clonal colony range of {species}. Minimum {meters} meters.",
+						"Bacterium Acies", Integer.valueOf(2_500)),
+				new PreferenceSpeechTestClip("Entering clonal colony range of {species}. Minimum {meters} meters.",
+						"Bacterium Acies", Integer.valueOf(50_000)),
 				new PreferenceSpeechTestClip("Leaving clonal colony range of {species}. Minimum {meters} meters.",
 						"Bacterium Acies", Integer.valueOf(10)),
+				new PreferenceSpeechTestClip("Leaving clonal colony range of {species}. Minimum {meters} meters.",
+						"Bacterium Acies", Integer.valueOf(120)),
+				new PreferenceSpeechTestClip("Leaving clonal colony range of {species}. Minimum {meters} meters.",
+						"Bacterium Acies", Integer.valueOf(9_999)),
+				// Exobiology value: single {credits}
 				new PreferenceSpeechTestClip(
 						"{n} signals on planetary body {body} with guaranteed exobiology value of {credits} credits",
 						Integer.valueOf(3), "A 1", Long.valueOf(1_500_000L)),
 				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with guaranteed exobiology value of {credits} credits",
+						Integer.valueOf(1), "A 61 b", Long.valueOf(0L)),
+				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with guaranteed exobiology value of {credits} credits",
+						Integer.valueOf(12), "A 1", Long.valueOf(12_300_000L)),
+				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with guaranteed exobiology value of {credits} credits",
+						Integer.valueOf(42), "A 1", Long.valueOf(900_000_000L)),
+				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with guaranteed exobiology value of {credits} credits",
+						Integer.valueOf(7), "A 1", Long.valueOf(2_000_000_000L)),
+				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with guaranteed exobiology value of {credits} credits",
+						Integer.valueOf(128), "A 1", Long.valueOf(3_100_000_000L)),
+				// Whole millions range {mm}
+				new PreferenceSpeechTestClip(
 						"{n} signals on planetary body {body} with estimated exobiology value from {mm} to {mm} million credits",
 						Integer.valueOf(3), "A 1", Long.valueOf(2L), Long.valueOf(12L)),
 				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with estimated exobiology value from {mm} to {mm} million credits",
+						Integer.valueOf(2), "A 1", Long.valueOf(1L), Long.valueOf(2L)),
+				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with estimated exobiology value from {mm} to {mm} million credits",
+						Integer.valueOf(100), "A 1", Long.valueOf(5L), Long.valueOf(999L)),
+				// Arbitrary credit range
+				new PreferenceSpeechTestClip(
 						"{n} signals on planetary body {body} with estimated value between {credits} and {credits} credits",
 						Integer.valueOf(3), "A 1", Long.valueOf(1_000L), Long.valueOf(50_000L)),
+				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with estimated value between {credits} and {credits} credits",
+						Integer.valueOf(5), "A 1", Long.valueOf(1_500_000L), Long.valueOf(12_300_000L)),
+				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with estimated value between {credits} and {credits} credits",
+						Integer.valueOf(1), "A 1", Long.valueOf(99_000L), Long.valueOf(150_000L)),
+				new PreferenceSpeechTestClip(
+						"{n} signals on planetary body {body} with estimated value between {credits} and {credits} credits",
+						Integer.valueOf(8), "A 1", Long.valueOf(2_000_000_000L), Long.valueOf(3_000_000_000L)),
 		};
 	}
 

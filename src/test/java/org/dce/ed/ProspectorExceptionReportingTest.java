@@ -30,37 +30,37 @@ class ProspectorExceptionReportingTest {
         });
 
         try {
-            // Force buildProspectorAnnouncement() to reach event.getTimestamp().toString()
-            // by ensuring we have at least one "match" row (so it doesn't return null early).
-            OverlayPreferences.setProspectorMaterialsCsv("platinum");
-            OverlayPreferences.setProspectorMinProportionPercent(1.0);
-            OverlayPreferences.setProspectorMinAvgValueCrPerTon(0);
-            // Avoid Google Sheets I/O on the EDT during syncAsteroidCounterFromBackendForCurrentLocation
-            // (would delay buildProspectorAnnouncement and this test's latch).
-            OverlayPreferences.setMiningLogBackend("local");
-            OverlayPreferences.clearMiningGoogleSheetsUrl();
+            try (MiningSheetPrefsTestGuard ignored = new MiningSheetPrefsTestGuard()) {
+                // Force buildProspectorAnnouncement() to reach event.getTimestamp().toString()
+                // by ensuring we have at least one "match" row (so it doesn't return null early).
+                OverlayPreferences.setProspectorMaterialsCsv("platinum");
+                OverlayPreferences.setProspectorMinProportionPercent(1.0);
+                OverlayPreferences.setProspectorMinAvgValueCrPerTon(0);
+                // Avoid Google Sheets I/O on the EDT during syncAsteroidCounterFromBackendForCurrentLocation
+                // (would delay buildProspectorAnnouncement and this test's latch). Guard restores real prefs after.
 
-            EliteOverlayTabbedPane tabs = new EliteOverlayTabbedPane(() -> false);
+                EliteOverlayTabbedPane tabs = new EliteOverlayTabbedPane(() -> false);
 
-            // Force an exception inside MiningTabPanel.updateFromProspector():
-            // buildProspectorAnnouncement calls event.getTimestamp().toString().
-            ProspectedAsteroidEvent event = new ProspectedAsteroidEvent(
-                    null, // timestamp
-                    new JsonObject(),
-                    List.of(new MaterialProportion("platinum", 20.0)),
-                    null,
-                    "High"
-            );
+                // Force an exception inside MiningTabPanel.updateFromProspector():
+                // buildProspectorAnnouncement calls event.getTimestamp().toString().
+                ProspectedAsteroidEvent event = new ProspectedAsteroidEvent(
+                        null, // timestamp
+                        new JsonObject(),
+                        List.of(new MaterialProportion("platinum", 20.0)),
+                        null,
+                        "High"
+                );
 
-            tabs.processJournalEvent(event);
+                tabs.processJournalEvent(event);
 
-            assertTrue(reported.await(2, TimeUnit.SECONDS), "Expected exception reporter to be invoked");
+                assertTrue(reported.await(2, TimeUnit.SECONDS), "Expected exception reporter to be invoked");
 
-            SwingUtilities.invokeAndWait(() -> {
-            });
+                SwingUtilities.invokeAndWait(() -> {
+                });
 
-            assertTrue(errorLabel.isVisible(), "ERROR label should be visible");
-            assertEquals("ERROR: Prospector update", errorLabel.getText());
+                assertTrue(errorLabel.isVisible(), "ERROR label should be visible");
+                assertEquals("ERROR: Prospector update", errorLabel.getText());
+            }
         } finally {
             ExceptionReporting.setReporter((t, context) -> {});
         }

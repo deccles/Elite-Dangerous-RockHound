@@ -540,7 +540,7 @@ public class TtsSprintf {
         List<String> out = new ArrayList<>();
         for (String p : parts) {
             if (!p.isBlank()) {
-                out.add(p);
+                out.addAll(expandSingleIntegerTokenOrPassThrough(p));
             }
         }
         return out.isEmpty() ? List.of(emptyPhrase) : out;
@@ -630,16 +630,17 @@ public class TtsSprintf {
 
     private static List<String> expandCreditsCompact(long n) {
         if (n == 0) {
-            return List.of("0");
+            return expandNumberToWords(0);
         }
 
         // Prefer compact "X point Y million/billion" when it’s clean to do so:
         // - exactly one decimal digit (remainder aligns to 0.1 units)
         // - no rounding (deterministic, cache-friendly)
+        // Whole and fractional parts use English words (reusable clips), not multi-digit strings like "53".
         // Examples:
-        //  1,500,000 -> ["1","point","5","million"]
-        //  2,000,000 -> ["2","million"]
-        //  12,300,000 -> ["12","point","3","million"]
+        //  1,500,000 -> ["one","point","five","million"]
+        //  2,000,000 -> ["two","million"]
+        //  12,300,000 -> ["twelve","point","three","million"]
         if (n >= 1_000_000_000L) {
             return compactWithOneDecimal(n, 1_000_000_000L, "billion");
         }
@@ -657,9 +658,11 @@ public class TtsSprintf {
         long whole = n / scale;
         long rem = n % scale;
 
-        // If exact scale, just "whole scaleWord"
+        // If exact scale, just "<words for whole> scaleWord"
         if (rem == 0) {
-            return List.of(Long.toString(whole), scaleWord);
+            List<String> out = new ArrayList<>(expandNumberToWords(whole));
+            out.add(scaleWord);
+            return out;
         }
 
         // We only emit one decimal digit when rem is exactly a tenth of the scale (no rounding).
@@ -673,12 +676,11 @@ public class TtsSprintf {
             return expandNumberToWords(n);
         }
 
-        return List.of(
-                Long.toString(whole),
-                "point",
-                Long.toString(decimalDigit),
-                scaleWord
-        );
+        List<String> out = new ArrayList<>(expandNumberToWords(whole));
+        out.add("point");
+        out.add(basicNumberWord((int) decimalDigit));
+        out.add(scaleWord);
+        return out;
     }
 
     private static List<String> resolveMetersDefault(String tag, Object value) {
@@ -741,34 +743,51 @@ public class TtsSprintf {
             if (part == null || part.isBlank()) {
                 continue;
             }
-            String t = part.trim();
-            if (t.matches("-?\\d+")) {
-                try {
-                    long v = Long.parseLong(t);
-                    if (v == Long.MIN_VALUE) {
-                        out.add(t);
-                        continue;
-                    }
-                    if (v < 0) {
-                        out.add("minus");
-                        out.addAll(expandNumberToWords(-v));
-                    } else {
-                        out.addAll(expandNumberToWords(v));
-                    }
-                } catch (NumberFormatException e) {
-                    out.add(t);
-                }
-            } else {
-                out.add(t);
-            }
+            out.addAll(expandSingleIntegerTokenOrPassThrough(part));
         }
         return out.isEmpty() ? List.of("unknown body") : out;
+    }
+
+    /**
+     * One whitespace token: if it is only an optional sign and digits (e.g. {@code -1294967296} from bad overflow
+     * upstream), expand to English word chunks; otherwise keep one non-numeric token.
+     */
+    private static List<String> expandSingleIntegerTokenOrPassThrough(String token) {
+        if (token == null) {
+            return List.of();
+        }
+        String t = token.trim();
+        if (t.isEmpty()) {
+            return List.of();
+        }
+        if (t.matches("-?\\d+")) {
+            try {
+                long v = Long.parseLong(t);
+                if (v == Long.MIN_VALUE) {
+                    return List.of(t);
+                }
+                if (v < 0) {
+                    List<String> o = new ArrayList<>();
+                    o.add("minus");
+                    o.addAll(expandNumberToWords(-v));
+                    return o;
+                }
+                return new ArrayList<>(expandNumberToWords(v));
+            } catch (NumberFormatException e) {
+                return List.of(t);
+            }
+        }
+        return List.of(t);
     }
 
     // -----------------------
     // Helpers
     // -----------------------
 
+    /**
+     * Unknown {@code {tag}} values: avoid a single spoken chunk like {@code -1294967296} (overflowed {@code int}
+     * stringified) by expanding integer-looking strings the same way as {@link #resolveNumberDefault}.
+     */
     private static List<String> defaultStringify(Object value) {
         if (value == null) {
             return List.of();
@@ -777,7 +796,7 @@ public class TtsSprintf {
         if (s == null || s.isBlank()) {
             return List.of();
         }
-        return List.of(s.trim());
+        return expandSingleIntegerTokenOrPassThrough(s);
     }
 
     private static String normalizeSpaces(String s) {

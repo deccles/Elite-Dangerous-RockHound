@@ -636,6 +636,17 @@ public class SystemTabPanel extends JPanel {
     // ---------------------------------------------------------------------
 
     /**
+     * {@code payoutRange[2]} should be a small FSS signal count; if it is ever corrupted or widened to a huge
+     * credit-like value, casting to {@code int} can yield {@code -1294967296} and poison TTS manifests.
+     */
+    private static int safeBioSignalCountForSpeech(long raw) {
+        if (raw < 0L || raw > 100_000L) {
+            return 0;
+        }
+        return (int) raw;
+    }
+
+    /**
      * @return {@code [minCredits, maxCredits, signalCountUsed]} or {@code null}
      */
     private static long[] bioPayoutRangeForCandidates(List<BioCandidate> candidates,
@@ -753,7 +764,7 @@ public class SystemTabPanel extends JPanel {
                 if (payoutRange != null && e.getKind() == PredictionKind.INITIAL) {
                     long minTotal = payoutRange[0];
                     long maxTotal = payoutRange[1];
-                    int signalCount = (int) payoutRange[2];
+                    int signalCount = safeBioSignalCountForSpeech(payoutRange[2]);
 
                     long thresholdCr = OverlayPreferences.getMiningExobiologyValuableBioThresholdCredits();
                     long maxSingleSpecies = 0L;

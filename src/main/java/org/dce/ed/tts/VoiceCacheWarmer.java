@@ -43,8 +43,14 @@ import software.amazon.awssdk.services.polly.model.VoiceId;
  *   java ... org.dce.ed.tts.VoiceCacheWarmer salli
  *   java ... org.dce.ed.tts.VoiceCacheWarmer salli -create
  *   java ... org.dce.ed.tts.VoiceCacheWarmer all -create
+ *   java ... org.dce.ed.tts.VoiceCacheWarmer all -deploy 1.0.1
  * Use {@code all} to warm every voice in {@link PollyTtsCached#STANDARD_US_ENGLISH_VOICES}. With
  * {@code -create} (or {@code --create}), also writes {@code target/voice-&lt;voice&gt;.zip} per voice.
+ * With {@code -deploy &lt;releaseTag&gt;} (after zips exist), runs {@code gh release upload} only for the
+ * pack zip(s) built in that run (one voice → one zip; {@code all} → one zip per standard voice) to
+ * {@code deccles/Elite-Dangerous-RockHound} (implies {@code -create}).
+ * If {@code gh} is not on the JVM's {@code PATH} (common on Windows), set {@code -Dedo.ghPath=...} or
+ * {@code EDO_GH_PATH} to {@code gh.exe}, or rely on the standard GitHub CLI install locations.
  *
  * <p><b>Parallelism:</b> warming runs several worker threads (default {@code min(8, availableProcessors)},
  * at least 2). Override with JVM flag {@code -Dedo.voiceWarmParallelism=N}. Polly rate limits may require lowering N.
@@ -77,6 +83,15 @@ public final class VoiceCacheWarmer {
     }
 
     static final String VOICE_WARM_PARALLELISM_PROPERTY = "edo.voiceWarmParallelism";
+
+    /** Same repo as {@link VoicePackManager} voice-pack downloads; used by {@code -deploy}. */
+    private static final String VOICE_PACK_GITHUB_REPO = "deccles/Elite-Dangerous-RockHound";
+
+    /**
+     * Absolute path to {@code gh} when it is not on the JVM's {@code PATH} (typical for IDE / GUI launches on Windows).
+     * Example: {@code -Dedo.ghPath="C:\Program Files\GitHub CLI\gh.exe"}
+     */
+    static final String GH_PATH_PROPERTY = "edo.ghPath";
 
     private static <T> void runChunkedParallel(String phase, List<T> items, ItemWarm<T> work) throws Exception {
         if (items == null || items.isEmpty()) {
@@ -541,6 +556,12 @@ public final class VoiceCacheWarmer {
      * {@code zero}. {@link TtsSprintf} expands most integers to English words (e.g. 21 → {@code twenty} then
      * {@code one}); those word clips reuse this digit/round-ten set. Teens 11–19 are single words (e.g.
      * {@code fifteen}) and are warmed separately via {@link #warmProspectorTeenPercentLines}.
+     * <p>
+     * Billions (and millions) in {@code {credits}} speech are not a single multi-digit token: they are
+     * {@link TtsSprintf} word chunks like {@code three} + {@code billion}. Scale words {@code million} /
+     * {@code billion} come from {@link #findUnitWordsFromTemplates}; whole credit lines are warmed via templates.
+     * We do not add {@code 3000000000}-style literals here (they were never spoken for credits and risked int
+     * overflow before long math).
      */
     private static Set<String> numericComboSpeechTokens() {
         Set<String> out = new LinkedHashSet<>();
@@ -558,9 +579,6 @@ public final class VoiceCacheWarmer {
         }
         for (int m = 1; m <= 9; m++) {
             out.add(Integer.toString(m * 1_000_000));
-        }
-        for (int b = 1; b <= 9; b++) {
-            out.add(Integer.toString(b * 1_000_000_000));
         }
         out.add("minus");
         out.add("zero");
@@ -803,6 +821,16 @@ public final class VoiceCacheWarmer {
                 || "/create".equalsIgnoreCase(s);
     }
 
+    private static boolean isDeployFlag(String t) {
+        if (t == null) {
+            return false;
+        }
+        String s = t.trim();
+        return "-deploy".equalsIgnoreCase(s)
+                || "--deploy".equalsIgnoreCase(s)
+                || "/deploy".equalsIgnoreCase(s);
+    }
+
     public static void main(String[] args) {
         args = normalizeProgramArgs(args);
         if (args == null || args.length == 0) {
@@ -811,14 +839,31 @@ public final class VoiceCacheWarmer {
         }
 
         boolean createZip = false;
+        boolean deploy = false;
+        String deployTag = null;
         String voiceRaw = null;
-        for (String a : args) {
+        for (int i = 0; i < args.length; i++) {
+            String a = args[i];
             if (a == null || a.isBlank()) {
                 continue;
             }
             String t = a.trim();
             if (isCreatePackFlag(t)) {
                 createZip = true;
+                continue;
+            }
+            if (isDeployFlag(t)) {
+                deploy = true;
+                if (i + 1 < args.length) {
+                    String next = args[i + 1].trim();
+                    if (!next.isEmpty()
+                            && !next.startsWith("-")
+                            && !isCreatePackFlag(next)
+                            && !isDeployFlag(next)) {
+                        deployTag = next;
+                        i++;
+                    }
+                }
                 continue;
             }
             if (t.startsWith("-")) {
@@ -834,6 +879,15 @@ public final class VoiceCacheWarmer {
             voiceRaw = t;
         }
 
+        if (deploy && (deployTag == null || deployTag.isBlank())) {
+            System.err.println("-deploy requires a GitHub release tag (example: -deploy 1.0.1)");
+            printUsage();
+            return;
+        }
+        if (deploy) {
+            createZip = true;
+        }
+
         if (voiceRaw == null) {
             System.err.println("Voice name required.");
             printUsage();
@@ -843,10 +897,15 @@ public final class VoiceCacheWarmer {
         if ("all".equalsIgnoreCase(voiceRaw)) {
             List<String> voices = PollyTtsCached.STANDARD_US_ENGLISH_VOICES;
             System.out.println("Warming " + voices.size() + " standard US English voices: " + voices);
+            List<Path> zipsForDeploy = new ArrayList<>();
             for (String voice : voices) {
-                warmAndMaybeZipOneVoice(voice, createZip);
+                Path created = warmAndMaybeZipOneVoice(voice, createZip);
+                if (created != null) {
+                    zipsForDeploy.add(created);
+                }
             }
             System.out.println("Finished all voices.");
+            tryFinishDeploy(deploy, deployTag, zipsForDeploy);
             return;
         }
 
@@ -857,20 +916,156 @@ public final class VoiceCacheWarmer {
             return;
         }
 
-        warmAndMaybeZipOneVoice(voice, createZip);
+        Path createdZip = warmAndMaybeZipOneVoice(voice, createZip);
+        tryFinishDeploy(deploy, deployTag, createdZip != null ? List.of(createdZip) : List.of());
+    }
+
+    private static void tryFinishDeploy(boolean deploy, String deployTag, List<Path> zipsToUpload) {
+        if (!deploy) {
+            return;
+        }
+        try {
+            runGhReleaseUploadVoicePacks(deployTag, zipsToUpload);
+        } catch (Exception e) {
+            System.err.println("Deploy failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Runs: {@code gh release upload <tag> <zip paths> --repo ... --clobber} for the given zips only
+     * (typically those just created by this warmer run).
+     */
+    private static void runGhReleaseUploadVoicePacks(String releaseTag, List<Path> zips) throws IOException, InterruptedException {
+        if (zips == null || zips.isEmpty()) {
+            System.err.println("No voice pack zip was produced in this run; skipping gh release upload.");
+            return;
+        }
+        List<Path> existing = new ArrayList<>();
+        for (Path zip : zips) {
+            if (zip != null && Files.isRegularFile(zip)) {
+                existing.add(zip.toAbsolutePath().normalize());
+            }
+        }
+        if (existing.isEmpty()) {
+            System.err.println("Pack zip path(s) from this run are missing on disk; skipping gh release upload.");
+            return;
+        }
+
+        Path ghExe = resolveGhExecutable();
+
+        List<String> cmd = new ArrayList<>();
+        cmd.add(ghExe.toString());
+        cmd.add("release");
+        cmd.add("upload");
+        cmd.add(releaseTag);
+        for (Path zip : existing) {
+            cmd.add(zip.toString());
+        }
+        cmd.add("--repo");
+        cmd.add(VOICE_PACK_GITHUB_REPO);
+        cmd.add("--clobber");
+
+        System.out.println("Running: " + ghExe.getFileName() + " release upload " + releaseTag + " (" + existing.size()
+                + " zips) --repo " + VOICE_PACK_GITHUB_REPO + " --clobber");
+        System.out.println("(gh path: " + ghExe + ")");
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.inheritIO();
+        Process p = pb.start();
+        int code = p.waitFor();
+        if (code != 0) {
+            throw new IOException("gh release upload exited with code " + code);
+        }
+        System.out.println("Uploaded " + existing.size() + " voice pack(s) to release " + releaseTag + ".");
+    }
+
+    private static Path resolveGhExecutable() throws IOException {
+        String prop = System.getProperty(GH_PATH_PROPERTY);
+        if (prop != null && !prop.isBlank()) {
+            Path p = Path.of(prop.trim());
+            if (Files.isRegularFile(p)) {
+                return p.toAbsolutePath().normalize();
+            }
+            throw new IOException(GH_PATH_PROPERTY + " points to a missing file: " + p.toAbsolutePath());
+        }
+        String env = firstNonBlankEnv("EDO_GH_PATH");
+        if (env != null) {
+            Path p = Path.of(env.trim());
+            if (Files.isRegularFile(p)) {
+                return p.toAbsolutePath().normalize();
+            }
+        }
+
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("windows")) {
+            for (Path candidate : ghWindowsInstallCandidates()) {
+                if (Files.isRegularFile(candidate)) {
+                    return candidate.toAbsolutePath().normalize();
+                }
+            }
+        } else {
+            for (String c : List.of("/usr/local/bin/gh", "/opt/homebrew/bin/gh", "/usr/bin/gh")) {
+                Path p = Path.of(c);
+                if (Files.isRegularFile(p)) {
+                    return p.toAbsolutePath().normalize();
+                }
+            }
+        }
+
+        throw new IOException(
+                "GitHub CLI (gh) not found. Install gh and/or set path explicitly, e.g. -D" + GH_PATH_PROPERTY
+                        + "=\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" or environment variable EDO_GH_PATH."
+                        + " IDE launches on Windows often omit gh from PATH.");
+    }
+
+    private static String firstNonBlankEnv(String... names) {
+        for (String n : names) {
+            if (n == null) {
+                continue;
+            }
+            String v = System.getenv(n);
+            if (v != null && !v.isBlank()) {
+                return v.trim();
+            }
+        }
+        return null;
+    }
+
+    private static List<Path> ghWindowsInstallCandidates() {
+        List<Path> out = new ArrayList<>();
+        String localAppData = System.getenv("LOCALAPPDATA");
+        if (localAppData != null && !localAppData.isBlank()) {
+            out.add(Path.of(localAppData, "Programs", "GitHub CLI", "gh.exe"));
+            out.add(Path.of(localAppData, "GitHub CLI", "gh.exe"));
+        }
+        String pf = System.getenv("ProgramFiles");
+        if (pf != null && !pf.isBlank()) {
+            out.add(Path.of(pf, "GitHub CLI", "gh.exe"));
+        }
+        String pf86 = System.getenv("ProgramFiles(x86)");
+        if (pf86 != null && !pf86.isBlank()) {
+            out.add(Path.of(pf86, "GitHub CLI", "gh.exe"));
+        }
+        return out;
     }
 
     private static void printUsage() {
-        System.err.println("Usage: VoiceCacheWarmer <voice|all> [-create]");
+        System.err.println("Usage: VoiceCacheWarmer <voice|all> [-create] [-deploy <releaseTag>]");
         System.err.println("  voice    Polly voice id, case-insensitive (e.g. salli, Joanna)");
         System.err.println("  all      warm every voice in PollyTtsCached.STANDARD_US_ENGLISH_VOICES");
         System.err.println("  -create  after warming, write target/voice-<voice>.zip (one zip per voice)");
+        System.err.println("  -deploy <tag>  gh release upload for pack(s) built this run only (not every");
+        System.err.println("                 target/voice-*.zip) to " + VOICE_PACK_GITHUB_REPO);
+        System.err.println("                 (implies -create; needs GitHub CLI: gh on PATH, or standard Windows");
+        System.err.println("                 install dirs, or -D" + GH_PATH_PROPERTY + " / env EDO_GH_PATH)");
     }
 
     /**
      * Warm one canonical voice name and optionally create {@code target/voice-<lower>.zip}.
+     *
+     * @return absolute path to the zip if {@code createZip} and packaging succeeded; otherwise {@code null}
      */
-    private static void warmAndMaybeZipOneVoice(String voice, boolean createZip) {
+    private static Path warmAndMaybeZipOneVoice(String voice, boolean createZip) {
         try {
             warmAll(voice);
             System.out.println("Done warming cache for voice: " + voice);
@@ -889,10 +1084,12 @@ public final class VoiceCacheWarmer {
                 System.out.println("Creating voice pack: " + absZip);
                 VoicePackManager.createVoicePackZip(voice, zip);
                 System.out.println("Created pack: " + absZip);
+                return absZip;
             } catch (Exception e) {
                 System.err.println("Pack zip failed for " + voice + ": " + e.getMessage());
                 e.printStackTrace();
             }
         }
+        return null;
     }
 }

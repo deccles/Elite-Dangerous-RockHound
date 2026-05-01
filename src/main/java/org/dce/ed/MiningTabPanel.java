@@ -2464,7 +2464,23 @@ return EdoUi.User.MAIN_TEXT;
     	}
     }
 
-
+    /**
+     * {@code (int) Math.round} on absurd journal doubles (e.g. {@code 3e9}) overflows to {@code -1294967296} and
+     * becomes a bogus single-word TTS cache key; clamp before rounding/cast.
+     */
+    private static int clampRoundedProportionPercent(double pct) {
+        if (Double.isNaN(pct) || Double.isInfinite(pct)) {
+            return 0;
+        }
+        long r = Math.round(pct);
+        if (r < 0L) {
+            return 0;
+        }
+        if (r > 1_000_000L) {
+            return 0;
+        }
+        return (int) r;
+    }
 
     private ProspectorAnnouncement buildProspectorAnnouncement(ProspectedAsteroidEvent event, List<Row> rows) {
     	if (event == null || rows == null || rows.isEmpty()) {
@@ -2562,8 +2578,8 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
     		names.add(r.getName());
     	}
 
-    	int minRounded = (int) Math.round(minPct);
-    	int maxRounded = (int) Math.round(maxPct);
+    	int minRounded = clampRoundedProportionPercent(minPct);
+    	int maxRounded = clampRoundedProportionPercent(maxPct);
 
     	String ts = event.getTimestamp().toString();
     	if (ts.length() > 19) {
@@ -2573,7 +2589,7 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
     	// SINGLE vs LIST
     	if (names.size() == 1) {
     		Row only = matches.get(0);
-    		int pctRounded = (int) Math.round(only.getProportionPercent());
+    		int pctRounded = clampRoundedProportionPercent(only.getProportionPercent());
 
     		String sig = ts + "|" + only.getName() + "|" + pctRounded;
     		if (sig.equals(lastProspectorAnnouncementSig)) {
