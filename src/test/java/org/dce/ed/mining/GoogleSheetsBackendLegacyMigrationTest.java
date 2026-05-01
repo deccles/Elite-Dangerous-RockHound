@@ -9,34 +9,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import org.dce.ed.OverlayPreferences;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class GoogleSheetsBackendLegacyMigrationTest {
-
-    private int savedLayoutVersion;
-    private String savedBackend;
-    private String savedUrl;
-
-    @BeforeEach
-    void savePrefs() {
-        savedLayoutVersion = OverlayPreferences.getMiningGoogleSheetsLayoutVersion();
-        savedBackend = OverlayPreferences.getMiningLogBackend();
-        savedUrl = OverlayPreferences.getMiningGoogleSheetsUrl();
-    }
-
-    @AfterEach
-    void restorePrefs() {
-        OverlayPreferences.setMiningGoogleSheetsLayoutVersion(savedLayoutVersion);
-        OverlayPreferences.setMiningLogBackend(savedBackend);
-        if (savedUrl == null || savedUrl.isBlank()) {
-            OverlayPreferences.clearMiningGoogleSheetsUrl();
-        } else {
-            OverlayPreferences.setMiningGoogleSheetsUrl(savedUrl);
-        }
-    }
 
     @Test
     void legacySheetIsEmptyOrHeaderOnly() {
@@ -81,22 +56,15 @@ class GoogleSheetsBackendLegacyMigrationTest {
     }
 
     @Test
-    void shouldRunFirstLaunchMiningSheetMigration_respectsPrefs() {
-        OverlayPreferences.setMiningGoogleSheetsLayoutVersion(0);
-        OverlayPreferences.setMiningLogBackend("google");
-        OverlayPreferences.setMiningGoogleSheetsUrl("https://docs.google.com/spreadsheets/d/abc123/edit");
-        assertTrue(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration());
+    void shouldRunFirstLaunchMiningSheetMigration_respectsInputs() {
+        int migrated = GoogleSheetsBackend.MINING_LAYOUT_VERSION_PER_COMMANDER_TABS;
+        String url = "https://docs.google.com/spreadsheets/d/abc123/edit";
 
-        OverlayPreferences.setMiningGoogleSheetsLayoutVersion(
-                GoogleSheetsBackend.MINING_LAYOUT_VERSION_PER_COMMANDER_TABS);
-        assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration());
-
-        OverlayPreferences.setMiningGoogleSheetsLayoutVersion(0);
-        OverlayPreferences.setMiningLogBackend("local");
-        assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration());
-
-        OverlayPreferences.setMiningLogBackend("google");
-        OverlayPreferences.clearMiningGoogleSheetsUrl();
-        assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration());
+        assertTrue(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration(0, "google", url));
+        assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration(migrated, "google", url));
+        assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration(0, "local", url));
+        assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration(0, "google", ""));
+        assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration(0, "google", "   "));
+        assertFalse(GoogleSheetsBackend.shouldRunFirstLaunchMiningSheetMigration(0, "google", null));
     }
 }

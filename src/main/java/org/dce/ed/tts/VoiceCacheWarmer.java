@@ -198,6 +198,10 @@ public final class VoiceCacheWarmer {
             // Full prospector line per commodity display name so multi-word materials match real SSML mark boundaries.
             warmProspectorSingleMaterialTemplates(sprintf, commodityDisplayNames);
 
+            // Eleven–nineteen are single English words in TTS ({n}/{min}/{max}); warm real prospector lines so those
+            // clips exist. Other integers still split (e.g. 21 → twenty + one) and are covered by numeric tokens + templates.
+            warmProspectorTeenPercentLines(sprintf, sampleMaterialA, sampleListTwo);
+
             // Warm full templates found in the code with representative placeholder values.
             warmTemplates(sprintf, templates, sampleBodies, sampleSpecies,
                     sampleMaterialA, sampleMaterialB, sampleListTwo, sampleListOxford);
@@ -259,6 +263,18 @@ public final class VoiceCacheWarmer {
                 }
             }
         });
+    }
+
+    private static void warmProspectorTeenPercentLines(TtsSprintf sprintf, String sampleMaterial, String sampleListTwo)
+            throws Exception {
+        String material = (sampleMaterial == null || sampleMaterial.isBlank()) ? "Tritium" : sampleMaterial;
+        for (int pct = 11; pct <= 19; pct++) {
+            sprintf.ensureCachedfBlocking("Prospector found {material} at {n} percent.", material, pct);
+        }
+        if (sampleListTwo != null && !sampleListTwo.isBlank()) {
+            sprintf.ensureCachedfBlocking(
+                    "Prospector found {list} from {min} to {max} percent.", sampleListTwo, 11, 19);
+        }
     }
 
     private static void warmProspectorSingleMaterialTemplates(TtsSprintf sprintf, List<String> commodityDisplayNames) throws Exception {
@@ -521,8 +537,10 @@ public final class VoiceCacheWarmer {
     }
 
     /**
-     * Building blocks for {@code {n}} combo speech: digits, round tens, hundreds, … plus {@code minus} / {@code zero}.
-     * Integers are spoken as sequences (e.g. 41 → 40 + 1), not one clip per 0…9999.
+     * Building blocks for compositional number speech: digits, round tens, hundreds, … plus {@code minus} /
+     * {@code zero}. {@link TtsSprintf} expands most integers to English words (e.g. 21 → {@code twenty} then
+     * {@code one}); those word clips reuse this digit/round-ten set. Teens 11–19 are single words (e.g.
+     * {@code fifteen}) and are warmed separately via {@link #warmProspectorTeenPercentLines}.
      */
     private static Set<String> numericComboSpeechTokens() {
         Set<String> out = new LinkedHashSet<>();

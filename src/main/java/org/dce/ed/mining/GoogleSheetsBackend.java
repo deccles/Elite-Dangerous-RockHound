@@ -160,17 +160,26 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
     }
 
     /**
-     * Whether first-launch migration may run (layout version, backend, URL). Does not check OAuth.
+     * Whether first-launch migration may run for the given layout/backend/url. Does not read preferences or OAuth.
+     */
+    public static boolean shouldRunFirstLaunchMiningSheetMigration(int layoutVersion, String backend, String url) {
+        if (layoutVersion >= MINING_LAYOUT_VERSION_PER_COMMANDER_TABS) {
+            return false;
+        }
+        if (!"google".equals(backend)) {
+            return false;
+        }
+        return url != null && !url.isBlank();
+    }
+
+    /**
+     * Whether first-launch migration may run (layout version, backend, URL from preferences). Does not check OAuth.
      */
     public static boolean shouldRunFirstLaunchMiningSheetMigration() {
-        if (OverlayPreferences.getMiningGoogleSheetsLayoutVersion() >= MINING_LAYOUT_VERSION_PER_COMMANDER_TABS) {
-            return false;
-        }
-        if (!"google".equals(OverlayPreferences.getMiningLogBackend())) {
-            return false;
-        }
-        String url = OverlayPreferences.getMiningGoogleSheetsUrl();
-        return url != null && !url.isBlank();
+        return shouldRunFirstLaunchMiningSheetMigration(
+                OverlayPreferences.getMiningGoogleSheetsLayoutVersion(),
+                OverlayPreferences.getMiningLogBackend(),
+                OverlayPreferences.getMiningGoogleSheetsUrl());
     }
 
     private static Sheets createSheetsService() throws IOException, GeneralSecurityException {

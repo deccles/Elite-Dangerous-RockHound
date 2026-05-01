@@ -36,6 +36,11 @@ import com.google.gson.JsonParser;
 
 /**
  * Downloads and installs pre-generated TTS voice packs from GitHub releases.
+ * <p>
+ * <b>Typical player setup:</b> speech is on with <em>AWS synthesis off</em> — all runtime audio comes from these
+ * packs (local WAV cache). Amazon Polly / AWS in the app is mainly a <strong>maintainer path</strong> for generating
+ * clips when building or refreshing packs (e.g. {@link VoiceCacheWarmer}), not something most users leave on.
+ * </p>
  * 
  * Voice packs are zip files named like "voice-salli.zip" attached to releases.
  * They contain the cached WAV files (end/ and mid/ subdirectories) plus manifest.tsv.
@@ -111,9 +116,9 @@ public final class VoicePackManager {
     }
 
     /**
-     * If speech is on, AWS synthesis is off, and the app’s {@link #SPEECH_PACK_REVISION} is newer than
-     * the last installed pack (or the selected voice changed), download the GitHub pack in the background
-     * (no progress dialog) and replace the voice cache folder.
+     * If speech is on, AWS synthesis is off (the usual case: pack-only playback), and the app’s
+     * {@link #SPEECH_PACK_REVISION} is newer than the last installed pack (or the selected voice changed),
+     * download the GitHub pack in the background (no progress dialog) and replace the voice cache folder.
      * <p>
      * Also downloads when preferences claim an up-to-date pack but {@link #isVoicePackInstalled(String)}
      * finds no WAV cache (deleted cache, failed extract, new machine, etc.).

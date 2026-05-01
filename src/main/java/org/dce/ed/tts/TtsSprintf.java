@@ -555,9 +555,9 @@ public class TtsSprintf {
     }
 
     /**
-     * Speaks whole integers as a <strong>small set of numeric clips</strong> Polly reads naturally, e.g.
-     * {@code 41} → {@code "40"} then {@code "1"} (forty + one), not one clip {@code "41"}. Cache keys stay
-     * {@code N|…|MID/END} per chunk. Non-integers fall back to a single spoken string.
+     * Speaks whole integers as English word tokens (e.g. {@code 15} → {@code "fifteen"}, {@code 41} →
+     * {@code "forty"} then {@code "one"}) so prospector percentages and similar lines do not sound like digit pairs
+     * ("ten five"). Non-integers fall back to a single spoken string. {@link Long#MIN_VALUE} falls back to digits.
      */
     private static List<String> resolveNumberDefault(String tag, Object value) {
         if (value == null) {
@@ -569,91 +569,22 @@ public class TtsSprintf {
         }
         if (raw.matches("-?\\d+")) {
             try {
-                return expandSignedLongToNumericChunks(Long.parseLong(raw));
+                long v = Long.parseLong(raw);
+                if (v == Long.MIN_VALUE) {
+                    return List.of(raw);
+                }
+                if (v < 0) {
+                    List<String> out = new ArrayList<>();
+                    out.add("minus");
+                    out.addAll(expandNumberToWords(-v));
+                    return out;
+                }
+                return expandNumberToWords(v);
             } catch (NumberFormatException e) {
                 return List.of(raw);
             }
         }
         return List.of(raw);
-    }
-
-    private static List<String> expandSignedLongToNumericChunks(long n) {
-        if (n == Long.MIN_VALUE) {
-            return List.of(Long.toString(n));
-        }
-        if (n < 0) {
-            List<String> out = new ArrayList<>();
-            out.add("minus");
-            out.addAll(expandPositiveLongToNumericChunks(Math.abs(n)));
-            return out;
-        }
-        if (n == 0) {
-            return List.of("0");
-        }
-        return expandPositiveLongToNumericChunks(n);
-    }
-
-    /**
-     * Decomposes {@code n &gt; 0} into spoken sub-amounts: tens+ones under 100, then hundreds / thousands / millions /
-     * billions as round blocks plus remainder (e.g. 5341 → 5000, 300, 40, 1).
-     */
-    private static List<String> expandPositiveLongToNumericChunks(long n) {
-        if (n <= 0) {
-            return n == 0 ? List.of("0") : List.of(Long.toString(n));
-        }
-        if (n < 10L) {
-            return List.of(Long.toString(n));
-        }
-        if (n < 100L) {
-            long tens = (n / 10L) * 10L;
-            long ones = n % 10L;
-            if (ones == 0L) {
-                return List.of(Long.toString(n));
-            }
-            return List.of(Long.toString(tens), Long.toString(ones));
-        }
-        if (n < 1000L) {
-            long rem = n % 100L;
-            if (rem == 0L) {
-                return List.of(Long.toString(n));
-            }
-            long hundreds = (n / 100L) * 100L;
-            List<String> out = new ArrayList<>();
-            out.add(Long.toString(hundreds));
-            out.addAll(expandPositiveLongToNumericChunks(rem));
-            return out;
-        }
-        if (n < 1_000_000L) {
-            long rem = n % 1000L;
-            if (rem == 0L) {
-                return List.of(Long.toString(n));
-            }
-            long thousands = (n / 1000L) * 1000L;
-            List<String> out = new ArrayList<>();
-            out.add(Long.toString(thousands));
-            out.addAll(expandPositiveLongToNumericChunks(rem));
-            return out;
-        }
-        if (n < 1_000_000_000L) {
-            long rem = n % 1_000_000L;
-            if (rem == 0L) {
-                return List.of(Long.toString(n));
-            }
-            long millions = (n / 1_000_000L) * 1_000_000L;
-            List<String> out = new ArrayList<>();
-            out.add(Long.toString(millions));
-            out.addAll(expandPositiveLongToNumericChunks(rem));
-            return out;
-        }
-        long rem = n % 1_000_000_000L;
-        if (rem == 0L) {
-            return List.of(Long.toString(n));
-        }
-        long billions = (n / 1_000_000_000L) * 1_000_000_000L;
-        List<String> out = new ArrayList<>();
-        out.add(Long.toString(billions));
-        out.addAll(expandPositiveLongToNumericChunks(rem));
-        return out;
     }
 
     private static List<String> resolveCreditsDefault(String tag, Object value) {
@@ -774,27 +705,64 @@ public class TtsSprintf {
         }
 
         // Example values you might pass:
-        //   "5f" => ["5", "f"]
-        //   "A 5 f" => ["A", "5", "f"]
-        //   12 => ["12"]
+        //   "5f" => ["five", "f"]  (pure integer runs use words, same as {n})
+        //   "A 61 b" => ["A", "sixty", "one", "b"]
         String s = value.toString().trim();
         if (s.isEmpty()) {
             return List.of("unknown body");
         }
 
-        // If already spaced, keep those tokens:
+        List<String> rawParts;
         if (s.contains(" ")) {
-            List<String> out = new ArrayList<>();
+            rawParts = new ArrayList<>();
             for (String p : s.split("\\s+")) {
                 if (!p.isBlank()) {
-                    out.add(p);
+                    rawParts.add(p.trim());
                 }
             }
-            return out.isEmpty() ? List.of("unknown body") : out;
+        } else {
+            rawParts = splitAlphaNumericTransitions(s);
         }
 
-        // Otherwise split between digit/alpha transitions: "5f" => "5", "f"
-        return splitAlphaNumericTransitions(s);
+        if (rawParts.isEmpty()) {
+            return List.of("unknown body");
+        }
+
+        return expandBodyDigitTokensToWords(rawParts);
+    }
+
+    /**
+     * Expands each body token that is only an integer (e.g. {@code "61"}) into {@link #expandNumberToWords} tokens
+     * so the cache uses reusable word clips (sixty, one) instead of one clip per digit string.
+     */
+    private static List<String> expandBodyDigitTokensToWords(List<String> rawParts) {
+        List<String> out = new ArrayList<>();
+        for (String part : rawParts) {
+            if (part == null || part.isBlank()) {
+                continue;
+            }
+            String t = part.trim();
+            if (t.matches("-?\\d+")) {
+                try {
+                    long v = Long.parseLong(t);
+                    if (v == Long.MIN_VALUE) {
+                        out.add(t);
+                        continue;
+                    }
+                    if (v < 0) {
+                        out.add("minus");
+                        out.addAll(expandNumberToWords(-v));
+                    } else {
+                        out.addAll(expandNumberToWords(v));
+                    }
+                } catch (NumberFormatException e) {
+                    out.add(t);
+                }
+            } else {
+                out.add(t);
+            }
+        }
+        return out.isEmpty() ? List.of("unknown body") : out;
     }
 
     // -----------------------
