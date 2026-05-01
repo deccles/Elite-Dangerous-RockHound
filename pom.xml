@@ -176,6 +176,8 @@
 				<configuration>
 					<systemPropertyVariables>
 						<edo.test.disableSpeech>true</edo.test.disableSpeech>
+						<!-- Isolate SQLite from ~/.edo so session/cache tests do not race the live DB or each other -->
+						<edo.cacheDbFile>${project.build.directory}/edo-test-cache.db</edo.cacheDbFile>
 					</systemPropertyVariables>
 				</configuration>
 			</plugin>
