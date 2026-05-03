@@ -365,19 +365,68 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
             }
 
             byte[] slice = java.util.Arrays.copyOfRange(fullPcm, startByte, endByte);
+            String spokenTrim = chunkTexts.get(idx).trim();
+            boolean tinyLetterOrDigit = spokenTrim.length() == 1
+                    && Character.isLetterOrDigit(spokenTrim.charAt(0));
+            int minSliceBytes = minSsmlMarkSliceBytesForTinyToken(s);
+            boolean isolatedSynth = tinyLetterOrDigit && slice.length < minSliceBytes;
+            if (isolatedSynth) {
+                slice = synthesizePcmPlainText(spokenTrim, s);
+            }
+
             Path wavOut = paths.get(idx);
 
             synchronized (stripeFor(wavOut)) {
                 if (Files.exists(wavOut)) {
                     continue;
                 }
-                writePcmBytesAsWav(slice, wavOut, s.sampleRate, false);
+                writePcmBytesAsWav(slice, wavOut, s.sampleRate, isolatedSynth);
                 writeManifestLine(voiceDir, voiceDir.relativize(wavOut).toString(), chunkTexts.get(idx));
             }
         }
 
         return paths;
     }
+
+    /**
+     * SSML mark times for adjacent {@code <mark/>} + short text can sit within a few milliseconds of each other;
+     * slicing then yields nearly empty PCM for single-letter body tokens. Require at least ~38 ms before trusting
+     * the slice; shorter slices for one character are re-synthesized as plain text.
+     */
+    private static int minSsmlMarkSliceBytesForTinyToken(VoiceSettings s) {
+        return Math.max(256, (int) (2L * s.sampleRate * 38L / 1000L));
+    }
+
+    private byte[] synthesizePcmPlainText(String text, VoiceSettings s) throws IOException {
+        VoiceId voiceId = resolveVoiceId(s.voiceName);
+        if (voiceId == null) {
+            throw new IllegalArgumentException("Unknown Polly voice: " + s.voiceName);
+        }
+        SynthesizeSpeechRequest req = SynthesizeSpeechRequest.builder()
+                .engine(s.engine)
+                .voiceId(voiceId)
+                .outputFormat(OutputFormat.PCM)
+                .sampleRate(Integer.toString(s.sampleRate))
+                .textType(TextType.TEXT)
+                .text(text)
+                .build();
+        try (ResponseInputStream<SynthesizeSpeechResponse> audio = polly.synthesizeSpeech(req)) {
+            return audio.readAllBytes();
+        } catch (Exception e) {
+            if (isMissingAwsCredentialsError(e)) {
+                reportMissingAwsCredentialsIfNeeded(s.voiceName);
+                throw new IOException("AWS Polly credentials not configured", e);
+            }
+            if (e instanceof IOException ioe) {
+                throw ioe;
+            }
+            if (e instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new IOException(e);
+        }
+    }
+
     public void playWavBlocking(Path wavPath) {
         playWavBlockingInternal(wavPath);
     }
@@ -436,6 +485,15 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
     }
 
     /**
+     * When crossfading into the next chunk, keep at least this much of the next chunk after the overlap so
+     * very short clips (e.g. single-letter body tokens like {@code A}) are not reduced to an inaudible blip.
+     */
+    private static int minPostCrossfadeTailSamples(AudioFormat format) {
+        double sr = format.getSampleRate();
+        return Math.max(16, (int) Math.round(sr * 0.030)); // ~30 ms
+    }
+
+    /**
      * Linear crossfade at each join: last {@code overlapSamples} of the accumulated buffer
      * with the first {@code overlapSamples} of the next chunk (16-bit PCM, format endianness).
      */
@@ -459,7 +517,12 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
                 acc = nxt;
                 continue;
             }
-            int ol = Math.min(overlapSamples, Math.min(acc.length, nxt.length));
+            int maxOl = Math.min(overlapSamples, Math.min(acc.length, nxt.length));
+            int minTail = minPostCrossfadeTailSamples(format);
+            int tailBudget = nxt.length - minTail;
+            // If the next clip is shorter than ~one crossfade tail, skip blending and concatenate (prevents
+            // discarding almost all of a single-letter or other micro-chunk).
+            int ol = tailBudget <= 0 ? 0 : Math.min(maxOl, tailBudget);
             int accLen = acc.length;
             for (int i = 0; i < ol; i++) {
                 float w = (i + 1f) / (ol + 1f);

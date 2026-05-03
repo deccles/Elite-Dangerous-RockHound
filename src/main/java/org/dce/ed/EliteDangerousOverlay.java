@@ -235,7 +235,14 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         GlobalScreen.addNativeMouseWheelListener(this);
         TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
         ttsSprintf.speakf("Welcome commander");
+        
+//        ttsSprintf.speakf("hundred");
 
+//        ttsSprintf.speakf("{n} signals on planetary body {body}",
+//                Integer.valueOf(12),
+//                "A 1",
+//                Long.valueOf(12_300_000L));
+        
         SwingUtilities.invokeLater(() -> VoicePackManager.checkAutoVoicePackOnStartup(voicePackHost));
     }
 

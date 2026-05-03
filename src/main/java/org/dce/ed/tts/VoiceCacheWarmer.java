@@ -182,6 +182,7 @@ public final class VoiceCacheWarmer {
         Set<String> tokens = new LinkedHashSet<>();
         tokens.addAll(allLetters());
         tokens.addAll(numericComboSpeechTokens());
+        TtsSprintf.addEnglishNumberSpeechVocabulary(tokens);
         tokens.addAll(units);
         tokens.addAll(speciesWords);
         tokens.addAll(commodityWords);
@@ -552,16 +553,9 @@ public final class VoiceCacheWarmer {
     }
 
     /**
-     * Building blocks for compositional number speech: digits, round tens, hundreds, … plus {@code minus} /
-     * {@code zero}. {@link TtsSprintf} expands most integers to English words (e.g. 21 → {@code twenty} then
-     * {@code one}); those word clips reuse this digit/round-ten set. Teens 11–19 are single words (e.g.
-     * {@code fifteen}) and are warmed separately via {@link #warmProspectorTeenPercentLines}.
-     * <p>
-     * Billions (and millions) in {@code {credits}} speech are not a single multi-digit token: they are
-     * {@link TtsSprintf} word chunks like {@code three} + {@code billion}. Scale words {@code million} /
-     * {@code billion} come from {@link #findUnitWordsFromTemplates}; whole credit lines are warmed via templates.
-     * We do not add {@code 3000000000}-style literals here (they were never spoken for credits and risked int
-     * overflow before long math).
+     * Digits and round numeric strings for body codes / literal warm paths. {@link TtsSprintf} expands
+     * {@code {n}} and {@code {credits}} with {@link TtsSprintf#expandNumberToWords(long)} (e.g. {@code hundred},
+     * {@code thousand}); those English words are warmed via {@link TtsSprintf#addEnglishNumberSpeechVocabulary}.
      */
     private static Set<String> numericComboSpeechTokens() {
         Set<String> out = new LinkedHashSet<>();
@@ -605,9 +599,14 @@ public final class VoiceCacheWarmer {
         Set<String> out = new LinkedHashSet<>(Arrays.asList(
                 "credits",
                 "credit",
-                "million",
-                "billion",
+                "hundred",
                 "thousand",
+                "thousands",
+                "million",
+                "millions",
+                "billion",
+                "billions",
+                "point",
                 "meters",
                 "meter",
                 "kilometers",

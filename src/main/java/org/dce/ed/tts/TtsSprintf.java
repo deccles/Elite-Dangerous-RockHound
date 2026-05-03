@@ -441,6 +441,11 @@ public class TtsSprintf {
 
         // Trim but preserve internal spacing.
         normalized = normalized.trim();
+        // After a multi-token {species}/{body}/… expansion, the next literal often begins with ". NextClause"
+        // (sentence period in the template). A separate chunk starting with "." is spoken as "dot" by Polly;
+        // drop the period when it is only clause punctuation before whitespace + words (".NET" keeps its dot).
+        normalized = normalized.replaceFirst("^\\s*\\.\\s+", "");
+        normalized = normalized.trim();
         if (!normalized.isEmpty()) {
             out.add(normalized);
             // Null: let finalizeSpeechPlan apply computeCacheKey() so literals match the SSML mark path
@@ -873,6 +878,29 @@ public class TtsSprintf {
             out.addAll(expandBelowThousand((int) n));
         }
         return out;
+    }
+
+    /**
+     * Adds every distinct English word that {@link #expandNumberToWords(long)} can emit for common magnitudes,
+     * plus {@code point} from credit compact reads. Used by {@link org.dce.ed.tts.VoiceCacheWarmer} so offline
+     * packs include clips for {@code hundred}, {@code thousand}, {@code million}, etc.
+     */
+    public static void addEnglishNumberSpeechVocabulary(Set<String> out) {
+        if (out == null) {
+            return;
+        }
+        for (long n = 0; n <= 999_999L; n++) {
+            out.addAll(expandNumberToWords(n));
+        }
+        out.add("point");
+        for (long n : new long[] {
+                1_000_000L,
+                999_000_000L,
+                1_000_000_000L,
+                2_000_000_000L,
+                9_000_000_000L }) {
+            out.addAll(expandNumberToWords(n));
+        }
     }
 
     private static List<String> expandBelowThousand(int n) {

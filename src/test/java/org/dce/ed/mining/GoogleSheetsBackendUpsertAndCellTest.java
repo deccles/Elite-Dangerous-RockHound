@@ -211,6 +211,35 @@ class GoogleSheetsBackendUpsertAndCellTest {
     }
 
     @Nested
+    class SortProspectorRows {
+        @Test
+        void asteroidIds_areSortedInNaturalLetterOrder() {
+            List<List<Object>> values = new ArrayList<>();
+            values.add(new ArrayList<>(List.of("Run", "Asteroid", "Timestamp", "Type", "%", "Before", "After", "Actual", "Core", "Duds", "System", "Body", "Commander")));
+            values.add(dataRow(6, "B", "Bromellite", "Byua", "6", "Villunus"));
+            values.add(dataRow(6, "A", "Tritium", "Byua", "6", "Villunus"));
+            values.add(dataRow(6, "AA", "Painite", "Byua", "6", "Villunus"));
+            values.add(dataRow(6, "Z", "Platinum", "Byua", "6", "Villunus"));
+
+            GoogleSheetsBackend.sortProspectorDataRowsInPlace(values);
+
+            assertEquals("A", values.get(1).get(1));
+            assertEquals("B", values.get(2).get(1));
+            assertEquals("Z", values.get(3).get(1));
+            assertEquals("AA", values.get(4).get(1));
+        }
+
+        @Test
+        void sortIndex_parsesLetterIdsAndPushesInvalidLast() {
+            assertEquals(0, GoogleSheetsBackend.asteroidIdSortIndex("A"));
+            assertEquals(25, GoogleSheetsBackend.asteroidIdSortIndex("Z"));
+            assertEquals(26, GoogleSheetsBackend.asteroidIdSortIndex("AA"));
+            assertEquals(Integer.MAX_VALUE, GoogleSheetsBackend.asteroidIdSortIndex("-"));
+            assertEquals(Integer.MAX_VALUE, GoogleSheetsBackend.asteroidIdSortIndex("1"));
+        }
+    }
+
+    @Nested
     class FullBodyName {
         @Test
         void roundTrip_systemAndBody() {

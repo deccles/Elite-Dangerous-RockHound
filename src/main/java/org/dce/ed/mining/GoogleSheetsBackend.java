@@ -764,6 +764,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                     values.add(newRow);
                 }
             }
+            sortProspectorDataRowsInPlace(values);
 
             ValueRange bodyRange = new ValueRange().setValues(values);
             sheets.spreadsheets().values()
@@ -1310,6 +1311,46 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
             return currentBestIdx;
         }
         return candidateIdx > currentBestIdx ? candidateIdx : currentBestIdx;
+    }
+
+    /**
+     * Keep rows stable and human-scannable in Sheets: same commander/run rows stay together and asteroid letters
+     * sort A, B, ... Z, AA, AB so a late append for asteroid A does not appear far below newer asteroids.
+     */
+    static void sortProspectorDataRowsInPlace(List<List<Object>> values) {
+        if (values == null || values.size() <= 2) {
+            return;
+        }
+        List<Object> header = values.get(0);
+        List<List<Object>> data = new ArrayList<>(values.subList(1, values.size()));
+        data.sort(Comparator
+                .comparingInt((List<Object> row) -> parseInt(row != null && row.size() > 0 ? row.get(0) : null, Integer.MAX_VALUE))
+                .thenComparing((List<Object> row) -> str(row != null && row.size() > 12 ? row.get(12) : ""), String.CASE_INSENSITIVE_ORDER)
+                .thenComparingInt(row -> asteroidIdSortIndex(row != null && row.size() > 1 ? str(row.get(1)) : ""))
+                .thenComparing((List<Object> row) -> {
+                    Instant ts = row != null && row.size() > 2 ? parseTimestampCell(row.get(2)) : null;
+                    return ts != null ? ts : Instant.EPOCH;
+                })
+                .thenComparing((List<Object> row) -> str(row != null && row.size() > 3 ? row.get(3) : ""), String.CASE_INSENSITIVE_ORDER));
+        values.clear();
+        values.add(header);
+        values.addAll(data);
+    }
+
+    static int asteroidIdSortIndex(String asteroidId) {
+        String s = asteroidId != null ? asteroidId.trim().toUpperCase(Locale.ROOT) : "";
+        if (s.isEmpty() || "-".equals(s)) {
+            return Integer.MAX_VALUE;
+        }
+        int idx = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch < 'A' || ch > 'Z') {
+                return Integer.MAX_VALUE;
+            }
+            idx = idx * 26 + (ch - 'A' + 1);
+        }
+        return idx - 1;
     }
 
     private static int parseInt(Object o, int def) {
