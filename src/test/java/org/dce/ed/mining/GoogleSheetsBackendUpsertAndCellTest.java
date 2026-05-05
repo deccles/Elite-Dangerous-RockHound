@@ -63,6 +63,34 @@ class GoogleSheetsBackendUpsertAndCellTest {
             assertEquals("", GoogleSheetsBackend.normSheetCell(" \t "));
             assertEquals("Mars", GoogleSheetsBackend.normSheetCell("  Mars  "));
         }
+
+        @Test
+        void mergeProspectorCore_incomingWins() {
+            assertEquals("Alexandrite", GoogleSheetsBackend.mergeProspectorCoreForUpsert("Alexandrite", "VoidOpal"));
+        }
+
+        @Test
+        void mergeProspectorCore_blankIncoming_keepsExisting() {
+            assertEquals("Monazite", GoogleSheetsBackend.mergeProspectorCoreForUpsert("", "Monazite"));
+            assertEquals("Monazite", GoogleSheetsBackend.mergeProspectorCoreForUpsert(null, " Monazite "));
+        }
+
+        @Test
+        void mergeProspectorCore_blankIncoming_blankExisting_returnsDash() {
+            assertEquals("-", GoogleSheetsBackend.mergeProspectorCoreForUpsert("", ""));
+            assertEquals("-", GoogleSheetsBackend.mergeProspectorCoreForUpsert("", "-"));
+        }
+
+        @Test
+        void mergeProspectorComments_blankIncoming_keepsExisting() {
+            assertEquals("nice rock", GoogleSheetsBackend.mergeProspectorCommentsForUpsert("", "nice rock"));
+        }
+
+        @Test
+        void mergeProspectorComments_blankIncoming_blankExisting_returnsEmpty() {
+            assertEquals("", GoogleSheetsBackend.mergeProspectorCommentsForUpsert("", ""));
+            assertEquals("", GoogleSheetsBackend.mergeProspectorCommentsForUpsert("", "-"));
+        }
     }
 
     @Nested
@@ -307,7 +335,7 @@ class GoogleSheetsBackendUpsertAndCellTest {
 
     @Nested
     class ProspectorRowWidthNormalization {
-        private List<Object> modernHeader16() {
+        private List<Object> modernHeader17() {
             return List.of(
                     "Run",
                     "Asteroid",
@@ -324,19 +352,20 @@ class GoogleSheetsBackendUpsertAndCellTest {
                     "Commander",
                     "Ship",
                     "Start time",
-                    "End time");
+                    "End time",
+                    "Comments");
         }
 
         @Test
         void headerDefinesShip_whenColumnNIsShip() {
-            assertTrue(GoogleSheetsBackend.headerDefinesProspectorShipColumn(modernHeader16()));
+            assertTrue(GoogleSheetsBackend.headerDefinesProspectorShipColumn(modernHeader17()));
             assertFalse(GoogleSheetsBackend.headerDefinesProspectorShipColumn(
                     List.of("Run", "A", "T", "M", "0", "0", "0", "0", "c", "0", "S", "B", "C", "Start time", "End time")));
         }
 
         @Test
         void modernLayout_trailingEndOmittedFromApi_padOnly_keepsShipAndStartColumns() {
-            List<Object> header = modernHeader16();
+            List<Object> header = modernHeader17();
             List<Object> row = new ArrayList<>();
             row.add(38);
             row.add("L");
@@ -354,15 +383,16 @@ class GoogleSheetsBackendUpsertAndCellTest {
             row.add("lakonminer");
             row.add("4/12/2026 12:29:00");
             GoogleSheetsBackend.normalizeProspectorDataRowForHeader(header, row);
-            assertEquals(16, row.size());
+            assertEquals(17, row.size());
             assertEquals("lakonminer", row.get(13).toString());
             assertEquals("4/12/2026 12:29:00", row.get(14).toString());
             assertEquals("", row.get(15).toString());
+            assertEquals("", row.get(16).toString());
         }
 
         @Test
         void recoverMisplacedShip_movesNameFromEndWhenShipSlotEmpty() {
-            List<Object> header = modernHeader16();
+            List<Object> header = modernHeader17();
             List<Object> row = new ArrayList<>();
             for (int i = 0; i < 13; i++) {
                 row.add(i == 0 ? 3 : (i == 1 ? "B" : 0));
@@ -371,14 +401,16 @@ class GoogleSheetsBackendUpsertAndCellTest {
             row.add("");
             row.add("lakonminer");
             GoogleSheetsBackend.normalizeProspectorDataRowForHeader(header, row);
+            assertEquals(17, row.size());
             assertEquals("lakonminer", row.get(13).toString());
             assertEquals("", row.get(14).toString());
             assertEquals("", row.get(15).toString());
+            assertEquals("", row.get(16).toString());
         }
 
         @Test
         void recoverMisplacedShip_movesNameFromStartWhenEndEmpty() {
-            List<Object> header = modernHeader16();
+            List<Object> header = modernHeader17();
             List<Object> row = new ArrayList<>();
             for (int i = 0; i < 13; i++) {
                 row.add(i < 2 ? (i == 0 ? 3 : "C") : 0);
@@ -387,9 +419,11 @@ class GoogleSheetsBackendUpsertAndCellTest {
             row.add("lakonminer");
             row.add("");
             GoogleSheetsBackend.normalizeProspectorDataRowForHeader(header, row);
+            assertEquals(17, row.size());
             assertEquals("lakonminer", row.get(13).toString());
             assertEquals("", row.get(14).toString());
             assertEquals("", row.get(15).toString());
+            assertEquals("", row.get(16).toString());
         }
 
         @Test
@@ -445,11 +479,13 @@ class GoogleSheetsBackendUpsertAndCellTest {
             values.add(row);
             GoogleSheetsBackend.normalizeProspectorSheetValuesInPlace(values);
             assertTrue(GoogleSheetsBackend.headerDefinesProspectorShipColumn(values.get(0)));
-            assertEquals(16, values.get(1).size());
+            assertEquals(17, values.get(0).size());
+            assertEquals(17, values.get(1).size());
             assertEquals("Cmdr", values.get(1).get(12).toString());
             assertEquals("", values.get(1).get(13).toString());
             assertEquals("4/1/2026 11:00:00", values.get(1).get(14).toString());
             assertEquals("4/1/2026 12:00:00", values.get(1).get(15).toString());
+            assertEquals("", values.get(1).get(16).toString());
         }
 
         @Test
@@ -477,9 +513,12 @@ class GoogleSheetsBackendUpsertAndCellTest {
             values.add(row);
             GoogleSheetsBackend.normalizeProspectorSheetValuesInPlace(values);
             assertTrue(GoogleSheetsBackend.headerDefinesProspectorShipColumn(values.get(0)));
+            assertEquals(17, values.get(0).size());
+            assertEquals(17, values.get(1).size());
             assertEquals("lakonminer", values.get(1).get(13).toString());
             assertEquals("4/30/2026 11:00:00", values.get(1).get(14).toString());
             assertEquals("4/30/2026 11:50", values.get(1).get(15).toString());
+            assertEquals("", values.get(1).get(16).toString());
         }
     }
 }

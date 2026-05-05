@@ -230,7 +230,8 @@ public final class RunTimesBackfill {
 				canonical.getCoreType(),
 				canonical.getDuds(),
 				newStart,
-				newEnd
+				newEnd,
+				canonical.getComments()
 			);
 			updatedRows.add(updated);
 		}

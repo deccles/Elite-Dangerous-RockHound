@@ -117,7 +117,7 @@ public final class MiningSheetTitles {
     }
 
     /**
-     * Quote a sheet name for A1 notation ranges (e.g. {@code 'My Sheet'!A:P}).
+     * Quote a sheet name for A1 notation ranges (e.g. {@code 'My Sheet'!A:Q}).
      */
     public static String quoteSheetNameForRange(String sheetTitle) {
         String s = sheetTitle == null ? "" : sheetTitle;
@@ -125,9 +125,12 @@ public final class MiningSheetTitles {
         return "'" + escaped + "'";
     }
 
-    /** Prospector log row range including Ship column (16 columns A–P). */
+    /**
+     * Prospector log row range through the Comments column (17 columns A–Q: Run … End time, Comments).
+     * Kept as {@code rangeA1P} for call-site stability; the range extends through column Q.
+     */
     public static String rangeA1P(String sheetTitle) {
-        return quoteSheetNameForRange(sheetTitle) + "!A:P";
+        return quoteSheetNameForRange(sheetTitle) + "!A:Q";
     }
 
     /**

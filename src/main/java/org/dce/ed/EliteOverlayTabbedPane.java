@@ -232,7 +232,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 				this::isCurrentlyDocked,
 				new TtsSprintf(new PollyTtsCached()),
 				ProspectorLogBackendFactory::create,
-				systemTab::getState);
+				systemTab::getState,
+				() -> CARD_MINING.equals(visibleCardName));
 		LoadoutEvent initialLoadout = getLatestLoadout();
 		if (initialLoadout != null && initialLoadout.getShip() != null && !initialLoadout.getShip().isBlank()) {
 			miningTab.updateCurrentShipType(initialLoadout.getShip());
@@ -940,6 +941,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		cardLayout.show(cardPanel, cardName);
 		visibleCardName = cardName;
+		if (CARD_MINING.equals(cardName)) {
+			miningTab.onMiningTabBecameVisible();
+		}
 	}
 
 	/**

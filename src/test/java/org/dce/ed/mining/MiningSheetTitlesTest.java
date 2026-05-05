@@ -61,7 +61,7 @@ class MiningSheetTitlesTest {
     @Test
     void rangeA1P_prefixesQuotedName() {
         assertTrue(MiningSheetTitles.rangeA1P("Sheet1").startsWith("'"));
-        assertTrue(MiningSheetTitles.rangeA1P("Sheet1").endsWith("!A:P"));
+        assertTrue(MiningSheetTitles.rangeA1P("Sheet1").endsWith("!A:Q"));
     }
 
     @Test

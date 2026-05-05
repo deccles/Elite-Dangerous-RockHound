@@ -142,6 +142,11 @@ public class MiningTabPanel extends JPanel {
 	private final MaterialNameMatcher matcher;
 	/** When non-null, we only write prospector CSV rows when this returns false (undocked). */
 	private final BooleanSupplier isDockedSupplier;
+	/**
+	 * When non-null and returns false, the merged prospector log (Sheets/CSV) is not polled for UI refresh.
+	 * Null means "always treat as visible" (tests / headless). Run/asteroid resolution still loads when undocked.
+	 */
+	private final BooleanSupplier miningTabVisibleSupplier;
 
 	private final JLabel headerLabel;
 	private final JLabel inventoryLabel;
@@ -250,6 +255,12 @@ public class MiningTabPanel extends JPanel {
 	/** True after a successful cargo-driven log write for the current rock; cleared on each new prospector event. */
 	private boolean loggedCargoSinceLastProspector;
 
+	/**
+	 * Journal {@code MotherlodeMaterial} from the latest {@link ProspectedAsteroidEvent}. Cargo-driven sheet rows
+	 * are written later without the event, so this supplies the Core column until the next limpet.
+	 */
+	private String lastProspectedMotherlode = "";
+
 	/** Run number currently in use for cargo-driven logging in this system/body; 0 means \"not yet chosen\". */
 	private int activeRun;
 
@@ -354,7 +365,7 @@ private final JLayer<JTable> cargoLayer;
 	                        BooleanSupplier isDockedSupplier,
 	                        TtsSprintf tts,
 	                        Supplier<ProspectorLogBackend> backendSupplier) {
-		this(prices, isDockedSupplier, tts, backendSupplier, null);
+		this(prices, isDockedSupplier, tts, backendSupplier, null, null);
 	}
 
 	public MiningTabPanel(GalacticAveragePrices prices,
@@ -362,9 +373,19 @@ private final JLayer<JTable> cargoLayer;
 	                        TtsSprintf tts,
 	                        Supplier<ProspectorLogBackend> backendSupplier,
 	                        Supplier<SystemState> systemStateSupplier) {
+		this(prices, isDockedSupplier, tts, backendSupplier, systemStateSupplier, null);
+	}
+
+	public MiningTabPanel(GalacticAveragePrices prices,
+	                        BooleanSupplier isDockedSupplier,
+	                        TtsSprintf tts,
+	                        Supplier<ProspectorLogBackend> backendSupplier,
+	                        Supplier<SystemState> systemStateSupplier,
+	                        BooleanSupplier miningTabVisibleSupplier) {
 		super(new BorderLayout());
 		this.prices = prices;
 		this.isDockedSupplier = isDockedSupplier;
+		this.miningTabVisibleSupplier = miningTabVisibleSupplier;
 		this.tts = Objects.requireNonNull(tts, "tts");
 		this.prospectorBackendSupplier = Objects.requireNonNull(backendSupplier, "backendSupplier");
 		this.systemStateSupplier = systemStateSupplier;
@@ -1594,7 +1615,7 @@ return EdoUi.User.MAIN_TEXT;
 			double beforeAdjusted = Double.isNaN(beforeTons) ? 0.0 : (beforeTons > 0 ? beforeTons + 0.5 : beforeTons);
 			double afterAdjusted = Double.isNaN(afterTons) ? 0.0 : (afterTons > 0 ? afterTons + 0.5 : afterTons);
 
-			String coreType = "";
+			String coreType = lastProspectedMotherlode != null ? lastProspectedMotherlode : "";
 			int duds = dudCounter;
 
 			// Run start time (sheet column "Start time"):
@@ -1691,6 +1712,16 @@ return EdoUi.User.MAIN_TEXT;
 		if (sessionStateChangeCallback != null) {
 			sessionStateChangeCallback.run();
 		}
+		// If the Mining tab is visible, refresh once now (timer was idle while docked).
+		refreshSpreadsheetFromBackend();
+	}
+
+	/**
+	 * Invoked when the overlay switches to the Mining card so the prospector log can load after being idle
+	 * on other tabs or at startup.
+	 */
+	public void onMiningTabBecameVisible() {
+		refreshSpreadsheetFromBackend();
 	}
 
 	/** Clear last undock time (e.g. when we transition to docked after restart). Invokes session-state callback so state is saved. */
@@ -1745,6 +1776,7 @@ return EdoUi.User.MAIN_TEXT;
 		// If we've never seen a prospector event in this trip, there is nothing to flush; avoid
 		// logging fake "0 -> X" gains when docking with pre-existing cargo.
 		if (lastInventoryTonsAtProspector == null || lastInventoryTonsAtProspector.isEmpty()) {
+			lastProspectedMotherlode = "";
 			asteroidIdCounter = 0;
 			prospectorLimpetSeenThisTrip = false;
 			loggedCargoSinceLastProspector = false;
@@ -1797,6 +1829,7 @@ return EdoUi.User.MAIN_TEXT;
 		// Avoid appending a duplicate summary row on dock; just clear state for the next trip.
 		lastInventoryTonsAtProspector = new HashMap<>();
 		lastPercentByMaterialAtProspector = new HashMap<>();
+		lastProspectedMotherlode = "";
 		asteroidIdCounter = 0;
 		prospectorLimpetSeenThisTrip = false;
 		loggedCargoSinceLastProspector = false;
@@ -1838,6 +1871,9 @@ return EdoUi.User.MAIN_TEXT;
 	 */
 	private List<ProspectorLogRow> loadRowsForRunResolution() {
 		try {
+			if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
+				return List.of();
+			}
 			ProspectorLogBackend backend = prospectorBackendSupplier.get();
 			if (backend instanceof GoogleSheetsBackend gs) {
 				String cmd = OverlayPreferences.getMiningLogCommanderName();
@@ -2240,6 +2276,9 @@ return EdoUi.User.MAIN_TEXT;
 	 * Timer polling for other players is unchanged.
 	 */
 	private void scheduleSpreadsheetRefreshAfterMiningWrite() {
+		if (!shouldLoadSpreadsheetForProspectorTableUi()) {
+			return;
+		}
 		ProspectorLogBackend b = prospectorBackendSupplier.get();
 		if (b instanceof GoogleSheetsBackend) {
 			spreadsheetRefreshAfterWriteDebounceTimer.restart();
@@ -2248,8 +2287,23 @@ return EdoUi.User.MAIN_TEXT;
 		}
 	}
 
+	/**
+	 * Whether to run a merged prospector log load for the table/scatter (timer, debounced refresh, tab focus).
+	 * Docked: never. Another tab visible: never. Journal-driven {@link #loadRowsForRunResolution()} ignores this
+	 * (but still skips network while docked).
+	 */
+	private boolean shouldLoadSpreadsheetForProspectorTableUi() {
+		if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
+			return false;
+		}
+		return miningTabVisibleSupplier == null || miningTabVisibleSupplier.getAsBoolean();
+	}
+
 	/** Load rows from backend and update spreadsheet table on EDT. */
 	void refreshSpreadsheetFromBackend() {
+		if (!shouldLoadSpreadsheetForProspectorTableUi()) {
+			return;
+		}
 		synchronized (spreadsheetRefreshLock) {
 			if (spreadsheetRefreshWorkerRunning) {
 				spreadsheetRefreshPending = true;
@@ -2612,6 +2666,7 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 	public void updateFromProspector(ProspectedAsteroidEvent event) {
 		lastProspectorUpdateWasOnEdt = SwingUtilities.isEventDispatchThread();
 		if (event == null) {
+			lastProspectedMotherlode = "";
 			model.setRows(List.of());
 			headerLabel.setText("Mining (latest prospector)");
 			return;
@@ -2641,6 +2696,9 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		}
 		prospectorLimpetSeenThisTrip = true;
 		loggedCargoSinceLastProspector = false;
+
+		String ml = event.getMotherlodeMaterial();
+		lastProspectedMotherlode = (ml != null && !ml.isBlank()) ? ml.trim() : "";
 
 		asteroidBaselineTons = new HashMap<>();
 		haveActiveAsteroid = false;
@@ -5044,8 +5102,16 @@ String getName() {
 					String line2 = String.format(Locale.US, "%.1f%% %s", pct, material);
 					String line3 = String.format(Locale.US, "%d Tons", Math.round(tons));
 					String line4 = commander;
-
-					String[] lines = { line1, line2, line3, line4 };
+					List<String> tipLines = new ArrayList<>(5);
+					tipLines.add(line1);
+					tipLines.add(line2);
+					tipLines.add(line3);
+					tipLines.add(line4);
+					String qc = hoverRow.getComments();
+					if (qc != null && !qc.trim().isEmpty()) {
+						tipLines.add(qc.trim());
+					}
+					String[] lines = tipLines.toArray(new String[0]);
 					g2.setFont(g2.getFont().deriveFont(10f));
 					FontMetrics tfm = g2.getFontMetrics();
 					int maxWidth = 0;

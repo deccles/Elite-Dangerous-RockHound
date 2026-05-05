@@ -1051,7 +1051,7 @@ public class PreferencesDialog extends JDialog {
 		migrateRow.add(miningGoogleMigrateLegacyButton);
 		miningGoogleRepairLayoutButton = new JButton("Repair CMDR sheet columns…");
 		miningGoogleRepairLayoutButton.setToolTipText(
-				"For Google Sheets: rewrites each CMDR … tab (A:P). Fixes row 1 when it skipped the Ship column (Commander / "
+				"For Google Sheets: rewrites each CMDR … tab (A:Q). Fixes row 1 when it skipped the Ship column (Commander / "
 						+ "Start / End only), pads short rows to 16 columns, moves a ship name stuck under Start/End back into "
 						+ "Ship when that cell is empty, and clears duplicate ship text in time columns. Make a Drive copy first.");
 		miningGoogleRepairLayoutButton.addActionListener(e -> runMiningSheetLayoutRepair());
