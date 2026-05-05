@@ -351,9 +351,9 @@ class GoogleSheetsBackendUpsertAndCellTest {
                     "Body",
                     "Commander",
                     "Ship",
+                    "Comments",
                     "Start time",
-                    "End time",
-                    "Comments");
+                    "End time");
         }
 
         @Test
@@ -381,12 +381,13 @@ class GoogleSheetsBackendUpsertAndCellTest {
             row.add("Hotspot");
             row.add("6 UkeBard");
             row.add("lakonminer");
+            row.add("");
             row.add("4/12/2026 12:29:00");
             GoogleSheetsBackend.normalizeProspectorDataRowForHeader(header, row);
             assertEquals(17, row.size());
             assertEquals("lakonminer", row.get(13).toString());
-            assertEquals("4/12/2026 12:29:00", row.get(14).toString());
-            assertEquals("", row.get(15).toString());
+            assertEquals("", row.get(14).toString());
+            assertEquals("4/12/2026 12:29:00", row.get(15).toString());
             assertEquals("", row.get(16).toString());
         }
 
@@ -397,6 +398,7 @@ class GoogleSheetsBackendUpsertAndCellTest {
             for (int i = 0; i < 13; i++) {
                 row.add(i == 0 ? 3 : (i == 1 ? "B" : 0));
             }
+            row.add("");
             row.add("");
             row.add("");
             row.add("lakonminer");
@@ -416,6 +418,7 @@ class GoogleSheetsBackendUpsertAndCellTest {
                 row.add(i < 2 ? (i == 0 ? 3 : "C") : 0);
             }
             row.add("");
+            row.add("");
             row.add("lakonminer");
             row.add("");
             GoogleSheetsBackend.normalizeProspectorDataRowForHeader(header, row);
@@ -433,12 +436,14 @@ class GoogleSheetsBackendUpsertAndCellTest {
                 row.add(i == 0 ? 1 : (i == 1 ? "A" : 0));
             }
             row.add("lakonminer");
+            row.add("");
             row.add("lakonminer");
             row.add("lakonminer");
             GoogleSheetsBackend.repairDuplicateShipInRunTimeColumns(row);
             assertEquals("lakonminer", row.get(13).toString());
             assertEquals("", row.get(14).toString());
             assertEquals("", row.get(15).toString());
+            assertEquals("", row.get(16).toString());
         }
 
         @Test
@@ -483,9 +488,9 @@ class GoogleSheetsBackendUpsertAndCellTest {
             assertEquals(17, values.get(1).size());
             assertEquals("Cmdr", values.get(1).get(12).toString());
             assertEquals("", values.get(1).get(13).toString());
-            assertEquals("4/1/2026 11:00:00", values.get(1).get(14).toString());
-            assertEquals("4/1/2026 12:00:00", values.get(1).get(15).toString());
-            assertEquals("", values.get(1).get(16).toString());
+            assertEquals("", values.get(1).get(14).toString());
+            assertEquals("4/1/2026 11:00:00", values.get(1).get(15).toString());
+            assertEquals("4/1/2026 12:00:00", values.get(1).get(16).toString());
         }
 
         @Test

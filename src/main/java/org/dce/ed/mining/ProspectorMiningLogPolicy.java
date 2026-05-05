@@ -26,6 +26,14 @@ import java.util.regex.Pattern;
  */
 public final class ProspectorMiningLogPolicy {
 
+    private static final int COL_RUN = 0;
+    private static final int COL_ASTEROID = 1;
+    private static final int COL_COMMANDER = 12;
+    private static final int COL_START_NEW_LAYOUT = 15;
+    private static final int COL_START_OLD_LAYOUT = 14;
+    private static final int MIN_WIDTH_WITH_COMMENTS = 17;
+    private static final int MIN_WIDTH_WITH_SHIP = 16;
+
     private static final Pattern RUN_START_TEXT_LIKE =
             Pattern.compile("\\d{1,2}/\\d{1,2}/\\d{4}|\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T");
 
@@ -115,15 +123,16 @@ public final class ProspectorMiningLogPolicy {
             if (row == null || row.size() < 13) {
                 continue;
             }
-            int rowRun = parseInt(row.get(0), 0);
-            String rowCommander = str(row.get(12));
-            int startCol = row.size() >= 16 ? 14 : 13;
+            int rowRun = parseInt(row.get(COL_RUN), 0);
+            String rowCommander = str(row.get(COL_COMMANDER));
+            int startCol = row.size() >= MIN_WIDTH_WITH_COMMENTS ? COL_START_NEW_LAYOUT
+                    : (row.size() >= MIN_WIDTH_WITH_SHIP ? COL_START_OLD_LAYOUT : 13);
             String rowStart = row.size() > startCol ? str(row.get(startCol)) : "";
             if (rowRun != run || !Objects.equals(rowCommander, cmdr) || !looksLikeRunStartTimestamp(rowStart)) {
                 continue;
             }
             if (requireAsteroidA) {
-                String asteroid = str(row.get(1));
+                String asteroid = str(row.get(COL_ASTEROID));
                 if (!"A".equalsIgnoreCase(asteroid)) {
                     continue;
                 }
@@ -139,9 +148,9 @@ public final class ProspectorMiningLogPolicy {
             if (row == null || row.size() < 13) {
                 continue;
             }
-            int rowRun = parseInt(row.get(0), 0);
-            String rowCommander = str(row.get(12));
-            String asteroid = str(row.get(1));
+            int rowRun = parseInt(row.get(COL_RUN), 0);
+            String rowCommander = str(row.get(COL_COMMANDER));
+            String asteroid = str(row.get(COL_ASTEROID));
             if (rowRun == run && Objects.equals(rowCommander, cmdr) && "A".equalsIgnoreCase(asteroid)) {
                 return i;
             }

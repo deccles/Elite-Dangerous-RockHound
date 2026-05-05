@@ -5,7 +5,7 @@ import java.time.Instant;
 /**
  * One row of prospector log data (run, asteroid, body, timestamp, material, amounts, core, commander, ship, duds).
  * Sheet/CSV column order: Run, Asteroid, Timestamp, Type, Percentage, Before, After, Actual, Core, Duds, System, Body,
- * Commander, Ship, Start time, End time, Comments (Google Sheets column Q).
+ * Commander, Ship, Comments, Start time, End time (Google Sheets column Q).
  */
 public final class ProspectorLogRow {
 
