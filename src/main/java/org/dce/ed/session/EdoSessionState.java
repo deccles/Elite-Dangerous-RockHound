@@ -1,5 +1,7 @@
 package org.dce.ed.session;
 
+import java.util.Map;
+
 /**
  * Commander / overlay session: routes, tab UI, mining anchor, carrier countdown, and globals
  * persisted in SQLite ({@code session_json} via {@link org.dce.ed.cache.SystemCache}).
@@ -40,6 +42,8 @@ public final class EdoSessionState {
     // --- Mining tab (run start time) ---
     /** ISO-8601 instant of last undock; used as run start for the first row of each run. */
     private String lastUndockTime;
+    /** In-memory mining runtime snapshot for restart continuity mid-trip. */
+    private MiningRuntimeState miningRuntime;
 
     // --- Commander globals (authoritative in session blob; not star-system domain) ---
     /** Unsold exobiology expected credits total (toolbar). */
@@ -54,6 +58,136 @@ public final class EdoSessionState {
 
     // --- Fleet carrier tab ---
     private FleetCarrierSessionData fleetCarrier;
+
+    /** Restart-safe snapshot of transient mining runtime state. */
+    public static final class MiningRuntimeState {
+        private Integer activeRun;
+        private Integer asteroidIdCounter;
+        private Integer dudCounter;
+        private Boolean miningLoggingArmed;
+        private Boolean haveActiveAsteroid;
+        private Boolean prospectorLimpetSeenThisTrip;
+        private Boolean loggedCargoSinceLastProspector;
+        private Boolean nextMiningStartsNewRun;
+        private Boolean wroteRowsThisRun;
+        private String lastProspectedMotherlode;
+        private Map<String, Double> lastInventoryTonsAtProspector;
+        private Map<String, Double> lastPercentByMaterialAtProspector;
+        private Map<String, Double> asteroidBaselineTons;
+        private Map<String, Double> lastCargoTonsForLogging;
+
+        public Integer getActiveRun() {
+            return activeRun;
+        }
+
+        public void setActiveRun(Integer activeRun) {
+            this.activeRun = activeRun;
+        }
+
+        public Integer getAsteroidIdCounter() {
+            return asteroidIdCounter;
+        }
+
+        public void setAsteroidIdCounter(Integer asteroidIdCounter) {
+            this.asteroidIdCounter = asteroidIdCounter;
+        }
+
+        public Integer getDudCounter() {
+            return dudCounter;
+        }
+
+        public void setDudCounter(Integer dudCounter) {
+            this.dudCounter = dudCounter;
+        }
+
+        public Boolean getMiningLoggingArmed() {
+            return miningLoggingArmed;
+        }
+
+        public void setMiningLoggingArmed(Boolean miningLoggingArmed) {
+            this.miningLoggingArmed = miningLoggingArmed;
+        }
+
+        public Boolean getHaveActiveAsteroid() {
+            return haveActiveAsteroid;
+        }
+
+        public void setHaveActiveAsteroid(Boolean haveActiveAsteroid) {
+            this.haveActiveAsteroid = haveActiveAsteroid;
+        }
+
+        public Boolean getProspectorLimpetSeenThisTrip() {
+            return prospectorLimpetSeenThisTrip;
+        }
+
+        public void setProspectorLimpetSeenThisTrip(Boolean prospectorLimpetSeenThisTrip) {
+            this.prospectorLimpetSeenThisTrip = prospectorLimpetSeenThisTrip;
+        }
+
+        public Boolean getLoggedCargoSinceLastProspector() {
+            return loggedCargoSinceLastProspector;
+        }
+
+        public void setLoggedCargoSinceLastProspector(Boolean loggedCargoSinceLastProspector) {
+            this.loggedCargoSinceLastProspector = loggedCargoSinceLastProspector;
+        }
+
+        public Boolean getNextMiningStartsNewRun() {
+            return nextMiningStartsNewRun;
+        }
+
+        public void setNextMiningStartsNewRun(Boolean nextMiningStartsNewRun) {
+            this.nextMiningStartsNewRun = nextMiningStartsNewRun;
+        }
+
+        public Boolean getWroteRowsThisRun() {
+            return wroteRowsThisRun;
+        }
+
+        public void setWroteRowsThisRun(Boolean wroteRowsThisRun) {
+            this.wroteRowsThisRun = wroteRowsThisRun;
+        }
+
+        public String getLastProspectedMotherlode() {
+            return lastProspectedMotherlode;
+        }
+
+        public void setLastProspectedMotherlode(String lastProspectedMotherlode) {
+            this.lastProspectedMotherlode = lastProspectedMotherlode;
+        }
+
+        public Map<String, Double> getLastInventoryTonsAtProspector() {
+            return lastInventoryTonsAtProspector;
+        }
+
+        public void setLastInventoryTonsAtProspector(Map<String, Double> lastInventoryTonsAtProspector) {
+            this.lastInventoryTonsAtProspector = lastInventoryTonsAtProspector;
+        }
+
+        public Map<String, Double> getLastPercentByMaterialAtProspector() {
+            return lastPercentByMaterialAtProspector;
+        }
+
+        public void setLastPercentByMaterialAtProspector(Map<String, Double> lastPercentByMaterialAtProspector) {
+            this.lastPercentByMaterialAtProspector = lastPercentByMaterialAtProspector;
+        }
+
+        public Map<String, Double> getAsteroidBaselineTons() {
+            return asteroidBaselineTons;
+        }
+
+        public void setAsteroidBaselineTons(Map<String, Double> asteroidBaselineTons) {
+            this.asteroidBaselineTons = asteroidBaselineTons;
+        }
+
+        public Map<String, Double> getLastCargoTonsForLogging() {
+            return lastCargoTonsForLogging;
+        }
+
+        public void setLastCargoTonsForLogging(Map<String, Double> lastCargoTonsForLogging) {
+            this.lastCargoTonsForLogging = lastCargoTonsForLogging;
+        }
+    }
 
     public EdoSessionState() {
     }
@@ -232,6 +366,14 @@ public final class EdoSessionState {
 
     public void setLastUndockTime(String lastUndockTime) {
         this.lastUndockTime = lastUndockTime;
+    }
+
+    public MiningRuntimeState getMiningRuntime() {
+        return miningRuntime;
+    }
+
+    public void setMiningRuntime(MiningRuntimeState miningRuntime) {
+        this.miningRuntime = miningRuntime;
     }
 
     public Long getExobiologyCreditsTotalUnsold() {

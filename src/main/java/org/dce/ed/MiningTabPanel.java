@@ -1754,6 +1754,22 @@ return EdoUi.User.MAIN_TEXT;
 		if (lastUndockTime != null) {
 			state.setLastUndockTime(lastUndockTime.toString());
 		}
+		EdoSessionState.MiningRuntimeState m = new EdoSessionState.MiningRuntimeState();
+		m.setActiveRun(activeRun);
+		m.setAsteroidIdCounter(asteroidIdCounter);
+		m.setDudCounter(dudCounter);
+		m.setMiningLoggingArmed(miningLoggingArmed);
+		m.setHaveActiveAsteroid(haveActiveAsteroid);
+		m.setProspectorLimpetSeenThisTrip(prospectorLimpetSeenThisTrip);
+		m.setLoggedCargoSinceLastProspector(loggedCargoSinceLastProspector);
+		m.setNextMiningStartsNewRun(nextMiningStartsNewRun);
+		m.setWroteRowsThisRun(wroteRowsThisRun);
+		m.setLastProspectedMotherlode(lastProspectedMotherlode);
+		m.setLastInventoryTonsAtProspector(new HashMap<>(lastInventoryTonsAtProspector));
+		m.setLastPercentByMaterialAtProspector(new HashMap<>(lastPercentByMaterialAtProspector));
+		m.setAsteroidBaselineTons(new HashMap<>(asteroidBaselineTons));
+		m.setLastCargoTonsForLogging(new HashMap<>(lastCargoTonsForLogging));
+		state.setMiningRuntime(m);
 	}
 
 	public void applySessionState(EdoSessionState state) {
@@ -1764,6 +1780,31 @@ return EdoUi.User.MAIN_TEXT;
 				lastUndockTime = Instant.parse(s);
 			} catch (Exception ignored) {
 			}
+		}
+		EdoSessionState.MiningRuntimeState m = state.getMiningRuntime();
+		if (m != null) {
+			if (m.getActiveRun() != null) activeRun = Math.max(0, m.getActiveRun());
+			if (m.getAsteroidIdCounter() != null) asteroidIdCounter = Math.max(0, m.getAsteroidIdCounter());
+			if (m.getDudCounter() != null) dudCounter = Math.max(0, m.getDudCounter());
+			if (m.getMiningLoggingArmed() != null) miningLoggingArmed = m.getMiningLoggingArmed();
+			if (m.getHaveActiveAsteroid() != null) haveActiveAsteroid = m.getHaveActiveAsteroid();
+			if (m.getProspectorLimpetSeenThisTrip() != null) prospectorLimpetSeenThisTrip = m.getProspectorLimpetSeenThisTrip();
+			if (m.getLoggedCargoSinceLastProspector() != null) loggedCargoSinceLastProspector = m.getLoggedCargoSinceLastProspector();
+			if (m.getNextMiningStartsNewRun() != null) nextMiningStartsNewRun = m.getNextMiningStartsNewRun();
+			if (m.getWroteRowsThisRun() != null) wroteRowsThisRun = m.getWroteRowsThisRun();
+			if (m.getLastProspectedMotherlode() != null) lastProspectedMotherlode = m.getLastProspectedMotherlode();
+			lastInventoryTonsAtProspector = m.getLastInventoryTonsAtProspector() != null
+					? new HashMap<>(m.getLastInventoryTonsAtProspector())
+					: new HashMap<>();
+			lastPercentByMaterialAtProspector = m.getLastPercentByMaterialAtProspector() != null
+					? new HashMap<>(m.getLastPercentByMaterialAtProspector())
+					: new HashMap<>();
+			asteroidBaselineTons = m.getAsteroidBaselineTons() != null
+					? new HashMap<>(m.getAsteroidBaselineTons())
+					: new HashMap<>();
+			lastCargoTonsForLogging = m.getLastCargoTonsForLogging() != null
+					? new HashMap<>(m.getLastCargoTonsForLogging())
+					: new HashMap<>();
 		}
 	}
 
