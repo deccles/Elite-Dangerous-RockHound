@@ -32,6 +32,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -100,10 +101,14 @@ import org.dce.ed.logreader.event.SupercruiseExitEvent;
 import org.dce.ed.market.GalacticAveragePrices;
 import org.dce.ed.market.MaterialNameMatcher;
 import org.dce.ed.OverlayFrame;
+import org.dce.ed.mining.CompositeProspectorLogBackend;
 import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.mining.GoogleSheetsReconnectDialog;
+import org.dce.ed.mining.LocalCsvBackend;
+import org.dce.ed.mining.MiningSheetTitles;
 import org.dce.ed.mining.ProspectorLoadResult;
 import org.dce.ed.mining.MiningRunNumberResolver;
+import org.dce.ed.mining.ProspectorBothModeSync;
 import org.dce.ed.mining.ProspectorLogBackend;
 import org.dce.ed.mining.ProspectorLogBackendFactory;
 import org.dce.ed.mining.ProspectorLogRegression;
@@ -162,6 +167,16 @@ public class MiningTabPanel extends JPanel {
 	private final JLabel spreadsheetLabel;
 	/** Explains whether the prospector table reads local CSV or Google Sheets (from preferences). */
 	private final JLabel prospectorLogSourceLabel;
+	/** Always-visible combo: chooses display/primary source. Disabled outside Both mode (informational). */
+	private final JComboBox<String> prospectorLogSourceCombo;
+	/** Status label adjacent to the source picker: surfaces backend errors, mirror warnings, sync progress. */
+	private final JLabel prospectorLogSourceStatusLabel;
+	/** "Sync now" button — visible only in Both mode. */
+	private final JButton prospectorLogSourceSyncNowButton;
+	/** Suppress the combo action listener while the combo is being driven programmatically. */
+	private boolean updatingProspectorLogSourceCombo;
+	/** Sanitized commanders we have already kicked off auto-sync for in the current process (in addition to prefs). */
+	private final java.util.Set<String> bothModeAutoSyncedCommanders = new java.util.HashSet<>();
 	private final JTable spreadsheetTable;
 	private final ProspectorLogTableModel spreadsheetModel;
 	private java.util.List<ProspectorLogRow> lastGoodSpreadsheetRows = java.util.Collections.emptyList();
@@ -337,7 +352,8 @@ private final JLayer<JTable> cargoLayer;
 		if (miningSheetsStatusErrorSinkForTests != null) {
 			return;
 		}
-		if (!"google".equals(OverlayPreferences.getMiningLogBackend())) {
+		String backend = OverlayPreferences.getMiningLogBackend();
+		if (!"google".equals(backend) && !"both".equals(backend)) {
 			return;
 		}
 		long now = System.currentTimeMillis();
@@ -872,11 +888,30 @@ private final JLayer<JTable> cargoLayer;
 		Dimension spreadPref = spreadsheetLabel.getPreferredSize();
 		spreadsheetLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, spreadPref.height));
 
-		prospectorLogSourceLabel = new JLabel();
+		prospectorLogSourceLabel = new JLabel("Log source:");
 		prospectorLogSourceLabel.setOpaque(false);
 		prospectorLogSourceLabel.setBackground(EdoUi.Internal.TRANSPARENT);
 		prospectorLogSourceLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		prospectorLogSourceLabel.setFont(base.deriveFont(Font.PLAIN, Math.max(10, OverlayPreferences.getUiFontSize() - 1)));
+
+		prospectorLogSourceCombo = new JComboBox<>(new String[] {"Local CSV", "Google Sheets"});
+		prospectorLogSourceCombo.setOpaque(false);
+		prospectorLogSourceCombo.setFont(prospectorLogSourceLabel.getFont());
+		prospectorLogSourceCombo.addActionListener(ev -> onProspectorLogSourceComboChanged());
+
+		prospectorLogSourceSyncNowButton = new JButton("Sync now");
+		prospectorLogSourceSyncNowButton.setOpaque(false);
+		prospectorLogSourceSyncNowButton.setFont(prospectorLogSourceLabel.getFont());
+		prospectorLogSourceSyncNowButton.setToolTipText(
+			"Merge this commander's rows between Google Sheets and the local CSV so both sides match.");
+		prospectorLogSourceSyncNowButton.addActionListener(ev -> runProspectorBothSyncNow());
+
+		prospectorLogSourceStatusLabel = new JLabel();
+		prospectorLogSourceStatusLabel.setOpaque(false);
+		prospectorLogSourceStatusLabel.setBackground(EdoUi.Internal.TRANSPARENT);
+		prospectorLogSourceStatusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		prospectorLogSourceStatusLabel.setFont(prospectorLogSourceLabel.getFont());
+
 		updateProspectorLogSourceLabelText();
 
 		// Leave about 10 rows for each table (preferred sizes; split panes allocate extra space).
@@ -915,7 +950,15 @@ private final JLayer<JTable> cargoLayer;
 		logSpreadsheetNorth.setLayout(new BoxLayout(logSpreadsheetNorth, BoxLayout.Y_AXIS));
 		logSpreadsheetNorth.add(spreadsheetLabel);
 		logSpreadsheetNorth.add(Box.createVerticalStrut(2));
-		logSpreadsheetNorth.add(prospectorLogSourceLabel);
+		JPanel prospectorLogSourceRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+		prospectorLogSourceRow.setOpaque(false);
+		prospectorLogSourceRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		prospectorLogSourceRow.add(prospectorLogSourceLabel);
+		prospectorLogSourceRow.add(prospectorLogSourceCombo);
+		prospectorLogSourceRow.add(prospectorLogSourceSyncNowButton);
+		logSpreadsheetNorth.add(prospectorLogSourceRow);
+		logSpreadsheetNorth.add(Box.createVerticalStrut(2));
+		logSpreadsheetNorth.add(prospectorLogSourceStatusLabel);
 		logSpreadsheetNorth.add(Box.createVerticalStrut(2));
 		logSpreadsheetNorth.add(spreadsheetToolbar);
 		logSpreadsheetNorth.add(Box.createVerticalStrut(2));
@@ -1634,25 +1677,17 @@ return EdoUi.User.MAIN_TEXT;
 
 		if (!rows.isEmpty()) {
 			ProspectorLogBackend backend = prospectorBackendSupplier.get();
-			boolean ok;
-			if (backend instanceof GoogleSheetsBackend sheetsBackend) {
-				ProspectorWriteResult wr = sheetsBackend.upsertRowsResult(rows);
-				ok = wr.isOk();
-				if (!ok) {
-					applyMiningSheetsStatusError(wr.getMessage());
-				}
-			} else {
-				try {
-					backend.appendRows(rows);
-					ok = true;
-				} catch (Exception ex) {
-					ok = false;
-					String m = ex.getMessage();
-					applyMiningSheetsStatusError(m != null && !m.isBlank() ? m : "Mining log write failed.");
-				}
+			ProspectorWriteResult wr = backend.upsertRowsResult(rows);
+			boolean ok = wr != null && wr.isOk();
+			if (!ok) {
+				applyMiningSheetsStatusError(formatBackendErrorForStatus(backend, wr));
+			} else if (wr.hasMirrorWarning()) {
+				applyMiningSheetsStatusError(wr.getMirrorWarning());
 			}
 			if (ok) {
-				applyMiningSheetsStatusClear();
+				if (!wr.hasMirrorWarning()) {
+					applyMiningSheetsStatusClear();
+				}
 				invalidateRunResolutionCache();
 				scheduleSpreadsheetRefreshAfterMiningWrite();
 				wroteRowsThisRun = true;
@@ -1840,25 +1875,17 @@ return EdoUi.User.MAIN_TEXT;
 			String commander = OverlayPreferences.getMiningLogCommanderName();
 			if (commander != null && !commander.isBlank()) {
 				ProspectorLogBackend backend = prospectorBackendSupplier.get();
-				boolean ok;
-				if (backend instanceof GoogleSheetsBackend gs) {
-					ProspectorWriteResult wr = gs.updateRunEndTimeResult(commander, activeRun, Instant.now());
-					ok = wr.isOk();
-					if (!ok) {
-						applyMiningSheetsStatusError(wr.getMessage());
-					}
-				} else {
-					try {
-						backend.updateRunEndTime(commander, activeRun, Instant.now());
-						ok = true;
-					} catch (Exception ex) {
-						ok = false;
-						String m = ex.getMessage();
-						applyMiningSheetsStatusError(m != null && !m.isBlank() ? m : "Could not write run end time.");
-					}
+				ProspectorWriteResult wr = backend.updateRunEndTimeResult(commander, activeRun, Instant.now());
+				boolean ok = wr != null && wr.isOk();
+				if (!ok) {
+					applyMiningSheetsStatusError(formatBackendErrorForStatus(backend, wr));
+				} else if (wr.hasMirrorWarning()) {
+					applyMiningSheetsStatusError(wr.getMirrorWarning());
 				}
 				if (ok) {
-					applyMiningSheetsStatusClear();
+					if (!wr.hasMirrorWarning()) {
+						applyMiningSheetsStatusClear();
+					}
 					invalidateRunResolutionCache();
 					scheduleSpreadsheetRefreshAfterMiningWrite();
 				}
@@ -1915,27 +1942,23 @@ return EdoUi.User.MAIN_TEXT;
 	 */
 	private List<ProspectorLogRow> loadRowsForRunResolution() {
 		try {
-			if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
-				return List.of();
-			}
 			ProspectorLogBackend backend = prospectorBackendSupplier.get();
-			if (backend instanceof GoogleSheetsBackend gs) {
-				String cmd = OverlayPreferences.getMiningLogCommanderName();
-				if (cmd == null || cmd.isBlank()) {
-					cmd = "-";
-				}
-				long now = System.currentTimeMillis();
-				if (now < runResolutionCacheExpiresAtMs && cmd.equals(runResolutionCacheCmdr)) {
-					return runResolutionCache;
-				}
-				List<ProspectorLogRow> rows = gs.loadRowsWithStatusForCommander(cmd).getRows();
-				runResolutionCache = rows != null ? rows : List.of();
-				runResolutionCacheCmdr = cmd;
-				runResolutionCacheExpiresAtMs = now + RUN_RESOLUTION_CACHE_MS;
+			// Commander-scoped reads on every backend (CSV per-commander file, Sheets tab, composite primary).
+			// Cache to avoid hammering Google Sheets when the same commander is queried repeatedly.
+			String cmd = OverlayPreferences.getMiningLogCommanderName();
+			if (cmd == null || cmd.isBlank()) {
+				cmd = "-";
+			}
+			long now = System.currentTimeMillis();
+			if (now < runResolutionCacheExpiresAtMs && cmd.equals(runResolutionCacheCmdr)) {
 				return runResolutionCache;
 			}
-			invalidateRunResolutionCache();
-			return backend.loadRows();
+			ProspectorLoadResult lr = backend.loadRowsWithStatusForCommander(cmd);
+			List<ProspectorLogRow> rows = lr != null ? lr.getRows() : null;
+			runResolutionCache = rows != null ? rows : List.of();
+			runResolutionCacheCmdr = cmd;
+			runResolutionCacheExpiresAtMs = now + RUN_RESOLUTION_CACHE_MS;
+			return runResolutionCache;
 		} catch (Exception e) {
 			return List.of();
 		}
@@ -2267,25 +2290,17 @@ return EdoUi.User.MAIN_TEXT;
 			dudCounter = 0;
 		}
 		ProspectorLogBackend backend = prospectorBackendSupplier.get();
-		boolean ok;
-		if (backend instanceof GoogleSheetsBackend sheetsBackend) {
-			ProspectorWriteResult wr = sheetsBackend.upsertRowsResult(rows);
-			ok = wr.isOk();
-			if (!ok) {
-				applyMiningSheetsStatusError(wr.getMessage());
-			}
-		} else {
-			try {
-				backend.appendRows(rows);
-				ok = true;
-			} catch (Exception e) {
-				ok = false;
-				String m = e.getMessage();
-				applyMiningSheetsStatusError(m != null && !m.isBlank() ? m : "Mining log write failed.");
-			}
+		ProspectorWriteResult wr = backend.upsertRowsResult(rows);
+		boolean ok = wr != null && wr.isOk();
+		if (!ok) {
+			applyMiningSheetsStatusError(formatBackendErrorForStatus(backend, wr));
+		} else if (wr.hasMirrorWarning()) {
+			applyMiningSheetsStatusError(wr.getMirrorWarning());
 		}
 		if (ok) {
-			applyMiningSheetsStatusClear();
+			if (!wr.hasMirrorWarning()) {
+				applyMiningSheetsStatusClear();
+			}
 			invalidateRunResolutionCache();
 			scheduleSpreadsheetRefreshAfterMiningWrite();
 			wroteRowsThisRun = true;
@@ -2295,18 +2310,214 @@ return EdoUi.User.MAIN_TEXT;
 	}
 
 	private void updateProspectorLogSourceLabelText() {
-		if (prospectorLogSourceLabel == null) {
+		if (prospectorLogSourceLabel == null || prospectorLogSourceCombo == null) {
 			return;
 		}
 		String backend = OverlayPreferences.getMiningLogBackend();
-		if ("google".equals(backend)) {
-			prospectorLogSourceLabel.setText("Log source: Google Sheets");
-			prospectorLogSourceLabel.setForeground(EdoUi.User.MAIN_TEXT);
-		} else {
-			prospectorLogSourceLabel.setText(
-				"Log source: local ~/.edo/prospector_log.csv (not the cloud sheet). Enable Google Sheets in Preferences → Mining to load your spreadsheet.");
-			prospectorLogSourceLabel.setForeground(EdoUi.User.VALUABLE);
+		String currentSource;
+		boolean comboEnabled;
+		String tooltip;
+		switch (backend) {
+			case "google" -> {
+				currentSource = "Google Sheets";
+				comboEnabled = false;
+				tooltip = "Switch to Both in Preferences \u2192 Mining to choose a different display source.";
+				prospectorLogSourceLabel.setForeground(EdoUi.User.MAIN_TEXT);
+			}
+			case "both" -> {
+				currentSource = "local".equals(OverlayPreferences.getMiningLogBothPrimary())
+						? "Local CSV"
+						: "Google Sheets";
+				comboEnabled = true;
+				tooltip = "Pick which side the Mining table reads from. Writes always go to both.";
+				prospectorLogSourceLabel.setForeground(EdoUi.User.MAIN_TEXT);
+			}
+			default -> {
+				currentSource = "Local CSV";
+				comboEnabled = false;
+				tooltip = "Switch to Both in Preferences \u2192 Mining to choose a different display source.";
+				prospectorLogSourceLabel.setForeground(EdoUi.User.MAIN_TEXT);
+			}
 		}
+		updatingProspectorLogSourceCombo = true;
+		try {
+			prospectorLogSourceCombo.setSelectedItem(currentSource);
+		} finally {
+			updatingProspectorLogSourceCombo = false;
+		}
+		prospectorLogSourceCombo.setEnabled(comboEnabled);
+		prospectorLogSourceCombo.setToolTipText(tooltip);
+		if (prospectorLogSourceSyncNowButton != null) {
+			prospectorLogSourceSyncNowButton.setVisible("both".equals(backend));
+			prospectorLogSourceSyncNowButton.setEnabled("both".equals(backend));
+		}
+	}
+
+	/**
+	 * Combo selection changed: in Both mode, persist the new primary, rebuild the backend through the factory, and
+	 * refresh the table from the freshly chosen primary. Suppressed while {@link #updatingProspectorLogSourceCombo}
+	 * is true (programmatic combo updates from {@link #updateProspectorLogSourceLabelText()}).
+	 */
+	private void onProspectorLogSourceComboChanged() {
+		if (updatingProspectorLogSourceCombo) {
+			return;
+		}
+		if (!"both".equals(OverlayPreferences.getMiningLogBackend())) {
+			return;
+		}
+		Object sel = prospectorLogSourceCombo.getSelectedItem();
+		if (!(sel instanceof String)) {
+			return;
+		}
+		String wantPrimary = "Local CSV".equals(sel) ? "local" : "google";
+		String currentPrimary = OverlayPreferences.getMiningLogBothPrimary();
+		if (wantPrimary.equals(currentPrimary)) {
+			return;
+		}
+		OverlayPreferences.setMiningLogBothPrimary(wantPrimary);
+		// Force a fresh backend (Composite reorders primary/mirror) and reload from the new primary.
+		invalidateRunResolutionCache();
+		refreshSpreadsheetFromBackend();
+	}
+
+	/**
+	 * Manual "Sync now" handler: runs {@link ProspectorBothModeSync#syncCommander} for the active commander on a
+	 * {@link SwingWorker}. Status updates land in {@link #prospectorLogSourceStatusLabel}.
+	 */
+	private void runProspectorBothSyncNow() {
+		if (!"both".equals(OverlayPreferences.getMiningLogBackend())) {
+			return;
+		}
+		String commander = OverlayPreferences.getMiningLogCommanderName();
+		if (commander == null || commander.isBlank()) {
+			setProspectorSourceStatusError("Set Commander name in Preferences \u2192 Mining first.");
+			return;
+		}
+		runBothModeSyncForCommander(commander, true);
+	}
+
+	/**
+	 * Run the Both-mode sync for one commander, optionally as a manual user action (which always runs even if the
+	 * synced-once flag is set). Auto-mode skips if already synced.
+	 */
+	private void runBothModeSyncForCommander(String commander, boolean manual) {
+		if (commander == null || commander.isBlank()) {
+			return;
+		}
+		String key = MiningSheetTitles.sheetTitleForCommander(commander);
+		if (!manual) {
+			if (OverlayPreferences.isMiningLogBothSyncedOnce(key)
+					|| !bothModeAutoSyncedCommanders.add(key)) {
+				return;
+			}
+		}
+		ProspectorLogBackend backend = prospectorBackendSupplier.get();
+		if (!(backend instanceof CompositeProspectorLogBackend composite)) {
+			return;
+		}
+		final GoogleSheetsBackend sheets;
+		final LocalCsvBackend csv;
+		ProspectorLogBackend p = composite.getPrimary();
+		ProspectorLogBackend m = composite.getMirror();
+		if (p instanceof GoogleSheetsBackend g1 && m instanceof LocalCsvBackend l1) {
+			sheets = g1;
+			csv = l1;
+		} else if (m instanceof GoogleSheetsBackend g2 && p instanceof LocalCsvBackend l2) {
+			sheets = g2;
+			csv = l2;
+		} else {
+			return;
+		}
+		setProspectorSourceStatusInfo("Syncing CMDR " + commander + "\u2026");
+		new javax.swing.SwingWorker<ProspectorWriteResult, Void>() {
+			@Override
+			protected ProspectorWriteResult doInBackground() {
+				return ProspectorBothModeSync.syncCommander(sheets, csv, commander);
+			}
+
+			@Override
+			protected void done() {
+				try {
+					ProspectorWriteResult r = get();
+					if (r == null) {
+						setProspectorSourceStatusError("Sync returned no result.");
+					} else if (!r.isOk()) {
+						setProspectorSourceStatusError("Sync failed: " + r.getMessage());
+					} else if (r.hasMirrorWarning()) {
+						setProspectorSourceStatusWarning("Sync partial: " + r.getMirrorWarning());
+						OverlayPreferences.setMiningLogBothSyncedOnce(key, true);
+					} else {
+						setProspectorSourceStatusOk("Sync complete.");
+						OverlayPreferences.setMiningLogBothSyncedOnce(key, true);
+						invalidateRunResolutionCache();
+						refreshSpreadsheetFromBackend();
+					}
+				} catch (Exception ex) {
+					String mm = ex.getMessage();
+					setProspectorSourceStatusError("Sync failed: " + (mm != null ? mm : ex.getClass().getSimpleName()));
+				}
+			}
+		}.execute();
+	}
+
+	private void setProspectorSourceStatusInfo(String msg) {
+		setProspectorSourceStatus(msg, EdoUi.User.MAIN_TEXT);
+	}
+
+	private void setProspectorSourceStatusOk(String msg) {
+		setProspectorSourceStatus(msg, EdoUi.User.MAIN_TEXT);
+	}
+
+	private void setProspectorSourceStatusWarning(String msg) {
+		setProspectorSourceStatus(msg, EdoUi.User.VALUABLE);
+	}
+
+	private void setProspectorSourceStatusError(String msg) {
+		setProspectorSourceStatus(msg, EdoUi.User.VALUABLE);
+	}
+
+	private void setProspectorSourceStatus(String msg, java.awt.Color color) {
+		if (prospectorLogSourceStatusLabel == null) {
+			return;
+		}
+		Runnable apply = () -> {
+			prospectorLogSourceStatusLabel.setText(msg != null ? msg : "");
+			if (color != null) {
+				prospectorLogSourceStatusLabel.setForeground(color);
+			}
+		};
+		if (SwingUtilities.isEventDispatchThread()) {
+			apply.run();
+		} else {
+			SwingUtilities.invokeLater(apply);
+		}
+	}
+
+	private void clearProspectorSourceStatus() {
+		setProspectorSourceStatus("", EdoUi.User.MAIN_TEXT);
+	}
+
+	/** Format a backend write failure for the global mining-status bar: "<displayName>: <message>". */
+	private static String formatBackendErrorForStatus(ProspectorLogBackend backend, ProspectorWriteResult wr) {
+		String name = backend != null ? backend.displayName() : "Mining log";
+		String msg = wr != null && wr.getMessage() != null && !wr.getMessage().isBlank()
+				? wr.getMessage() : "write failed";
+		return name + ": " + msg;
+	}
+
+	/**
+	 * In Both mode, fire off a one-shot sync for the active commander unless we already did so. Cleared whenever
+	 * the user switches off Both via {@link OverlayPreferences#clearAllMiningLogBothSyncedOnce()}.
+	 */
+	private void maybeKickOffBothModeAutoSync() {
+		if (!"both".equals(OverlayPreferences.getMiningLogBackend())) {
+			return;
+		}
+		String commander = OverlayPreferences.getMiningLogCommanderName();
+		if (commander == null || commander.isBlank()) {
+			return;
+		}
+		runBothModeSyncForCommander(commander, false);
 	}
 
 	private void invalidateRunResolutionCache() {
@@ -2324,7 +2535,7 @@ return EdoUi.User.MAIN_TEXT;
 			return;
 		}
 		ProspectorLogBackend b = prospectorBackendSupplier.get();
-		if (b instanceof GoogleSheetsBackend) {
+		if (b != null && b.prefersDebouncedRefresh()) {
 			spreadsheetRefreshAfterWriteDebounceTimer.restart();
 		} else {
 			refreshSpreadsheetFromBackend();
@@ -2333,14 +2544,20 @@ return EdoUi.User.MAIN_TEXT;
 
 	/**
 	 * Whether to run a merged prospector log load for the table/scatter (timer, debounced refresh, tab focus).
-	 * Docked: never. Another tab visible: never. Journal-driven {@link #loadRowsForRunResolution()} ignores this
-	 * (but still skips network while docked).
+	 * Skips when another tab is active (mining not visible). When docked, still loads if the mining tab is
+	 * reported visible so Sheets/CSV can populate the prospector grid without forcing undock; when visibility is
+	 * unknown ({@code miningTabVisibleSupplier == null}), docked overlays skip merged loads like before.
+	 * Journal-driven {@link #loadRowsForRunResolution()} still loads commander rows from the backend (even when
+	 * docked) so run numbers and asteroid lettering stay consistent with the sheet.
 	 */
 	private boolean shouldLoadSpreadsheetForProspectorTableUi() {
-		if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
+		if (miningTabVisibleSupplier != null && !miningTabVisibleSupplier.getAsBoolean()) {
 			return false;
 		}
-		return miningTabVisibleSupplier == null || miningTabVisibleSupplier.getAsBoolean();
+		if (isDockedSupplier != null && isDockedSupplier.getAsBoolean()) {
+			return miningTabVisibleSupplier != null;
+		}
+		return true;
 	}
 
 	/** Load rows from backend and update spreadsheet table on EDT. */
@@ -2360,12 +2577,12 @@ return EdoUi.User.MAIN_TEXT;
 			protected ProspectorLoadResult doInBackground() {
 				try {
 					ProspectorLogBackend backend = prospectorBackendSupplier.get();
-					if (backend instanceof GoogleSheetsBackend sheetsBackend) {
-						return sheetsBackend.loadRowsWithStatus();
+					ProspectorLoadResult lr = backend.loadRowsWithStatus();
+					if (lr != null) {
+						return lr;
 					}
-					// Local CSV backend has no notion of "empty sheet" vs "error"; treat as OK.
-					java.util.List<ProspectorLogRow> rows = backend.loadRows();
-					return new ProspectorLoadResult(ProspectorLoadResult.Status.OK, rows);
+					return new ProspectorLoadResult(ProspectorLoadResult.Status.ERROR,
+							java.util.Collections.emptyList(), "Backend returned null load result.");
 				} catch (Exception e) {
 					String m = e.getMessage();
 					return new ProspectorLoadResult(ProspectorLoadResult.Status.ERROR, java.util.Collections.emptyList(),
@@ -2377,9 +2594,11 @@ return EdoUi.User.MAIN_TEXT;
 				try {
 					ProspectorLoadResult result = get();
 					updateProspectorLogSourceLabelText();
+					maybeKickOffBothModeAutoSync();
 					if (result == null || spreadsheetModel == null) {
 						return;
 					}
+					ProspectorLogBackend backendNow = prospectorBackendSupplier.get();
 					switch (result.getStatus()) {
 						case OK -> {
 							applyMiningSheetsStatusClear();
@@ -2404,9 +2623,10 @@ return EdoUi.User.MAIN_TEXT;
 						}
 						case ERROR -> {
 							String detail = result.getDetailMessage();
+							String backendName = backendNow != null ? backendNow.displayName() : "Mining log";
 							String shown = detail != null && !detail.isBlank()
-									? detail
-									: "Could not refresh mining log from Google Sheets.";
+									? backendName + ": " + detail
+									: "Could not refresh mining log from " + backendName + ".";
 							applyMiningSheetsStatusError(shown);
 							maybeOfferGoogleSheetsReconnectDialog(shown);
 							// Keep showing the last good data when there is a transient error.
@@ -2734,11 +2954,13 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		if (!prospectorLimpetSeenThisTrip && !wroteRowsThisRun) {
 			syncAsteroidCounterFromBackendForCurrentLocation(nextMiningStartsNewRun);
 		}
-		// New limpet after the first: advance the letter only if the previous rock produced logged cargo (not a dud).
-		if (prospectorLimpetSeenThisTrip && loggedCargoSinceLastProspector) {
+		// New limpet after the first: advance when we have evidence of mining since the last prospect — logged cargo
+		// for the prior rock, or any upsert this run (covers rare loggedCargo skew). Otherwise count a dud prospect.
+		boolean minedSinceLastProspect = loggedCargoSinceLastProspector || wroteRowsThisRun;
+		if (prospectorLimpetSeenThisTrip && minedSinceLastProspect) {
 			asteroidIdCounter++;
 		}
-		if (prospectorLimpetSeenThisTrip && !loggedCargoSinceLastProspector) {
+		if (prospectorLimpetSeenThisTrip && !minedSinceLastProspect) {
 			dudCounter++;
 		}
 		prospectorLimpetSeenThisTrip = true;

@@ -10,6 +10,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Window;
+import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -154,9 +155,10 @@ public class PreferencesDialog extends JDialog {
 	private JSpinner prospectorMinAvgValueSpinner;
 	private JTextField miningLogCommanderNameField;
 
-	// Mining tab: log / spreadsheet backend (local vs Google Sheets)
+	// Mining tab: log / spreadsheet backend (local vs Google Sheets vs both)
 	private JRadioButton miningLogBackendLocalRadio;
 	private JRadioButton miningLogBackendGoogleRadio;
+	private JRadioButton miningLogBackendBothRadio;
 	private JTextField miningGoogleSheetsUrlField;
 	private JTextField miningGoogleClientIdField;
 	private JTextField miningGoogleClientSecretField;
@@ -968,15 +970,23 @@ public class PreferencesDialog extends JDialog {
 		gbcLog.insets = new Insets(6, 8, 6, 8);
 
 		ButtonGroup logBackendGroup = new ButtonGroup();
-		miningLogBackendLocalRadio = new JRadioButton("Local CSV (file in ~/.edo/)");
+		miningLogBackendLocalRadio = new JRadioButton("Local CSV (per-commander files in ~/.edo/)");
 		miningLogBackendLocalRadio.setOpaque(false);
 		miningLogBackendGoogleRadio = new JRadioButton("Google Sheets");
 		miningLogBackendGoogleRadio.setOpaque(false);
+		miningLogBackendBothRadio = new JRadioButton("Both (CSV + Google Sheets)");
+		miningLogBackendBothRadio.setOpaque(false);
+		miningLogBackendBothRadio.setToolTipText(
+			"Mirror writes to both. Pick which side the Mining table reads from on the Mining tab.");
 		logBackendGroup.add(miningLogBackendLocalRadio);
 		logBackendGroup.add(miningLogBackendGoogleRadio);
-		boolean useGoogle = "google".equals(OverlayPreferences.getMiningLogBackend());
-		miningLogBackendLocalRadio.setSelected(!useGoogle);
+		logBackendGroup.add(miningLogBackendBothRadio);
+		String currentBackend = OverlayPreferences.getMiningLogBackend();
+		boolean useGoogle = "google".equals(currentBackend);
+		boolean useBoth = "both".equals(currentBackend);
+		miningLogBackendLocalRadio.setSelected(!useGoogle && !useBoth);
 		miningLogBackendGoogleRadio.setSelected(useGoogle);
+		miningLogBackendBothRadio.setSelected(useBoth);
 
 		JLabel commanderNameLabel = new JLabel("Commander name:");
 		logBackendBox.add(commanderNameLabel, gbcLog);
@@ -993,6 +1003,8 @@ public class PreferencesDialog extends JDialog {
 		logBackendBox.add(miningLogBackendLocalRadio, gbcLog);
 		gbcLog.gridy++;
 		logBackendBox.add(miningLogBackendGoogleRadio, gbcLog);
+		gbcLog.gridy++;
+		logBackendBox.add(miningLogBackendBothRadio, gbcLog);
 		gbcLog.gridy++;
 		gbcLog.gridx = 0;
 		JLabel urlLabel = new JLabel("Google Sheets URL (edit link from browser):");
@@ -1037,7 +1049,7 @@ public class PreferencesDialog extends JDialog {
 		miningGoogleSetupHelpButton.addActionListener(e -> showGoogleSheetsSetupInstructions());
 		googleButtonsRow.add(miningGoogleSetupHelpButton);
 		miningGoogleConnectButton = new JButton("Connect to Google");
-		miningGoogleConnectButton.setEnabled(useGoogle);
+		miningGoogleConnectButton.setEnabled(useGoogle || useBoth);
 		miningGoogleConnectButton.addActionListener(e -> connectToGoogleAndStoreToken());
 		googleButtonsRow.add(miningGoogleConnectButton);
 		logBackendBox.add(googleButtonsRow, gbcLog);
@@ -1074,9 +1086,13 @@ public class PreferencesDialog extends JDialog {
 				updateMiningGoogleMigrateLegacyButtonEnabled();
 			}
 		});
-		applyMiningGoogleSpreadsheetFieldEditability(useGoogle);
-		miningLogBackendGoogleRadio.addActionListener(ev -> applyMiningGoogleSpreadsheetFieldEditability(miningLogBackendGoogleRadio.isSelected()));
-		miningLogBackendLocalRadio.addActionListener(ev -> applyMiningGoogleSpreadsheetFieldEditability(miningLogBackendGoogleRadio.isSelected()));
+		applyMiningGoogleSpreadsheetFieldEditability(useGoogle || useBoth);
+		ActionListener miningBackendRadioChange = ev -> applyMiningGoogleSpreadsheetFieldEditability(
+			(miningLogBackendGoogleRadio != null && miningLogBackendGoogleRadio.isSelected())
+				|| (miningLogBackendBothRadio != null && miningLogBackendBothRadio.isSelected()));
+		miningLogBackendGoogleRadio.addActionListener(miningBackendRadioChange);
+		miningLogBackendLocalRadio.addActionListener(miningBackendRadioChange);
+		miningLogBackendBothRadio.addActionListener(miningBackendRadioChange);
 
 		outer.add(logBackendBox);
 		outer.add(Box.createVerticalStrut(10));
@@ -1683,16 +1699,19 @@ public class PreferencesDialog extends JDialog {
 	}
 
 	private boolean validateMiningGoogleSettingsBeforeSave() {
-		if (miningLogBackendGoogleRadio == null || !miningLogBackendGoogleRadio.isSelected()) {
+		boolean googleSelected = miningLogBackendGoogleRadio != null && miningLogBackendGoogleRadio.isSelected();
+		boolean bothSelected = miningLogBackendBothRadio != null && miningLogBackendBothRadio.isSelected();
+		if (!googleSelected && !bothSelected) {
 			return true;
 		}
 		String url = miningGoogleSheetsUrlField != null ? miningGoogleSheetsUrlField.getText() : "";
 		if (url != null && !url.trim().isEmpty()) {
 			return true;
 		}
+		String which = bothSelected ? "Both" : "Google Sheets";
 		JOptionPane.showMessageDialog(
 				this,
-				"Google Sheets is selected but the Google Sheets URL is empty.\n"
+				which + " is selected but the Google Sheets URL is empty.\n"
 						+ "Paste your sheet URL first, or switch back to Local CSV.",
 				"Mining preferences",
 				JOptionPane.WARNING_MESSAGE);
@@ -2132,7 +2151,20 @@ public class PreferencesDialog extends JDialog {
             OverlayPreferences.setMiningLogCommanderName(miningLogCommanderNameField.getText());
         }
         if (miningLogBackendLocalRadio != null && miningLogBackendGoogleRadio != null) {
-            OverlayPreferences.setMiningLogBackend(miningLogBackendGoogleRadio.isSelected() ? "google" : "local");
+            String prevBackend = OverlayPreferences.getMiningLogBackend();
+            String newBackend;
+            if (miningLogBackendBothRadio != null && miningLogBackendBothRadio.isSelected()) {
+                newBackend = "both";
+            } else if (miningLogBackendGoogleRadio.isSelected()) {
+                newBackend = "google";
+            } else {
+                newBackend = "local";
+            }
+            // When toggling off Both, clear the per-commander synced-once flags so re-enabling Both runs the auto-sync again.
+            if ("both".equals(prevBackend) && !"both".equals(newBackend)) {
+                OverlayPreferences.clearAllMiningLogBothSyncedOnce();
+            }
+            OverlayPreferences.setMiningLogBackend(newBackend);
         }
         // Merge-save: never persist an empty field over an existing stored URL/credentials (disabled fields on some
         // LAFs used to yield blank text; Local CSV vs Google must not wipe the saved sheet link).

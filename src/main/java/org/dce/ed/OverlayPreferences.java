@@ -98,8 +98,12 @@ public final class OverlayPreferences {
     private static final String KEY_MINING_PROSPECTOR_MIN_AVG_VALUE = "mining.prospector.minAvgValuePerTon"; // credits/ton
     private static final String KEY_MINING_PROSPECTOR_EMAIL = "mining.prospector.email"; // for CSV log
 
-    // Mining log / spreadsheet: backend (local vs Google Sheets) and run counter
-    private static final String KEY_MINING_LOG_BACKEND = "mining.log.backend"; // "local" | "google"
+    // Mining log / spreadsheet: backend (local vs Google Sheets vs both) and run counter
+    private static final String KEY_MINING_LOG_BACKEND = "mining.log.backend"; // "local" | "google" | "both"
+    /** When backend is "both": which side is the primary read source (and what the Mining-tab table displays). */
+    private static final String KEY_MINING_LOG_BOTH_PRIMARY = "mining.log.bothPrimary"; // "google" | "local"
+    /** Per-commander first-time-sync flag for Both mode; key is {@code mining.log.bothSyncedOnce.<sanitizedCommander>}. */
+    private static final String KEY_MINING_LOG_BOTH_SYNCED_ONCE_PREFIX = "mining.log.bothSyncedOnce.";
     private static final String KEY_MINING_GOOGLE_SHEETS_URL = "mining.googleSheets.url";
     private static final String KEY_MINING_GOOGLE_CLIENT_ID = "mining.googleSheets.clientId";
     private static final String KEY_MINING_GOOGLE_CLIENT_SECRET = "mining.googleSheets.clientSecret";
@@ -718,18 +722,84 @@ public static Engine getSpeechEngine() {
     }
 
     /**
-     * Prospector log backend: "local" (CSV file) or "google" (Google Sheets).
+     * Prospector log backend: "local" (CSV file), "google" (Google Sheets), or "both" (CSV mirror + Sheets, with
+     * a user-pickable primary display source). Defaults to "local".
      */
     public static String getMiningLogBackend() {
         String v = PREFS.get(KEY_MINING_LOG_BACKEND, "local").trim();
-        return "google".equalsIgnoreCase(v) ? "google" : "local";
+        if ("google".equalsIgnoreCase(v)) {
+            return "google";
+        }
+        if ("both".equalsIgnoreCase(v)) {
+            return "both";
+        }
+        return "local";
     }
 
     public static void setMiningLogBackend(String backend) {
         if (backend == null) {
             backend = "local";
         }
-        PREFS.put(KEY_MINING_LOG_BACKEND, "google".equalsIgnoreCase(backend.trim()) ? "google" : "local");
+        String t = backend.trim();
+        String normalized;
+        if ("google".equalsIgnoreCase(t)) {
+            normalized = "google";
+        } else if ("both".equalsIgnoreCase(t)) {
+            normalized = "both";
+        } else {
+            normalized = "local";
+        }
+        PREFS.put(KEY_MINING_LOG_BACKEND, normalized);
+    }
+
+    /**
+     * Both-mode primary display source: which side the Mining tab table reads from and the composite treats as
+     * authoritative. {@code "google"} (default) or {@code "local"}. Only meaningful when
+     * {@link #getMiningLogBackend()} returns {@code "both"}.
+     */
+    public static String getMiningLogBothPrimary() {
+        String v = PREFS.get(KEY_MINING_LOG_BOTH_PRIMARY, "google").trim();
+        return "local".equalsIgnoreCase(v) ? "local" : "google";
+    }
+
+    public static void setMiningLogBothPrimary(String primary) {
+        if (primary == null) {
+            primary = "google";
+        }
+        PREFS.put(KEY_MINING_LOG_BOTH_PRIMARY, "local".equalsIgnoreCase(primary.trim()) ? "local" : "google");
+    }
+
+    /**
+     * Per-commander flag set after the first successful Both-mode sync of that commander's rows. Use the same
+     * sanitized {@code CMDR <name>}-style key for both Sheets tabs and CSV files.
+     */
+    public static boolean isMiningLogBothSyncedOnce(String sanitizedCommanderKey) {
+        if (sanitizedCommanderKey == null || sanitizedCommanderKey.isBlank()) {
+            return false;
+        }
+        return PREFS.getBoolean(KEY_MINING_LOG_BOTH_SYNCED_ONCE_PREFIX + sanitizedCommanderKey, false);
+    }
+
+    public static void setMiningLogBothSyncedOnce(String sanitizedCommanderKey, boolean synced) {
+        if (sanitizedCommanderKey == null || sanitizedCommanderKey.isBlank()) {
+            return;
+        }
+        PREFS.putBoolean(KEY_MINING_LOG_BOTH_SYNCED_ONCE_PREFIX + sanitizedCommanderKey, synced);
+    }
+
+    /**
+     * Clears every {@code mining.log.bothSyncedOnce.*} flag. Called when the user toggles backend off Both so the
+     * next time they re-enable Both we run the auto-sync again.
+     */
+    public static void clearAllMiningLogBothSyncedOnce() {
+        try {
+            for (String k : PREFS.keys()) {
+                if (k != null && k.startsWith(KEY_MINING_LOG_BOTH_SYNCED_ONCE_PREFIX)) {
+                    PREFS.remove(k);
+                }
+            }
+        } catch (BackingStoreException ignored) {
+        }
     }
 
     /**

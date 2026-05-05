@@ -22,7 +22,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 import java.util.Objects;
 
 import org.dce.ed.OverlayFrame;
@@ -202,7 +201,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
         if (layoutVersion >= MINING_LAYOUT_VERSION_PER_COMMANDER_TABS) {
             return false;
         }
-        if (!"google".equals(backend)) {
+        if (!"google".equals(backend) && !"both".equals(backend)) {
             return false;
         }
         return url != null && !url.isBlank();
@@ -423,6 +422,27 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
         }
         m = m.trim();
         return m.length() > 200 ? m.substring(0, 197) + "..." : m;
+    }
+
+    /** First worksheet that is not Archive; used as a legacy read fallback. */
+    private static String firstNonArchiveWorksheetTitle(List<Sheet> sheetList) {
+        if (sheetList == null) {
+            return null;
+        }
+        for (Sheet sh : sheetList) {
+            if (sh == null || sh.getProperties() == null) {
+                continue;
+            }
+            String title = sh.getProperties().getTitle();
+            if (title == null || title.isBlank()) {
+                continue;
+            }
+            if ("Archive".equalsIgnoreCase(title.trim())) {
+                continue;
+            }
+            return title;
+        }
+        return null;
     }
 
     /**
@@ -877,7 +897,25 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                 cmdrTitles.add(title);
             }
             if (cmdrTitles.isEmpty()) {
-                return new ProspectorLoadResult(ProspectorLoadResult.Status.EMPTY_SHEET, Collections.emptyList());
+                // Backward-compat fallback: some users still keep data on a legacy non-CMDR tab.
+                // Prefer showing that data over returning an empty table in Google mode.
+                String fallbackTitle = firstNonArchiveWorksheetTitle(sheetList);
+                if (fallbackTitle == null) {
+                    return new ProspectorLoadResult(ProspectorLoadResult.Status.EMPTY_SHEET, Collections.emptyList());
+                }
+                ValueRange vr = sheets.spreadsheets().values()
+                        .get(spreadsheetId, rangeA1PForSheetTitle(fallbackTitle))
+                        .execute();
+                List<List<Object>> values = vr != null ? vr.getValues() : null;
+                if (values == null || values.size() <= 1) {
+                    return new ProspectorLoadResult(ProspectorLoadResult.Status.EMPTY_SHEET, Collections.emptyList());
+                }
+                List<ProspectorLogRow> legacyRows = parseSheetDataRows(values, fallbackTitle);
+                if (legacyRows.isEmpty()) {
+                    return new ProspectorLoadResult(ProspectorLoadResult.Status.EMPTY_SHEET, Collections.emptyList());
+                }
+                legacyRows.sort(PROSPECTOR_MERGED_ROWS_BY_TIMESTAMP);
+                return new ProspectorLoadResult(ProspectorLoadResult.Status.OK, legacyRows);
             }
             List<String> ranges = new ArrayList<>(cmdrTitles.size());
             for (String title : cmdrTitles) {
@@ -943,7 +981,27 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                 String m = ex.getMessage() != null ? ex.getMessage() : "";
                 if (m.contains("Unable to parse range") || m.contains("not found")) {
                     forgetEnsuredSheetWithHeader(spreadsheetId, sheetTitle);
-                    return new ProspectorLoadResult(ProspectorLoadResult.Status.EMPTY_SHEET, Collections.emptyList());
+                    // Legacy fallback when a per-commander tab does not exist: load merged rows and filter.
+                    ProspectorLoadResult all = loadRowsWithStatus();
+                    if (all == null || all.getRows() == null || all.getRows().isEmpty()) {
+                        return new ProspectorLoadResult(ProspectorLoadResult.Status.EMPTY_SHEET, Collections.emptyList());
+                    }
+                    List<ProspectorLogRow> filtered = new ArrayList<>();
+                    String want = commander != null ? commander.trim() : "";
+                    for (ProspectorLogRow r : all.getRows()) {
+                        if (r == null) {
+                            continue;
+                        }
+                        String got = r.getCommanderName() != null ? r.getCommanderName().trim() : "";
+                        if (want.equalsIgnoreCase(got)) {
+                            filtered.add(r);
+                        }
+                    }
+                    if (filtered.isEmpty()) {
+                        return new ProspectorLoadResult(ProspectorLoadResult.Status.EMPTY_SHEET, Collections.emptyList());
+                    }
+                    filtered.sort(Comparator.comparing(ProspectorLogRow::getTimestamp, Comparator.nullsLast(Comparator.naturalOrder())));
+                    return new ProspectorLoadResult(ProspectorLoadResult.Status.OK, filtered);
                 }
                 return new ProspectorLoadResult(ProspectorLoadResult.Status.ERROR, Collections.emptyList(),
                         truncateMsg(ex.getMessage()));
@@ -1253,11 +1311,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
 
     /** Blank, whitespace-only, or legacy "-" placeholder from older writes — treat as no location. */
     static boolean isBlankSheetCell(String s) {
-        if (s == null) {
-            return true;
-        }
-        String t = s.trim();
-        return t.isEmpty() || "-".equals(t);
+        return ProspectorRowMergeRules.isBlankCell(s);
     }
 
     static String normSheetCell(String s) {
@@ -1266,25 +1320,16 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
 
     /**
      * When upserting a row, incoming cargo-driven updates often have no core type; keep a previously written Core
-     * cell instead of replacing it with {@code "-"}.
+     * cell instead of replacing it with {@code "-"}. Delegates to {@link ProspectorRowMergeRules#mergeCore} so the
+     * CSV and Sheets backends produce identical results.
      */
     static String mergeProspectorCoreForUpsert(String incomingCore, String existingCoreCell) {
-        String inc = incomingCore != null ? incomingCore.trim() : "";
-        if (!inc.isEmpty()) {
-            return inc;
-        }
-        String ex = str(existingCoreCell);
-        return !isBlankSheetCell(ex) ? ex : "-";
+        return ProspectorRowMergeRules.mergeCore(incomingCore, existingCoreCell);
     }
 
     /** Like {@link #mergeProspectorCoreForUpsert} but column Q stays blank instead of {@code "-"}. */
     static String mergeProspectorCommentsForUpsert(String incomingComments, String existingCell) {
-        String inc = incomingComments != null ? incomingComments.trim() : "";
-        if (!inc.isEmpty()) {
-            return inc;
-        }
-        String ex = str(existingCell);
-        return !isBlankSheetCell(ex) ? ex : "";
+        return ProspectorRowMergeRules.mergeComments(incomingComments, existingCell);
     }
 
     /**
@@ -1292,7 +1337,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
      * update for the same row arrives with zero.
      */
     static int mergeProspectorDudsForUpsert(int incomingDuds, int existingDuds) {
-        return Math.max(0, Math.max(incomingDuds, existingDuds));
+        return ProspectorRowMergeRules.mergeDuds(incomingDuds, existingDuds);
     }
 
     /**
@@ -1421,19 +1466,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
     }
 
     static int asteroidIdSortIndex(String asteroidId) {
-        String s = asteroidId != null ? asteroidId.trim().toUpperCase(Locale.ROOT) : "";
-        if (s.isEmpty() || "-".equals(s)) {
-            return Integer.MAX_VALUE;
-        }
-        int idx = 0;
-        for (int i = 0; i < s.length(); i++) {
-            char ch = s.charAt(i);
-            if (ch < 'A' || ch > 'Z') {
-                return Integer.MAX_VALUE;
-            }
-            idx = idx * 26 + (ch - 'A' + 1);
-        }
-        return idx - 1;
+        return ProspectorRowMergeRules.asteroidIdSortIndex(asteroidId);
     }
 
     private static int parseInt(Object o, int def) {
@@ -1500,6 +1533,16 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
     @Override
     public void updateRunEndTime(String commander, int run, Instant endTime) {
         updateRunEndTimeResult(commander, run, endTime);
+    }
+
+    @Override
+    public String displayName() {
+        return "Google Sheets";
+    }
+
+    @Override
+    public boolean prefersDebouncedRefresh() {
+        return true;
     }
 
     /**
