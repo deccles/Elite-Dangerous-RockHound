@@ -1658,6 +1658,7 @@ return EdoUi.User.MAIN_TEXT;
 				wroteRowsThisRun = true;
 				haveActiveAsteroid = true;
 				loggedCargoSinceLastProspector = true;
+				dudCounter = 0;
 			}
 		}
 
@@ -1778,6 +1779,7 @@ return EdoUi.User.MAIN_TEXT;
 		if (lastInventoryTonsAtProspector == null || lastInventoryTonsAtProspector.isEmpty()) {
 			lastProspectedMotherlode = "";
 			asteroidIdCounter = 0;
+			dudCounter = 0;
 			prospectorLimpetSeenThisTrip = false;
 			loggedCargoSinceLastProspector = false;
 			wroteRowsThisRun = false;
@@ -1831,6 +1833,7 @@ return EdoUi.User.MAIN_TEXT;
 		lastPercentByMaterialAtProspector = new HashMap<>();
 		lastProspectedMotherlode = "";
 		asteroidIdCounter = 0;
+		dudCounter = 0;
 		prospectorLimpetSeenThisTrip = false;
 		loggedCargoSinceLastProspector = false;
 		wroteRowsThisRun = false;
@@ -2693,6 +2696,9 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		// New limpet after the first: advance the letter only if the previous rock produced logged cargo (not a dud).
 		if (prospectorLimpetSeenThisTrip && loggedCargoSinceLastProspector) {
 			asteroidIdCounter++;
+		}
+		if (prospectorLimpetSeenThisTrip && !loggedCargoSinceLastProspector) {
+			dudCounter++;
 		}
 		prospectorLimpetSeenThisTrip = true;
 		loggedCargoSinceLastProspector = false;

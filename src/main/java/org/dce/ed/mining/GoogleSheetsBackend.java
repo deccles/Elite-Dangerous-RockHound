@@ -765,7 +765,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
                     row.set(Col.ACTUAL, r.getDifference());
                     String existingCore = row.size() > Col.CORE ? str(row.get(Col.CORE)) : "";
                     row.set(Col.CORE, mergeProspectorCoreForUpsert(incomingCore, existingCore));
-                    row.set(Col.DUDS, r.getDuds());
+                    row.set(Col.DUDS, mergeProspectorDudsForUpsert(r.getDuds(), parseInt(row.get(Col.DUDS), 0)));
                     row.set(Col.SYSTEM, outSystem);
                     row.set(Col.BODY, outBody);
                     row.set(Col.COMMANDER, commander);
@@ -1285,6 +1285,14 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
         }
         String ex = str(existingCell);
         return !isBlankSheetCell(ex) ? ex : "";
+    }
+
+    /**
+     * Duds are counted per asteroid attempt until first mined row. Preserve an existing non-zero value when a later
+     * update for the same row arrives with zero.
+     */
+    static int mergeProspectorDudsForUpsert(int incomingDuds, int existingDuds) {
+        return Math.max(0, Math.max(incomingDuds, existingDuds));
     }
 
     /**

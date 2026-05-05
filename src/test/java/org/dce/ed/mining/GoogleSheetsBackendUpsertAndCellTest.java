@@ -91,6 +91,13 @@ class GoogleSheetsBackendUpsertAndCellTest {
             assertEquals("", GoogleSheetsBackend.mergeProspectorCommentsForUpsert("", ""));
             assertEquals("", GoogleSheetsBackend.mergeProspectorCommentsForUpsert("", "-"));
         }
+
+        @Test
+        void mergeProspectorDuds_preservesHigherValueAcrossUpserts() {
+            assertEquals(1, GoogleSheetsBackend.mergeProspectorDudsForUpsert(0, 1));
+            assertEquals(2, GoogleSheetsBackend.mergeProspectorDudsForUpsert(2, 1));
+            assertEquals(0, GoogleSheetsBackend.mergeProspectorDudsForUpsert(0, 0));
+        }
     }
 
     @Nested
