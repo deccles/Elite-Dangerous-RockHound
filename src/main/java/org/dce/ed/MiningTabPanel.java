@@ -2954,13 +2954,14 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		if (!prospectorLimpetSeenThisTrip && !wroteRowsThisRun) {
 			syncAsteroidCounterFromBackendForCurrentLocation(nextMiningStartsNewRun);
 		}
-		// New limpet after the first: advance when we have evidence of mining since the last prospect — logged cargo
-		// for the prior rock, or any upsert this run (covers rare loggedCargo skew). Otherwise count a dud prospect.
-		boolean minedSinceLastProspect = loggedCargoSinceLastProspector || wroteRowsThisRun;
-		if (prospectorLimpetSeenThisTrip && minedSinceLastProspect) {
+		// New limpet after the first: advance the letter only if the *previous* rock produced logged cargo (not a dud).
+		// Do not use wroteRowsThisRun here: it stays true for the whole run after the first upsert and would advance
+		// the letter on every prospect even when no ore was gathered on the prior rock, reusing the wrong asteroid id
+		// and corrupting upserts keyed by (run, asteroid, material, commander).
+		if (prospectorLimpetSeenThisTrip && loggedCargoSinceLastProspector) {
 			asteroidIdCounter++;
 		}
-		if (prospectorLimpetSeenThisTrip && !minedSinceLastProspect) {
+		if (prospectorLimpetSeenThisTrip && !loggedCargoSinceLastProspector) {
 			dudCounter++;
 		}
 		prospectorLimpetSeenThisTrip = true;

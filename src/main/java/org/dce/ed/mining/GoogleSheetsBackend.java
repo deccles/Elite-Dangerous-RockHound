@@ -1319,6 +1319,15 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
     }
 
     /**
+     * Normalizes run/asteroid/material/commander identity for upsert matching. Must stay aligned with
+     * {@link LocalCsvBackend} UpsertKey (case-insensitive after blank/dash collapse) so Sheets and CSV never disagree
+     * on whether two rows are the same logical key.
+     */
+    static String normUpsertIdentityPart(String s) {
+        return normSheetCell(s).toLowerCase(Locale.ROOT);
+    }
+
+    /**
      * When upserting a row, incoming cargo-driven updates often have no core type; keep a previously written Core
      * cell instead of replacing it with {@code "-"}. Delegates to {@link ProspectorRowMergeRules#mergeCore} so the
      * CSV and Sheets backends produce identical results.
@@ -1358,9 +1367,9 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
         String existingMaterial = row.size() > Col.MATERIAL ? str(row.get(Col.MATERIAL)) : "";
         String existingCommander = row.size() > Col.COMMANDER ? str(row.get(Col.COMMANDER)) : "";
         return existingRun == run
-            && normSheetCell(existingAsteroid).equals(normSheetCell(asteroid))
-            && normSheetCell(existingMaterial).equals(normSheetCell(material))
-            && normSheetCell(existingCommander).equals(normSheetCell(commander));
+            && normUpsertIdentityPart(existingAsteroid).equals(normUpsertIdentityPart(asteroid))
+            && normUpsertIdentityPart(existingMaterial).equals(normUpsertIdentityPart(material))
+            && normUpsertIdentityPart(existingCommander).equals(normUpsertIdentityPart(commander));
     }
 
     /**

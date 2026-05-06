@@ -215,6 +215,15 @@ class GoogleSheetsBackendUpsertAndCellTest {
         }
 
         @Test
+        void materialAndCommanderCaseInsensitive_matchesLocalCsvUpsertKey() {
+            List<List<Object>> values = new ArrayList<>();
+            values.add(List.of("h"));
+            values.add(dataRow(4, "B", "Painite", "Sol", "Ring", "Villunus"));
+            int idx = GoogleSheetsBackend.findProspectorUpsertRowIndex(values, 4, "b", "painite", "villunus", "Sol", "Ring");
+            assertEquals(1, idx);
+        }
+
+        @Test
         void duplicateMatches_prefersNewestTimestampRow() {
             List<List<Object>> values = new ArrayList<>();
             values.add(List.of("Run", "A", "T", "Mat", "0", "0", "0", "0", "c", "0", "Sys", "Body", "Cmdr"));
