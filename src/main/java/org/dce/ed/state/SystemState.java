@@ -28,6 +28,7 @@ public class SystemState {
      * so the toolbar survives tool restarts and reboots.
      */
     private Long exobiologyCreditsTotalUnsold;
+    private Long geoSurveyCreditsTotal;
 
     private boolean visitedByMe;
     /**
@@ -71,6 +72,14 @@ public class SystemState {
 
     public void setExobiologyCreditsTotalUnsold(Long exobiologyCreditsTotalUnsold) {
         this.exobiologyCreditsTotalUnsold = exobiologyCreditsTotalUnsold;
+    }
+
+    public Long getGeoSurveyCreditsTotal() {
+        return geoSurveyCreditsTotal;
+    }
+
+    public void setGeoSurveyCreditsTotal(Long geoSurveyCreditsTotal) {
+        this.geoSurveyCreditsTotal = geoSurveyCreditsTotal;
     }
 
     // ------------------------------------------------------------

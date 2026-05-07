@@ -771,20 +771,31 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
     }
 
     /**
-     * Prefer the exact cache path; else a digit clip for the same English number word (packs warm {@code N|0}–{@code N|99}
-     * with matching {@code |MID}/{@code |END} — never the other position).
+     * Prefer the exact cache path; else typed-word and digit fallbacks for number words.
+     * <p>
+     * Legacy/raw callers may request plain text (for example {@code "hundred"}) while voice packs warm typed keys
+     * such as {@code T|hundred|MID}/{@code T|hundred|END}. Try the typed-word key first, then a digit token
+     * fallback ({@code N|0}–{@code N|99}) with matching {@code |MID}/{@code |END} — never the other position.
+     * </p>
      */
     private Path resolveCachedWavPathWithFallbacks(Path voiceDir, VoiceSettings s, String keyText, String spokenChunk) {
         Path primary = getCachedWavPath(voiceDir, s, keyText);
         if (Files.exists(primary)) {
             return primary;
         }
+        String sfx = midEndSuffixForDigitFallback(keyText);
         String spoken = spokenChunk != null && !spokenChunk.isBlank()
                 ? spokenChunk.trim()
                 : extractSpokenFromTypedCacheKey(keyText);
+        if (keyText != null && !keyText.isBlank() && !keyText.trim().startsWith("T|")
+                && spoken != null && !spoken.isBlank()) {
+            Path typedWord = getCachedWavPath(voiceDir, s, "T|" + spoken + sfx);
+            if (Files.exists(typedWord)) {
+                return typedWord;
+            }
+        }
         String numTok = spokenEnglishNumberToNumericToken(spoken);
         if (numTok != null) {
-            String sfx = midEndSuffixForDigitFallback(keyText);
             Path alt = getCachedWavPath(voiceDir, s, "N|" + numTok + sfx);
             if (Files.exists(alt)) {
                 return alt;

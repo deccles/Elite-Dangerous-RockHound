@@ -23,8 +23,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.text.NumberFormat;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.prefs.Preferences;
 
@@ -51,6 +53,7 @@ import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.LiveJournalMonitor;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
+import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
@@ -58,6 +61,7 @@ import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.SpanshBodyExobiologyInfo;
 import org.dce.ed.util.SpanshLandmark;
 import org.dce.ed.util.SpanshLandmarkCache;
+import org.dce.ed.util.ValuableBodyExplorationEstimate;
 import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
@@ -171,6 +175,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private boolean carrierJumpCompleteSpokenForCurrentJump;
 
     private long exoCreditsTotal;
+    private long geoSurveyCreditsTotal;
+    private final Set<Long> countedGeoSurveyBodyKeys = new HashSet<>();
 
     /** Debounced save of session state (500 ms after last tab change). */
     private final Timer sessionSaveTimer = new Timer(500, e -> saveSessionState());
@@ -294,7 +300,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 return "Cooldown " + time;
             }
         }
-        return formatExoCredits(exoCreditsTotal);
+        return formatScienceCredits(exoCreditsTotal, geoSurveyCreditsTotal);
     }
 
     /**
@@ -311,7 +317,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         if (carrierJumpCooldownEndTime != null) {
             return "Cooldown";
         }
-        return formatExoCredits(exoCreditsTotal);
+        return formatScienceCredits(exoCreditsTotal, geoSurveyCreditsTotal);
     }
 
     private String getFleetCarrierTimeBadgeTextOnly() {
@@ -552,6 +558,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 
         Long cached = loadExoCreditsTotalFromSystemCache();
         exoCreditsTotal = cached != null ? cached.longValue() : 0L;
+        Long geoCached = loadGeoSurveyCreditsTotalFromSystemCache();
+        geoSurveyCreditsTotal = geoCached != null ? geoCached.longValue() : 0L;
         updateRightStatusDefault();
 
         // Transparent content panel with tabbed pane
@@ -572,6 +580,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         
         installCarrierJumpTitleUpdater();
         installExoCreditsTracker();
+        installGeoSurveyCreditsTracker();
         installTabbedPaneJournalListener();
         installLowLimpetStatusUpdater();
         sessionSaveTimer.setRepeats(false);
@@ -640,6 +649,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getSystemTabPanel().fillSessionState(state);
         tabs.getMiningTabPanel().fillSessionState(state);
         state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+        state.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
         fillCarrierSessionState(state);
         EdoSessionPersistence.save(state);
     }
@@ -672,6 +682,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             exoCreditsTotal = state.getExobiologyCreditsTotalUnsold().longValue();
         } else {
             exoCreditsTotal = 0L;
+        }
+        if (state.getGeoSurveyCreditsTotal() != null) {
+            geoSurveyCreditsTotal = state.getGeoSurveyCreditsTotal().longValue();
+        } else {
+            geoSurveyCreditsTotal = 0L;
         }
         updateRightStatusDefault();
     }
@@ -949,9 +964,48 @@ private static String formatExoCredits(long credits) {
     return "Bio: " + nf.format(credits) + " Cr";
 }
 
+private static String formatGeoSurveyCredits(long credits) {
+    if (credits <= 0) {
+        return "";
+    }
+    double d = credits;
+    if (credits >= 1_000_000_000L) {
+        return String.format(Locale.US, "Geo: %.1fB Cr", d / 1_000_000_000d);
+    }
+    if (credits >= 1_000_000L) {
+        return String.format(Locale.US, "Geo: %.1fM Cr", d / 1_000_000d);
+    }
+    if (credits >= 1_000L) {
+        return String.format(Locale.US, "Geo: %.1fK Cr", d / 1_000d);
+    }
+    NumberFormat nf = NumberFormat.getIntegerInstance(Locale.US);
+    return "Geo: " + nf.format(credits) + " Cr";
+}
+
+private static String formatScienceCredits(long exoCredits, long geoCredits) {
+    String bio = formatExoCredits(exoCredits);
+    String geo = formatGeoSurveyCredits(geoCredits);
+    if (!bio.isBlank() && !geo.isBlank()) {
+        return bio + " · " + geo;
+    }
+    if (!bio.isBlank()) {
+        return bio;
+    }
+    return geo;
+}
+
 private Long loadExoCreditsTotalFromSystemCache() {
     try {
         return SystemCache.getInstance().getPersistedExobiologyCreditsTotalUnsold();
+    } catch (Exception ignored) {
+        return null;
+    }
+}
+
+private Long loadGeoSurveyCreditsTotalFromSystemCache() {
+    try {
+        EdoSessionState s = SystemCache.getInstance().loadEdoSessionState();
+        return s != null ? s.getGeoSurveyCreditsTotal() : null;
     } catch (Exception ignored) {
         return null;
     }
@@ -962,6 +1016,7 @@ private void persistExoCreditsTotal() {
         SystemCache cache = SystemCache.getInstance();
         EdoSessionState s = cache.loadEdoSessionState();
         s.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+        s.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
         cache.saveEdoSessionState(s);
 
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
@@ -969,6 +1024,25 @@ private void persistExoCreditsTotal() {
         SystemState st = (systemTab != null) ? systemTab.getState() : null;
         if (st != null) {
             st.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+            st.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+        }
+    } catch (Exception ignored) {
+        // Best-effort persistence; UI should never break.
+    }
+}
+
+private void persistGeoSurveyCreditsTotal() {
+    try {
+        SystemCache cache = SystemCache.getInstance();
+        EdoSessionState s = cache.loadEdoSessionState();
+        s.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+        cache.saveEdoSessionState(s);
+
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        SystemTabPanel systemTab = (tabs != null) ? tabs.getSystemTabPanel() : null;
+        SystemState st = (systemTab != null) ? systemTab.getState() : null;
+        if (st != null) {
+            st.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
         }
     } catch (Exception ignored) {
         // Best-effort persistence; UI should never break.
@@ -1037,6 +1111,56 @@ private void installExoCreditsTracker() {
     }
 }
 
+private static long geoSurveyBodyKey(ScanEvent e) {
+    long addr = e != null ? e.getSystemAddress() : 0L;
+    long body = e != null ? (e.getBodyId() & 0xFFFFFFFFL) : 0L;
+    return (addr << 32) ^ body;
+}
+
+private void installGeoSurveyCreditsTracker() {
+    try {
+        LiveJournalMonitor monitor = LiveJournalMonitor.getInstance(EliteDangerousOverlay.clientKey);
+        monitor.addListener(event -> {
+            if (!(event instanceof ScanEvent scan)) {
+                return;
+            }
+
+            long key = geoSurveyBodyKey(scan);
+            synchronized (countedGeoSurveyBodyKeys) {
+                if (countedGeoSurveyBodyKeys.contains(Long.valueOf(key))) {
+                    return;
+                }
+            }
+
+            EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+            SystemTabPanel systemTab = (tabs != null) ? tabs.getSystemTabPanel() : null;
+            SystemState st = (systemTab != null) ? systemTab.getState() : null;
+            if (st == null) {
+                return;
+            }
+            BodyInfo body = st.getBodies().get(scan.getBodyId());
+            if (body == null) {
+                return;
+            }
+            long estimate = ValuableBodyExplorationEstimate.resolveCreditsForDisplay(body);
+            if (estimate <= 0L) {
+                return;
+            }
+
+            synchronized (countedGeoSurveyBodyKeys) {
+                if (!countedGeoSurveyBodyKeys.add(Long.valueOf(key))) {
+                    return;
+                }
+            }
+            geoSurveyCreditsTotal += estimate;
+            persistGeoSurveyCreditsTotal();
+            updateRightStatusDefault();
+        });
+    } catch (Exception ex) {
+        ex.printStackTrace();
+    }
+}
+
 private void installLowLimpetStatusUpdater() {
     EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
     if (tp != null) {
@@ -1058,7 +1182,7 @@ private void installLowLimpetStatusUpdater() {
  * exception text when {@link #reportExceptionToTitleBar} is active.
  */
 /**
- * True when the right status area has no meaningful text (no FC line, no bio credits line, no update hint, no speech banner).
+ * True when the right status area has no meaningful text (no FC line, no bio/geo credits line, no update hint, no speech banner).
  * Used by pass-through status and by {@link #buildDecoratedMenuStatusHtml} so a lone limpet warning does not get a leading {@code |}.
  */
 boolean isRightStatusEffectivelyEmpty() {
@@ -1092,7 +1216,9 @@ private void refreshPassThroughUnifiedStatus() {
         boolean rightEmpty = isRightStatusEffectivelyEmpty();
 
         if (!showErr && !showMiningErr && !limpet && rightEmpty) {
-            passThroughStatusLabel.setText("\u2014");
+            // Keep the status row visually clear when there is no content.
+            // A visible placeholder dash is confusing after totals reset (e.g., after SellOrganicData).
+            passThroughStatusLabel.setText("");
             passThroughStatusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
             passThroughStatusLabel.setVisible(true);

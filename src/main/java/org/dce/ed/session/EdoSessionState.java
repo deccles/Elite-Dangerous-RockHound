@@ -48,6 +48,8 @@ public final class EdoSessionState {
     // --- Commander globals (authoritative in session blob; not star-system domain) ---
     /** Unsold exobiology expected credits total (toolbar). */
     private Long exobiologyCreditsTotalUnsold;
+    /** Running geo survey estimate total (toolbar). */
+    private Long geoSurveyCreditsTotal;
     /** Last known docked flag from journals / Status. */
     private Boolean docked;
     /**
@@ -382,6 +384,14 @@ public final class EdoSessionState {
 
     public void setExobiologyCreditsTotalUnsold(Long exobiologyCreditsTotalUnsold) {
         this.exobiologyCreditsTotalUnsold = exobiologyCreditsTotalUnsold;
+    }
+
+    public Long getGeoSurveyCreditsTotal() {
+        return geoSurveyCreditsTotal;
+    }
+
+    public void setGeoSurveyCreditsTotal(Long geoSurveyCreditsTotal) {
+        this.geoSurveyCreditsTotal = geoSurveyCreditsTotal;
     }
 
     public Boolean getDocked() {
