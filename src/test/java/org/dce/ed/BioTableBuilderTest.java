@@ -170,6 +170,24 @@ class BioTableBuilderTest {
     }
 
     @Test
+    void bodyBioColumnText_singleSignalSameValueCandidates_doesNotSumAllPossibilities() {
+        BodyInfo body = new BodyInfo();
+        body.setHasBio(true);
+        body.setNumberOfBioSignals(1);
+        body.setPredictions(new ArrayList<>(List.of(
+                makeCandidate("Stratum Prasinum", 1_600_000L),
+                makeCandidate("Stratum Roseum", 1_600_000L),
+                makeCandidate("Stratum Violaceum", 1_600_000L),
+                makeCandidate("Stratum Viride", 1_600_000L))));
+
+        assertEquals("8M (1 signal)", BioTableBuilder.formatBodyBioColumnText(body));
+        assertEquals("8M", BioTableBuilder.computeBioHeaderSummary(body));
+
+        String html = BioTableBuilder.formatBodyBioColumnHtml(body, 10_000_000L);
+        assertTrue(html.contains("(1 signal)"), "HTML should keep the full signal text: " + html);
+    }
+
+    @Test
     void bodyBioColumnText_partialClaim_showsRemainingRangeThenClaimedCredits() {
         BodyInfo body = new BodyInfo();
         body.setHasBio(true);

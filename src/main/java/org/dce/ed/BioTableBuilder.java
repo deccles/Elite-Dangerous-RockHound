@@ -118,7 +118,7 @@ final class BioTableBuilder {
                     split.remainingMin, split.remainingMax, b.getNumberOfBioSignals());
             if (payoutRange != null) {
                 remainingStr = formatRemainingMillionSummaryForHeader(
-                        payoutRange[0], payoutRange[1], split.remainingPerSpecies);
+                        payoutRange[0], payoutRange[1], split.remainingPerSpecies, (int) payoutRange[2]);
                 maxRemainingCr = Long.valueOf(payoutRange[1]);
             }
         }
@@ -262,9 +262,11 @@ final class BioTableBuilder {
      * Million-scale header for remaining payouts: for a single total, prefer the sum of per-species
      * {@code round(cr/1M)} so the headline matches the rounded detail lines (aggregate round can differ by 1M).
      */
-    private static String formatRemainingMillionSummaryForHeader(long minCr, long maxCr, List<Long> remainingCredits) {
+    private static String formatRemainingMillionSummaryForHeader(long minCr, long maxCr, List<Long> remainingCredits,
+            int signalCountUsed) {
         String aggregate = formatMillionSummary(minCr, maxCr);
-        if (aggregate == null || remainingCredits == null || remainingCredits.isEmpty() || minCr != maxCr) {
+        if (aggregate == null || remainingCredits == null || remainingCredits.isEmpty() || minCr != maxCr
+                || signalCountUsed != remainingCredits.size()) {
             return aggregate;
         }
         long sumRoundedM = 0L;
@@ -1168,7 +1170,7 @@ final class BioTableBuilder {
         if (range == null) {
             return null;
         }
-        return formatRemainingMillionSummaryForHeader(range[0], range[1], split.remainingPerSpecies);
+        return formatRemainingMillionSummaryForHeader(range[0], range[1], split.remainingPerSpecies, (int) range[2]);
     }
 
 }

@@ -581,8 +581,8 @@ public class SystemTabPanel extends JPanel {
         // Tuned for typical overlay width ~423px (see screenshot):
         // shift Bio left by capping earlier columns.
         int bodyWidth = 44;
-        int atmoWidth = 140;
-        int bioMinWidth = 110;
+        int atmoWidth = 112;
+        int bioMinWidth = 145;
 
         bodyCol.setPreferredWidth(bodyWidth);
         bodyCol.setMinWidth(bodyWidth);

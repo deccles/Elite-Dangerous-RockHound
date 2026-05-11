@@ -1121,6 +1121,13 @@ private void installGeoSurveyCreditsTracker() {
     try {
         LiveJournalMonitor monitor = LiveJournalMonitor.getInstance(EliteDangerousOverlay.clientKey);
         monitor.addListener(event -> {
+            if (event.getType() == EliteEventType.SELL_EXPLORATION_DATA) {
+                geoSurveyCreditsTotal = 0L;
+                persistGeoSurveyCreditsTotal();
+                updateRightStatusDefault();
+                return;
+            }
+
             if (!(event instanceof ScanEvent scan)) {
                 return;
             }

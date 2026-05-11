@@ -46,6 +46,8 @@ public enum EliteEventType {
     /** Written when the carrier owner opens carrier management (journal). */
     CARRIER_STATS("CarrierStats"),
     SELL_ORGANIC_DATA("SellOrganicData"),
+    /** Cartographics / exploration data sale (e.g. Universal Cartographics). */
+    SELL_EXPLORATION_DATA("SellExplorationData"),
     RECEIVE_TEXT("ReceiveText"),
     MUSIC("Music"),
     RESERVOIR_REPLENISHED("ReservoirReplenished"),
