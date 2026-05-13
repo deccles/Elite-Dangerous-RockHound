@@ -13,10 +13,12 @@ import org.dce.ed.exobiology.BodyAttributes;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.exobiology.NebulaGuardianClassifier;
+import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.LiveJournalMonitor;
 import org.dce.ed.logreader.event.BioScanPredictionEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
+import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.FssAllBodiesFoundEvent;
 import org.dce.ed.logreader.event.FssBodySignalsEvent;
@@ -26,7 +28,6 @@ import org.dce.ed.logreader.event.SaasignalsFoundEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.logreader.event.StatusEvent;
-import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.RingSummaryFormatter;
@@ -79,6 +80,11 @@ public class SystemEventProcessor {
             LocationEvent e = (LocationEvent) event;
             state.setDocked(e.isDocked());
             enterSystem(e.getStarSystem(), e.getSystemAddress(), e.getStarPos());
+            if (e.isDocked()) {
+                assignCarrierParkedOrbit(e.getBodyId(), e.getSystemAddress());
+            }
+            // Do not clear carrier orbit when Docked=false: Elite often omits or disagrees here while
+            // CarrierLocation still reports the orbit BodyID (see SystemTabPanel.resolveShipAnchorBodyId).
             return;
         }
 
@@ -87,6 +93,7 @@ public class SystemEventProcessor {
             if (e.getDocked() != null) {
                 state.setDocked(e.getDocked().booleanValue());
             }
+            // Personal FSD does not move the fleet carrier; keep last journal-known orbit (body + system).
 
             // Normal ship FSD jumps have docked == null => always update system.
             // CarrierJump may include Docked=true/false => only update if Docked==true.
@@ -102,6 +109,15 @@ public class SystemEventProcessor {
             if (e.isDocked()) {
                 enterSystem(e.getStarSystem(), e.getSystemAddress(), e.getStarPos());
             }
+            assignCarrierParkedOrbit(e.getBodyId(), e.getSystemAddress());
+            return;
+        }
+
+        // Elite often emits CarrierLocation (not Location) when aboard a fleet carrier; BodyID is the orbit body.
+        if (event instanceof CarrierLocationEvent) {
+            CarrierLocationEvent e = (CarrierLocationEvent) event;
+            enterSystem(e.getStarSystem(), e.getSystemAddress(), state.getStarPos());
+            assignCarrierParkedOrbit(e.getBodyId(), e.getSystemAddress());
             return;
         }
 
@@ -180,6 +196,19 @@ public class SystemEventProcessor {
     // System transition handling
     // ---------------------------------------------------------------------
 
+    /** Last known carrier orbit from journal; not cleared on commander FSD. */
+    private void assignCarrierParkedOrbit(int bodyId, long systemAddress) {
+        if (bodyId > 0 && systemAddress != 0L) {
+            state.setCarrierParkedBodyId(Integer.valueOf(bodyId));
+            state.setCarrierParkedSystemAddress(systemAddress);
+            // RescanJournalsMain and any other caller of handleEvent bypass UI tabs — persist into session_json here.
+            try {
+                SystemCache.getInstance().mergeCommanderSessionFromReplayedState(state);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     private void enterSystem(String name, long addr, double[] starPos) {
         boolean sameName = name != null && name.equals(state.getSystemName());
         boolean sameAddr = addr != 0L && addr == state.getSystemAddress();
@@ -199,7 +228,7 @@ public class SystemEventProcessor {
             return;
         }
 
-        // New system: clear old one
+        // New system: clear old one (commander moved; fleet carrier orbit is kept — see carrierParkedSystemAddress.)
         state.setSystemName(name);
         state.setSystemAddress(addr);
         state.setStarPos(starPos);
@@ -359,6 +388,29 @@ public class SystemEventProcessor {
         }
         
         info.setOrbitalPeriod(e.getOrbitalPeriod());
+        if (e.getSemiMajorAxisM() != null) {
+            info.setSemiMajorAxisM(e.getSemiMajorAxisM());
+        }
+        if (e.getEccentricity() != null) {
+            info.setEccentricity(e.getEccentricity());
+        }
+        if (e.getOrbitalInclination() != null) {
+            info.setOrbitalInclination(e.getOrbitalInclination());
+        }
+        if (e.getPeriapsis() != null) {
+            info.setPeriapsis(e.getPeriapsis());
+        }
+        if (e.getAscendingNode() != null) {
+            info.setAscendingNode(e.getAscendingNode());
+        }
+        if (e.getMeanAnomaly() != null) {
+            info.setMeanAnomaly(e.getMeanAnomaly());
+        }
+
+        Instant scanInstant = e.getTimestamp();
+        if (scanInstant != null) {
+            info.setOrbitalEpochMillis(Long.valueOf(scanInstant.toEpochMilli()));
+        }
 
         if (scanIndicatesStellarBody(e)) {
             info.setRingSummaryLines(null);
@@ -371,6 +423,13 @@ public class SystemEventProcessor {
             if (e.getRings() != null && !e.getRings().isEmpty()) {
                 info.setRingSummaryLines(RingSummaryFormatter.fromJournal(e.getRings(), e.getReserveLevel()));
             }
+        }
+
+        List<ScanEvent.ParentRef> plist = e.getParents();
+        if (plist != null && !plist.isEmpty() && plist.get(0) != null) {
+            info.setImmediateParentBodyId(plist.get(0).getBodyId());
+        } else {
+            info.setImmediateParentBodyId(-1);
         }
 
         int parentStarBodyId = findParentStarBodyId(e);

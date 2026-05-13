@@ -173,7 +173,9 @@ public final class MiningDebugHarness {
                 null,       // destinationSystem
                 null,       // destinationBody
                 null,       // destinationName
-                null        // destinationNameLocalised
+                null,       // destinationNameLocalised
+                null,       // bodyNamePhysical
+                null        // statusBodyId
             );
             tabs.processJournalEvent(ev);
         });
@@ -200,6 +202,8 @@ public final class MiningDebugHarness {
                 null,
                 null,
                 bodyField.getText().trim(),
+                null,
+                null,
                 null,
                 null,
                 null,

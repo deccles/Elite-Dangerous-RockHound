@@ -177,6 +177,9 @@ public class BodyInfo {
 
 	private int parentStarBodyId = -1;
 
+	/** Immediate orbital parent {@link org.dce.ed.logreader.event.ScanEvent.Parents}[0] body id; -1 if unknown. */
+	private int immediateParentBodyId = -1;
+
 	private String planetClass;
 
 	/** Journal {@code TerraformState} (e.g. Terraformable); used for exploration k and WW terraform tier. */
@@ -210,6 +213,20 @@ public class BodyInfo {
 
 	private Boolean wasMapped = null;
 	private Double orbitalPeriod;
+
+	/** Journal {@code SemiMajorAxis} (m); orbit around parent. */
+	private Double semiMajorAxisM;
+	private Double eccentricity;
+	private Double orbitalInclination;
+	private Double periapsis;
+	private Double ascendingNode;
+	private Double meanAnomaly;
+
+	/**
+	 * Real time ({@code System.currentTimeMillis()} / UTC) of the journal {@code Scan} that supplied this body's
+	 * orbital elements; used with {@link #getOrbitalPeriod()} and {@link #getMeanAnomaly()} to evolve mean anomaly.
+	 */
+	private Long orbitalEpochMillis;
 
 	/** Spansh exobiology landmarks for this body (null = not fetched). Used to derive first-bonus. */
 	private List<SpanshLandmark> spanshLandmarks = null;
@@ -422,6 +439,14 @@ public class BodyInfo {
 
 	public int getParentStarBodyId() {
 		return parentStarBodyId;
+	}
+
+	public int getImmediateParentBodyId() {
+		return immediateParentBodyId;
+	}
+
+	public void setImmediateParentBodyId(int immediateParentBodyId) {
+		this.immediateParentBodyId = immediateParentBodyId;
 	}
 
 	public String getPlanetClass() {
@@ -1026,5 +1051,61 @@ public class BodyInfo {
 	}
 	public Double getOrbitalPeriod() {
 		return orbitalPeriod;
+	}
+
+	public void setSemiMajorAxisM(Double semiMajorAxisM) {
+		this.semiMajorAxisM = semiMajorAxisM;
+	}
+
+	public Double getSemiMajorAxisM() {
+		return semiMajorAxisM;
+	}
+
+	public void setEccentricity(Double eccentricity) {
+		this.eccentricity = eccentricity;
+	}
+
+	public Double getEccentricity() {
+		return eccentricity;
+	}
+
+	public void setOrbitalInclination(Double orbitalInclination) {
+		this.orbitalInclination = orbitalInclination;
+	}
+
+	public Double getOrbitalInclination() {
+		return orbitalInclination;
+	}
+
+	public void setPeriapsis(Double periapsis) {
+		this.periapsis = periapsis;
+	}
+
+	public Double getPeriapsis() {
+		return periapsis;
+	}
+
+	public void setAscendingNode(Double ascendingNode) {
+		this.ascendingNode = ascendingNode;
+	}
+
+	public Double getAscendingNode() {
+		return ascendingNode;
+	}
+
+	public void setMeanAnomaly(Double meanAnomaly) {
+		this.meanAnomaly = meanAnomaly;
+	}
+
+	public Double getMeanAnomaly() {
+		return meanAnomaly;
+	}
+
+	public void setOrbitalEpochMillis(Long orbitalEpochMillis) {
+		this.orbitalEpochMillis = orbitalEpochMillis;
+	}
+
+	public Long getOrbitalEpochMillis() {
+		return orbitalEpochMillis;
 	}
 }

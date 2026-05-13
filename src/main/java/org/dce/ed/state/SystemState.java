@@ -42,6 +42,16 @@ public class SystemState {
     private Double fssProgress;
     /** Last known docked state from journal/status events. */
     private volatile boolean docked;
+    /**
+     * Last journal-known orbit body for your fleet carrier (or the carrier you are aboard): gas giant / moon
+     * {@code BodyID}. Filled from {@code Location} (docked), {@code CarrierJump}, and {@code CarrierLocation}.
+     * Not cleared when you FSD in your own ship — the carrier still exists; see {@link #carrierParkedSystemAddress}.
+     * Used for ship-centric map anchor when Status does not tie the commander to that world (only when the
+     * commander view is in {@link #carrierParkedSystemAddress}).
+     */
+    private volatile Integer carrierParkedBodyId;
+    /** System {@code SystemAddress} where {@link #carrierParkedBodyId} applies; {@code 0} means unknown (legacy). */
+    private volatile long carrierParkedSystemAddress;
 
     // null = unknown, true = yes, false = known not complete (if you want that later)
     private Boolean allBodiesFound;
@@ -62,6 +72,8 @@ public class SystemState {
         allBodiesFound = null;
         edsmBodyCount = null;
         docked = false;
+        carrierParkedBodyId = null;
+        carrierParkedSystemAddress = 0L;
 
         bodies.clear();
     }
@@ -132,6 +144,26 @@ public class SystemState {
 
     public void setDocked(boolean docked) {
         this.docked = docked;
+    }
+
+    /**
+     * Journal-derived body id for the fleet carrier's orbit (or {@code Location} when docked).
+     * Pair with {@link #getCarrierParkedSystemAddress()}; null when unknown.
+     */
+    public Integer getCarrierParkedBodyId() {
+        return carrierParkedBodyId;
+    }
+
+    public void setCarrierParkedBodyId(Integer carrierParkedBodyId) {
+        this.carrierParkedBodyId = carrierParkedBodyId;
+    }
+
+    public long getCarrierParkedSystemAddress() {
+        return carrierParkedSystemAddress;
+    }
+
+    public void setCarrierParkedSystemAddress(long carrierParkedSystemAddress) {
+        this.carrierParkedSystemAddress = carrierParkedSystemAddress;
     }
 
     // ------------------------------------------------------------

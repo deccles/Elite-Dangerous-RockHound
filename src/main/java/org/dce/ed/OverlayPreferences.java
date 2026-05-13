@@ -92,6 +92,17 @@ public final class OverlayPreferences {
     /** System tab: expand exobiology lines for the targeted body (dashed outline); collapse when untargeted. */
     private static final String KEY_SYSTEM_AUTO_EXPAND_BIO_ON_TARGET = "system.autoExpandBioOnTargetedBody";
 
+    /** Per-system: last non-star body used for System tab proximity sticky (key suffix = systemAddress). */
+    private static final String KEY_SYSTEM_TAB_STICKY_LAST_VISITED_BODY_PREFIX = "system.stickyLastVisitedBody.";
+
+    /** When true, distance column and body sort use approximate distance from your ship (requires Status near-body). */
+    private static final String KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP = "overlay.systemTab.distanceFromShip";
+    /** System plan map Play: orbit-model days advanced per wall-clock second (slider range 1–500; default 110). */
+    private static final String KEY_SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND = "system.planMap.orbitAnim.daysPerWallSecond";
+    private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_DEFAULT = 110;
+    private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN = 1;
+    private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX = 500;
+
     // --- Mining / Prospector ---
     private static final String KEY_MINING_PROSPECTOR_MATERIALS = "mining.prospector.materials"; // comma-separated
     private static final String KEY_MINING_PROSPECTOR_MIN_PROP = "mining.prospector.minProportion"; // percent
@@ -396,6 +407,71 @@ public final class OverlayPreferences {
 
     public static void setAutoExpandBioOnTargetedBody(boolean enabled) {
         PREFS.putBoolean(KEY_SYSTEM_AUTO_EXPAND_BIO_ON_TARGET, enabled);
+    }
+
+    public static boolean isSystemTabDistanceFromShip() {
+        return PREFS.getBoolean(KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP, false);
+    }
+
+    public static void setSystemTabDistanceFromShip(boolean enabled) {
+        PREFS.putBoolean(KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP, enabled);
+    }
+
+    /**
+     * Last persisted non-primary body id for proximity / plan-map sticky in this system, or null if unset / invalid.
+     */
+    public static Integer getSystemTabStickyLastVisitedBodyId(long systemAddress) {
+        if (systemAddress == 0L) {
+            return null;
+        }
+        int v = PREFS.getInt(KEY_SYSTEM_TAB_STICKY_LAST_VISITED_BODY_PREFIX + systemAddress, -1);
+        return v >= 0 ? Integer.valueOf(v) : null;
+    }
+
+    /**
+     * Persists {@link org.dce.ed.SystemTabPanel} sticky last-visited body for a system (non-star body id only).
+     * Pass null to remove the entry (e.g. id no longer in body list).
+     */
+    public static void setSystemTabStickyLastVisitedBodyId(long systemAddress, Integer bodyId) {
+        if (systemAddress == 0L) {
+            return;
+        }
+        String k = KEY_SYSTEM_TAB_STICKY_LAST_VISITED_BODY_PREFIX + systemAddress;
+        if (bodyId == null || bodyId.intValue() < 0) {
+            PREFS.remove(k);
+        } else {
+            PREFS.putInt(k, bodyId.intValue());
+        }
+    }
+
+    /** Orbit fast-forward: model days per second of real time (System tab map toolbar). */
+    public static int getSystemTabOrbitAnimDaysPerWallSecond() {
+        int v = PREFS.getInt(KEY_SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND, SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_DEFAULT);
+        if (v < SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN) {
+            return SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN;
+        }
+        if (v > SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX) {
+            return SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX;
+        }
+        return v;
+    }
+
+    public static void setSystemTabOrbitAnimDaysPerWallSecond(int daysPerWallSecond) {
+        int c = daysPerWallSecond;
+        if (c < SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN) {
+            c = SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN;
+        } else if (c > SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX) {
+            c = SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX;
+        }
+        PREFS.putInt(KEY_SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND, c);
+    }
+
+    public static int getSystemTabOrbitAnimDaysPerWallSecondMin() {
+        return SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN;
+    }
+
+    public static int getSystemTabOrbitAnimDaysPerWallSecondMax() {
+        return SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX;
     }
 
     // ---------------------------------------------------------------------

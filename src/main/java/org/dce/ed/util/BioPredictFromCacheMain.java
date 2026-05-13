@@ -765,6 +765,14 @@ public final class BioPredictFromCacheMain {
         info.setAtmosphere(cb.atmosphere);
 
         info.setSurfaceTempK(cb.surfaceTempK);
+        info.setOrbitalPeriod(cb.orbitalPeriod);
+        info.setSemiMajorAxisM(cb.semiMajorAxisM);
+        info.setEccentricity(cb.eccentricity);
+        info.setOrbitalInclination(cb.orbitalInclination);
+        info.setPeriapsis(cb.periapsis);
+        info.setAscendingNode(cb.ascendingNode);
+        info.setMeanAnomaly(cb.meanAnomaly);
+        info.setOrbitalEpochMillis(cb.orbitalEpochMillis);
         info.setVolcanism(cb.volcanism);
         info.setStarType(cb.starType);
         
@@ -773,6 +781,7 @@ public final class BioPredictFromCacheMain {
 
         info.setNebula(cb.nebula);
         info.setParentStar(cb.parentStar);
+        info.setImmediateParentBodyId(cb.immediateParentBodyId);
 
         if (cb.observedGenusPrefixes != null && !cb.observedGenusPrefixes.isEmpty()) {
             info.setObservedGenusPrefixes(new java.util.HashSet<>(cb.observedGenusPrefixes));

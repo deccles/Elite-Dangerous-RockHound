@@ -16,6 +16,7 @@ import org.dce.ed.logreader.EliteLogEvent.GenericEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
+import org.dce.ed.logreader.event.ApproachBodyEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.CommanderEvent;
@@ -25,6 +26,7 @@ import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.FssAllBodiesFoundEvent;
 import org.dce.ed.logreader.event.FssBodySignalsEvent;
 import org.dce.ed.logreader.event.FssDiscoveryScanEvent;
+import org.dce.ed.logreader.event.LeaveBodyEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.LocationEvent;
@@ -142,6 +144,10 @@ public class EliteLogParser {
                 return new GenericEvent(ts, type, obj);
             case SUPERCRUISE_EXIT:
                 return parseSupercruiseExit(ts, obj);
+            case APPROACH_BODY:
+                return parseApproachBody(ts, obj);
+            case LEAVE_BODY:
+                return parseLeaveBody(ts, obj);
 
             case PROSPECTED_ASTEROID:
                 return parseProspectedAsteroid(ts, obj);
@@ -588,7 +594,7 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
                 : 0L;
         int bodyId = obj.has("BodyID") && !obj.get("BodyID").isJsonNull()
                 ? obj.get("BodyID").getAsInt()
-                : 0;
+                : -1;
         return new CarrierLocationEvent(ts, obj, starSystem, systemAddress, bodyId);
     }
 
@@ -677,13 +683,18 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
         Double heading = obj.has("Heading") && !obj.get("Heading").isJsonNull()
                 ? obj.get("Heading").getAsDouble()
                 : null;
-        // Note:
-        // * In the Status.json snapshot written by the game, BodyName is present when near a body.
-        // * In the journal "Status" event, BodyName is often absent, but a nested Destination
-        //   object may be present (System/Body/Name).
-        // For UI features that want to highlight the current/near body, we use Destination.Name
-        // as a fallback if BodyName is missing.
-        String bodyName = getString(obj, "BodyName");
+        // BodyName / BodyID reflect the body the snapshot is tied to. Do not copy Destination into BodyName:
+        // that made plan-map "You" and proximity follow the HUD target instead of the body you are actually near.
+        // Use Destination.* via StatusEvent getters for nav-target UI.
+        String bodyNamePhysical = getString(obj, "BodyName");
+        Integer statusBodyId = null;
+        if (obj.has("BodyID") && !obj.get("BodyID").isJsonNull()) {
+            try {
+                statusBodyId = Integer.valueOf(obj.get("BodyID").getAsInt());
+            } catch (RuntimeException ignored) {
+            }
+        }
+        String bodyName = bodyNamePhysical;
         Double planetRadius = obj.has("PlanetRadius") && !obj.get("PlanetRadius").isJsonNull()
                 ? obj.get("PlanetRadius").getAsDouble()
                 : null;
@@ -716,14 +727,6 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
             }
         }
 
-        if (bodyName == null || bodyName.isBlank()) {
-            if (destNameLocalised != null && !destNameLocalised.isBlank()) {
-                bodyName = destNameLocalised;
-            } else {
-                bodyName = destName;
-            }
-        }
-
         return new StatusEvent(
                 ts,
                 obj,
@@ -746,9 +749,28 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
                 destSystem,
                 destBody,
                 destName,
-                destNameLocalised
+                destNameLocalised,
+                bodyNamePhysical,
+                statusBodyId
         );
     }
+
+    private ApproachBodyEvent parseApproachBody(Instant ts, JsonObject obj) {
+        String starSystem = getString(obj, "StarSystem");
+        long systemAddress = obj.has("SystemAddress") ? obj.get("SystemAddress").getAsLong() : 0L;
+        String body = getString(obj, "Body");
+        int bodyId = obj.has("BodyID") ? obj.get("BodyID").getAsInt() : -1;
+        return new ApproachBodyEvent(ts, obj, starSystem, systemAddress, body, bodyId);
+    }
+
+    private LeaveBodyEvent parseLeaveBody(Instant ts, JsonObject obj) {
+        String starSystem = getString(obj, "StarSystem");
+        long systemAddress = obj.has("SystemAddress") ? obj.get("SystemAddress").getAsLong() : 0L;
+        String body = getString(obj, "Body");
+        int bodyId = obj.has("BodyID") ? obj.get("BodyID").getAsInt() : -1;
+        return new LeaveBodyEvent(ts, obj, starSystem, systemAddress, body, bodyId);
+    }
+
     private ScanOrganicEvent parseScanOrganic(Instant ts, JsonObject json) {
         long systemAddress = json.has("SystemAddress")
                 ? json.get("SystemAddress").getAsLong()
@@ -808,6 +830,12 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
         Double orbitalPeriod = obj.has("OrbitalPeriod")
                 ? obj.get("OrbitalPeriod").getAsDouble()
                 : null;
+        Double semiMajorAxisM = optionalJsonDouble(obj, "SemiMajorAxis");
+        Double eccentricity = optionalJsonDouble(obj, "Eccentricity");
+        Double orbitalInclination = optionalJsonDouble(obj, "OrbitalInclination");
+        Double periapsis = optionalJsonDouble(obj, "Periapsis");
+        Double ascendingNode = optionalJsonDouble(obj, "AscendingNode");
+        Double meanAnomaly = optionalJsonDouble(obj, "MeanAnomaly");
         String volcanism = getString(obj, "Volcanism");
         Boolean wasDiscovered = obj.has("WasDiscovered") ? Boolean.valueOf(obj.get("WasDiscovered").getAsBoolean()) : null;
         Boolean wasMapped = obj.has("WasMapped") ? Boolean.valueOf(obj.get("WasMapped").getAsBoolean()) : null;
@@ -839,6 +867,12 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
                 surfacePressure,
                 surfaceTemp,
                 orbitalPeriod,
+                semiMajorAxisM,
+                eccentricity,
+                orbitalInclination,
+                periapsis,
+                ascendingNode,
+                meanAnomaly,
                 volcanism,
                 wasDiscovered,
                 wasMapped,
@@ -1001,6 +1035,20 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
         return obj.has(field) && !obj.get(field).isJsonNull()
                 ? obj.get(field).getAsBoolean()
                 : defaultValue;
+    }
+
+    /**
+     * Optional JSON number: returns null if the key is missing, JSON-null, or not parseable as a number.
+     */
+    private static Double optionalJsonDouble(JsonObject obj, String key) {
+        if (obj == null || !obj.has(key) || obj.get(key).isJsonNull()) {
+            return null;
+        }
+        try {
+            return Double.valueOf(obj.get(key).getAsDouble());
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
 

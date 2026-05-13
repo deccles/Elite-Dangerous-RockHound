@@ -84,6 +84,22 @@ private final String terraformState;
     private final Double surfaceGravity;
     private final Double surfaceTemperature;
     private final Double orbitalPeriod;
+
+    /**
+     * Journal {@code SemiMajorAxis}: semi-major axis of this body's orbit around its parent, metres.
+     */
+    private final Double semiMajorAxisM;
+    /** Journal {@code Eccentricity}. */
+    private final Double eccentricity;
+    /** Journal {@code OrbitalInclination} (radians in current journal docs). */
+    private final Double orbitalInclination;
+    /** Journal {@code Periapsis} (argument of periapsis; radians in current journal docs). */
+    private final Double periapsis;
+    /** Journal {@code AscendingNode} when present (radians in current journal docs). */
+    private final Double ascendingNode;
+    /** Journal {@code MeanAnomaly} when present (radians in current journal docs). */
+    private final Double meanAnomaly;
+
     private final String volcanism;
     private final Boolean wasDiscovered;
     private final Boolean wasMapped;
@@ -111,6 +127,12 @@ private final String terraformState;
                      Double surfacePressure,
                      Double surfaceTemperature,
                      Double orbitalPeriod,
+                     Double semiMajorAxisM,
+                     Double eccentricity,
+                     Double orbitalInclination,
+                     Double periapsis,
+                     Double ascendingNode,
+                     Double meanAnomaly,
                      String volcanism,
                      Boolean wasDiscovered,
                      Boolean wasMapped,
@@ -136,6 +158,12 @@ private final String terraformState;
         this.surfacePressure = surfacePressure;
         this.surfaceTemperature = surfaceTemperature;
         this.orbitalPeriod = orbitalPeriod;
+        this.semiMajorAxisM = semiMajorAxisM;
+        this.eccentricity = eccentricity;
+        this.orbitalInclination = orbitalInclination;
+        this.periapsis = periapsis;
+        this.ascendingNode = ascendingNode;
+        this.meanAnomaly = meanAnomaly;
         this.volcanism = volcanism;
         this.wasDiscovered = wasDiscovered;
         this.wasMapped = wasMapped;
@@ -224,6 +252,36 @@ private final String terraformState;
 
 	public Double getOrbitalPeriod() {
 		return orbitalPeriod;
+	}
+
+	/** Journal {@code SemiMajorAxis} in metres, or null if absent. */
+	public Double getSemiMajorAxisM() {
+		return semiMajorAxisM;
+	}
+
+	/** Journal {@code Eccentricity}, or null if absent. */
+	public Double getEccentricity() {
+		return eccentricity;
+	}
+
+	/** Journal {@code OrbitalInclination}, or null if absent. */
+	public Double getOrbitalInclination() {
+		return orbitalInclination;
+	}
+
+	/** Journal {@code Periapsis}, or null if absent. */
+	public Double getPeriapsis() {
+		return periapsis;
+	}
+
+	/** Journal {@code AscendingNode}, or null if absent. */
+	public Double getAscendingNode() {
+		return ascendingNode;
+	}
+
+	/** Journal {@code MeanAnomaly}, or null if absent. */
+	public Double getMeanAnomaly() {
+		return meanAnomaly;
 	}
 
 	/**

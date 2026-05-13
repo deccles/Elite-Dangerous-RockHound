@@ -40,12 +40,25 @@ public class CachedBody {
 
     public Double surfaceTempK;
     public Double orbitalPeriod;
+
+    /** Journal {@code SemiMajorAxis} in metres. */
+    public Double semiMajorAxisM;
+    public Double eccentricity;
+    public Double orbitalInclination;
+    public Double periapsis;
+    public Double ascendingNode;
+    public Double meanAnomaly;
+
+    /** UTC millis of journal Scan that fixed orbital elements ({@link BodyInfo#setOrbitalEpochMillis}). */
+    public Long orbitalEpochMillis;
     
     public String volcanism;
 
     public String bodyName;
     public String parentStar;
     public int parentStarBodyId;
+    /** Journal Parents[0] body id; -1 if unknown. */
+    public int immediateParentBodyId = -1;
     public String starType;
     public String nebula; 
     

@@ -410,7 +410,15 @@ public final class LiveJournalMonitor {
                 }
             }
 
-            String bodyName = getStringOrNull(root, "BodyName");
+            String bodyNamePhysical = getStringOrNull(root, "BodyName");
+            Integer statusBodyId = null;
+            if (root.has("BodyID") && !root.get("BodyID").isJsonNull()) {
+                try {
+                    statusBodyId = Integer.valueOf(root.get("BodyID").getAsInt());
+                } catch (Exception ignored) {
+                }
+            }
+            String bodyName = bodyNamePhysical;
 
             Double planetRadius = null;
             if (root.has("PlanetRadius") && !root.get("PlanetRadius").isJsonNull()) {
@@ -466,6 +474,14 @@ public final class LiveJournalMonitor {
                 }
             }
 
+            if (bodyName == null || bodyName.isBlank()) {
+                if (destNameLocalised != null && !destNameLocalised.isBlank()) {
+                    bodyName = destNameLocalised;
+                } else {
+                    bodyName = destName;
+                }
+            }
+
             // Build the StatusEvent using the extended constructor
             StatusEvent event =
                     new StatusEvent(
@@ -490,7 +506,9 @@ public final class LiveJournalMonitor {
                             destSystem,
                             destBody,
                             destName,
-                            destNameLocalised
+                            destNameLocalised,
+                            bodyNamePhysical,
+                            statusBodyId
                     );
 
             // Emit Status updates promptly (not just Flags changes).

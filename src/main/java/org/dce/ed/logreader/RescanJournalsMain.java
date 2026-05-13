@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import org.dce.ed.EliteDangerousOverlay;
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
@@ -30,6 +31,10 @@ import org.dce.ed.util.SpanshLandmarkCache;
  *
  * Run this once (with the same JVM/Classpath as the overlay)
  * before starting the overlay, or periodically to refresh the local body cache.
+ * <p>
+ * <strong>Incremental vs full:</strong> without {@code --full}, only journal lines at/after the timestamp in
+ * {@code edo-cache.lastRescanTimestamp} (next to your journals) are replayed — often seconds of work. Pass
+ * {@code --full} to wipe the local SQLite cache and replay every {@code Journal.*.log} line from disk.
  */
 public class RescanJournalsMain {
 
@@ -85,7 +90,11 @@ public class RescanJournalsMain {
 			System.out.println("Journal directory not found; skipping rescan.");
 			return;
 		}
+		long rescanStartNs = System.nanoTime();
 		EliteJournalReader reader = new EliteJournalReader(journalDirectory);
+		List<Path> journalLogFiles = reader.listJournalPaths();
+		System.out.println("Journal folder: " + journalDirectory);
+		System.out.println("Journal.*.log files on disk: " + journalLogFiles.size());
 
 		if (forcedCacheFile != null) {
 			System.setProperty(SystemCache.CACHE_DB_PATH_PROPERTY, forcedCacheFile.toString());
@@ -113,6 +122,18 @@ public class RescanJournalsMain {
 			lastImport = null;
 		}
 
+		if (forcedJournalFile != null) {
+			System.out.println("Mode: SINGLE FILE — " + forcedJournalFile);
+		} else if (lastImport == null) {
+			System.out.println("Mode: FULL HISTORY — scanning all " + journalLogFiles.size() + " journal log file(s).");
+		} else {
+			Path cursorPath = JournalImportCursor.getCursorFile(journalDirectory);
+			System.out.println("Mode: INCREMENTAL — replaying events at/after " + lastImport + " UTC only.");
+			System.out.println("        For a full replay of every journal line, run with --full or delete:");
+			System.out.println("        " + cursorPath);
+		}
+
+		long loadStartNs = System.nanoTime();
 		List<EliteLogEvent> events;
 		if (forcedJournalFile != null) {
 			// We intentionally do NOT stage/copy anything into the live journal directory
@@ -128,7 +149,8 @@ public class RescanJournalsMain {
 			events = reader.readEventsSince(lastImport);
 		}
 
-		System.out.println("Loaded " + events.size() + " events from journal files.");
+		double loadSeconds = (System.nanoTime() - loadStartNs) / 1_000_000_000.0;
+		System.out.printf(Locale.US, "Journal read + parse: %.2f s — %d parsed event(s).%n", loadSeconds, events.size());
 
 		SystemCache cache = SystemCache.getInstance();
 		if (forceFull)
@@ -244,6 +266,13 @@ public class RescanJournalsMain {
 			} else {
 				System.clearProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY);
 			}
+			// Replay may throw mid-loop; post-try code then never runs. Still merge carrier/exo into session_json.
+			try {
+				state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+				cache.mergeCommanderSessionFromReplayedState(state);
+			} catch (Exception ex) {
+				System.err.println("RescanJournalsMain: post-replay session merge (finally) failed: " + ex.getMessage());
+			}
 		}
 
 		// Persist exobiology expected credits total (unsold) for toolbar + future rescans.
@@ -271,6 +300,12 @@ public class RescanJournalsMain {
 		// Persist exobiology total + carrier countdown into the same SQLite session blob as the overlay.
 		EdoSessionState sessionState = EdoSessionPersistence.load();
 		sessionState.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+		Integer replayParkedBody = state.getCarrierParkedBodyId();
+		long replayParkedSys = state.getCarrierParkedSystemAddress();
+		if (replayParkedBody != null && replayParkedBody.intValue() > 0) {
+			sessionState.setCarrierParkedBodyId(replayParkedBody);
+			sessionState.setCarrierParkedSystemAddress(replayParkedSys != 0L ? Long.valueOf(replayParkedSys) : null);
+		}
 		if (latestCarrierEvent != null) {
 			if (latestCarrierEvent instanceof CarrierJumpRequestEvent) {
 				CarrierJumpRequestEvent req = (CarrierJumpRequestEvent) latestCarrierEvent;
@@ -293,6 +328,9 @@ public class RescanJournalsMain {
 			JournalImportCursor.write(journalDirectory, newestEventTimestamp);
 			System.out.println("Updated last journal import time to: " + newestEventTimestamp);
 		}
+
+		double totalSeconds = (System.nanoTime() - rescanStartNs) / 1_000_000_000.0;
+		System.out.printf(Locale.US, "Total rescan wall time: %.2f s%n", totalSeconds);
 
 		System.out.println("Rescan complete. Exobiology expected credits total (unsold): " + exoCreditsTotal);
 	}

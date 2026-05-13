@@ -181,6 +181,8 @@ public final class ExobiologyMapDemo {
                 null,
                 null,
                 null,
+                null,
+                null,
                 null
         );
     }

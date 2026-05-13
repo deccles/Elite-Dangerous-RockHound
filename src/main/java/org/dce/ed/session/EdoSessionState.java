@@ -38,6 +38,15 @@ public final class EdoSessionState {
     private String nearBodyName;
     private Integer targetDestinationParentBodyId;
     private String targetDestinationName;
+    /**
+     * Journal {@code BodyID} of the body a fleet carrier is parked at (Location / CarrierJump / CarrierLocation).
+     * Pair with {@link #carrierParkedSystemAddress}. Persisted so map anchoring survives restart when Status omits it.
+     */
+    private Integer carrierParkedBodyId;
+    /**
+     * {@code SystemAddress} of the system where {@link #carrierParkedBodyId} applies. Null in older session JSON.
+     */
+    private Long carrierParkedSystemAddress;
 
     // --- Mining tab (run start time) ---
     /** ISO-8601 instant of last undock; used as run start for the first row of each run. */
@@ -360,6 +369,22 @@ public final class EdoSessionState {
 
     public void setTargetDestinationName(String targetDestinationName) {
         this.targetDestinationName = targetDestinationName;
+    }
+
+    public Integer getCarrierParkedBodyId() {
+        return carrierParkedBodyId;
+    }
+
+    public void setCarrierParkedBodyId(Integer carrierParkedBodyId) {
+        this.carrierParkedBodyId = carrierParkedBodyId;
+    }
+
+    public Long getCarrierParkedSystemAddress() {
+        return carrierParkedSystemAddress;
+    }
+
+    public void setCarrierParkedSystemAddress(Long carrierParkedSystemAddress) {
+        this.carrierParkedSystemAddress = carrierParkedSystemAddress;
     }
 
     public String getLastUndockTime() {

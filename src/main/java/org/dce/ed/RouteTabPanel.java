@@ -62,6 +62,7 @@ import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 
+import org.dce.ed.ui.DistanceToggleIcons;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 
@@ -304,8 +305,8 @@ public class RouteTabPanel extends JPanel {
 		routeTitleRow.add(headerLabel, BorderLayout.WEST);
 		JPanel lyToggleEast = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
 		lyToggleEast.setOpaque(false);
-		lyModeFromCurrentButton = new JButton(new LyFromCurrentSystemIcon(18));
-		lyModePerLegButton = new JButton(new LyPerLegIcon(18));
+		lyModeFromCurrentButton = new JButton(new DistanceToggleIcons.RingAndDotIcon(18));
+		lyModePerLegButton = new JButton(new DistanceToggleIcons.LinkedNodesIcon(18));
 		configureLyModeToggleButton(lyModeFromCurrentButton, "Show distance from your current system along the route");
 		configureLyModeToggleButton(lyModePerLegButton, "Show each jump length from the previous system");
 		lyModeFromCurrentButton.addMouseListener(new MouseAdapter() {
@@ -2618,85 +2619,6 @@ public class RouteTabPanel extends JPanel {
 			int[] ys = { y, y + h, y + (h / 2) };
 			g2.drawPolygon(xs, ys, 3);
 			g2.dispose();
-		}
-	}
-	/** Concentric ring + dot: Ly measured from your current system along the route. */
-	private static final class LyFromCurrentSystemIcon implements Icon {
-		private final int size;
-
-		LyFromCurrentSystemIcon(int size) {
-			this.size = size;
-		}
-
-		@Override
-		public void paintIcon(Component c, Graphics g, int x, int y) {
-			Graphics2D g2 = (Graphics2D) g.create();
-			try {
-				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-				Color fg = c != null ? c.getForeground() : Color.WHITE;
-				g2.setColor(fg);
-				int pad = 2;
-				int d = size - pad * 2;
-				int ox = x + pad;
-				int oy = y + pad;
-				g2.setStroke(new BasicStroke(1.4f));
-				g2.drawOval(ox, oy, d, d);
-				int inner = Math.max(4, d / 2);
-				int cx = ox + d / 2 - inner / 2;
-				int cy = oy + d / 2 - inner / 2;
-				g2.fillOval(cx, cy, inner, inner);
-			} finally {
-				g2.dispose();
-			}
-		}
-
-		@Override
-		public int getIconWidth() {
-			return size;
-		}
-
-		@Override
-		public int getIconHeight() {
-			return size;
-		}
-	}
-
-	/** Two nodes and a link: Ly of the jump from the previous system. */
-	private static final class LyPerLegIcon implements Icon {
-		private final int size;
-
-		LyPerLegIcon(int size) {
-			this.size = size;
-		}
-
-		@Override
-		public void paintIcon(Component c, Graphics g, int x, int y) {
-			Graphics2D g2 = (Graphics2D) g.create();
-			try {
-				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-				Color fg = c != null ? c.getForeground() : Color.WHITE;
-				g2.setColor(fg);
-				g2.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-				int midY = y + size / 2;
-				int x1 = x + size / 4;
-				int x2 = x + 3 * size / 4;
-				g2.drawLine(x1, midY, x2, midY);
-				int r = Math.max(2, size / 7);
-				g2.fillOval(x1 - r, midY - r, r * 2, r * 2);
-				g2.fillOval(x2 - r, midY - r, r * 2, r * 2);
-			} finally {
-				g2.dispose();
-			}
-		}
-
-		@Override
-		public int getIconWidth() {
-			return size;
-		}
-
-		@Override
-		public int getIconHeight() {
-			return size;
 		}
 	}
 

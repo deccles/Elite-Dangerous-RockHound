@@ -201,11 +201,44 @@ public final class SystemCache implements SystemStore {
         }
         try {
             ensureSessionMigratedAndLoaded();
+            warnIfClearingCarrierParkedBodyId(state);
             writeSessionJsonToDb(state);
             tryRebuildSlimGlobalTableIfNeeded();
         } catch (Exception e) {
             System.err.println("SystemCache: saveEdoSessionState failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * If SQLite already had a fleet-carrier parked body id and the new blob would drop it to null, log loudly.
+     * Gson omits null fields, so this catches accidental wipes from partial session updates.
+     */
+    private void warnIfClearingCarrierParkedBodyId(EdoSessionState incoming) {
+        try {
+            String json = sqliteReadSessionJsonRaw();
+            if (json == null || json.isBlank()) {
+                return;
+            }
+            EdoSessionState existing = sessionGson.fromJson(json, EdoSessionState.class);
+            Integer previous = existing != null ? existing.getCarrierParkedBodyId() : null;
+            if (previous != null && incoming.getCarrierParkedBodyId() == null) {
+                System.err.println("[EDO] ERROR: commander session_json would clear carrierParkedBodyId (was "
+                        + previous + ", incoming is null). Thread=" + Thread.currentThread().getName()
+                        + ". Check saveEdoSessionState / mergeCommanderSessionFromReplayedState callers.");
+            }
+        } catch (Exception ignored) {
+            // never block persistence
+        }
+    }
+
+    /**
+     * Merges commander session fields (docked, carrier orbit, exo credits, cache pointers) from a replayed
+     * {@link SystemState} into {@code overlay_global_state.session_json}. Journal rescan calls this after replay
+     * because {@link #storeSystem(SystemState)} can be skipped when the replayed snapshot has no valid
+     * system name/address, even though carrier fields were learned from {@code CarrierLocation} / {@code CarrierJump}.
+     */
+    public synchronized void mergeCommanderSessionFromReplayedState(SystemState state) {
+        mergeEdoSessionBlobFromStoreSystem(state);
     }
 
     public static Path getLegacySessionJsonPath() {
@@ -336,6 +369,13 @@ public final class SystemCache implements SystemStore {
             }
             info.setSurfaceTempK(cb.surfaceTempK);
             info.setOrbitalPeriod(cb.orbitalPeriod);
+            info.setSemiMajorAxisM(cb.semiMajorAxisM);
+            info.setEccentricity(cb.eccentricity);
+            info.setOrbitalInclination(cb.orbitalInclination);
+            info.setPeriapsis(cb.periapsis);
+            info.setAscendingNode(cb.ascendingNode);
+            info.setMeanAnomaly(cb.meanAnomaly);
+            info.setOrbitalEpochMillis(cb.orbitalEpochMillis);
             info.setVolcanism(cb.volcanism);
             info.setNumberOfBioSignals(cb.getNumberOfBioSignals());
             info.setDiscoveryCommander(cb.discoveryCommander);
@@ -343,6 +383,7 @@ public final class SystemCache implements SystemStore {
             info.setNebula(cb.nebula);
             info.setParentStar(cb.parentStar);
             info.setParentStarBodyId(cb.parentStarBodyId);
+            info.setImmediateParentBodyId(cb.immediateParentBodyId);
             info.setStarType(cb.starType);
             
             info.setWasMapped(cb.wasMapped);
@@ -712,12 +753,20 @@ public final class SystemCache implements SystemStore {
             }
             cb.surfaceTempK = b.getSurfaceTempK();
             cb.orbitalPeriod = b.getOrbitalPeriod();
+            cb.semiMajorAxisM = b.getSemiMajorAxisM();
+            cb.eccentricity = b.getEccentricity();
+            cb.orbitalInclination = b.getOrbitalInclination();
+            cb.periapsis = b.getPeriapsis();
+            cb.ascendingNode = b.getAscendingNode();
+            cb.meanAnomaly = b.getMeanAnomaly();
+            cb.orbitalEpochMillis = b.getOrbitalEpochMillis();
             cb.volcanism = b.getVolcanism();
             cb.discoveryCommander = b.getDiscoveryCommander();
             cb.surfacePressure = b.getSurfacePressure();
             cb.nebula = b.getNebula();
             cb.parentStar = b.getParentStar();
             cb.parentStarBodyId = b.getParentStarBodyId();
+            cb.immediateParentBodyId = b.getImmediateParentBodyId();
             cb.starType = b.getStarType();
 
             cb.wasMapped = b.getWasMapped();
@@ -784,6 +833,30 @@ public final class SystemCache implements SystemStore {
                 }
                 if (cb.massEm == null && prev.massEm != null) {
                     cb.massEm = prev.massEm;
+                }
+                if (cb.semiMajorAxisM == null && prev.semiMajorAxisM != null) {
+                    cb.semiMajorAxisM = prev.semiMajorAxisM;
+                }
+                if (cb.eccentricity == null && prev.eccentricity != null) {
+                    cb.eccentricity = prev.eccentricity;
+                }
+                if (cb.orbitalInclination == null && prev.orbitalInclination != null) {
+                    cb.orbitalInclination = prev.orbitalInclination;
+                }
+                if (cb.periapsis == null && prev.periapsis != null) {
+                    cb.periapsis = prev.periapsis;
+                }
+                if (cb.ascendingNode == null && prev.ascendingNode != null) {
+                    cb.ascendingNode = prev.ascendingNode;
+                }
+                if (cb.meanAnomaly == null && prev.meanAnomaly != null) {
+                    cb.meanAnomaly = prev.meanAnomaly;
+                }
+                if (cb.orbitalEpochMillis == null && prev.orbitalEpochMillis != null) {
+                    cb.orbitalEpochMillis = prev.orbitalEpochMillis;
+                }
+                if (cb.immediateParentBodyId < 0 && prev.immediateParentBodyId >= 0) {
+                    cb.immediateParentBodyId = prev.immediateParentBodyId;
                 }
             }
 
@@ -1452,8 +1525,19 @@ public final class SystemCache implements SystemStore {
                 s.setCacheLastSystemName(state.getSystemName());
             }
             s.setDocked(Boolean.valueOf(state.isDocked()));
+            // Only overwrite persisted carrier orbit when RAM/journal has a definite BodyID. Otherwise leave the
+            // values loaded from SQLite (startup journal handlers and saveSessionState can run before restoreSessionState).
+            Integer ramParkedBody = state.getCarrierParkedBodyId();
+            long ramParkedSys = state.getCarrierParkedSystemAddress();
+            if (ramParkedBody != null && ramParkedBody.intValue() > 0) {
+                s.setCarrierParkedBodyId(ramParkedBody);
+                s.setCarrierParkedSystemAddress(ramParkedSys != 0L ? Long.valueOf(ramParkedSys) : null);
+            }
             if (state.getExobiologyCreditsTotalUnsold() != null) {
                 s.setExobiologyCreditsTotalUnsold(state.getExobiologyCreditsTotalUnsold());
+            }
+            if (state.getGeoSurveyCreditsTotal() != null) {
+                s.setGeoSurveyCreditsTotal(state.getGeoSurveyCreditsTotal());
             }
             saveEdoSessionState(s);
         } catch (Exception ex) {

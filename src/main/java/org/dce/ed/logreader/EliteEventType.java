@@ -34,6 +34,7 @@ public enum EliteEventType {
     SAASCAN_COMPLETE("SAAScanComplete"),
     CODEX_ENTRY("CodexEntry"),
     LEAVE_BODY("LeaveBody"),
+    APPROACH_BODY("ApproachBody"),
     CARGO("Cargo"),
     LOADOUT("Loadout"),
     SHIP_LOCKER("ShipLocker"),

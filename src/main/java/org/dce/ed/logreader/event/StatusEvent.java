@@ -27,6 +27,11 @@ public class StatusEvent extends EliteLogEvent {
     private final String bodyName;
     private final Double planetRadius;
 
+    /** Raw {@code BodyName} from Status.json before destination-name fallback (may be null/blank). */
+    private final String bodyNamePhysical;
+    /** Optional top-level {@code BodyID} from Status.json when the game provides it. */
+    private final Integer statusBodyId;
+
     // Travel destination (added in later journal versions)
     private final Long destinationSystem;
     private final Integer destinationBody;
@@ -61,7 +66,9 @@ public class StatusEvent extends EliteLogEvent {
                        Long destinationSystem,
                        Integer destinationBody,
                        String destinationName,
-                       String destinationNameLocalised) {
+                       String destinationNameLocalised,
+                       String bodyNamePhysical,
+                       Integer statusBodyId) {
 
         super(timestamp, EliteEventType.STATUS, rawJson);
         this.flags = flags;
@@ -81,6 +88,8 @@ public class StatusEvent extends EliteLogEvent {
         this.heading = heading;
         this.bodyName = bodyName;
         this.planetRadius = planetRadius;
+        this.bodyNamePhysical = bodyNamePhysical;
+        this.statusBodyId = statusBodyId;
 
         this.destinationSystem = destinationSystem;
         this.destinationBody = destinationBody;
@@ -150,6 +159,19 @@ public class StatusEvent extends EliteLogEvent {
 
     public String getBodyName() {
         return bodyName;
+    }
+
+    /**
+     * {@code BodyName} field only (no destination fallback). Prefer for resolving which world you are
+     * gravitationally near vs which body is selected in the nav panel.
+     */
+    public String getBodyNamePhysical() {
+        return bodyNamePhysical;
+    }
+
+    /** Top-level {@code BodyID} from Status.json when present. */
+    public Integer getStatusBodyId() {
+        return statusBodyId;
     }
 
     public Double getPlanetRadius() {

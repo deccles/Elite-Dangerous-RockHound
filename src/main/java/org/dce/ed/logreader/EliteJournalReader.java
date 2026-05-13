@@ -354,6 +354,13 @@ public class EliteJournalReader {
                     .collect(Collectors.toList());
         }
     }
+
+    /**
+     * All {@code Journal.*.log} paths under this reader's directory, sorted by file name (same order as bulk reads).
+     */
+    public List<Path> listJournalPaths() throws IOException {
+        return Collections.unmodifiableList(listJournalFiles());
+    }
     
 
     public List<EliteLogEvent> readEventsFromJournalFile(Path journalFile) throws IOException {

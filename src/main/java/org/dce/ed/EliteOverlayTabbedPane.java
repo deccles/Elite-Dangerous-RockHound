@@ -947,10 +947,11 @@ public class EliteOverlayTabbedPane extends JPanel {
 	}
 
 	/**
-	 * Forward a global mouse wheel (pass-through mode) to the active tab's main vertical scroller when the pointer
-	 * is over that scroller and its vertical scroll bar is visible. Route, System, and Fleet Carrier tabs only.
+	 * Forward a global mouse wheel (pass-through mode): Route, System, and Fleet Carrier tabs only. On the System tab,
+	 * zooms the orbital map when the pointer is over the map; otherwise applies to the main vertical scroller when the
+	 * pointer is over that scroller and its vertical scroll bar is visible (same pattern on Route and Fleet Carrier).
 	 *
-	 * @return {@code true} if a scroll bar was adjusted
+	 * @return {@code true} if the wheel was consumed (map zoom, or scroll bar adjusted)
 	 */
 	public boolean handlePassThroughMouseWheelAtScreen(int screenX, int screenY, int wheelRotation) {
 		if (!isShowing() || wheelRotation == 0) {

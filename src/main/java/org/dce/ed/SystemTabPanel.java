@@ -15,14 +15,18 @@ import java.awt.Point;
 import java.awt.PointerInfo;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.event.ItemEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
+import java.awt.Cursor;
+import java.awt.FlowLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.QuadCurve2D;
 import java.awt.image.BufferedImage;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -37,12 +41,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import javax.swing.Icon;
+import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 import javax.swing.JViewport;
 import javax.swing.ListSelectionModel;
 import javax.swing.ScrollPaneConstants;
@@ -50,6 +56,8 @@ import javax.swing.Timer;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
+
+import javax.swing.BorderFactory;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
@@ -64,11 +72,14 @@ import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.BioScanPredictionEvent;
 import org.dce.ed.logreader.event.BioScanPredictionEvent.PredictionKind;
+import org.dce.ed.logreader.event.ApproachBodyEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.IFsdJump;
+import org.dce.ed.logreader.event.LeaveBodyEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.StatusEvent;
+import org.dce.ed.logreader.event.SupercruiseExitEvent;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.util.ExplorationBodyCredits;
@@ -82,6 +93,11 @@ import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.SystemOrbitGeometry;
+
+import org.dce.ed.ui.DistanceToggleIcons;
+import org.dce.ed.ui.OrbitSchematicTransportIcons;
+import org.dce.ed.ui.SystemPlanMapPanel;
 /**
  * System tab – now a *pure UI* renderer.
  *
@@ -93,6 +109,13 @@ import org.dce.ed.util.FirstBonusHelper;
 public class SystemTabPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
+
+    private static final int ORBIT_ANIM_SPEED_STEP = 5;
+    /**
+     * Wall period between orbit-playback ticks; sim advance uses this fixed interval (not variable EDT gaps) so a
+     * delayed paint cannot advance many in-game days in one frame at high d/s.
+     */
+    private static final int ORBIT_ANIM_TIMER_MS = 33;
 
     // Bio column icons (painted, no external resources) - scaled from current UI font.
     private Icon bioLeafIcon = new LeafIcon(18, 18);
@@ -109,6 +132,8 @@ public class SystemTabPanel extends JPanel {
     private final JTable table;
     /** Main bodies table scroller (pass-through wheel forwarding). */
     private final JScrollPane systemBodyScrollPane;
+    /** Bottom panel: top-down schematic of approximate body and ship positions. */
+    private final SystemPlanMapPanel systemPlanMapPanel = new SystemPlanMapPanel();
     private final JTextField headerLabel;
     private final SystemBodiesTableModel tableModel;
 
@@ -131,6 +156,63 @@ public class SystemTabPanel extends JPanel {
     private volatile Integer targetDestinationParentBodyId;
     private volatile String targetDestinationName;
 
+    /** System tab distance mode toggles: rocket-in-ring = from ship, star-in-ring = from star / arrival. */
+    private JButton distFromShipButton;
+    private JButton distFromStarButton;
+    private boolean distFromShipHovered;
+    private boolean distFromStarHovered;
+
+    /** Latest Status.json geometry when near a body (for ship-centric distances). */
+    private volatile Double statusLatitude;
+    private volatile Double statusLongitude;
+    private volatile Double statusAltitude;
+    private volatile Double statusPlanetRadius;
+
+    /**
+     * Journal {@link ApproachBodyEvent}: ship entered a body's orbital-cruise zone — best anchor for
+     * ship-centric distances while supercruising near that world.
+     */
+    private volatile Integer approachReferenceBodyId;
+
+    /**
+     * Journal {@link SupercruiseExitEvent}: major body (or ring parent) you dropped to from system supercruise.
+     * Used when you never get {@code ApproachBody} (wide orbit) but Status still omits a stable near-body id.
+     * Cleared on system supercruise ({@link StatusEvent#isSupercruise()}) and on system-change events.
+     */
+    private volatile Integer supercruiseDropReferenceBodyId;
+
+    /**
+     * Last non-primary (non-star) body we treated as proximity — kept across Status ticks so HUD destination
+     * mirroring does not yank "You" off a world until ApproachBody / telemetry / physical name updates.
+     * Persisted per {@link SystemState#getSystemAddress()} via {@link OverlayPreferences} so it survives app restarts.
+     */
+    private volatile Integer lastVisitedNonStarBodyId;
+
+    /**
+     * Last {@link SystemState#isDocked()} seen from Status (after {@link SystemEventProcessor}); used to refresh
+     * ship-anchor distances and the plan map when docked toggles without a near-body name/id change.
+     */
+    private Boolean lastStatusDockedForShipAnchorUi;
+
+    /** Debounces table rebuilds when Status telemetry streams in ship-distance mode. */
+    private Timer shipTelemetryRebuildTimer;
+
+    /** Periodically refreshes ship-distance ordering / displayed Ls as mean anomaly evolves (wall-clock). */
+    private Timer orbitEvolutionTimer;
+
+    /**
+     * When selected, advances a synthetic {@link Instant} for the plan map so schematic orbits move at a visible rate
+     * (journal elements; not real-time flight).
+     */
+    private Timer orbitAnimDemoTimer;
+    private volatile boolean orbitAnimDemoActive;
+    private Instant orbitAnimSimInstant;
+    private JToggleButton orbitAnimPlayButton;
+    private JButton orbitAnimSpeedDownButton;
+    private JButton orbitAnimSpeedUpButton;
+    private JLabel orbitAnimSpeedValueLabel;
+    /** Simulated time advance: orbit-model days per one wall-clock second (map toolbar << / >>; persisted). */
+    private double orbitAnimDaysPerWallSecond = OverlayPreferences.getSystemTabOrbitAnimDaysPerWallSecond();
     /** Body IDs whose exobiology detail rows are hidden (body + ring lines remain). */
     private final Set<Integer> bioDetailsCollapsedBodyIds = new HashSet<>();
     /**
@@ -193,13 +275,23 @@ public class SystemTabPanel extends JPanel {
 	    state.setNearBodyName(nearBodyName);
 	    state.setTargetDestinationParentBodyId(targetDestinationParentBodyId);
 	    state.setTargetDestinationName(targetDestinationName);
+	    Integer ramParkedBody = this.state.getCarrierParkedBodyId();
+	    long ramParkedSys = this.state.getCarrierParkedSystemAddress();
+	    if (ramParkedBody != null && ramParkedBody.intValue() > 0) {
+	        state.setCarrierParkedBodyId(ramParkedBody);
+	        state.setCarrierParkedSystemAddress(ramParkedSys != 0L ? Long.valueOf(ramParkedSys) : null);
+	    }
+	    // else: keep carrierParked* already on `state` from EdoSessionPersistence.load() — do not wipe with empty SystemState.
 	}
 
 	/**
-	 * Mouse pass-through: apply global wheel to the bodies table when the pointer is over the scroll area and the
-	 * vertical bar is visible.
+	 * Mouse pass-through: apply global wheel to the orbital map (zoom) when the pointer is over the map, else to the
+	 * bodies table when the pointer is over the scroll area and the vertical bar is visible.
 	 */
 	public boolean applyPassThroughWheelIfHit(int screenX, int screenY, int wheelRotation) {
+		if (systemPlanMapPanel.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation)) {
+			return true;
+		}
 		return PassThroughScrollSupport.applyVerticalWheelIfHit(systemBodyScrollPane, screenX, screenY, wheelRotation);
 	}
 
@@ -220,6 +312,14 @@ public class SystemTabPanel extends JPanel {
 	    if (state.getTargetDestinationParentBodyId() != null || state.getTargetDestinationName() != null) {
 	        targetDestinationParentBodyId = state.getTargetDestinationParentBodyId();
 	        targetDestinationName = state.getTargetDestinationName();
+	    }
+	    Integer pb = state.getCarrierParkedBodyId();
+	    Long ps = state.getCarrierParkedSystemAddress();
+	    this.state.setCarrierParkedBodyId(pb);
+	    if (pb == null) {
+	        this.state.setCarrierParkedSystemAddress(0L);
+	    } else {
+	        this.state.setCarrierParkedSystemAddress(ps != null ? ps.longValue() : 0L);
 	    }
 	    // Session restore runs after refreshFromCache() already seeded "all bio collapsed" with no target yet.
 	    // reconcileAutoExpandBioForCurrentTargetBody() only runs on that seed pass; run it here too so a
@@ -289,7 +389,8 @@ public class SystemTabPanel extends JPanel {
         table.setBackground(EdoUi.Internal.TRANSPARENT);
         
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        table.setPreferredScrollableViewportSize(new Dimension(500, 300));
+        // Leave more vertical room for the orbital plan map (BorderLayout.SOUTH) on typical overlay heights.
+        table.setPreferredScrollableViewportSize(new Dimension(500, 240));
         // NEW: apply ED font to table cells
         table.setFont(uiFont);
         refreshBioIcons();
@@ -560,11 +661,116 @@ public class SystemTabPanel extends JPanel {
         headerPanel.setOpaque(false);
         headerPanel.add(headerLabel, BorderLayout.WEST);
         headerPanel.add(headerSummaryLabel, BorderLayout.CENTER);
+
+        JPanel distToggleEast = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        distToggleEast.setOpaque(false);
+        distFromShipButton = new JButton();
+        distFromStarButton = new JButton();
+        configureDistModeToggleButton(distFromShipButton,
+                "Approximate distance from your ship (orbital model + Status near-body / surface fix)");
+        configureDistModeToggleButton(distFromStarButton,
+                "Distance from system entry / star (journal DistanceFromArrivalLS)");
+        distFromShipButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                distFromShipHovered = true;
+                updateDistModeToggleAppearance();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                distFromShipHovered = false;
+                updateDistModeToggleAppearance();
+            }
+        });
+        distFromStarButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                distFromStarHovered = true;
+                updateDistModeToggleAppearance();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                distFromStarHovered = false;
+                updateDistModeToggleAppearance();
+            }
+        });
+        distFromShipButton.addActionListener(e -> {
+            OverlayPreferences.setSystemTabDistanceFromShip(true);
+            updateDistModeToggleAppearance();
+            requestRebuild();
+        });
+        distFromStarButton.addActionListener(e -> {
+            OverlayPreferences.setSystemTabDistanceFromShip(false);
+            updateDistModeToggleAppearance();
+            requestRebuild();
+        });
+        distToggleEast.add(distFromShipButton);
+        distToggleEast.add(distFromStarButton);
+        headerPanel.add(distToggleEast, BorderLayout.EAST);
         headerPanel.setBorder(null);
+
+        applyDistanceToggleIcons();
+        updateDistModeToggleAppearance();
 
         add(headerPanel, BorderLayout.NORTH);
         add(systemBodyScrollPane, BorderLayout.CENTER);
+        JPanel mapColumn = new JPanel(new BorderLayout());
+        mapColumn.setOpaque(false);
+        JPanel mapToolbar = new JPanel(new FlowLayout(FlowLayout.TRAILING, 8, 2));
+        mapToolbar.setOpaque(false);
+        orbitAnimPlayButton = new JToggleButton();
+        orbitAnimPlayButton.setText(null);
+        orbitAnimPlayButton.setForeground(EdoUi.User.MAIN_TEXT);
+        orbitAnimPlayButton.setOpaque(false);
+        orbitAnimPlayButton.setContentAreaFilled(false);
+        orbitAnimPlayButton.setBorderPainted(true);
+        orbitAnimPlayButton.setFocusable(false);
+        orbitAnimPlayButton.setFocusPainted(false);
+        orbitAnimPlayButton.setToolTipText(
+                "Fast-forward schematic orbits (approximate journal elements; not real flight time). "
+                        + "Use the chevron buttons to change how fast model time runs.");
+        orbitAnimPlayButton.addItemListener(ev -> {
+            if (ev.getStateChange() == ItemEvent.SELECTED) {
+                orbitAnimDemoActive = true;
+                orbitAnimSimInstant = Instant.now();
+                orbitAnimDemoTimer.start();
+                refreshPlanMap();
+            } else if (ev.getStateChange() == ItemEvent.DESELECTED) {
+                orbitAnimDemoActive = false;
+                orbitAnimDemoTimer.stop();
+                refreshPlanMap();
+                systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
+            }
+        });
+        mapToolbar.add(orbitAnimPlayButton);
 
+        String orbitSpeedTt = "Orbit model days advanced per second of real time while playing.";
+        orbitAnimSpeedDownButton = new JButton();
+        orbitAnimSpeedDownButton.setText(null);
+        orbitAnimSpeedDownButton.addActionListener(e ->
+                setOrbitAnimSpeedValue((int) Math.round(orbitAnimDaysPerWallSecond) - ORBIT_ANIM_SPEED_STEP));
+
+        orbitAnimSpeedValueLabel = new JLabel(formatOrbitAnimSpeedLabel(orbitAnimDaysPerWallSecond));
+        orbitAnimSpeedValueLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        orbitAnimSpeedValueLabel.setForeground(EdoUi.User.MAIN_TEXT);
+        orbitAnimSpeedValueLabel.setToolTipText(orbitSpeedTt);
+
+        orbitAnimSpeedUpButton = new JButton();
+        orbitAnimSpeedUpButton.setText(null);
+        orbitAnimSpeedUpButton.addActionListener(e ->
+                setOrbitAnimSpeedValue((int) Math.round(orbitAnimDaysPerWallSecond) + ORBIT_ANIM_SPEED_STEP));
+
+        applyOrbitMapToolbarTypography("Slower: fewer model days per second of real time.",
+                "Faster: more model days per second of real time.",
+                orbitSpeedTt);
+        mapToolbar.add(orbitAnimSpeedDownButton);
+        mapToolbar.add(orbitAnimSpeedValueLabel);
+        mapToolbar.add(orbitAnimSpeedUpButton);
+        mapColumn.add(mapToolbar, BorderLayout.NORTH);
+        mapColumn.add(systemPlanMapPanel, BorderLayout.CENTER);
+        add(mapColumn, BorderLayout.SOUTH);
 
         refreshFromCache();
         
@@ -606,6 +812,20 @@ public class SystemTabPanel extends JPanel {
         bioExpandCueDelayedOpenTimer.setRepeats(false);
         bioHeaderAllDwellTimer = new Timer(BIO_EXPAND_HOVER_OPEN_DELAY_MS, e -> commitBioHeaderAllDwellAction());
         bioHeaderAllDwellTimer.setRepeats(false);
+
+        shipTelemetryRebuildTimer = new Timer(150, e -> requestRebuild());
+        shipTelemetryRebuildTimer.setRepeats(false);
+
+        orbitEvolutionTimer = new Timer(1000, e -> {
+            if (OverlayPreferences.isSystemTabDistanceFromShip()) {
+                requestRebuild();
+            }
+        });
+        orbitEvolutionTimer.setRepeats(true);
+        refreshOrbitEvolutionTimerRunning();
+
+        orbitAnimDemoTimer = new Timer(ORBIT_ANIM_TIMER_MS, e -> tickOrbitAnimDemo());
+        orbitAnimDemoTimer.setRepeats(true);
     }
 
     @Override
@@ -614,6 +834,7 @@ public class SystemTabPanel extends JPanel {
         if (bioExpandCueHoverPollTimer != null) {
             bioExpandCueHoverPollTimer.start();
         }
+        refreshOrbitEvolutionTimerRunning();
     }
 
     @Override
@@ -627,6 +848,13 @@ public class SystemTabPanel extends JPanel {
         if (bioHeaderAllDwellTimer != null) {
             bioHeaderAllDwellTimer.stop();
         }
+        if (orbitEvolutionTimer != null) {
+            orbitEvolutionTimer.stop();
+        }
+        if (orbitAnimDemoTimer != null) {
+            orbitAnimDemoTimer.stop();
+        }
+        orbitAnimDemoActive = false;
         super.removeNotify();
     }
 
@@ -728,6 +956,18 @@ public class SystemTabPanel extends JPanel {
         // 1) Mutate domain state (can be on background thread)
         processor.handleEvent(event);
 
+        if (event instanceof ApproachBodyEvent) {
+            handleApproachBodyEvent((ApproachBodyEvent) event);
+        } else if (event instanceof LeaveBodyEvent) {
+            handleLeaveBodyEvent((LeaveBodyEvent) event);
+        } else if (event instanceof SupercruiseExitEvent) {
+            handleSupercruiseExitEvent((SupercruiseExitEvent) event);
+        } else if (event instanceof FsdJumpEvent || event instanceof LocationEvent
+                || event instanceof CarrierJumpEvent) {
+            approachReferenceBodyId = null;
+            supercruiseDropReferenceBodyId = null;
+        }
+
         // StatusEvent is very high frequency; avoid table rebuilds.
         // We only use it to track which body the player is currently near, and which body is currently targeted.
         if (event instanceof StatusEvent) {
@@ -816,10 +1056,29 @@ public class SystemTabPanel extends JPanel {
         if (event instanceof IFsdJump) {
             IFsdJump e = (IFsdJump) event;
             new Thread(() -> {
-
-
                 javax.swing.SwingUtilities.invokeLater(() -> {
+                    /*
+                     * Commander ship FSD: Status.json often still reports the previous system's near-body / HUD mirror
+                     * for a short time after {@code FSDJump}, so {@link #resolveShipAnchorBodyId()} could pin "You" on
+                     * the wrong id in the new system. Clear proximity and this destination's per-system sticky so we
+                     * default to the primary until telemetry catches up. Game startup restores via
+                     * {@link #applySessionState(EdoSessionState)} / {@link #refreshFromCache()} without this branch;
+                     * {@link CarrierJumpEvent} (also {@link IFsdJump}) keeps near-body + sticky so a carrier can sit
+                     * on a non-primary star.
+                     */
+                    if (e instanceof FsdJumpEvent) {
+                        nearBodyId = null;
+                        nearBodyName = null;
+                        lastVisitedNonStarBodyId = null;
+                        long addr = e.getSystemAddress();
+                        if (addr != 0L) {
+                            OverlayPreferences.setSystemTabStickyLastVisitedBodyId(addr, null);
+                        }
+                    }
                     loadSystem(e.getStarSystem(), e.getSystemAddress(), true);
+                    if (e instanceof FsdJumpEvent) {
+                        fireSessionStateChanged();
+                    }
                     requestRebuild();
                     persistIfPossible();
                 });
@@ -1018,35 +1277,232 @@ public class SystemTabPanel extends JPanel {
 
     private void updateNearBodyFromStatus(StatusEvent e) {
         // Called from handleLogEvent; may be on a background thread.
+        final long currentSystemAddress = state.getSystemAddress();
+        final Integer destBody = SystemTabTargetLogic.effectiveDestBody(e, currentSystemAddress);
+        final String destName = SystemTabTargetLogic.effectiveDestName(e, currentSystemAddress);
         final String newBodyName = (e != null) ? e.getBodyName() : null;
+        final Double lat = (e != null) ? e.getLatitude() : null;
+        final Double lon = (e != null) ? e.getLongitude() : null;
+        final Double alt = (e != null) ? e.getAltitude() : null;
+        final Double rad = (e != null) ? e.getPlanetRadius() : null;
+        final Integer statusSid = (e != null) ? e.getStatusBodyId() : null;
+        final String physicalBodyName = (e != null) ? e.getBodyNamePhysical() : null;
+        final boolean statusSupercruise = e != null && e.isSupercruise();
 
         SwingUtilities.invokeLater(() -> {
+            if (statusSupercruise) {
+                supercruiseDropReferenceBodyId = null;
+            }
+            statusLatitude = lat;
+            statusLongitude = lon;
+            statusAltitude = alt;
+            statusPlanetRadius = rad;
+
             String trimmed = (newBodyName != null) ? newBodyName.trim() : null;
             if (trimmed != null && trimmed.isEmpty()) {
                 trimmed = null;
             }
 
-            // No change
-            if (trimmed == null && nearBodyName == null) {
-                return;
+            Map<Integer, BodyInfo> bodies = state.getBodies();
+
+            boolean hudBodyTarget = false;
+            if (destBody != null && destName != null) {
+                Integer idFromDestName = findBodyIdByName(destName);
+                hudBodyTarget = idFromDestName != null && idFromDestName.equals(destBody);
             }
-            if (trimmed != null && trimmed.equalsIgnoreCase(nearBodyName)) {
-                return;
+            boolean trimmedIsDestOnly = hudBodyTarget && trimmed != null && destName != null
+                    && trimmed.equalsIgnoreCase(destName);
+            boolean hasBodyTelemetryHints = (lat != null && lon != null)
+                    || (rad != null && rad.doubleValue() > 1.0)
+                    || (alt != null && rad != null && rad.doubleValue() > 1.0);
+            /*
+             * Elite can mirror the HUD destination into Status BodyID. When ApproachBody names another world,
+             * ignore that BodyID. When there is no ApproachBody line, prefer {@link #lastVisitedNonStarBodyId} over
+             * blindly following the mirrored id so "You" stays on the last non-star body until telemetry catches up.
+             */
+            boolean ignoreStatusBodyIdAsHudMirror = hudBodyTarget
+                    && destBody != null
+                    && statusSid != null
+                    && statusSid.equals(destBody)
+                    && (physicalBodyName == null || physicalBodyName.isBlank())
+                    && !hasBodyTelemetryHints
+                    && approachReferenceBodyId != null
+                    && !approachReferenceBodyId.equals(statusSid);
+
+            boolean destMirrorSuspiciousNoApproach = hudBodyTarget
+                    && destBody != null
+                    && statusSid != null
+                    && statusSid.equals(destBody)
+                    && (physicalBodyName == null || physicalBodyName.isBlank())
+                    && !hasBodyTelemetryHints
+                    && approachReferenceBodyId == null;
+
+            Integer resolvedId = null;
+            if (physicalBodyName != null && !physicalBodyName.isBlank()) {
+                resolvedId = findBodyIdByName(physicalBodyName.trim());
+            }
+            if (resolvedId == null && statusSid != null && statusSid.intValue() > 0 && bodies.containsKey(statusSid)) {
+                if (!ignoreStatusBodyIdAsHudMirror) {
+                    resolvedId = statusSid;
+                }
+            }
+            if (resolvedId == null && trimmed != null && !trimmedIsDestOnly) {
+                resolvedId = findBodyIdByName(trimmed);
+            }
+            if (resolvedId == null && approachReferenceBodyId != null && approachReferenceBodyId.intValue() >= 0
+                    && bodies.containsKey(approachReferenceBodyId)) {
+                resolvedId = approachReferenceBodyId;
+            }
+            if (resolvedId == null && supercruiseDropReferenceBodyId != null
+                    && supercruiseDropReferenceBodyId.intValue() > 0
+                    && bodies.containsKey(supercruiseDropReferenceBodyId)) {
+                resolvedId = supercruiseDropReferenceBodyId;
+            }
+            if (destMirrorSuspiciousNoApproach && resolvedId != null && resolvedId.equals(destBody)) {
+                Integer sticky = lastVisitedNonStarBodyId;
+                if (sticky != null && sticky.intValue() > 0 && bodies.containsKey(sticky)
+                        && !sticky.equals(destBody)) {
+                    resolvedId = sticky;
+                }
             }
 
-            nearBodyName = trimmed;
-            nearBodyId = findBodyIdByName(trimmed);
-
-            Consumer<BodyInfo> listener = nearBodyChangedListener;
-            if (listener != null) {
-                BodyInfo nearBody = (nearBodyId != null) ? state.getBodies().get(nearBodyId) : null;
-                listener.accept(nearBody);
+            String nameSignal = (physicalBodyName != null && !physicalBodyName.isBlank())
+                    ? physicalBodyName.trim()
+                    : (trimmedIsDestOnly ? null : trimmed);
+            if (nameSignal == null && resolvedId != null) {
+                BodyInfo bi = bodies.get(resolvedId);
+                if (bi != null && bi.getBodyName() != null && !bi.getBodyName().isBlank()) {
+                    nameSignal = bi.getBodyName().trim();
+                }
             }
 
-            // Just repaint; no need to rebuild the model.
-            table.repaint();
-            fireSessionStateChanged();
+            if (resolvedId != null && resolvedId.intValue() > 0 && bodies.containsKey(resolvedId)) {
+                Integer stickyBefore = lastVisitedNonStarBodyId;
+                lastVisitedNonStarBodyId = resolvedId;
+                if (!Objects.equals(stickyBefore, resolvedId)) {
+                    OverlayPreferences.setSystemTabStickyLastVisitedBodyId(state.getSystemAddress(), resolvedId);
+                }
+            }
+
+            boolean identityChanged =
+                    (nameSignal == null && nearBodyName != null)
+                    || (nameSignal != null && nearBodyName == null)
+                    || (nameSignal != null && nearBodyName != null && !nameSignal.equalsIgnoreCase(nearBodyName));
+
+            boolean idChanged = !Objects.equals(nearBodyId, resolvedId);
+
+            if (identityChanged) {
+                nearBodyName = nameSignal;
+            }
+            nearBodyId = resolvedId;
+
+            boolean nearRefDirty = identityChanged || idChanged;
+            if (nearRefDirty) {
+                Consumer<BodyInfo> listener = nearBodyChangedListener;
+                if (listener != null) {
+                    BodyInfo nearBody = (nearBodyId != null) ? state.getBodies().get(nearBodyId) : null;
+                    listener.accept(nearBody);
+                }
+                fireSessionStateChanged();
+                // Status is high-frequency; full rebuild only when near-body identity changes so distance column,
+                // sort order, and plan-map “You” (via {@link #refreshPlanMap}) stay in sync with the new proximity.
+                requestRebuild();
+            }
+
+            boolean dockedChanged = lastStatusDockedForShipAnchorUi != null
+                    && lastStatusDockedForShipAnchorUi.booleanValue() != state.isDocked();
+            lastStatusDockedForShipAnchorUi = Boolean.valueOf(state.isDocked());
+            if (dockedChanged && !nearRefDirty) {
+                // Undock/dock toggles ship anchor (e.g. carrier parked vs near-body) without necessarily changing
+                // BodyName / BodyId in the same Status tick.
+                requestRebuild();
+            }
+
+            if (OverlayPreferences.isSystemTabDistanceFromShip() && !nearRefDirty) {
+                scheduleShipTelemetryRebuild();
+            }
         });
+    }
+
+    private void handleApproachBodyEvent(ApproachBodyEvent ab) {
+        if (ab == null) {
+            return;
+        }
+        long cur = state.getSystemAddress();
+        if (cur != 0L && ab.getSystemAddress() != 0L && ab.getSystemAddress() != cur) {
+            return;
+        }
+        Integer previousApproach = approachReferenceBodyId;
+        int id = ab.getBodyId();
+        if (id < 0 && ab.getBodyName() != null && !ab.getBodyName().isBlank()) {
+            Integer found = findBodyIdByName(ab.getBodyName().trim());
+            id = found != null ? found.intValue() : -1;
+        }
+        if (id >= 0) {
+            approachReferenceBodyId = Integer.valueOf(id);
+            if (id > 0) {
+                Integer prev = lastVisitedNonStarBodyId;
+                lastVisitedNonStarBodyId = Integer.valueOf(id);
+                if (!Objects.equals(prev, lastVisitedNonStarBodyId)) {
+                    OverlayPreferences.setSystemTabStickyLastVisitedBodyId(cur, lastVisitedNonStarBodyId);
+                }
+            }
+        } else {
+            approachReferenceBodyId = null;
+        }
+        boolean approachRefChanged = !Objects.equals(previousApproach, approachReferenceBodyId);
+        if (OverlayPreferences.isSystemTabDistanceFromShip() || approachRefChanged) {
+            requestRebuild();
+        }
+        if (id >= 0 && approachRefChanged) {
+            final int logId = id;
+            SwingUtilities.invokeLater(() -> {
+                systemPlanMapPanel.focusCameraOnApproachedBody(logId);
+                systemPlanMapPanel.logOrbitRingCentersForApproachDebug(logId);
+            });
+        }
+    }
+
+    private void handleLeaveBodyEvent(LeaveBodyEvent lb) {
+        if (lb == null) {
+            return;
+        }
+        long cur = state.getSystemAddress();
+        if (cur != 0L && lb.getSystemAddress() != 0L && lb.getSystemAddress() != cur) {
+            return;
+        }
+        approachReferenceBodyId = null;
+        if (OverlayPreferences.isSystemTabDistanceFromShip()) {
+            requestRebuild();
+        }
+    }
+
+    private void handleSupercruiseExitEvent(SupercruiseExitEvent se) {
+        if (se == null || se.isTaxi()) {
+            return;
+        }
+        long cur = state.getSystemAddress();
+        if (cur != 0L && se.getSystemAddress() != 0L && se.getSystemAddress() != cur) {
+            return;
+        }
+        int id = se.getBodyId();
+        if (id < 0 && se.getBody() != null && !se.getBody().isBlank()) {
+            Integer found = findBodyIdByName(se.getBody().trim());
+            id = found != null ? found.intValue() : -1;
+        }
+        if (id > 0) {
+            supercruiseDropReferenceBodyId = Integer.valueOf(id);
+            Integer prev = lastVisitedNonStarBodyId;
+            lastVisitedNonStarBodyId = Integer.valueOf(id);
+            if (!Objects.equals(prev, lastVisitedNonStarBodyId)) {
+                OverlayPreferences.setSystemTabStickyLastVisitedBodyId(cur, lastVisitedNonStarBodyId);
+            }
+        } else {
+            supercruiseDropReferenceBodyId = null;
+        }
+        if (OverlayPreferences.isSystemTabDistanceFromShip()) {
+            requestRebuild();
+        }
     }
 
     
@@ -1079,6 +1535,22 @@ public class SystemTabPanel extends JPanel {
         return null;
     }
 
+    /** Restore {@link #lastVisitedNonStarBodyId} from prefs after bodies for {@code systemAddress} are loaded. */
+    private void hydrateLastVisitedStickyFromPrefs(long systemAddress) {
+        Integer stored = OverlayPreferences.getSystemTabStickyLastVisitedBodyId(systemAddress);
+        if (stored == null) {
+            lastVisitedNonStarBodyId = null;
+            return;
+        }
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        if (bodies != null && stored.intValue() > 0 && bodies.containsKey(stored)) {
+            lastVisitedNonStarBodyId = stored;
+        } else {
+            lastVisitedNonStarBodyId = null;
+            OverlayPreferences.setSystemTabStickyLastVisitedBodyId(systemAddress, null);
+        }
+    }
+
     private void loadSystem(String systemName, long systemAddress, boolean allowEdsmEnrichment) {
         long startedAtMs = System.currentTimeMillis();
         SystemCache cache = SystemCache.getInstance();
@@ -1098,6 +1570,10 @@ public class SystemTabPanel extends JPanel {
         passthroughHoverExpandBodyIds.clear();
         bioColumnHeaderExpandCueHover = false;
         bioAutoExpandedForTargetBodyId = null;
+        approachReferenceBodyId = null;
+        supercruiseDropReferenceBodyId = null;
+        lastVisitedNonStarBodyId = null;
+        lastStatusDockedForShipAnchorUi = null;
 
         // 1) Load from cache if we have it
         if (cs != null) {
@@ -1116,6 +1592,8 @@ public class SystemTabPanel extends JPanel {
                 ex.printStackTrace();
             }
         }
+
+        hydrateLastVisitedStickyFromPrefs(systemAddress);
 
         // 3) Refresh UI and persist merged result
         rebuildTable();
@@ -1167,15 +1645,225 @@ public class SystemTabPanel extends JPanel {
         for (Integer latched : passthroughHoverExpandBodyIds) {
             hiddenBioDetails.remove(latched);
         }
+        boolean shipDistMode = OverlayPreferences.isSystemTabDistanceFromShip();
+        Map<Integer, Double> shipCentric = shipDistMode ? computeShipCentricDistancesLs() : null;
+        boolean shipAnchorMissing = shipDistMode && (shipCentric == null || shipCentric.isEmpty());
+
         List<Row> rows = BioTableBuilder.buildRows(state.getBodies().values(), false,
-                hiddenBioDetails.isEmpty() ? null : hiddenBioDetails);
+                hiddenBioDetails.isEmpty() ? null : hiddenBioDetails,
+                shipDistMode,
+                shipCentric,
+                shipAnchorMissing);
         injectIntermediateDestinationRow(rows);
         tableModel.setRows(rows);
         table.getTableHeader().repaint();
+        refreshPlanMap();
 
         // Debug only:
         // debugDumpBioRowsToConsole();
     }
+
+    /** Updates the orbital plan map (journal-derived X/Y projection). */
+    private void refreshPlanMap() {
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        if (bodies == null || bodies.isEmpty()) {
+            if (orbitAnimDemoTimer != null) {
+                orbitAnimDemoTimer.stop();
+            }
+            orbitAnimDemoActive = false;
+            if (orbitAnimPlayButton != null) {
+                orbitAnimPlayButton.setSelected(false);
+            }
+            systemPlanMapPanel.clearScene();
+            return;
+        }
+        Instant now = orbitAnimDemoActive ? orbitAnimSimInstant : Instant.now();
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, now);
+        Integer anchor = resolveShipAnchorBodyId();
+        double[] ship = null;
+        if (anchor != null) {
+            ship = SystemOrbitGeometry.shipPositionMetres(
+                    bodies,
+                    pos,
+                    anchor.intValue(),
+                    statusLatitude,
+                    statusLongitude,
+                    statusAltitude,
+                    statusPlanetRadius);
+        }
+        if (orbitAnimDemoActive) {
+            if (systemPlanMapPanel.tryApplyPositionUpdate(
+                    bodies, pos, ship, anchor, nearBodyId, orbitAnimDemoActive)) {
+                return;
+            }
+            orbitAnimDemoActive = false;
+            if (orbitAnimDemoTimer != null) {
+                orbitAnimDemoTimer.stop();
+            }
+            if (orbitAnimPlayButton != null) {
+                orbitAnimPlayButton.setSelected(false);
+            }
+            systemPlanMapPanel.setScene(bodies, pos, ship, anchor, nearBodyId, orbitAnimDemoActive);
+            systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
+            return;
+        }
+        systemPlanMapPanel.setScene(bodies, pos, ship, anchor, nearBodyId, orbitAnimDemoActive);
+    }
+
+    private void tickOrbitAnimDemo() {
+        if (!orbitAnimDemoActive) {
+            return;
+        }
+        /* Fixed wall step = timer period. Variable EDT deltas (e.g. 250 ms after a hitch) were advancing huge jumps
+         * of model time in one frame at high d/s, which reads as violent hopping along orbits. */
+        double simDays = (ORBIT_ANIM_TIMER_MS / 1000.0) * orbitAnimDaysPerWallSecond;
+        long nanos = Math.max(1L, Math.round(simDays * 86400e9));
+        orbitAnimSimInstant = orbitAnimSimInstant.plusNanos(nanos);
+        refreshPlanMap();
+    }
+
+    private static String formatOrbitAnimSpeedLabel(double daysPerWallSec) {
+        return String.format(Locale.US, "%.0f d/s", Double.valueOf(daysPerWallSec));
+    }
+
+    private void setOrbitAnimSpeedValue(int daysPerWallSecond) {
+        int min = OverlayPreferences.getSystemTabOrbitAnimDaysPerWallSecondMin();
+        int max = OverlayPreferences.getSystemTabOrbitAnimDaysPerWallSecondMax();
+        int v = Math.max(min, Math.min(max, daysPerWallSecond));
+        orbitAnimDaysPerWallSecond = v;
+        OverlayPreferences.setSystemTabOrbitAnimDaysPerWallSecond(v);
+        if (orbitAnimSpeedValueLabel != null) {
+            orbitAnimSpeedValueLabel.setText(formatOrbitAnimSpeedLabel(orbitAnimDaysPerWallSecond));
+        }
+        updateOrbitAnimSpeedChevrons();
+    }
+
+    private void updateOrbitAnimSpeedChevrons() {
+        if (orbitAnimSpeedDownButton == null || orbitAnimSpeedUpButton == null) {
+            return;
+        }
+        int min = OverlayPreferences.getSystemTabOrbitAnimDaysPerWallSecondMin();
+        int max = OverlayPreferences.getSystemTabOrbitAnimDaysPerWallSecondMax();
+        int v = (int) Math.round(orbitAnimDaysPerWallSecond);
+        orbitAnimSpeedDownButton.setEnabled(v > min);
+        orbitAnimSpeedUpButton.setEnabled(v < max);
+    }
+
+    /**
+     * Orbit schematic toolbar: scales with {@link #uiFont} (slightly larger than the table), play/pause icons sized
+     * to the computed row height.
+     */
+    private void applyOrbitMapToolbarTypography(String slowerTt, String fasterTt, String speedValueTt) {
+        if (orbitAnimPlayButton == null || orbitAnimSpeedDownButton == null
+                || orbitAnimSpeedUpButton == null || orbitAnimSpeedValueLabel == null) {
+            return;
+        }
+        Font base = uiFont != null ? uiFont : getFont();
+        if (base == null) {
+            base = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+        }
+        float toolbarPt = Math.max(12f, base.getSize2D() * 1.15f + 1f);
+        Font toolbarFont = base.deriveFont(Font.PLAIN, toolbarPt);
+
+        FontMetrics fm;
+        if (isDisplayable()) {
+            fm = getFontMetrics(toolbarFont);
+        } else {
+            BufferedImage img = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = img.createGraphics();
+            try {
+                fm = g2.getFontMetrics(toolbarFont);
+            } finally {
+                g2.dispose();
+            }
+        }
+        int rowH = fm.getHeight();
+        int iconSize = Math.max(14, Math.min(46, Math.round(rowH * 0.95f + 2)));
+
+        orbitAnimPlayButton.setFont(toolbarFont);
+        orbitAnimPlayButton.setText(null);
+        orbitAnimPlayButton.setIcon(new OrbitSchematicTransportIcons.PlayTriangleIcon(iconSize));
+        orbitAnimPlayButton.setSelectedIcon(new OrbitSchematicTransportIcons.PauseBarsIcon(iconSize));
+        orbitAnimPlayButton.setHorizontalAlignment(SwingConstants.CENTER);
+        orbitAnimPlayButton.setVerticalAlignment(SwingConstants.CENTER);
+        orbitAnimPlayButton.setIconTextGap(0);
+        orbitAnimPlayButton.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        int btnH = iconSize + Math.max(4, (int) Math.ceil(Math.max(2, fm.getDescent())));
+        int btnW = iconSize + Math.max(8, (int) Math.round(iconSize * 0.15) + 6);
+        int playSide = Math.max(btnW, btnH);
+        orbitAnimPlayButton.setPreferredSize(new Dimension(playSide, playSide));
+
+        orbitAnimSpeedValueLabel.setFont(toolbarFont);
+        orbitAnimSpeedValueLabel.setToolTipText(speedValueTt);
+
+        int chevSize = Math.max(12, Math.min(40, Math.round(rowH * 0.88f)));
+        Icon chevL = new OrbitSchematicTransportIcons.DoubleChevronLeftIcon(chevSize);
+        Icon chevR = new OrbitSchematicTransportIcons.DoubleChevronRightIcon(chevSize);
+        orbitAnimSpeedDownButton.setText(null);
+        orbitAnimSpeedDownButton.setIcon(chevL);
+        orbitAnimSpeedDownButton.setIconTextGap(0);
+        orbitAnimSpeedUpButton.setText(null);
+        orbitAnimSpeedUpButton.setIcon(chevR);
+        orbitAnimSpeedUpButton.setIconTextGap(0);
+
+        configureOrbitSpeedChevronButton(orbitAnimSpeedDownButton, toolbarFont, slowerTt);
+        configureOrbitSpeedChevronButton(orbitAnimSpeedUpButton, toolbarFont, fasterTt);
+
+        int chevPrefW = chevL.getIconWidth() + 8;
+        int chevPrefH = Math.max(playSide, rowH + 4);
+        orbitAnimSpeedDownButton.setPreferredSize(new Dimension(chevPrefW, chevPrefH));
+        orbitAnimSpeedUpButton.setPreferredSize(new Dimension(chevPrefW, chevPrefH));
+
+        updateOrbitAnimSpeedChevrons();
+    }
+
+    /** Ship / star distance toggles: icon size tracks {@link #uiFont}. */
+    private void applyDistanceToggleIcons() {
+        if (distFromShipButton == null || distFromStarButton == null) {
+            return;
+        }
+        Font f = uiFont != null ? uiFont : getFont();
+        int sz = 22;
+        if (f != null) {
+            FontMetrics fm;
+            if (isDisplayable()) {
+                fm = getFontMetrics(f);
+            } else {
+                BufferedImage img = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = img.createGraphics();
+                try {
+                    fm = g2.getFontMetrics(f);
+                } finally {
+                    g2.dispose();
+                }
+            }
+            sz = Math.max(18, Math.min(30, (int) Math.round(fm.getHeight() * 1.05)));
+        }
+        distFromShipButton.setIcon(new DistanceToggleIcons.CircleAroundRocketIcon(sz));
+        distFromStarButton.setIcon(new DistanceToggleIcons.CircleAroundStarIcon(sz));
+        int btn = sz + 4;
+        distFromShipButton.setPreferredSize(new Dimension(btn, btn));
+        distFromStarButton.setPreferredSize(new Dimension(btn, btn));
+    }
+
+    private static void configureOrbitSpeedChevronButton(JButton b, Font font, String toolTipText) {
+        if (b == null) {
+            return;
+        }
+        b.setToolTipText(toolTipText);
+        b.setMargin(new java.awt.Insets(2, 4, 2, 4));
+        b.setHorizontalAlignment(SwingConstants.CENTER);
+        b.setVerticalAlignment(SwingConstants.CENTER);
+        b.setBorderPainted(false);
+        b.setContentAreaFilled(false);
+        b.setFocusable(false);
+        b.setFocusPainted(false);
+        b.setOpaque(false);
+        b.setForeground(EdoUi.User.MAIN_TEXT);
+        b.setFont(font != null ? font : b.getFont());
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+    }
+
     private static String canonicalBioName(String raw) {
         if (raw == null) {
             return "";
@@ -1214,7 +1902,7 @@ public class SystemTabPanel extends JPanel {
         if (state.getTotalBodies() != null) {
             int scanned = state.getBodies().size();
             sb.append("  |  Bodies: ").append(scanned)
-              .append(" of ").append(state.getTotalBodies());
+              .append('/').append(state.getTotalBodies());
 
             if (state.getFssProgress() != null) {
                 sb.append("  (")
@@ -1607,8 +2295,7 @@ public class SystemTabPanel extends JPanel {
     }
 
     /**
-     * Global mouse poll for pass-through (see {@link MiningTabPanel}'s scatter plot). Updates Bio header −/+ hover;
-     * body dwell on + latches open; dwell on − collapses (removes latch and ensures collapsed set).
+     * Pass-through: Bio column header −/+ expand cue hover from global pointer (Swing motion is unreliable).
      */
     private void syncBioColumnHeaderExpandHoverFromScreen(Point screen, boolean allowHeaderHitTest) {
         boolean want = allowHeaderHitTest && isGlobalPointerOverBioHeaderExpandCue(screen);
@@ -1623,9 +2310,15 @@ public class SystemTabPanel extends JPanel {
         }
     }
 
+    /**
+     * Global mouse poll for pass-through (see {@link MiningTabPanel}'s scatter plot). Updates Bio header −/+ hover;
+     * body dwell on + latches open; dwell on − collapses (removes latch and ensures collapsed set). Also updates
+     * distance-from-ship / distance-from-star toggle hover when pass-through is on (Swing does not receive motion).
+     */
     private void pollBioExpandCueHoverFromGlobalMouse() {
         if (!table.isShowing()) {
             syncBioColumnHeaderExpandHoverFromScreen(null, false);
+            syncDistModeToggleHoverFromScreen(null);
             cancelBioExpandDelayedOpenPending();
             cancelBioHeaderAllDwellPending();
             return;
@@ -1633,16 +2326,19 @@ public class SystemTabPanel extends JPanel {
         PointerInfo pi = MouseInfo.getPointerInfo();
         if (pi == null) {
             syncBioColumnHeaderExpandHoverFromScreen(null, false);
+            syncDistModeToggleHoverFromScreen(null);
             cancelBioHeaderAllDwellPending();
             return;
         }
         Point screen = pi.getLocation();
         if (!OverlayPreferences.isOverlayMousePassThroughToGame()) {
             syncBioColumnHeaderExpandHoverFromScreen(null, false);
+            syncDistModeToggleHoverFromScreen(null);
             cancelBioExpandDelayedOpenPending();
             cancelBioHeaderAllDwellPending();
             return;
         }
+        syncDistModeToggleHoverFromScreen(screen);
         syncBioColumnHeaderExpandHoverFromScreen(screen, true);
 
         boolean overHeaderCue = isGlobalPointerOverBioHeaderExpandCue(screen);
@@ -1703,6 +2399,55 @@ public class SystemTabPanel extends JPanel {
         } else {
             cancelBioExpandDelayedOpenPending();
         }
+    }
+
+    /**
+     * Pass-through: drive distance-mode toggle hover from {@link MouseInfo} (Swing hover is unreliable).
+     *
+     * @param screen global pointer, or {@code null} to clear programmatic hover
+     */
+    private void syncDistModeToggleHoverFromScreen(Point screen) {
+        if (distFromShipButton == null || distFromStarButton == null) {
+            return;
+        }
+        if (screen == null || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+            clearDistModeToggleProgrammaticHover();
+            return;
+        }
+        if (!distFromShipButton.isShowing() || !distFromStarButton.isShowing()) {
+            clearDistModeToggleProgrammaticHover();
+            return;
+        }
+        boolean overShip = isGlobalPointerOverComponent(screen, distFromShipButton);
+        boolean overStar = !overShip && isGlobalPointerOverComponent(screen, distFromStarButton);
+        if (overShip == distFromShipHovered && overStar == distFromStarHovered) {
+            return;
+        }
+        distFromShipHovered = overShip;
+        distFromStarHovered = overStar;
+        updateDistModeToggleAppearance();
+    }
+
+    private void clearDistModeToggleProgrammaticHover() {
+        if (!distFromShipHovered && !distFromStarHovered) {
+            return;
+        }
+        distFromShipHovered = false;
+        distFromStarHovered = false;
+        updateDistModeToggleAppearance();
+    }
+
+    private static boolean isGlobalPointerOverComponent(Point screen, Component comp) {
+        if (screen == null || comp == null || !comp.isShowing()) {
+            return false;
+        }
+        Point local = new Point(screen);
+        try {
+            SwingUtilities.convertPointFromScreen(local, comp);
+        } catch (IllegalStateException ignored) {
+            return false;
+        }
+        return comp.contains(local);
     }
 
     /** Invisible fixed width/height for spacing between stacked icons. */
@@ -2736,6 +3481,10 @@ static class Row {
         final Long bioEstimatedPayoutCredits;
         /** Body row: precomputed {@code NN–MMM} summary; null if none. */
         final String bioHeaderSummary;
+        /** When non-null, overrides journal distance in the Dist column (ship-centric mode). */
+        final Double distanceColumnLs;
+        /** Ship-centric mode but commander position unknown — Dist column shows an em dash, not arrival Ls. */
+        final boolean shipCentricDistanceUnknown;
         private int bioSampleCount;
         
         private boolean observedGenusHeader;
@@ -2763,7 +3512,9 @@ static class Row {
                     String bioText,
                     String bioValue,
                     Long bioEstimatedPayoutCredits,
-                    String bioHeaderSummary) {
+                    String bioHeaderSummary,
+                    Double distanceColumnLs,
+                    boolean shipCentricDistanceUnknown) {
             this.body = body;
             this.detail = detail;
             this.destinationRow = destinationRow;
@@ -2773,6 +3524,8 @@ static class Row {
             this.bioValue = bioValue;
             this.bioEstimatedPayoutCredits = bioEstimatedPayoutCredits;
             this.bioHeaderSummary = bioHeaderSummary;
+            this.distanceColumnLs = distanceColumnLs;
+            this.shipCentricDistanceUnknown = shipCentricDistanceUnknown;
             this.bioSampleCount = 0;
         }
         int getBioSampleCount() {
@@ -2788,7 +3541,7 @@ static class Row {
         }
 
         static Row bio(int parentId, String text, String val, int bioSampleCount, Long estimatedCredits) {
-            Row r = new Row(null, true, false, false, parentId, text, val, estimatedCredits, null);
+            Row r = new Row(null, true, false, false, parentId, text, val, estimatedCredits, null, null, false);
             r.setBioSampleCount(bioSampleCount);
             return r;
         }
@@ -2798,25 +3551,34 @@ static class Row {
         }
 
         static Row body(BodyInfo b, String bioHeaderSummary) {
-            return new Row(b, false, false, false, -1, null, null, null, bioHeaderSummary);
+            return body(b, bioHeaderSummary, null);
+        }
+
+        static Row body(BodyInfo b, String bioHeaderSummary, Double distanceColumnLs) {
+            return body(b, bioHeaderSummary, distanceColumnLs, false);
+        }
+
+        static Row body(BodyInfo b, String bioHeaderSummary, Double distanceColumnLs, boolean shipCentricDistanceUnknown) {
+            return new Row(b, false, false, false, -1, null, null, null, bioHeaderSummary, distanceColumnLs,
+                    shipCentricDistanceUnknown);
         }
 
         static Row bio(int parentId, String text, String val) {
-            return new Row(null, true, false, false, parentId, text, val, null, null);
+            return new Row(null, true, false, false, parentId, text, val, null, null, null, false);
         }
 
         static Row bio(int parentId, String text, String val, Long estimatedCredits) {
-            return new Row(null, true, false, false, parentId, text, val, estimatedCredits, null);
+            return new Row(null, true, false, false, parentId, text, val, estimatedCredits, null, null, false);
         }
 
         static Row ring(int parentId, String text) {
             String t = (text != null) ? text : "";
-            return new Row(null, true, false, true, parentId, t, "", null, null);
+            return new Row(null, true, false, true, parentId, t, "", null, null, null, false);
         }
 
         static Row destination(int parentId, String destinationName) {
             String name = (destinationName != null) ? destinationName : "";
-            return new Row(null, true, true, false, parentId, name, null, null, null);
+            return new Row(null, true, true, false, parentId, name, null, null, null, null, false);
         }
     }
 
@@ -3220,8 +3982,19 @@ static class Row {
                 case 4:
                     return b.isLandable() ? "Yes" : "";
                 case 5:
-                    if (Double.isNaN(b.getDistanceLs())) return "";
-                    return String.format(Locale.US, "%.0f Ls", b.getDistanceLs());
+                    if (r.shipCentricDistanceUnknown) {
+                        return "\u2014";
+                    }
+                    double distLsCol;
+                    if (r.distanceColumnLs != null && Double.isFinite(r.distanceColumnLs.doubleValue())) {
+                        distLsCol = r.distanceColumnLs.doubleValue();
+                    } else {
+                        distLsCol = b.getDistanceLs();
+                    }
+                    if (Double.isNaN(distLsCol)) {
+                        return "";
+                    }
+                    return String.format(Locale.US, "%.0f Ls", distLsCol);
                 default:
                     return "";
             }
@@ -3232,6 +4005,160 @@ static class Row {
             return false;
         }
     }
+    private void configureDistModeToggleButton(JButton b, String tooltip) {
+        b.setToolTipText(tooltip);
+        b.setMargin(new java.awt.Insets(2, 4, 2, 4));
+        b.setBorderPainted(true);
+        b.setContentAreaFilled(false);
+        b.setFocusPainted(false);
+        b.setOpaque(false);
+        b.setForeground(EdoUi.User.MAIN_TEXT);
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
+    }
+
+    private void applyDistModeToggleButtonHoverChrome(JButton b, boolean selected, boolean hovered) {
+        Color ink = EdoUi.User.MAIN_TEXT;
+        Color hoverLine = EdoUi.Internal.MAIN_TEXT_ALPHA_200;
+        Color hoverFill = EdoUi.Internal.MAIN_TEXT_ALPHA_40;
+
+        if (selected) {
+            b.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(ink, hovered ? 2 : 1),
+                    new EmptyBorder(hovered ? 1 : 2, 3, hovered ? 1 : 2, 3)));
+            if (hovered) {
+                b.setOpaque(true);
+                b.setBackground(hoverFill);
+            } else {
+                b.setOpaque(false);
+            }
+        } else if (hovered) {
+            b.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(hoverLine, 1),
+                    new EmptyBorder(2, 4, 2, 4)));
+            b.setOpaque(true);
+            b.setBackground(hoverFill);
+        } else {
+            b.setBorder(new EmptyBorder(3, 5, 3, 5));
+            b.setOpaque(false);
+        }
+        b.setCursor(Cursor.getPredefinedCursor(hovered ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+    }
+
+    private void updateDistModeToggleAppearance() {
+        if (distFromShipButton == null || distFromStarButton == null) {
+            return;
+        }
+        boolean shipMode = OverlayPreferences.isSystemTabDistanceFromShip();
+        applyDistModeToggleButtonHoverChrome(distFromShipButton, shipMode, distFromShipHovered);
+        applyDistModeToggleButtonHoverChrome(distFromStarButton, !shipMode, distFromStarHovered);
+        distFromShipButton.repaint();
+        distFromStarButton.repaint();
+        refreshOrbitEvolutionTimerRunning();
+    }
+
+    private void refreshOrbitEvolutionTimerRunning() {
+        if (orbitEvolutionTimer == null) {
+            return;
+        }
+        if (OverlayPreferences.isSystemTabDistanceFromShip()) {
+            orbitEvolutionTimer.start();
+        } else {
+            orbitEvolutionTimer.stop();
+        }
+    }
+
+    private void scheduleShipTelemetryRebuild() {
+        if (shipTelemetryRebuildTimer != null) {
+            shipTelemetryRebuildTimer.restart();
+        }
+    }
+
+    /**
+     * Body whose centre (plus optional Status lat/lon/alt) anchors the commander for ship-centric distances and the
+     * plan-map “You” marker. Uses proximity-style signals only (not HUD target / destination): surface fix on
+     * {@link #nearBodyId}, journal {@code ApproachBody}, journal {@code SupercruiseExit} drop body (wide-orbit
+     * fallback when Approach never fires), then carrier parked when {@link SystemState#isDocked()} and in
+     * scope, then Status near-body, then {@link #lastVisitedNonStarBodyId} (persisted sticky) before falling back to
+     * the primary star (body {@code 0}) when present. After a personal {@code FSDJump}, near-body and sticky for that
+     * destination are cleared on the EDT so stale Status does not anchor the wrong body until fresh telemetry arrives.
+     * HUD station/body targets do not move this anchor.
+     * The table proximity outline follows {@link #nearBodyId} only (no sticky-only fallback so the box clears when
+     * you leave a body).
+     */
+    private Integer resolveShipAnchorBodyId() {
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        if (bodies == null || bodies.isEmpty()) {
+            return null;
+        }
+        boolean hasSurfaceFix = statusLatitude != null && statusLongitude != null
+                && statusAltitude != null && statusPlanetRadius != null
+                && statusPlanetRadius.doubleValue() > 1.0;
+        if (hasSurfaceFix && nearBodyId != null && bodies.containsKey(nearBodyId)) {
+            return nearBodyId;
+        }
+        Integer ap = approachReferenceBodyId;
+        if (ap != null && ap.intValue() > 0 && bodies.containsKey(ap)) {
+            return ap;
+        }
+        Integer drop = supercruiseDropReferenceBodyId;
+        if (drop != null && drop.intValue() > 0 && bodies.containsKey(drop)) {
+            return drop;
+        }
+        // Fleet carrier service body (only while docked): journal Location, CarrierJump, and CarrierLocation carry
+        // BodyID for the world the carrier orbits; Status often omits it while aboard. Scoped to
+        // carrierParkedSystemAddress so a personal FSD to another system does not mis-apply the same numeric id there.
+        if (state.isDocked()) {
+            Integer parked = state.getCarrierParkedBodyId();
+            long parkedSys = state.getCarrierParkedSystemAddress();
+            long curSys = state.getSystemAddress();
+            boolean scopedOk = parked != null && parked.intValue() > 0 && bodies.containsKey(parked)
+                    && ((parkedSys != 0L && parkedSys == curSys) || (parkedSys == 0L));
+            if (scopedOk) {
+                return parked;
+            }
+        }
+        Integer nb = nearBodyId;
+        if (nb != null && nb.intValue() >= 0 && bodies.containsKey(nb)) {
+            return nb;
+        }
+        Integer sticky = lastVisitedNonStarBodyId;
+        if (sticky != null && sticky.intValue() > 0 && bodies.containsKey(sticky)) {
+            return sticky;
+        }
+        if (bodies.containsKey(Integer.valueOf(0))) {
+            return Integer.valueOf(0);
+        }
+        return null;
+    }
+
+    /**
+     * Approximate distance from the commander to each body centre (Ls), using orbital elements +
+     * Status near-body / lat-lon when available.
+     */
+    private Map<Integer, Double> computeShipCentricDistancesLs() {
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        if (bodies == null || bodies.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Integer shipRef = resolveShipAnchorBodyId();
+        if (shipRef == null) {
+            return Collections.emptyMap();
+        }
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies);
+        double[] ship = SystemOrbitGeometry.shipPositionMetres(
+                bodies,
+                pos,
+                shipRef.intValue(),
+                statusLatitude,
+                statusLongitude,
+                statusAltitude,
+                statusPlanetRadius);
+        if (ship == null) {
+            return Collections.emptyMap();
+        }
+        return SystemOrbitGeometry.distancesFromPointLs(bodies, ship);
+    }
+
     private void dedupeBodiesByName() {
 
         Map<Integer, BodyInfo> bodies = state.getBodies();
@@ -3369,6 +4296,35 @@ static class Row {
             keep.setMassEm(drop.getMassEm());
         }
 
+        if (keep.getImmediateParentBodyId() < 0 && drop.getImmediateParentBodyId() >= 0) {
+            keep.setImmediateParentBodyId(drop.getImmediateParentBodyId());
+        }
+
+        if (keep.getOrbitalPeriod() == null && drop.getOrbitalPeriod() != null) {
+            keep.setOrbitalPeriod(drop.getOrbitalPeriod());
+        }
+        if (keep.getSemiMajorAxisM() == null && drop.getSemiMajorAxisM() != null) {
+            keep.setSemiMajorAxisM(drop.getSemiMajorAxisM());
+        }
+        if (keep.getEccentricity() == null && drop.getEccentricity() != null) {
+            keep.setEccentricity(drop.getEccentricity());
+        }
+        if (keep.getOrbitalInclination() == null && drop.getOrbitalInclination() != null) {
+            keep.setOrbitalInclination(drop.getOrbitalInclination());
+        }
+        if (keep.getPeriapsis() == null && drop.getPeriapsis() != null) {
+            keep.setPeriapsis(drop.getPeriapsis());
+        }
+        if (keep.getAscendingNode() == null && drop.getAscendingNode() != null) {
+            keep.setAscendingNode(drop.getAscendingNode());
+        }
+        if (keep.getMeanAnomaly() == null && drop.getMeanAnomaly() != null) {
+            keep.setMeanAnomaly(drop.getMeanAnomaly());
+        }
+        if (keep.getOrbitalEpochMillis() == null && drop.getOrbitalEpochMillis() != null) {
+            keep.setOrbitalEpochMillis(drop.getOrbitalEpochMillis());
+        }
+
         // numberOfBioSignals uses primitive int (default 0); getter never returns null, so the old
         // null-check merge never copied FSS counts from a duplicate body entry onto the keeper.
         {
@@ -3435,6 +4391,12 @@ static class Row {
         if (headerSummaryLabel != null) {
             headerSummaryLabel.setFont(uiFont.deriveFont(Font.BOLD));
         }
+        if (distFromShipButton != null && distFromStarButton != null) {
+            distFromShipButton.setForeground(EdoUi.User.MAIN_TEXT);
+            distFromStarButton.setForeground(EdoUi.User.MAIN_TEXT);
+            applyDistanceToggleIcons();
+            updateDistModeToggleAppearance();
+        }
         if (table != null) {
             table.setFont(uiFont);
             table.setRowHeight(computeRowHeight(table, uiFont, 8));
@@ -3442,6 +4404,10 @@ static class Row {
                 table.getTableHeader().setFont(uiFont.deriveFont(Font.BOLD));
             }
         }
+        applyOrbitMapToolbarTypography(
+                "Slower: fewer model days per second of real time.",
+                "Faster: more model days per second of real time.",
+                "Orbit model days advanced per second of real time while playing.");
         revalidate();
         repaint();
     }

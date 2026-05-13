@@ -302,6 +302,31 @@ final class BioTableBuilder {
      */
     static List<Row> buildRows(java.util.Collection<BodyInfo> bodies, boolean shouldCollapse,
             Set<Integer> hideBioDetailRowsForBodyIds) {
+        return buildRows(bodies, shouldCollapse, hideBioDetailRowsForBodyIds, false, null, false);
+    }
+
+    /**
+     * @param distanceFromShipMode when {@code true}, sort by {@code shipCentricDistLs} when that map is non-empty;
+     *                             otherwise fall back to journal {@link BodyInfo#getDistanceLs()}.
+     * @param shipCentricDistLs approximate distance from commander (Ls) per body id; may be sparse
+     */
+    static List<Row> buildRows(java.util.Collection<BodyInfo> bodies, boolean shouldCollapse,
+            Set<Integer> hideBioDetailRowsForBodyIds,
+            boolean distanceFromShipMode,
+            java.util.Map<Integer, Double> shipCentricDistLs) {
+        return buildRows(bodies, shouldCollapse, hideBioDetailRowsForBodyIds, distanceFromShipMode,
+                shipCentricDistLs, false);
+    }
+
+    /**
+     * @param shipCentricAnchorMissing when {@code true} with {@code distanceFromShipMode}, commander anchor was not
+     *                                 resolved — sort and Dist use arrival data except Dist shows an em dash per body.
+     */
+    static List<Row> buildRows(java.util.Collection<BodyInfo> bodies, boolean shouldCollapse,
+            Set<Integer> hideBioDetailRowsForBodyIds,
+            boolean distanceFromShipMode,
+            java.util.Map<Integer, Double> shipCentricDistLs,
+            boolean shipCentricAnchorMissing) {
         List<BodyInfo> sorted = new ArrayList<>(bodies);
         for (BodyInfo b : sorted) {
             if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
@@ -309,11 +334,21 @@ final class BioTableBuilder {
             }
         }
 
-        // System tab: orbital order — closest to the primary star first (journal {@code DistanceFromArrivalLS}),
-        // furthest last. Missing distance sorts last; stable tie-break on body id.
+        final boolean sortByShip = distanceFromShipMode && !shipCentricAnchorMissing
+                && shipCentricDistLs != null && !shipCentricDistLs.isEmpty();
+
+        // System tab: default order — closest to arrival / primary first (journal {@code DistanceFromArrivalLS}).
+        // Ship mode — closest to commander first when {@code shipCentricDistLs} is populated.
         sorted.sort((a, b) -> {
-            double aDist = Double.isNaN(a.getDistanceLs()) ? Double.MAX_VALUE : a.getDistanceLs();
-            double bDist = Double.isNaN(b.getDistanceLs()) ? Double.MAX_VALUE : b.getDistanceLs();
+            double aDist;
+            double bDist;
+            if (sortByShip) {
+                aDist = shipCentricDistanceSortKey(a, shipCentricDistLs);
+                bDist = shipCentricDistanceSortKey(b, shipCentricDistLs);
+            } else {
+                aDist = Double.isNaN(a.getDistanceLs()) ? Double.MAX_VALUE : a.getDistanceLs();
+                bDist = Double.isNaN(b.getDistanceLs()) ? Double.MAX_VALUE : b.getDistanceLs();
+            }
             int cmp = Double.compare(aDist, bDist);
             if (cmp != 0) {
                 return cmp;
@@ -328,7 +363,11 @@ final class BioTableBuilder {
             if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
                 bioHeader = computeBioHeaderSummary(b);
             }
-            rows.add(Row.body(b, bioHeader));
+            Double distCol = null;
+            if (distanceFromShipMode && !shipCentricAnchorMissing && shipCentricDistLs != null) {
+                distCol = shipCentricDistLs.get(Integer.valueOf(b.getBodyId()));
+            }
+            rows.add(Row.body(b, bioHeader, distCol, shipCentricAnchorMissing));
 
             if (b.isPlanetaryBodyForRingDisplay()) {
                 List<String> ringLines = RingSummaryFormatter.finalizeAndEnrichRingLines(
@@ -1171,6 +1210,14 @@ final class BioTableBuilder {
             return null;
         }
         return formatRemainingMillionSummaryForHeader(range[0], range[1], split.remainingPerSpecies, (int) range[2]);
+    }
+
+    private static double shipCentricDistanceSortKey(BodyInfo b, java.util.Map<Integer, Double> shipCentricDistLs) {
+        Double d = shipCentricDistLs.get(Integer.valueOf(b.getBodyId()));
+        if (d != null && Double.isFinite(d.doubleValue())) {
+            return d.doubleValue();
+        }
+        return Double.MAX_VALUE;
     }
 
 }
