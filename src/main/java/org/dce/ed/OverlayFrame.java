@@ -578,13 +578,15 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         installResizeHandlerRecursive(getRootPane(), resizeHandler);
         installResizeHandlerRecursive(getContentPane(), resizeHandler);
         
+        installLowLimpetStatusUpdater();
+        sessionSaveTimer.setRepeats(false);
+        // Restore session_json into tabs/SystemState before LiveJournalMonitor listeners merge or save,
+        // so SystemState matches SQLite before journal backlog is processed.
+        installSessionPersistence();
+        installTabbedPaneJournalListener();
         installCarrierJumpTitleUpdater();
         installExoCreditsTracker();
         installGeoSurveyCreditsTracker();
-        installTabbedPaneJournalListener();
-        installLowLimpetStatusUpdater();
-        sessionSaveTimer.setRepeats(false);
-        installSessionPersistence();
     }
 
     /**
@@ -1014,17 +1016,19 @@ private Long loadGeoSurveyCreditsTotalFromSystemCache() {
 private void persistExoCreditsTotal() {
     try {
         SystemCache cache = SystemCache.getInstance();
-        EdoSessionState s = cache.loadEdoSessionState();
-        s.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
-        s.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
-        cache.saveEdoSessionState(s);
-
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         SystemTabPanel systemTab = (tabs != null) ? tabs.getSystemTabPanel() : null;
         SystemState st = (systemTab != null) ? systemTab.getState() : null;
         if (st != null) {
             st.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
             st.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+            // Merge from live SystemState so journal fields (e.g. carrier orbit) are not dropped by load+save of credits only.
+            cache.mergeCommanderSessionFromReplayedState(st);
+        } else {
+            EdoSessionState s = cache.loadEdoSessionState();
+            s.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+            s.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+            cache.saveEdoSessionState(s);
         }
     } catch (Exception ignored) {
         // Best-effort persistence; UI should never break.
@@ -1034,15 +1038,16 @@ private void persistExoCreditsTotal() {
 private void persistGeoSurveyCreditsTotal() {
     try {
         SystemCache cache = SystemCache.getInstance();
-        EdoSessionState s = cache.loadEdoSessionState();
-        s.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
-        cache.saveEdoSessionState(s);
-
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         SystemTabPanel systemTab = (tabs != null) ? tabs.getSystemTabPanel() : null;
         SystemState st = (systemTab != null) ? systemTab.getState() : null;
         if (st != null) {
             st.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+            cache.mergeCommanderSessionFromReplayedState(st);
+        } else {
+            EdoSessionState s = cache.loadEdoSessionState();
+            s.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+            cache.saveEdoSessionState(s);
         }
     } catch (Exception ignored) {
         // Best-effort persistence; UI should never break.
