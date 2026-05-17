@@ -1,0 +1,50 @@
+{
+  "name": "Byua Aim WZ-V c16-241",
+  "notes": "Single K star with multiple planets — concentric schematic rings at central star.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Byua Aim WZ-V c16-241",
+      "shortName": "Byua Aim WZ-V c16-241",
+      "distanceLs": 0,
+      "starType": "K",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 1,
+      "bodyName": "Byua Aim WZ-V c16-241 1",
+      "shortName": "A 1",
+      "distanceLs": 35,
+      "planetClass": "High metal content body",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 2,
+      "bodyName": "Byua Aim WZ-V c16-241 2",
+      "shortName": "A 2",
+      "distanceLs": 890,
+      "planetClass": "Class II gas giant",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 3,
+      "bodyName": "Byua Aim WZ-V c16-241 3",
+      "shortName": "A 3",
+      "distanceLs": 2100,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 0
+    }
+  ],
+  "expect": {
+    "layoutKind": "SINGLE_STAR_SCHEMATIC",
+    "mapStellarCount": 1,
+    "planetsRequiringRings": ["A 1", "A 2", "A 3"],
+    "parents": [
+      { "body": "A 1", "resolvesTo": "Byua Aim WZ-V c16-241" }
+    ],
+    "labelsWhenZoomedOut": [
+      { "body": "A 1", "visible": true },
+      { "body": "A 2", "visible": true }
+    ]
+  }
+}

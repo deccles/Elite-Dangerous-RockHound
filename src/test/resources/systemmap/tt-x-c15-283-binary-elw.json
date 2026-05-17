@@ -1,0 +1,44 @@
+{
+  "name": "Byua Aim TT-X c15-283",
+  "notes": "Binary with Earth-like on A branch (FSS green marker system).",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Byua Aim TT-X c15-283",
+      "shortName": "Byua Aim TT-X c15-283",
+      "distanceLs": 0,
+      "starType": "K",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 1,
+      "bodyName": "Byua Aim TT-X c15-283 B",
+      "shortName": "B",
+      "distanceLs": 18000,
+      "starType": "M",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 2,
+      "bodyName": "Byua Aim TT-X c15-283 1",
+      "shortName": "A 1",
+      "distanceLs": 407,
+      "planetClass": "Earthlike body",
+      "atmoOrType": "Earth-like world",
+      "immediateParentBodyId": 0
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 2,
+    "barycentreRecentred": true,
+    "hasBarycentreMutualRing": true,
+    "planetsRequiringRings": ["A 1"],
+    "parents": [
+      { "body": "A 1", "resolvesTo": "Byua Aim TT-X c15-283" }
+    ],
+    "labelsWhenZoomedOut": [
+      { "body": "A 1", "visible": true }
+    ]
+  }
+}

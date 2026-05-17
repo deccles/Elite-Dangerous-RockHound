@@ -1,0 +1,32 @@
+{
+  "name": "Byua Aim TT-X c15-29",
+  "notes": "Wide binary with only two barycentric stars (A at arrival, B companion). Regression: barycentre view, mutual ring, both stars stellar.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Byua Aim TT-X c15-29",
+      "shortName": "Byua Aim TT-X c15-29",
+      "distanceLs": 0,
+      "starType": "K",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 1,
+      "bodyName": "Byua Aim TT-X c15-29 B",
+      "shortName": "B",
+      "distanceLs": 32850,
+      "starType": "M",
+      "parentIsBarycentre": true
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 2,
+    "barycentricStarLabels": ["Byua Aim TT-X c15-29", "B"],
+    "barycentreRecentred": true,
+    "hasBarycentreMutualRing": true,
+    "parents": [
+      { "body": "B", "resolvesTo": "barycentre" }
+    ]
+  }
+}

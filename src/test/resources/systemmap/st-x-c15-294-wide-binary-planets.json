@@ -1,0 +1,63 @@
+{
+  "name": "Byua Aim ST-X c15-294",
+  "notes": "Wide binary with A and B branches and planets. Regression: branch schematic rings, labels, no giant per-star ring at origin.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Byua Aim ST-X c15-294",
+      "shortName": "Byua Aim ST-X c15-294",
+      "distanceLs": 0,
+      "starType": "K",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 1,
+      "bodyName": "Byua Aim ST-X c15-294 B",
+      "shortName": "B",
+      "distanceLs": 3300,
+      "starType": "M",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 2,
+      "bodyName": "Byua Aim ST-X c15-294 1",
+      "shortName": "A 1",
+      "distanceLs": 120,
+      "planetClass": "High metal content body",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 3,
+      "bodyName": "Byua Aim ST-X c15-294 2",
+      "shortName": "A 2",
+      "distanceLs": 450,
+      "planetClass": "Rocky ice body",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 4,
+      "bodyName": "Byua Aim ST-X c15-294 3",
+      "shortName": "B 1",
+      "distanceLs": 3400,
+      "planetClass": "Class I gas giant",
+      "immediateParentBodyId": 1
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 2,
+    "barycentricStarLabels": ["Byua Aim ST-X c15-294", "B"],
+    "barycentreRecentred": true,
+    "hasBarycentreMutualRing": true,
+    "planetsRequiringRings": ["A 1", "A 2", "B 1"],
+    "parents": [
+      { "body": "A 1", "resolvesTo": "Byua Aim ST-X c15-294" },
+      { "body": "B 1", "resolvesTo": "B" }
+    ],
+    "labelsWhenZoomedOut": [
+      { "body": "A 1", "visible": true },
+      { "body": "A 2", "visible": true },
+      { "body": "B 1", "visible": true }
+    ]
+  }
+}
