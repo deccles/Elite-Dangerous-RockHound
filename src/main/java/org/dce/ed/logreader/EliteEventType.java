@@ -28,6 +28,7 @@ public enum EliteEventType {
     NAV_ROUTE_CLEAR("NavRouteClear"),
     SAASIGNALS_FOUND("SAASignalsFound"),
     SCAN("Scan"),
+    SCAN_BARYCENTRE("ScanBaryCentre"),
     FSS_DISCOVERY_SCAN("FSSDiscoveryScan"),
     FSS_ALL_BODIES_FOUND("FSSAllBodiesFound"),  
     FSS_BODY_SIGNAL_DISCOVERED("FSSBodySignals"),

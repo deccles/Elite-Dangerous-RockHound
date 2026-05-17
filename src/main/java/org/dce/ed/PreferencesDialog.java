@@ -2,6 +2,7 @@ package org.dce.ed;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -23,6 +24,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JColorChooser;
@@ -30,6 +32,7 @@ import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -122,6 +125,9 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox autoSwitchMiningOnStartupPlanetaryRingCheckBox;
 	private JCheckBox autoSwitchBiologyOnNearBodyCheckBox;
 	private JCheckBox autoSwitchFleetCarrierOnJsonDropCheckBox;
+
+	/** Overlay tab: System tab ship / plan-map reference body mode */
+	private JComboBox<SystemTabShipRefMode> systemTabShipRefModeComboBox;
 
 	// Logging-tab fields so OK can read them
 	private JCheckBox autoDetectCheckBox;
@@ -473,6 +479,49 @@ public class PreferencesDialog extends JDialog {
 		tabsPanel.add(overlayTabFleetCarrierVisibleCheckBox, tgc);
 
 		content.add(tabsPanel, outer);
+
+		outer.gridy++;
+		JPanel systemTabPrefsPanel = new JPanel(new GridBagLayout());
+		systemTabPrefsPanel.setOpaque(false);
+		systemTabPrefsPanel.setBorder(BorderFactory.createTitledBorder("System tab"));
+
+		GridBagConstraints stc = new GridBagConstraints();
+		stc.gridx = 0;
+		stc.gridy = 0;
+		stc.anchor = GridBagConstraints.WEST;
+		stc.insets = new Insets(2, 4, 2, 4);
+
+		JLabel shipRefLabel = new JLabel("Ship / plan map reference body:");
+		systemTabPrefsPanel.add(shipRefLabel, stc);
+
+		stc.gridx = 1;
+		systemTabShipRefModeComboBox = new JComboBox<>(SystemTabShipRefMode.values());
+		systemTabShipRefModeComboBox.setMaximumRowCount(2);
+		systemTabShipRefModeComboBox.setOpaque(false);
+		systemTabShipRefModeComboBox.setSelectedItem(OverlayPreferences.getSystemTabShipRefMode());
+		systemTabShipRefModeComboBox.setToolTipText(
+				"<html>Body used for the plan map “You” marker, ship-centric distances, and distance-column sort "
+						+ "(rocket icon on the System tab).<br>"
+						+ "<b>Approach body</b>: journal ApproachBody and Status proximity — stays on the last "
+						+ "approached body until a new approach.<br>"
+						+ "<b>HUD target (sticky)</b>: the HUD navigation body; clearing the target keeps that body "
+						+ "until you select another. Active ApproachBody always overrides.<br>"
+						+ "<b>Both</b>: docked on a fleet carrier → the carrier’s parked orbit body.</html>");
+		systemTabShipRefModeComboBox.setRenderer(new DefaultListCellRenderer() {
+			private static final long serialVersionUID = 1L;
+			@Override
+			public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected,
+					boolean cellHasFocus) {
+				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+				if (value instanceof SystemTabShipRefMode) {
+					setText(((SystemTabShipRefMode) value).displayName());
+				}
+				return c;
+			}
+		});
+		systemTabPrefsPanel.add(systemTabShipRefModeComboBox, stc);
+
+		content.add(systemTabPrefsPanel, outer);
 
 		outer.gridy++;
 		JPanel autoSwitchPanel = new JPanel(new GridBagLayout());
@@ -1676,6 +1725,7 @@ public class PreferencesDialog extends JDialog {
 				f.applyOverlayBackgroundFromPreferences(f.isPassThroughEnabled());
 				f.applyUiFontPreferences();
 				f.applyThemeFromPreferences();
+				f.refreshSystemTabFromSavedPreferences();
 
 				if (!f.isPassThroughEnabled()) {
 					if (getOwner() instanceof Window) {
@@ -2031,6 +2081,12 @@ public class PreferencesDialog extends JDialog {
         }
         if (autoSwitchFleetCarrierOnJsonDropCheckBox != null) {
             OverlayPreferences.setAutoSwitchFleetCarrierOnJsonDrop(autoSwitchFleetCarrierOnJsonDropCheckBox.isSelected());
+        }
+        if (systemTabShipRefModeComboBox != null) {
+            Object sel = systemTabShipRefModeComboBox.getSelectedItem();
+            if (sel instanceof SystemTabShipRefMode) {
+                OverlayPreferences.setSystemTabShipRefMode((SystemTabShipRefMode) sel);
+            }
         }
 
         // Logging tab

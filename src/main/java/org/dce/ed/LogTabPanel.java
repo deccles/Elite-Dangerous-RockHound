@@ -81,6 +81,7 @@ import javax.swing.table.TableRowSorter;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
+import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.logreader.event.CommanderEvent;
 import org.dce.ed.logreader.event.FileheaderEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
@@ -144,6 +145,9 @@ public class LogTabPanel extends JPanel {
 
     /** Journal.*.log files for {@link #currentDate}; the selected item drives Copy path. */
     private final JComboBox<Path> journalFileCombo;
+
+    /** Replays the selected file into {@link org.dce.ed.cache.SystemCache}; disabled when no file is selected. */
+    private JButton rescanSelectedFileToCacheButton;
 
     private JTextField searchField;
     private TableRowSorter<LogTableModel> rowSorter;
@@ -317,6 +321,12 @@ public class LogTabPanel extends JPanel {
         JButton copyJournalPathButton = new JButton("Copy Journal File");
         copyJournalPathButton.setToolTipText(
                 "Copy the selected journal file's path (text and file reference where supported).");
+        rescanSelectedFileToCacheButton = new JButton("Rescan file to cache");
+        rescanSelectedFileToCacheButton.setToolTipText(
+                "<html>Replay the selected <code>Journal.*.log</code> through EDO's local system cache (SQLite).<br>"
+                        + "Use this to refresh body/orbit data from an older log without a full journal import.<br>"
+                        + "Does not change the incremental import cursor next to your journals.</html>");
+        rescanSelectedFileToCacheButton.setEnabled(false);
         JButton filterButton = new JButton("Filter...");
 
         toolBar.add(prevDayButton);
@@ -330,6 +340,8 @@ public class LogTabPanel extends JPanel {
         toolBar.add(reloadButton);
         toolBar.add(Box.createHorizontalStrut(8));
         toolBar.add(copyJournalPathButton);
+        toolBar.add(Box.createHorizontalStrut(8));
+        toolBar.add(rescanSelectedFileToCacheButton);
         toolBar.add(Box.createHorizontalStrut(8));
         toolBar.add(filterButton);
         toolBar.add(Box.createHorizontalStrut(8));
@@ -522,6 +534,7 @@ simPlayButton.addActionListener(e -> startSimulation());
         // Wire actions
         reloadButton.addActionListener(e -> reloadLogs());
         copyJournalPathButton.addActionListener(e -> copyJournalFileReferencesToClipboard((Component) e.getSource()));
+        rescanSelectedFileToCacheButton.addActionListener(e -> rescanSelectedJournalFileToEdoCache());
         filterButton.addActionListener(e -> showFilterDialog());
 
         prevDayButton.addActionListener(e -> moveToRelativeDate(-1));
@@ -909,20 +922,79 @@ simPlayButton.addActionListener(e -> startSimulation());
         return (item instanceof Path p) ? p : null;
     }
 
+    private void setRescanSelectedFileToCacheButtonEnabled(boolean enabled) {
+        if (rescanSelectedFileToCacheButton != null) {
+            rescanSelectedFileToCacheButton.setEnabled(enabled);
+        }
+    }
+
+    /**
+     * Replays the combo-selected journal file through {@link RescanJournalsMain} (same path as CLI {@code --journal}).
+     */
+    private void rescanSelectedJournalFileToEdoCache() {
+        Path journalFile = getSelectedJournalFilePath();
+        Window parent = SwingUtilities.getWindowAncestor(this);
+        if (journalFile == null) {
+            JOptionPane.showMessageDialog(parent,
+                    "Select a journal file in the drop-down first.",
+                    "Rescan file to cache",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        rescanSelectedFileToCacheButton.setEnabled(false);
+        final String buttonText = rescanSelectedFileToCacheButton.getText();
+        rescanSelectedFileToCacheButton.setText("Rescanning…");
+        final Path fileArg = journalFile;
+        Thread t = new Thread(() -> {
+            String error = null;
+            try {
+                RescanJournalsMain.rescanJournals(false, fileArg, null);
+            } catch (IOException ex) {
+                error = ex.getMessage();
+                ex.printStackTrace();
+            }
+            String errFinal = error;
+            SwingUtilities.invokeLater(() -> {
+                rescanSelectedFileToCacheButton.setText(buttonText);
+                setRescanSelectedFileToCacheButtonEnabled(journalFileCombo.isEnabled());
+                if (errFinal == null) {
+                    SystemTabPanel.notifyAllInstancesReloadDisplayedSystemFromCache();
+                }
+                if (errFinal != null) {
+                    JOptionPane.showMessageDialog(parent,
+                            "Journal cache rescan failed:\n" + errFinal,
+                            "Rescan file to cache",
+                            JOptionPane.ERROR_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(parent,
+                            "Finished replaying journal events into the local cache.\n"
+                                    + "Open System tabs were refreshed from the cache.",
+                            "Rescan file to cache",
+                            JOptionPane.INFORMATION_MESSAGE);
+                }
+            });
+        }, "EDO-JournalFileCacheRescan");
+        t.setDaemon(true);
+        t.start();
+    }
+
     private void clearJournalFileCombo() {
         journalFileCombo.removeAllItems();
         journalFileCombo.setEnabled(false);
+        setRescanSelectedFileToCacheButtonEnabled(false);
     }
 
     private void repopulateJournalFileCombo(EliteJournalReader reader) throws IOException {
         journalFileCombo.removeAllItems();
         if (currentDate == null) {
             journalFileCombo.setEnabled(false);
+            setRescanSelectedFileToCacheButtonEnabled(false);
             return;
         }
         List<Path> paths = reader.listJournalPathsForDate(currentDate);
         if (paths.isEmpty()) {
             journalFileCombo.setEnabled(false);
+            setRescanSelectedFileToCacheButtonEnabled(false);
             return;
         }
         for (Path p : paths) {
@@ -930,6 +1002,7 @@ simPlayButton.addActionListener(e -> startSimulation());
         }
         journalFileCombo.setSelectedIndex(paths.size() - 1);
         journalFileCombo.setEnabled(true);
+        setRescanSelectedFileToCacheButtonEnabled(true);
     }
 
     private void reloadLogs() {

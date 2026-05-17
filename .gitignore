@@ -11,3 +11,4 @@
 /_dbg.py
 /.gitmsg.txt
 /tts-cache.bak/
+/debug-*.log

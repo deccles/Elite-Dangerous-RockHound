@@ -22,4 +22,10 @@ public interface OverlayUiPreviewHost {
     void applyOverlayBackgroundPreview(boolean passThroughMode, int rgb, int transparencyPercent);
 
     void applyThemeFromPreferences();
+
+    /**
+     * Rebuild the System tab table + plan map after Overlay preferences OK (e.g. ship reference mode changed).
+     */
+    default void refreshSystemTabFromSavedPreferences() {
+    }
 }

@@ -2,8 +2,11 @@ package org.dce.ed;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.HeadlessException;
 import java.awt.IllegalComponentStateException;
+import java.awt.MouseInfo;
 import java.awt.Point;
+import java.awt.PointerInfo;
 import java.awt.Rectangle;
 import java.awt.Window;
 import java.awt.event.WindowAdapter;
@@ -564,6 +567,9 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     /**
      * While mouse pass-through is active, forward wheel events to the System / Route / Fleet Carrier table scrollers
      * when the pointer is over the overlay and that tab's vertical scroll bar is visible.
+     * <p>
+     * Uses {@link MouseInfo#getPointerInfo()} on the EDT for screen coordinates: JNativeHook wheel payloads can lag
+     * or disagree with the actual cursor, which breaks zoom-to-cursor on the orbital map.
      */
     @Override
     public void nativeMouseWheelMoved(NativeMouseWheelEvent e) {
@@ -573,25 +579,39 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         if (passThroughFrame == null || !passThroughFrame.isVisible()) {
             return;
         }
-        Rectangle bounds = captureWindowOuterRect(passThroughFrame);
-        int x = e.getX();
-        int y = e.getY();
-        if (bounds == null || !bounds.contains(x, y)) {
-            return;
-        }
         int rot = e.getWheelRotation();
         if (rot == 0) {
             return;
         }
+        final int fallbackX = e.getX();
+        final int fallbackY = e.getY();
         final boolean[] applied = { false };
         try {
             SwingUtilities.invokeAndWait(() -> {
                 if (!passThroughMode || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
                     return;
                 }
+                int sx = fallbackX;
+                int sy = fallbackY;
+                try {
+                    PointerInfo pi = MouseInfo.getPointerInfo();
+                    if (pi != null) {
+                        Point loc = pi.getLocation();
+                        if (loc != null) {
+                            sx = loc.x;
+                            sy = loc.y;
+                        }
+                    }
+                } catch (HeadlessException | SecurityException ignored) {
+                    // keep fallbackX/Y from native event
+                }
+                Rectangle bounds = captureWindowOuterRect(passThroughFrame);
+                if (bounds == null || !bounds.contains(sx, sy)) {
+                    return;
+                }
                 EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
                 if (tp != null) {
-                    applied[0] = tp.handlePassThroughMouseWheelAtScreen(x, y, rot);
+                    applied[0] = tp.handlePassThroughMouseWheelAtScreen(sx, sy, rot);
                 }
             });
         } catch (Exception ignored) {

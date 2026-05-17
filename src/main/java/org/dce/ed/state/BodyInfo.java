@@ -228,6 +228,12 @@ public class BodyInfo {
 	 */
 	private Long orbitalEpochMillis;
 
+	/**
+	 * {@code ScanBaryCentre} row keyed by journal {@code BodyID} (same id as {@code Parents:[{"Null":N}]}).
+	 * Supplies heliocentric elements for planet-binary barycentre motion; not a map-visible body.
+	 */
+	private boolean scanBarycentreRow;
+
 	/** Spansh exobiology landmarks for this body (null = not fetched). Used to derive first-bonus. */
 	private List<SpanshLandmark> spanshLandmarks = null;
 
@@ -1107,5 +1113,13 @@ public class BodyInfo {
 
 	public Long getOrbitalEpochMillis() {
 		return orbitalEpochMillis;
+	}
+
+	public boolean isScanBarycentreRow() {
+		return scanBarycentreRow;
+	}
+
+	public void setScanBarycentreRow(boolean scanBarycentreRow) {
+		this.scanBarycentreRow = scanBarycentreRow;
 	}
 }

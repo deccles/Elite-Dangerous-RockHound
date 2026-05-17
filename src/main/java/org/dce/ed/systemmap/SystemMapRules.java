@@ -1,0 +1,143 @@
+package org.dce.ed.systemmap;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import org.dce.ed.state.BodyInfo;
+import org.dce.ed.util.SystemOrbitGeometry;
+
+/**
+ * Testable rules for classifying a system and resolving map topology. Implementation delegates to
+ * {@link SystemOrbitGeometry} while the map GUI ({@link org.dce.ed.ui.SystemPlanMapPanel}) consumes
+ * {@link SystemMapModel} built by {@link SystemMapPipeline}.
+ * <p>
+ * Rule catalogue (each should have a fixture assertion):
+ * <ul>
+ *   <li><b>R-STELLAR-01</b> — {@link #isMapStellarBody}: journal {@code starType}, primary short name = system name,
+ *       or single-letter branch {@code A}/{@code B}.</li>
+ *   <li><b>R-STELLAR-02</b> — Sudarsky-tagged gas giants with atmosphere/planet class are never stars.</li>
+ *   <li><b>R-LAYOUT-01</b> — {@link SystemLayoutKind#SINGLE_STAR_SCHEMATIC} when exactly one map star and ≥1 orbiting
+ *       body beyond 2 Ls.</li>
+ *   <li><b>R-LAYOUT-02</b> — {@link SystemLayoutKind#WIDE_BINARY} when ≥2 barycentric map stars.</li>
+ *   <li><b>R-PARENT-01</b> — Wide-binary companion stars parent = barycentre ({@code -1}), not arrival star.</li>
+ *   <li><b>R-PARENT-02</b> — Designation suffix {@code A 1}/{@code B 3 a} resolves to branch star or host planet.</li>
+ *   <li><b>R-PARENT-03</b> — In wide binaries, unresolved bodies are not forced onto the primary anchor.</li>
+ *   <li><b>R-RING-01</b> — Barycentric stars do not get per-star giant rings at the origin.</li>
+ *   <li><b>R-RING-02</b> — Wide binary: one mutual barycentre ring + concentric rings at each branch star for direct
+ *       children.</li>
+ *   <li><b>R-RING-03</b> — Moons keep per-parent rings; branch planets use branch schematic rings only.</li>
+ *   <li><b>R-POS-01</b> — Single-star: central star at origin; planets on map-plane circles matching rings.</li>
+ *   <li><b>R-POS-02</b> — Wide binary: flatten A–B separation, recenter on stellar centroid, then branch schematic
+ *       planet placement.</li>
+ *   <li><b>R-LABEL-01</b> — At cluster zoom, each branch shows labels for planets under that branch star (not only
+ *       hub lump).</li>
+ * </ul>
+ */
+public final class SystemMapRules {
+
+    private SystemMapRules() {
+    }
+
+    public static SystemMapClassification classify(Map<Integer, BodyInfo> bodies) {
+        int stellar = SystemOrbitGeometry.countMapStellarBodies(bodies);
+        int primary = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+        int central = SystemOrbitGeometry.schematicCentralStarMapKey(bodies);
+        boolean singleSchematic = SystemOrbitGeometry.isSingleStarSchematicMap(bodies);
+        boolean loneStarLayout = SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies);
+        List<Integer> baryStars = barycentricMapStellarIds(bodies);
+        SystemLayoutKind kind;
+        if (stellar >= 2 && !loneStarLayout) {
+            kind = SystemLayoutKind.WIDE_BINARY;
+        } else if (singleSchematic || loneStarLayout) {
+            kind = SystemLayoutKind.SINGLE_STAR_SCHEMATIC;
+        } else {
+            kind = SystemLayoutKind.GENERIC;
+        }
+        return new SystemMapClassification(kind, stellar, primary, central, List.copyOf(baryStars), singleSchematic);
+    }
+
+    public static boolean isMapStellarBody(BodyInfo b) {
+        return SystemOrbitGeometry.isMapStellarBody(b);
+    }
+
+    public static int resolveOrbitParentBodyId(BodyInfo child, Map<Integer, BodyInfo> bodies, int mapBodyId) {
+        return SystemOrbitGeometry.resolveOrbitParentBodyId(child, bodies, mapBodyId);
+    }
+
+    public static int branchSchematicStarParentId(Map<Integer, BodyInfo> bodies, int parentMapId) {
+        return SystemOrbitGeometry.branchSchematicStarParentId(bodies, parentMapId);
+    }
+
+    /**
+     * Whether a body label should be drawn when the map is zoomed out (cluster / subsystem lump view).
+     */
+    public static boolean bodyLabelVisibleWhenZoomedOut(BodyInfo body, int mapBodyId, Map<Integer, BodyInfo> bodies,
+            boolean starDot, boolean moon, boolean soleOrbitCluster) {
+        if (bodies == null || body == null) {
+            return false;
+        }
+        if (!starDot && soleOrbitCluster) {
+            return true;
+        }
+        if (starDot) {
+            return true;
+        }
+        SystemMapClassification clf = classify(bodies);
+        if (clf.singleStarSchematicMap()) {
+            if (mapBodyId != clf.schematicCentralStarId()) {
+                return true;
+            }
+            return false;
+        }
+        if (clf.wideBinary()) {
+            int pId = resolveOrbitParentBodyId(body, bodies, mapBodyId);
+            if (pId >= 0) {
+                BodyInfo parent = bodies.get(Integer.valueOf(pId));
+                if (parent != null && isMapStellarBody(parent)
+                        && resolveOrbitParentBodyId(parent, bodies, pId) < 0) {
+                    return true;
+                }
+                if (branchSchematicStarParentId(bodies, pId) >= 0) {
+                    return true;
+                }
+            }
+        } else if (clf.mapStellarCount() == 1 && clf.primaryAnchorBodyId() >= 0) {
+            int pId = resolveOrbitParentBodyId(body, bodies, mapBodyId);
+            if (pId == clf.primaryAnchorBodyId()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Body ids that are parents of other bodies but should not trigger hub-lump label suppression. */
+    public static boolean isWideBinaryBranchStarHub(Map<Integer, BodyInfo> bodies, int parentMapId) {
+        if (bodies == null || parentMapId < 0 || SystemOrbitGeometry.countMapStellarBodies(bodies) < 2) {
+            return false;
+        }
+        BodyInfo parent = bodies.get(Integer.valueOf(parentMapId));
+        return parent != null && isMapStellarBody(parent)
+                && resolveOrbitParentBodyId(parent, bodies, parentMapId) < 0;
+    }
+
+    private static List<Integer> barycentricMapStellarIds(Map<Integer, BodyInfo> bodies) {
+        List<Integer> ids = new ArrayList<>();
+        if (bodies == null) {
+            return ids;
+        }
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            int id = e.getKey().intValue();
+            if (!isMapStellarBody(e.getValue())) {
+                continue;
+            }
+            if (resolveOrbitParentBodyId(e.getValue(), bodies, id) < 0) {
+                ids.add(Integer.valueOf(id));
+            }
+        }
+        return ids;
+    }
+}

@@ -25,6 +25,7 @@ import org.dce.ed.logreader.event.FssBodySignalsEvent;
 import org.dce.ed.logreader.event.FssDiscoveryScanEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.SaasignalsFoundEvent;
+import org.dce.ed.logreader.event.ScanBaryCentreEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.logreader.event.StatusEvent;
@@ -84,7 +85,7 @@ public class SystemEventProcessor {
                 assignCarrierParkedOrbit(e.getBodyId(), e.getSystemAddress());
             }
             // Do not clear carrier orbit when Docked=false: Elite often omits or disagrees here while
-            // CarrierLocation still reports the orbit BodyID (see SystemTabPanel.resolveShipAnchorBodyId).
+            // CarrierLocation still reports the orbit BodyID (see SystemTabPanel.resolveCommanderRefBodyId).
             return;
         }
 
@@ -133,6 +134,11 @@ public class SystemEventProcessor {
 
         if (event instanceof ScanEvent) {
             handleScan((ScanEvent) event);
+            return;
+        }
+
+        if (event instanceof ScanBaryCentreEvent) {
+            handleScanBaryCentre((ScanBaryCentreEvent) event);
             return;
         }
 
@@ -282,6 +288,49 @@ public class SystemEventProcessor {
     // SCAN event (detailed body scan)
     // ---------------------------------------------------------------------
 
+    private void handleScanBaryCentre(ScanBaryCentreEvent e) {
+        if (e.getBodyId() < 0) {
+            return;
+        }
+        if (e.getStarSystem() != null && !e.getStarSystem().isBlank()) {
+            state.setSystemName(e.getStarSystem());
+        }
+        if (e.getSystemAddress() != 0L) {
+            state.setSystemAddress(e.getSystemAddress());
+        }
+        BodyInfo info = state.getOrCreateBody(e.getBodyId());
+        info.setBodyId(e.getBodyId());
+        info.setStarSystem(e.getStarSystem());
+        if (e.getStarSystem() != null && !e.getStarSystem().isBlank()) {
+            info.setBodyName(e.getStarSystem() + " barycentre " + e.getBodyId());
+        }
+        info.setScanBarycentreRow(true);
+        info.setOrbitalPeriod(e.getOrbitalPeriod());
+        if (e.getSemiMajorAxisM() != null) {
+            info.setSemiMajorAxisM(e.getSemiMajorAxisM());
+        }
+        if (e.getEccentricity() != null) {
+            info.setEccentricity(e.getEccentricity());
+        }
+        if (e.getOrbitalInclination() != null) {
+            info.setOrbitalInclination(e.getOrbitalInclination());
+        }
+        if (e.getPeriapsis() != null) {
+            info.setPeriapsis(e.getPeriapsis());
+        }
+        if (e.getAscendingNode() != null) {
+            info.setAscendingNode(e.getAscendingNode());
+        }
+        if (e.getMeanAnomaly() != null) {
+            info.setMeanAnomaly(e.getMeanAnomaly());
+        }
+        Instant scanInstant = e.getTimestamp();
+        if (scanInstant != null) {
+            info.setOrbitalEpochMillis(Long.valueOf(scanInstant.toEpochMilli()));
+        }
+        state.getBodies().put(Integer.valueOf(e.getBodyId()), info);
+    }
+
     private void handleScan(ScanEvent e) {
         // Scans can appear before the Location/FsdJump event that establishes the active system
         // (e.g., carrier-related event ordering). Make sure we're in the scan's system first,
@@ -412,7 +461,7 @@ public class SystemEventProcessor {
             info.setOrbitalEpochMillis(Long.valueOf(scanInstant.toEpochMilli()));
         }
 
-        if (scanIndicatesStellarBody(e)) {
+        if (ScanParents.scanIndicatesStellarBody(e)) {
             info.setRingSummaryLines(null);
             info.setRingReserveHumanized(null);
         } else {
@@ -426,8 +475,9 @@ public class SystemEventProcessor {
         }
 
         List<ScanEvent.ParentRef> plist = e.getParents();
-        if (plist != null && !plist.isEmpty() && plist.get(0) != null) {
-            info.setImmediateParentBodyId(plist.get(0).getBodyId());
+        int immediateParent = ScanParents.immediateOrbitParentBodyId(plist, e);
+        if (immediateParent >= 0) {
+            info.setImmediateParentBodyId(immediateParent);
         } else {
             info.setImmediateParentBodyId(-1);
         }
@@ -831,22 +881,6 @@ public class SystemEventProcessor {
     // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
-
-    /**
-     * Star scans carry {@link ScanEvent#getStarType()} and no {@link ScanEvent#getPlanetClass()}.
-     * Planetary scans carry planet class; rings around those are the mineable kind.
-     */
-    private static boolean scanIndicatesStellarBody(ScanEvent e) {
-        if (e == null) {
-            return false;
-        }
-        String pc = e.getPlanetClass();
-        if (pc != null && !pc.trim().isEmpty()) {
-            return false;
-        }
-        String st = e.getStarType();
-        return st != null && !st.trim().isEmpty();
-    }
 
     private boolean isBeltOrRing(String bodyName) {
         if (bodyName == null) {

@@ -248,7 +248,15 @@ public final class SystemCache implements SystemStore {
     private static String canonicalName(String name) {
         return (name == null) ? null : name.toLowerCase(Locale.ROOT);
     }
-    
+
+    /** Deep copy for retaining persisted {@code ScanBaryCentre} rows across session saves. */
+    private CachedBody copyCachedBody(CachedBody src) {
+        if (src == null) {
+            return null;
+        }
+        return gson.fromJson(gson.toJson(src), CachedBody.class);
+    }
+
     @Override
     public synchronized CachedSystem get(long systemAddress, String systemName) {
         if (!sqliteReady) {
@@ -368,6 +376,7 @@ public final class SystemCache implements SystemStore {
                 info.setAtmosphereComposition(cb.atmosphereComposition);
             }
             info.setSurfaceTempK(cb.surfaceTempK);
+            info.setScanBarycentreRow(cb.scanBarycentreRow);
             info.setOrbitalPeriod(cb.orbitalPeriod);
             info.setSemiMajorAxisM(cb.semiMajorAxisM);
             info.setEccentricity(cb.eccentricity);
@@ -454,7 +463,6 @@ public final class SystemCache implements SystemStore {
             }
             state.getBodies().put(info.getBodyId(), info);
         }
-        
     }
    
     /**
@@ -617,6 +625,22 @@ public final class SystemCache implements SystemStore {
                     && remote.distanceToArrival != null) {
                 info.setDistanceLs(remote.distanceToArrival);
             }
+            if (info.getSemiMajorAxisM() == null && remote.semiMajorAxis != null
+                    && Double.isFinite(remote.semiMajorAxis.doubleValue()) && remote.semiMajorAxis.doubleValue() > 0) {
+                info.setSemiMajorAxisM(remote.semiMajorAxis);
+            }
+            if (info.getOrbitalPeriod() == null && remote.orbitalPeriod != null
+                    && Double.isFinite(remote.orbitalPeriod.doubleValue())) {
+                info.setOrbitalPeriod(remote.orbitalPeriod);
+            }
+            if (info.getEccentricity() == null && remote.orbitalEccentricity != null
+                    && Double.isFinite(remote.orbitalEccentricity.doubleValue())) {
+                info.setEccentricity(remote.orbitalEccentricity);
+            }
+            if (info.getOrbitalInclination() == null && remote.orbitalInclination != null
+                    && Double.isFinite(remote.orbitalInclination.doubleValue())) {
+                info.setOrbitalInclination(remote.orbitalInclination);
+            }
 
             // Parent star: EDSM parents list uses {"Star": <bodyId>}
             if ((info.getParentStar() == null || info.getParentStar().isEmpty())
@@ -732,6 +756,12 @@ public final class SystemCache implements SystemStore {
 
             CachedBody cb = new CachedBody();
             cb.name = b.getBodyName();
+            if (cb.name == null || cb.name.isBlank()) {
+                String shortName = b.getShortName();
+                if (shortName != null && !shortName.isBlank()) {
+                    cb.name = shortName;
+                }
+            }
             cb.bodyId = b.getBodyId();
             cb.starSystem = b.getStarSystem();
 
@@ -752,6 +782,7 @@ public final class SystemCache implements SystemStore {
                 cb.atmosphereComposition = new HashMap<>(b.getAtmosphereComposition());
             }
             cb.surfaceTempK = b.getSurfaceTempK();
+            cb.scanBarycentreRow = b.isScanBarycentreRow();
             cb.orbitalPeriod = b.getOrbitalPeriod();
             cb.semiMajorAxisM = b.getSemiMajorAxisM();
             cb.eccentricity = b.getEccentricity();
@@ -858,6 +889,33 @@ public final class SystemCache implements SystemStore {
                 if (cb.immediateParentBodyId < 0 && prev.immediateParentBodyId >= 0) {
                     cb.immediateParentBodyId = prev.immediateParentBodyId;
                 }
+                if (prev.scanBarycentreRow) {
+                    cb.scanBarycentreRow = true;
+                    if (prev.orbitalPeriod != null) {
+                        cb.orbitalPeriod = prev.orbitalPeriod;
+                    }
+                    if (prev.semiMajorAxisM != null) {
+                        cb.semiMajorAxisM = prev.semiMajorAxisM;
+                    }
+                    if (prev.meanAnomaly != null) {
+                        cb.meanAnomaly = prev.meanAnomaly;
+                    }
+                    if (prev.orbitalEpochMillis != null) {
+                        cb.orbitalEpochMillis = prev.orbitalEpochMillis;
+                    }
+                    if (prev.eccentricity != null) {
+                        cb.eccentricity = prev.eccentricity;
+                    }
+                    if (prev.orbitalInclination != null) {
+                        cb.orbitalInclination = prev.orbitalInclination;
+                    }
+                    if (prev.periapsis != null) {
+                        cb.periapsis = prev.periapsis;
+                    }
+                    if (prev.ascendingNode != null) {
+                        cb.ascendingNode = prev.ascendingNode;
+                    }
+                }
             }
 
             {
@@ -949,6 +1007,22 @@ public final class SystemCache implements SystemStore {
             }
 
             list.add(cb);
+        }
+
+        for (CachedBody prevScanBary : existingBodies.values()) {
+            if (prevScanBary == null || !prevScanBary.scanBarycentreRow || prevScanBary.bodyId < 0) {
+                continue;
+            }
+            boolean present = false;
+            for (CachedBody saved : list) {
+                if (saved != null && saved.bodyId == prevScanBary.bodyId) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present) {
+                list.add(copyCachedBody(prevScanBary));
+            }
         }
 
         put(state.getSystemAddress(),
@@ -1317,10 +1391,41 @@ public final class SystemCache implements SystemStore {
             return null;
         }
         try {
+            /*
+             * When we have a real systemAddress, prefer the richest snapshot for that address. A sparse row
+             * (e.g. one Detailed scan) can share system_address and a newer updated_at than a full honk — an exact
+             * cache_key hit alone would incorrectly return that partial row.
+             */
             if (systemAddress != 0L) {
-                try (PreparedStatement ps = sqliteConnection.prepareStatement(
-                        "SELECT payload_json FROM systems WHERE system_address=? ORDER BY updated_at DESC LIMIT 1")) {
+                String canonical = canonicalName(systemName);
+                final String sqlAddrPick;
+                if (canonical != null && !canonical.isBlank()) {
+                    sqlAddrPick = "SELECT payload_json, cached_body_count, cache_key FROM systems "
+                            + "WHERE system_address=? OR canonical_name=? "
+                            + "ORDER BY cached_body_count DESC, updated_at DESC LIMIT 1";
+                } else {
+                    sqlAddrPick = "SELECT payload_json, cached_body_count, cache_key FROM systems WHERE system_address=? "
+                            + "ORDER BY cached_body_count DESC, updated_at DESC LIMIT 1";
+                }
+                try (PreparedStatement ps = sqliteConnection.prepareStatement(sqlAddrPick)) {
                     ps.setLong(1, systemAddress);
+                    if (canonical != null && !canonical.isBlank()) {
+                        ps.setString(2, canonical);
+                    }
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            CachedSystem cs = gson.fromJson(rs.getString(1), CachedSystem.class);
+                            lastLoadedSystem = cs;
+                            return cs;
+                        }
+                    }
+                }
+            }
+            String exactKey = sqliteKey(systemAddress, systemName);
+            if (exactKey != null) {
+                try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                        "SELECT payload_json, cached_body_count, cache_key FROM systems WHERE cache_key=? LIMIT 1")) {
+                    ps.setString(1, exactKey);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (rs.next()) {
                             CachedSystem cs = gson.fromJson(rs.getString(1), CachedSystem.class);
@@ -1333,7 +1438,8 @@ public final class SystemCache implements SystemStore {
             String canonical = canonicalName(systemName);
             if (canonical != null && !canonical.isBlank()) {
                 try (PreparedStatement ps = sqliteConnection.prepareStatement(
-                        "SELECT payload_json FROM systems WHERE canonical_name=? LIMIT 1")) {
+                        "SELECT payload_json, cached_body_count, cache_key FROM systems WHERE canonical_name=? "
+                                + "ORDER BY cached_body_count DESC, updated_at DESC LIMIT 1")) {
                     ps.setString(1, canonical);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (rs.next()) {
@@ -1669,9 +1775,35 @@ public final class SystemCache implements SystemStore {
         }
         try {
             if (systemAddress != 0L) {
-                try (PreparedStatement ps = sqliteConnection.prepareStatement(
-                        "SELECT system_address, system_name, total_bodies, fss_progress, all_bodies_found, cached_body_count FROM systems WHERE system_address=? ORDER BY updated_at DESC LIMIT 1")) {
+                String canonical = canonicalName(systemName);
+                final String sqlAddrPick;
+                if (canonical != null && !canonical.isBlank()) {
+                    sqlAddrPick = "SELECT system_address, system_name, total_bodies, fss_progress, all_bodies_found, cached_body_count "
+                            + "FROM systems WHERE system_address=? OR canonical_name=? "
+                            + "ORDER BY cached_body_count DESC, updated_at DESC LIMIT 1";
+                } else {
+                    sqlAddrPick = "SELECT system_address, system_name, total_bodies, fss_progress, all_bodies_found, cached_body_count "
+                            + "FROM systems WHERE system_address=? "
+                            + "ORDER BY cached_body_count DESC, updated_at DESC LIMIT 1";
+                }
+                try (PreparedStatement ps = sqliteConnection.prepareStatement(sqlAddrPick)) {
                     ps.setLong(1, systemAddress);
+                    if (canonical != null && !canonical.isBlank()) {
+                        ps.setString(2, canonical);
+                    }
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            return readSummary(rs);
+                        }
+                    }
+                }
+            }
+            String exactKey = sqliteKey(systemAddress, systemName);
+            if (exactKey != null) {
+                try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                        "SELECT system_address, system_name, total_bodies, fss_progress, all_bodies_found, cached_body_count "
+                                + "FROM systems WHERE cache_key=? LIMIT 1")) {
+                    ps.setString(1, exactKey);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (rs.next()) {
                             return readSummary(rs);
@@ -1682,7 +1814,9 @@ public final class SystemCache implements SystemStore {
             String canonical = canonicalName(systemName);
             if (canonical != null && !canonical.isBlank()) {
                 try (PreparedStatement ps = sqliteConnection.prepareStatement(
-                        "SELECT system_address, system_name, total_bodies, fss_progress, all_bodies_found, cached_body_count FROM systems WHERE canonical_name=? LIMIT 1")) {
+                        "SELECT system_address, system_name, total_bodies, fss_progress, all_bodies_found, cached_body_count "
+                                + "FROM systems WHERE canonical_name=? "
+                                + "ORDER BY cached_body_count DESC, updated_at DESC LIMIT 1")) {
                     ps.setString(1, canonical);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (rs.next()) {

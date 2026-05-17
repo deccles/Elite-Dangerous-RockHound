@@ -33,6 +33,7 @@ import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.ReceiveTextEvent;
 import org.dce.ed.logreader.event.SaasignalsFoundEvent;
+import org.dce.ed.logreader.event.ScanBaryCentreEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.logreader.event.StartJumpEvent;
@@ -105,6 +106,8 @@ public class EliteLogParser {
             // NEW: system/bodies-related events
             case SCAN:
                 return parseScan(ts, obj);
+            case SCAN_BARYCENTRE:
+                return parseScanBaryCentre(ts, obj);
             case SCAN_ORGANIC:
             	return parseScanOrganic(ts, obj);
             case FSS_DISCOVERY_SCAN:
@@ -803,6 +806,21 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
         );
     }
 
+    private ScanBaryCentreEvent parseScanBaryCentre(Instant ts, JsonObject obj) {
+        int bodyId = obj.has("BodyID") ? obj.get("BodyID").getAsInt() : -1;
+        String starSystem = obj.has("StarSystem") ? obj.get("StarSystem").getAsString() : "";
+        long systemAddress = obj.has("SystemAddress") ? obj.get("SystemAddress").getAsLong() : 0L;
+        Double orbitalPeriod = obj.has("OrbitalPeriod") ? obj.get("OrbitalPeriod").getAsDouble() : null;
+        Double semiMajorAxisM = optionalJsonDouble(obj, "SemiMajorAxis");
+        Double eccentricity = optionalJsonDouble(obj, "Eccentricity");
+        Double orbitalInclination = optionalJsonDouble(obj, "OrbitalInclination");
+        Double periapsis = optionalJsonDouble(obj, "Periapsis");
+        Double ascendingNode = optionalJsonDouble(obj, "AscendingNode");
+        Double meanAnomaly = optionalJsonDouble(obj, "MeanAnomaly");
+        return new ScanBaryCentreEvent(ts, obj, bodyId, starSystem, systemAddress, orbitalPeriod, semiMajorAxisM,
+                eccentricity, orbitalInclination, periapsis, ascendingNode, meanAnomaly);
+    }
+
     private ScanEvent parseScan(Instant ts, JsonObject obj) {
         String bodyName = getString(obj, "BodyName");
         int bodyId = obj.has("BodyID") ? obj.get("BodyID").getAsInt() : -1;
@@ -846,6 +864,7 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
         List<ScanEvent.ParentRef> parents = parseParentRefs(obj);
         List<ScanEvent.RingInfo> rings = parseScanRings(obj);
         String reserveLevel = getString(obj, "ReserveLevel");
+        String scanType = getString(obj, "ScanType");
 
         Double surfacePressure = obj.has("SurfacePressure")
         		? obj.get("SurfacePressure").getAsDouble(): null;
@@ -881,7 +900,8 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
                 starType,
                 parents,
                 rings,
-                reserveLevel
+                reserveLevel,
+                scanType
         );
     }
 

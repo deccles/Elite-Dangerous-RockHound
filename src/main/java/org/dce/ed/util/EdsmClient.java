@@ -631,6 +631,38 @@ public class EdsmClient {
                 info.setSurfacePressure(remote.getSurfacePressure());
             }
 
+            boolean stellarRemote = remote.type != null && remote.type.equalsIgnoreCase("Star");
+            if (stellarRemote && (info.getStarType() == null || info.getStarType().isEmpty())) {
+                String sc = parseStarClassFromEdsmSubType(remote.subType);
+                if (sc != null && !sc.isEmpty()) {
+                    info.setStarType(sc);
+                }
+            }
+
+            if ((Double.isNaN(info.getDistanceLs()) || info.getDistanceLs() <= 0.0)
+                    && remote.distanceToArrival != null
+                    && Double.isFinite(remote.distanceToArrival.doubleValue())) {
+                info.setDistanceLs(remote.distanceToArrival.doubleValue());
+            }
+            if (info.getSemiMajorAxisM() == null && remote.semiMajorAxis != null
+                    && Double.isFinite(remote.semiMajorAxis.doubleValue()) && remote.semiMajorAxis.doubleValue() > 0) {
+                info.setSemiMajorAxisM(remote.semiMajorAxis);
+            }
+            if (info.getOrbitalPeriod() == null && remote.orbitalPeriod != null
+                    && Double.isFinite(remote.orbitalPeriod.doubleValue())) {
+                info.setOrbitalPeriod(remote.orbitalPeriod);
+            }
+            if (info.getEccentricity() == null && remote.orbitalEccentricity != null
+                    && Double.isFinite(remote.orbitalEccentricity.doubleValue())) {
+                info.setEccentricity(remote.orbitalEccentricity);
+            }
+            if (info.getOrbitalInclination() == null && remote.orbitalInclination != null
+                    && Double.isFinite(remote.orbitalInclination.doubleValue())) {
+                info.setOrbitalInclination(remote.orbitalInclination);
+            }
+
+            applyEdsmParentRefs(info, remote, starNameById, stellarRemote);
+
             // Planet class from EDSM subType (only makes sense for planets)
             if ("Planet".equalsIgnoreCase(remote.type)
                     && remote.subType != null
@@ -655,25 +687,6 @@ public class EdsmClient {
                     && !remote.discovery.commander.isBlank()
                     && info.getWasDiscovered() == null) {
                 info.setWasDiscovered(Boolean.TRUE);
-            }
-
-            // Parent star: parents[].Star contains the star id (same numeric id as in the list)
-            if ((info.getParentStar() == null || info.getParentStar().isEmpty())
-                    && remote.parents != null
-                    && !remote.parents.isEmpty()) {
-                Integer parentStarId = null;
-                for (BodiesResponse.ParentRef p : remote.parents) {
-                    if (p != null && p.Star != null) {
-                        parentStarId = p.Star;
-                        break;
-                    }
-                }
-                if (parentStarId != null) {
-                    String parentStarName = starNameById.get(parentStarId);
-                    if (parentStarName != null && !parentStarName.isEmpty()) {
-                        info.setParentStar(parentStarName);
-                    }
-                }
             }
 
             // High-value heuristic (same as your ScanEvent-based logic)
@@ -711,6 +724,74 @@ public class EdsmClient {
             // hasBio / hasGeo are NOT in this EDSM body payload -> must come from journal events.
             // nebula is NOT in this payload -> must come from your own system classification.
         }
+    }
+
+    /**
+     * EDSM parent list mirrors journal ordering (innermost first). For stars we only accept a barycentre
+     * {@code {"Null":0}} hint here — assigning {@code {"Star": primaryId}} to a companion star would force it to
+     * orbit the primary in our map and breaks binary geometry.
+     */
+    private static void applyEdsmParentRefs(BodyInfo info, BodiesResponse.Body remote,
+            Map<Integer, String> starNameById, boolean stellarRemote) {
+        if (remote.parents == null || remote.parents.isEmpty()) {
+            return;
+        }
+        if (!stellarRemote && info.getImmediateParentBodyId() < 0) {
+            for (BodiesResponse.ParentRef p : remote.parents) {
+                if (p == null) {
+                    continue;
+                }
+                if (p.Planet != null) {
+                    info.setImmediateParentBodyId(p.Planet.intValue());
+                    break;
+                }
+                if (p.Star != null) {
+                    info.setImmediateParentBodyId(p.Star.intValue());
+                    break;
+                }
+                if (p.Null != null) {
+                    info.setImmediateParentBodyId(0);
+                    break;
+                }
+            }
+        } else if (stellarRemote && info.getImmediateParentBodyId() < 0) {
+            for (BodiesResponse.ParentRef p : remote.parents) {
+                if (p != null && p.Null != null) {
+                    info.setImmediateParentBodyId(0);
+                    break;
+                }
+            }
+        }
+        Integer anchorStar = null;
+        for (BodiesResponse.ParentRef p : remote.parents) {
+            if (p != null && p.Star != null) {
+                anchorStar = p.Star;
+            }
+        }
+        if (anchorStar != null && info.getParentStarBodyId() < 0) {
+            info.setParentStarBodyId(anchorStar.intValue());
+        }
+        if ((info.getParentStar() == null || info.getParentStar().isEmpty()) && anchorStar != null) {
+            String parentStarName = starNameById.get(anchorStar);
+            if (parentStarName != null && !parentStarName.isEmpty()) {
+                info.setParentStar(parentStarName);
+            }
+        }
+    }
+
+    private static String parseStarClassFromEdsmSubType(String subType) {
+        if (subType == null) {
+            return null;
+        }
+        String s = subType.trim();
+        if (s.isEmpty()) {
+            return null;
+        }
+        char c = s.charAt(0);
+        if (Character.isLetter(c)) {
+            return String.valueOf(Character.toUpperCase(c));
+        }
+        return null;
     }
 
     private static Integer safeToInt(long v) {

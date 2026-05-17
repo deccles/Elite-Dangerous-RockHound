@@ -350,6 +350,14 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
         repaint();
     }
 
+    @Override
+    public void refreshSystemTabFromSavedPreferences() {
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs != null) {
+            tabs.getSystemTabPanel().refreshFromSavedOverlayPreferences();
+        }
+    }
+
 	/**
 	 * Swing stores foreground {@link Color} instances; after {@link OverlayPreferences#applyThemeToEdoUi()}
 	 * the accent must be pushed again into the menu bar.

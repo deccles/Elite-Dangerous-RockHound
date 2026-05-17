@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import org.dce.ed.OverlayPreferences;
 import org.dce.ed.EliteDangerousOverlay;
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
@@ -82,13 +83,30 @@ public class RescanJournalsMain {
 	/**
 	 * Optional CLI-oriented overload:
 	 *  - forcedJournalFile: if provided, rescan ONLY that file (no copying into the game journal directory).
+	 *  The journal import cursor is not updated for single-file replays (avoids rewinding incremental import).
 	 *  - forcedCacheFile: if provided, sets {@link SystemCache#CACHE_DB_PATH_PROPERTY} (SQLite DB path).
 	 */
 	public static void rescanJournals(boolean forceFull, Path forcedJournalFile, Path forcedCacheFile) throws IOException {
-		Path journalDirectory = org.dce.ed.OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
-		if (journalDirectory == null || !Files.isDirectory(journalDirectory)) {
-			System.out.println("Journal directory not found; skipping rescan.");
-			return;
+		Path journalDirectory;
+		if (forcedJournalFile != null) {
+			Path abs = forcedJournalFile.toAbsolutePath().normalize();
+			if (!Files.isRegularFile(abs)) {
+				System.out.println("Forced journal path is not a regular file; skipping rescan: " + abs);
+				return;
+			}
+			Path parent = abs.getParent();
+			if (parent == null || !Files.isDirectory(parent)) {
+				System.out.println("Forced journal file has no valid parent directory; skipping rescan: " + abs);
+				return;
+			}
+			journalDirectory = parent;
+			forcedJournalFile = abs;
+		} else {
+			journalDirectory = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
+			if (journalDirectory == null || !Files.isDirectory(journalDirectory)) {
+				System.out.println("Journal directory not found; skipping rescan.");
+				return;
+			}
 		}
 		long rescanStartNs = System.nanoTime();
 		EliteJournalReader reader = new EliteJournalReader(journalDirectory);
@@ -324,9 +342,11 @@ public class RescanJournalsMain {
 		}
 		EdoSessionPersistence.save(sessionState);
 
-		if (journalDirectory != null && newestEventTimestamp != null) {
+		if (forcedJournalFile == null && journalDirectory != null && newestEventTimestamp != null) {
 			JournalImportCursor.write(journalDirectory, newestEventTimestamp);
 			System.out.println("Updated last journal import time to: " + newestEventTimestamp);
+		} else if (forcedJournalFile != null) {
+			System.out.println("Single-file rescan: left journal import cursor unchanged.");
 		}
 
 		double totalSeconds = (System.nanoTime() - rescanStartNs) / 1_000_000_000.0;

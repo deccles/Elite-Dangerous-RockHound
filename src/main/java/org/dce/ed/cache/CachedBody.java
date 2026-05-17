@@ -41,6 +41,12 @@ public class CachedBody {
     public Double surfaceTempK;
     public Double orbitalPeriod;
 
+    /**
+     * {@code true} for journal {@code ScanBaryCentre} rows ({@code Parents:[{"Null":N}]} heliocentric orbit), not a
+     * landable body. Required so reload uses {@code P_outer} on this row vs mutual period on planet siblings.
+     */
+    public boolean scanBarycentreRow;
+
     /** Journal {@code SemiMajorAxis} in metres. */
     public Double semiMajorAxisM;
     public Double eccentricity;

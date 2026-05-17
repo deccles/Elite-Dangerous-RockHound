@@ -97,6 +97,11 @@ public final class OverlayPreferences {
 
     /** When true, distance column and body sort use approximate distance from your ship (requires Status near-body). */
     private static final String KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP = "overlay.systemTab.distanceFromShip";
+    /** {@link SystemTabShipRefMode#toPrefsString()} — how ship-centric anchor + plan-map “You” are resolved. */
+    private static final String KEY_SYSTEM_TAB_SHIP_REF_MODE = "overlay.systemTab.shipRefMode";
+
+    /** Per-system: last HUD body target used when “HUD target (sticky)” mode keeps a ref after untargeting. */
+    private static final String KEY_SYSTEM_TAB_STICKY_HUD_TARGET_BODY_PREFIX = "system.stickyHudTargetBody.";
     /** System plan map Play: orbit-model days advanced per wall-clock second (slider range 1–500; default 110). */
     private static final String KEY_SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND = "system.planMap.orbitAnim.daysPerWallSecond";
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_DEFAULT = 110;
@@ -415,6 +420,41 @@ public final class OverlayPreferences {
 
     public static void setSystemTabDistanceFromShip(boolean enabled) {
         PREFS.putBoolean(KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP, enabled);
+    }
+
+    public static SystemTabShipRefMode getSystemTabShipRefMode() {
+        return SystemTabShipRefMode.fromPrefsString(PREFS.get(KEY_SYSTEM_TAB_SHIP_REF_MODE, ""));
+    }
+
+    public static void setSystemTabShipRefMode(SystemTabShipRefMode mode) {
+        if (mode == null) {
+            PREFS.remove(KEY_SYSTEM_TAB_SHIP_REF_MODE);
+        } else {
+            PREFS.put(KEY_SYSTEM_TAB_SHIP_REF_MODE, mode.toPrefsString());
+        }
+    }
+
+    /**
+     * Last persisted HUD navigation body id for {@link SystemTabShipRefMode#TARGETED_BODY} in this system, or null.
+     */
+    public static Integer getSystemTabStickyHudTargetBodyId(long systemAddress) {
+        if (systemAddress == 0L) {
+            return null;
+        }
+        int v = PREFS.getInt(KEY_SYSTEM_TAB_STICKY_HUD_TARGET_BODY_PREFIX + systemAddress, -1);
+        return v >= 0 ? Integer.valueOf(v) : null;
+    }
+
+    public static void setSystemTabStickyHudTargetBodyId(long systemAddress, Integer bodyId) {
+        if (systemAddress == 0L) {
+            return;
+        }
+        String k = KEY_SYSTEM_TAB_STICKY_HUD_TARGET_BODY_PREFIX + systemAddress;
+        if (bodyId == null || bodyId.intValue() < 0) {
+            PREFS.remove(k);
+        } else {
+            PREFS.putInt(k, bodyId.intValue());
+        }
     }
 
     /**

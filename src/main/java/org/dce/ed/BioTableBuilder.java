@@ -327,9 +327,40 @@ final class BioTableBuilder {
             boolean distanceFromShipMode,
             java.util.Map<Integer, Double> shipCentricDistLs,
             boolean shipCentricAnchorMissing) {
-        List<BodyInfo> sorted = new ArrayList<>(bodies);
-        for (BodyInfo b : sorted) {
-            if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
+        return buildRows(bodyMapFromCollection(bodies), shouldCollapse, hideBioDetailRowsForBodyIds,
+                distanceFromShipMode, shipCentricDistLs, shipCentricAnchorMissing, null);
+    }
+
+    private static LinkedHashMap<Integer, BodyInfo> bodyMapFromCollection(java.util.Collection<BodyInfo> bodies) {
+        LinkedHashMap<Integer, BodyInfo> m = new LinkedHashMap<>();
+        if (bodies != null) {
+            for (BodyInfo b : bodies) {
+                if (b != null) {
+                    m.put(Integer.valueOf(b.getBodyId()), b);
+                }
+            }
+        }
+        return m;
+    }
+
+    /**
+     * @param bodiesByMapKey journal / state map keys (may differ from {@link BodyInfo#getBodyId()} on some paths)
+     * @param geometryFallbackDistLs when non-null and not in ship mode, fills Dist / sort for bodies whose journal
+     *                               {@code DistanceFromArrivalLS} is NaN (approximate distance from primary, Ls)
+     */
+    static List<Row> buildRows(java.util.Map<Integer, BodyInfo> bodiesByMapKey, boolean shouldCollapse,
+            Set<Integer> hideBioDetailRowsForBodyIds,
+            boolean distanceFromShipMode,
+            java.util.Map<Integer, Double> shipCentricDistLs,
+            boolean shipCentricAnchorMissing,
+            java.util.Map<Integer, Double> geometryFallbackDistLs) {
+        if (bodiesByMapKey == null || bodiesByMapKey.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<java.util.Map.Entry<Integer, BodyInfo>> sorted = new ArrayList<>(bodiesByMapKey.entrySet());
+        for (java.util.Map.Entry<Integer, BodyInfo> ent : sorted) {
+            BodyInfo b = ent.getValue();
+            if (b != null && b.hasBio() && !spanshExobiologyExclusionActive(b)) {
                 ensureBioPredictionsPopulated(b);
             }
         }
@@ -339,15 +370,20 @@ final class BioTableBuilder {
 
         // System tab: default order — closest to arrival / primary first (journal {@code DistanceFromArrivalLS}).
         // Ship mode — closest to commander first when {@code shipCentricDistLs} is populated.
-        sorted.sort((a, b) -> {
+        sorted.sort((ea, eb) -> {
+            BodyInfo a = ea.getValue();
+            BodyInfo b = eb.getValue();
+            if (a == null || b == null) {
+                return 0;
+            }
             double aDist;
             double bDist;
             if (sortByShip) {
-                aDist = shipCentricDistanceSortKey(a, shipCentricDistLs);
-                bDist = shipCentricDistanceSortKey(b, shipCentricDistLs);
+                aDist = shipCentricDistanceSortKey(ea.getKey(), a, shipCentricDistLs);
+                bDist = shipCentricDistanceSortKey(eb.getKey(), b, shipCentricDistLs);
             } else {
-                aDist = Double.isNaN(a.getDistanceLs()) ? Double.MAX_VALUE : a.getDistanceLs();
-                bDist = Double.isNaN(b.getDistanceLs()) ? Double.MAX_VALUE : b.getDistanceLs();
+                aDist = arrivalOrGeometrySortKey(a, ea.getKey(), geometryFallbackDistLs);
+                bDist = arrivalOrGeometrySortKey(b, eb.getKey(), geometryFallbackDistLs);
             }
             int cmp = Double.compare(aDist, bDist);
             if (cmp != 0) {
@@ -358,14 +394,30 @@ final class BioTableBuilder {
 
         List<Row> rows = new ArrayList<>();
 
-        for (BodyInfo b : sorted) {
+        for (java.util.Map.Entry<Integer, BodyInfo> ent : sorted) {
+            Integer mapKey = ent.getKey();
+            BodyInfo b = ent.getValue();
+            if (b == null) {
+                continue;
+            }
             String bioHeader = null;
             if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
                 bioHeader = computeBioHeaderSummary(b);
             }
             Double distCol = null;
             if (distanceFromShipMode && !shipCentricAnchorMissing && shipCentricDistLs != null) {
-                distCol = shipCentricDistLs.get(Integer.valueOf(b.getBodyId()));
+                distCol = shipCentricDistLs.get(mapKey);
+                if (distCol == null && b.getBodyId() >= 0) {
+                    distCol = shipCentricDistLs.get(Integer.valueOf(b.getBodyId()));
+                }
+            } else if (!distanceFromShipMode && geometryFallbackDistLs != null) {
+                double j = b.getDistanceLs();
+                if (Double.isNaN(j) || j <= 0.0) {
+                    Double g = geometryDistanceLookup(mapKey, b, geometryFallbackDistLs);
+                    if (g != null && Double.isFinite(g.doubleValue())) {
+                        distCol = g;
+                    }
+                }
             }
             rows.add(Row.body(b, bioHeader, distCol, shipCentricAnchorMissing));
 
@@ -1212,8 +1264,44 @@ final class BioTableBuilder {
         return formatRemainingMillionSummaryForHeader(range[0], range[1], split.remainingPerSpecies, (int) range[2]);
     }
 
-    private static double shipCentricDistanceSortKey(BodyInfo b, java.util.Map<Integer, Double> shipCentricDistLs) {
-        Double d = shipCentricDistLs.get(Integer.valueOf(b.getBodyId()));
+    private static Double geometryDistanceLookup(Integer mapKey, BodyInfo b, Map<Integer, Double> geometryFallbackDistLs) {
+        if (geometryFallbackDistLs == null || b == null) {
+            return null;
+        }
+        Double d = mapKey != null ? geometryFallbackDistLs.get(mapKey) : null;
+        if (d == null && b.getBodyId() >= 0) {
+            d = geometryFallbackDistLs.get(Integer.valueOf(b.getBodyId()));
+        }
+        return d;
+    }
+
+    private static double arrivalOrGeometrySortKey(BodyInfo b, Integer mapKey, Map<Integer, Double> geometryFallbackDistLs) {
+        if (b == null) {
+            return Double.MAX_VALUE;
+        }
+        double j = b.getDistanceLs();
+        if (!Double.isNaN(j) && j > 0.0) {
+            return j;
+        }
+        Double g = geometryDistanceLookup(mapKey, b, geometryFallbackDistLs);
+        if (g != null && Double.isFinite(g.doubleValue())) {
+            return g.doubleValue();
+        }
+        if (!Double.isNaN(j)) {
+            return j;
+        }
+        return Double.MAX_VALUE;
+    }
+
+    private static double shipCentricDistanceSortKey(Integer mapKey, BodyInfo b,
+            java.util.Map<Integer, Double> shipCentricDistLs) {
+        if (shipCentricDistLs == null || b == null) {
+            return Double.MAX_VALUE;
+        }
+        Double d = mapKey != null ? shipCentricDistLs.get(mapKey) : null;
+        if (d == null && b.getBodyId() >= 0) {
+            d = shipCentricDistLs.get(Integer.valueOf(b.getBodyId()));
+        }
         if (d != null && Double.isFinite(d.doubleValue())) {
             return d.doubleValue();
         }

@@ -110,6 +110,8 @@ private final String terraformState;
 	private Double surfacePressure;
     private final List<RingInfo> rings;
     private final String reserveLevel;
+    /** Journal {@code ScanType} (e.g. {@code AutoScan}, {@code Detailed}); may be null on older lines. */
+    private final String scanType;
 
     public ScanEvent(Instant timestamp,
                      JsonObject rawJson,
@@ -141,7 +143,8 @@ private final String terraformState;
                      String starType,
                      List<ParentRef> parents,
                      List<RingInfo> rings,
-                     String reserveLevel) {
+                     String reserveLevel,
+                     String scanType) {
 
         super(timestamp, EliteEventType.SCAN, rawJson);
         this.bodyName = bodyName;
@@ -174,6 +177,12 @@ private final String terraformState;
         this.parents = (parents == null) ? Collections.emptyList() : parents;
         this.rings = (rings == null) ? Collections.emptyList() : rings;
         this.reserveLevel = reserveLevel;
+        this.scanType = scanType;
+    }
+
+    /** Raw journal {@code ScanType}, or null if absent. */
+    public String getScanType() {
+        return scanType;
     }
 
     public String getBodyName() {

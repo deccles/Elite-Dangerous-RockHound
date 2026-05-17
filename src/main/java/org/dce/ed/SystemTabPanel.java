@@ -15,6 +15,7 @@ import java.awt.Point;
 import java.awt.PointerInfo;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Window;
 import java.awt.event.ItemEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
@@ -78,10 +79,12 @@ import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.IFsdJump;
 import org.dce.ed.logreader.event.LeaveBodyEvent;
 import org.dce.ed.logreader.event.LocationEvent;
+import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.logreader.event.SupercruiseExitEvent;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.state.ScanParents;
 import org.dce.ed.util.ExplorationBodyCredits;
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
 import org.dce.ed.state.SystemEventProcessor;
@@ -170,9 +173,14 @@ public class SystemTabPanel extends JPanel {
 
     /**
      * Journal {@link ApproachBodyEvent}: ship entered a body's orbital-cruise zone — best anchor for
-     * ship-centric distances while supercruising near that world.
+     * ship-centric distances while supercruising near that world. Never set from FSS/DSS {@code Scan} lines.
      */
     private volatile Integer approachReferenceBodyId;
+
+    /**
+     * Journal {@code Scan} with {@code ScanType: Detailed} (DSS mapping) — ship-ref anchor only, not table proximity.
+     */
+    private volatile Integer dssDetailedScanReferenceBodyId;
 
     /**
      * Journal {@link SupercruiseExitEvent}: major body (or ring parent) you dropped to from system supercruise.
@@ -187,6 +195,12 @@ public class SystemTabPanel extends JPanel {
      * Persisted per {@link SystemState#getSystemAddress()} via {@link OverlayPreferences} so it survives app restarts.
      */
     private volatile Integer lastVisitedNonStarBodyId;
+
+    /**
+     * Last HUD navigation body id for {@link SystemTabShipRefMode#TARGETED_BODY}: kept after the HUD target clears
+     * until another in-system body is targeted. Persisted per {@link SystemState#getSystemAddress()}.
+     */
+    private volatile Integer stickyHudTargetBodyId;
 
     /**
      * Last {@link SystemState#isDocked()} seen from Status (after {@link SystemEventProcessor}); used to refresh
@@ -259,6 +273,13 @@ public class SystemTabPanel extends JPanel {
 	    this.sessionStateChangeCallback = callback;
 	}
 
+	/**
+	 * Rebuild bodies table and plan map after preferences change (ship reference mode, etc.).
+	 */
+	public void refreshFromSavedOverlayPreferences() {
+	    requestRebuild();
+	}
+
 	private void fireSessionStateChanged() {
 	    if (sessionStateChangeCallback != null) {
 	        sessionStateChangeCallback.run();
@@ -304,6 +325,11 @@ public class SystemTabPanel extends JPanel {
 	    if (state.getTargetBodyId() != null) {
 	        targetBodyId = state.getTargetBodyId();
 	        targetBodyName = state.getTargetBodyName();
+	        long addr = this.state.getSystemAddress();
+	        if (addr != 0L) {
+	            stickyHudTargetBodyId = targetBodyId;
+	            OverlayPreferences.setSystemTabStickyHudTargetBodyId(addr, targetBodyId);
+	        }
 	    }
 	    if (state.getNearBodyId() != null || state.getNearBodyName() != null) {
 	        nearBodyId = state.getNearBodyId();
@@ -965,7 +991,12 @@ public class SystemTabPanel extends JPanel {
         } else if (event instanceof FsdJumpEvent || event instanceof LocationEvent
                 || event instanceof CarrierJumpEvent) {
             approachReferenceBodyId = null;
+            dssDetailedScanReferenceBodyId = null;
             supercruiseDropReferenceBodyId = null;
+        }
+
+        if (event instanceof ScanEvent) {
+            handleDetailedSurfaceScanProximity((ScanEvent) event);
         }
 
         // StatusEvent is very high frequency; avoid table rebuilds.
@@ -1059,7 +1090,7 @@ public class SystemTabPanel extends JPanel {
                 javax.swing.SwingUtilities.invokeLater(() -> {
                     /*
                      * Commander ship FSD: Status.json often still reports the previous system's near-body / HUD mirror
-                     * for a short time after {@code FSDJump}, so {@link #resolveShipAnchorBodyId()} could pin "You" on
+                     * for a short time after {@code FSDJump}, so {@link #resolveCommanderRefBodyId()} could pin "You" on
                      * the wrong id in the new system. Clear proximity and this destination's per-system sticky so we
                      * default to the primary until telemetry catches up. Game startup restores via
                      * {@link #applySessionState(EdoSessionState)} / {@link #refreshFromCache()} without this branch;
@@ -1070,9 +1101,11 @@ public class SystemTabPanel extends JPanel {
                         nearBodyId = null;
                         nearBodyName = null;
                         lastVisitedNonStarBodyId = null;
+                        stickyHudTargetBodyId = null;
                         long addr = e.getSystemAddress();
                         if (addr != 0L) {
                             OverlayPreferences.setSystemTabStickyLastVisitedBodyId(addr, null);
+                            OverlayPreferences.setSystemTabStickyHudTargetBodyId(addr, null);
                         }
                     }
                     loadSystem(e.getStarSystem(), e.getSystemAddress(), true);
@@ -1095,6 +1128,52 @@ public class SystemTabPanel extends JPanel {
     // ---------------------------------------------------------------------
     // Cache loading at startup
     // ---------------------------------------------------------------------
+
+    /**
+     * Invoked after tools such as {@link org.dce.ed.logreader.RescanJournalsMain} update SQLite: each open
+     * {@link SystemTabPanel} reloads its currently displayed system from {@link SystemCache} on the EDT.
+     */
+    public static void notifyAllInstancesReloadDisplayedSystemFromCache() {
+        SwingUtilities.invokeLater(() -> {
+            for (Window w : Window.getWindows()) {
+                if (!w.isDisplayable()) {
+                    continue;
+                }
+                collectSystemTabPanels(w).forEach(SystemTabPanel::reloadDisplayedSystemFromCache);
+            }
+        });
+    }
+
+    private static List<SystemTabPanel> collectSystemTabPanels(Container root) {
+        List<SystemTabPanel> out = new ArrayList<>();
+        walkComponentsForSystemTabPanel(root, out);
+        return out;
+    }
+
+    private static void walkComponentsForSystemTabPanel(Component c, List<SystemTabPanel> acc) {
+        if (c instanceof SystemTabPanel) {
+            acc.add((SystemTabPanel) c);
+            return;
+        }
+        if (c instanceof Container) {
+            for (Component ch : ((Container) c).getComponents()) {
+                walkComponentsForSystemTabPanel(ch, acc);
+            }
+        }
+    }
+
+    /**
+     * Re-reads the bodies map for {@link #state}'s current system from {@link SystemCache} (no EDSM fetch).
+     * Use after a journal replay refreshed SQLite while this tab still held older RAM state.
+     */
+    public void reloadDisplayedSystemFromCache() {
+        String systemName = state.getSystemName();
+        long systemAddress = state.getSystemAddress();
+        if ((systemName == null || systemName.isBlank()) && systemAddress == 0L) {
+            return;
+        }
+        loadSystem(systemName == null || systemName.isBlank() ? "" : systemName, systemAddress, false);
+    }
 
     public void refreshFromCache() {
         long startedAtMs = System.currentTimeMillis();
@@ -1246,6 +1325,15 @@ public class SystemTabPanel extends JPanel {
                 }
             }
 
+            long sysAddr = state.getSystemAddress();
+            Map<Integer, BodyInfo> bodiesMap = state.getBodies();
+            if (newBodyId != null && sysAddr != 0L && bodiesMap != null && bodiesMap.containsKey(newBodyId)) {
+                if (!Objects.equals(stickyHudTargetBodyId, newBodyId)) {
+                    stickyHudTargetBodyId = newBodyId;
+                    OverlayPreferences.setSystemTabStickyHudTargetBodyId(sysAddr, newBodyId);
+                }
+            }
+
             if (newDestParentBodyId == null) {
                 if (targetDestinationParentBodyId != null || targetDestinationName != null) {
                     targetDestinationParentBodyId = null;
@@ -1312,9 +1400,8 @@ public class SystemTabPanel extends JPanel {
             }
             boolean trimmedIsDestOnly = hudBodyTarget && trimmed != null && destName != null
                     && trimmed.equalsIgnoreCase(destName);
-            boolean hasBodyTelemetryHints = (lat != null && lon != null)
-                    || (rad != null && rad.doubleValue() > 1.0)
-                    || (alt != null && rad != null && rad.doubleValue() > 1.0);
+            /* Lat/lon only — PlanetRadius alone is set while analysing bodies in FSS and must not imply proximity. */
+            boolean hasBodyTelemetryHints = lat != null && lon != null;
             /*
              * Elite can mirror the HUD destination into Status BodyID. When ApproachBody names another world,
              * ignore that BodyID. When there is no ApproachBody line, prefer {@link #lastVisitedNonStarBodyId} over
@@ -1338,25 +1425,43 @@ public class SystemTabPanel extends JPanel {
                     && approachReferenceBodyId == null;
 
             Integer resolvedId = null;
-            if (physicalBodyName != null && !physicalBodyName.isBlank()) {
-                resolvedId = findBodyIdByName(physicalBodyName.trim());
-            }
-            if (resolvedId == null && statusSid != null && statusSid.intValue() > 0 && bodies.containsKey(statusSid)) {
-                if (!ignoreStatusBodyIdAsHudMirror) {
-                    resolvedId = statusSid;
+            if (hasBodyTelemetryHints) {
+                if (physicalBodyName != null && !physicalBodyName.isBlank()) {
+                    resolvedId = findBodyIdByName(physicalBodyName.trim());
                 }
-            }
-            if (resolvedId == null && trimmed != null && !trimmedIsDestOnly) {
-                resolvedId = findBodyIdByName(trimmed);
-            }
-            if (resolvedId == null && approachReferenceBodyId != null && approachReferenceBodyId.intValue() >= 0
-                    && bodies.containsKey(approachReferenceBodyId)) {
-                resolvedId = approachReferenceBodyId;
-            }
-            if (resolvedId == null && supercruiseDropReferenceBodyId != null
-                    && supercruiseDropReferenceBodyId.intValue() > 0
-                    && bodies.containsKey(supercruiseDropReferenceBodyId)) {
-                resolvedId = supercruiseDropReferenceBodyId;
+                if (resolvedId == null && statusSid != null && statusSid.intValue() > 0 && bodies.containsKey(statusSid)) {
+                    if (!ignoreStatusBodyIdAsHudMirror) {
+                        resolvedId = statusSid;
+                    }
+                }
+                if (resolvedId == null && trimmed != null && !trimmedIsDestOnly) {
+                    resolvedId = findBodyIdByName(trimmed);
+                }
+            } else if (!statusSupercruise) {
+                /*
+                 * Normal space without lat/lon: ignore Status BodyID/BodyName (FSS discovery mirrors). Proximity
+                 * outline only from journal ApproachBody or a supercruise drop onto a body.
+                 */
+                if (approachReferenceBodyId != null && approachReferenceBodyId.intValue() > 0
+                        && bodies.containsKey(approachReferenceBodyId)) {
+                    resolvedId = approachReferenceBodyId;
+                }
+                if (resolvedId == null && supercruiseDropReferenceBodyId != null
+                        && supercruiseDropReferenceBodyId.intValue() > 0
+                        && bodies.containsKey(supercruiseDropReferenceBodyId)) {
+                    resolvedId = supercruiseDropReferenceBodyId;
+                }
+            } else {
+                /* Supercruise without surface fix: ApproachBody or drop only — not FSS-analysed body mirrors. */
+                if (approachReferenceBodyId != null && approachReferenceBodyId.intValue() > 0
+                        && bodies.containsKey(approachReferenceBodyId)) {
+                    resolvedId = approachReferenceBodyId;
+                }
+                if (resolvedId == null && supercruiseDropReferenceBodyId != null
+                        && supercruiseDropReferenceBodyId.intValue() > 0
+                        && bodies.containsKey(supercruiseDropReferenceBodyId)) {
+                    resolvedId = supercruiseDropReferenceBodyId;
+                }
             }
             if (destMirrorSuspiciousNoApproach && resolvedId != null && resolvedId.equals(destBody)) {
                 Integer sticky = lastVisitedNonStarBodyId;
@@ -1424,6 +1529,56 @@ public class SystemTabPanel extends JPanel {
         });
     }
 
+    /**
+     * Journal {@code Scan} with {@code ScanType: Detailed} (DSS / probe mapping): optional ship-ref anchor only.
+     * Does not update {@link #nearBodyId} — table proximity outline stays on real approach / surface telemetry.
+     */
+    private void handleDetailedSurfaceScanProximity(ScanEvent se) {
+        if (se == null) {
+            return;
+        }
+        String scanType = se.getScanType();
+        if (scanType == null || !"Detailed".equalsIgnoreCase(scanType.trim())) {
+            return;
+        }
+        if (ScanParents.scanIndicatesStellarBody(se)) {
+            return;
+        }
+        if (scanBodyNameLooksLikeBeltOrRing(se.getBodyName())) {
+            return;
+        }
+        long cur = state.getSystemAddress();
+        if (cur != 0L && se.getSystemAddress() != 0L && se.getSystemAddress() != cur) {
+            return;
+        }
+        int id = se.getBodyId();
+        if (id < 0 && se.getBodyName() != null && !se.getBodyName().isBlank()) {
+            Integer found = findBodyIdByName(se.getBodyName().trim());
+            id = found != null ? found.intValue() : -1;
+        }
+        if (id < 0) {
+            return;
+        }
+        Integer previousDss = dssDetailedScanReferenceBodyId;
+        dssDetailedScanReferenceBodyId = Integer.valueOf(id);
+        supercruiseDropReferenceBodyId = null;
+
+        boolean dssRefChanged = !Objects.equals(previousDss, dssDetailedScanReferenceBodyId);
+        if (OverlayPreferences.isSystemTabDistanceFromShip() || dssRefChanged) {
+            requestRebuild();
+        }
+    }
+
+    private static boolean scanBodyNameLooksLikeBeltOrRing(String bodyName) {
+        if (bodyName == null) {
+            return false;
+        }
+        String n = bodyName.toLowerCase(Locale.ROOT);
+        return n.contains("belt cluster")
+                || n.contains("ring")
+                || n.contains("belt ");
+    }
+
     private void handleApproachBodyEvent(ApproachBodyEvent ab) {
         if (ab == null) {
             return;
@@ -1472,6 +1627,7 @@ public class SystemTabPanel extends JPanel {
             return;
         }
         approachReferenceBodyId = null;
+        dssDetailedScanReferenceBodyId = null;
         if (OverlayPreferences.isSystemTabDistanceFromShip()) {
             requestRebuild();
         }
@@ -1551,6 +1707,21 @@ public class SystemTabPanel extends JPanel {
         }
     }
 
+    private void hydrateStickyHudTargetFromPrefs(long systemAddress) {
+        Integer stored = OverlayPreferences.getSystemTabStickyHudTargetBodyId(systemAddress);
+        if (stored == null) {
+            stickyHudTargetBodyId = null;
+            return;
+        }
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        if (bodies != null && bodies.containsKey(stored)) {
+            stickyHudTargetBodyId = stored;
+        } else {
+            stickyHudTargetBodyId = null;
+            OverlayPreferences.setSystemTabStickyHudTargetBodyId(systemAddress, null);
+        }
+    }
+
     private void loadSystem(String systemName, long systemAddress, boolean allowEdsmEnrichment) {
         long startedAtMs = System.currentTimeMillis();
         SystemCache cache = SystemCache.getInstance();
@@ -1571,17 +1742,32 @@ public class SystemTabPanel extends JPanel {
         bioColumnHeaderExpandCueHover = false;
         bioAutoExpandedForTargetBodyId = null;
         approachReferenceBodyId = null;
+        dssDetailedScanReferenceBodyId = null;
         supercruiseDropReferenceBodyId = null;
         lastVisitedNonStarBodyId = null;
+        stickyHudTargetBodyId = null;
         lastStatusDockedForShipAnchorUi = null;
 
         // 1) Load from cache if we have it
         if (cs != null) {
             cache.loadInto(state, cs);
         }
+        int bodiesAfterCache = state.getBodies() != null ? state.getBodies().size() : 0;
+        // Cache-only loads pass allowEdsmEnrichment=false; if SQLite still has only a trivial slice of the system
+        // (e.g. one Detailed scan) we still ask EDSM once so the map is usable without a full journal replay.
+        boolean sparseEdsmBackfill = !allowEdsmEnrichment
+                && systemAddress != 0L
+                && systemName != null && !systemName.isBlank()
+                && bodiesAfterCache <= 1;
+        // Binary companion "… <systemName> B" can be present in SQLite with empty starType / NaN distance (never
+        // EDSM-merged after a multi-body cache write). Re-fetch EDSM once so orbit geometry + distances match journal.
+        boolean companionEdsmBackfill = !allowEdsmEnrichment
+                && systemAddress != 0L
+                && systemName != null && !systemName.isBlank()
+                && companionLetterStarLooksIncomplete(state, systemName);
 
         // 2) Optionally enrich with EDSM via a single bodies call.
-        if (allowEdsmEnrichment) {
+        if (allowEdsmEnrichment || sparseEdsmBackfill || companionEdsmBackfill) {
             try {
                 BodiesResponse edsmBodies = edsmClient.showBodies(systemName);
                 if (edsmBodies != null) {
@@ -1592,14 +1778,42 @@ public class SystemTabPanel extends JPanel {
                 ex.printStackTrace();
             }
         }
-
         hydrateLastVisitedStickyFromPrefs(systemAddress);
+        hydrateStickyHudTargetFromPrefs(systemAddress);
 
         // 3) Refresh UI and persist merged result
         rebuildTable();
         persistIfPossible();
         System.out.println("[EDO][Cache] loadSystem lookup+hydrate for " + systemName + " took " + (System.currentTimeMillis() - startedAtMs) + "ms");
     }
+
+    /**
+     * True when the canonical secondary-star row {@code "<systemName> B"} exists but still lacks data EDSM can
+     * supply (star class, distance to arrival), which breaks binary orbit layout after a partial journal cache.
+     */
+    private static boolean companionLetterStarLooksIncomplete(SystemState state, String systemName) {
+        if (state == null || state.getBodies() == null || systemName == null || systemName.isBlank()) {
+            return false;
+        }
+        String keyName = systemName.trim() + " B";
+        BodyInfo bStar = null;
+        for (BodyInfo b : state.getBodies().values()) {
+            if (b == null || b.getBodyName() == null) {
+                continue;
+            }
+            if (keyName.equals(b.getBodyName().trim())) {
+                bStar = b;
+                break;
+            }
+        }
+        if (bStar == null) {
+            return false;
+        }
+        boolean missingType = bStar.getStarType() == null || bStar.getStarType().isBlank();
+        boolean missingDist = Double.isNaN(bStar.getDistanceLs()) || bStar.getDistanceLs() <= 0.0;
+        return missingType || missingDist;
+    }
+
     private final AtomicBoolean rebuildPending = new AtomicBoolean(false);
 
     // ---------------------------------------------------------------------
@@ -1618,6 +1832,7 @@ public class SystemTabPanel extends JPanel {
             }
         });
     }
+
     private void rebuildTable() {
         dedupeBodiesByName();
         updateHeaderLabel();
@@ -1648,12 +1863,23 @@ public class SystemTabPanel extends JPanel {
         boolean shipDistMode = OverlayPreferences.isSystemTabDistanceFromShip();
         Map<Integer, Double> shipCentric = shipDistMode ? computeShipCentricDistancesLs() : null;
         boolean shipAnchorMissing = shipDistMode && (shipCentric == null || shipCentric.isEmpty());
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        Map<Integer, Double> geometryFallbackDistLs = null;
+        if (!shipDistMode && bodies != null && !bodies.isEmpty()) {
+            int anchKey = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+            Map<Integer, double[]> posGeom = SystemOrbitGeometry.bodyPositionsMetres(bodies);
+            double[] anchPos = posGeom != null ? posGeom.get(Integer.valueOf(anchKey)) : null;
+            if (anchPos != null && anchPos.length >= 3) {
+                geometryFallbackDistLs = SystemOrbitGeometry.distancesFromPointLs(bodies, anchPos);
+            }
+        }
 
-        List<Row> rows = BioTableBuilder.buildRows(state.getBodies().values(), false,
+        List<Row> rows = BioTableBuilder.buildRows(bodies, false,
                 hiddenBioDetails.isEmpty() ? null : hiddenBioDetails,
                 shipDistMode,
                 shipCentric,
-                shipAnchorMissing);
+                shipAnchorMissing,
+                geometryFallbackDistLs);
         injectIntermediateDestinationRow(rows);
         tableModel.setRows(rows);
         table.getTableHeader().repaint();
@@ -1678,22 +1904,23 @@ public class SystemTabPanel extends JPanel {
             return;
         }
         Instant now = orbitAnimDemoActive ? orbitAnimSimInstant : Instant.now();
-        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, now);
-        Integer anchor = resolveShipAnchorBodyId();
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, now, orbitAnimDemoActive);
+        Integer commanderRefMap = resolvePlanMapShipAnchorBodyId();
         double[] ship = null;
-        if (anchor != null) {
+        if (commanderRefMap != null) {
             ship = SystemOrbitGeometry.shipPositionMetres(
                     bodies,
                     pos,
-                    anchor.intValue(),
+                    commanderRefMap.intValue(),
                     statusLatitude,
                     statusLongitude,
                     statusAltitude,
                     statusPlanetRadius);
         }
+        Integer commanderHighlight = resolveCommanderRefBodyId();
         if (orbitAnimDemoActive) {
             if (systemPlanMapPanel.tryApplyPositionUpdate(
-                    bodies, pos, ship, anchor, nearBodyId, orbitAnimDemoActive)) {
+                    bodies, pos, ship, commanderRefMap, commanderHighlight, orbitAnimDemoActive, now)) {
                 return;
             }
             orbitAnimDemoActive = false;
@@ -1703,11 +1930,13 @@ public class SystemTabPanel extends JPanel {
             if (orbitAnimPlayButton != null) {
                 orbitAnimPlayButton.setSelected(false);
             }
-            systemPlanMapPanel.setScene(bodies, pos, ship, anchor, nearBodyId, orbitAnimDemoActive);
+            systemPlanMapPanel.setScene(bodies, pos, ship, commanderRefMap, commanderHighlight,
+                    orbitAnimDemoActive, now);
             systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
             return;
         }
-        systemPlanMapPanel.setScene(bodies, pos, ship, anchor, nearBodyId, orbitAnimDemoActive);
+        systemPlanMapPanel.setScene(bodies, pos, ship, commanderRefMap, commanderHighlight,
+                orbitAnimDemoActive, now);
     }
 
     private void tickOrbitAnimDemo() {
@@ -4074,21 +4303,45 @@ static class Row {
     }
 
     /**
-     * Body whose centre (plus optional Status lat/lon/alt) anchors the commander for ship-centric distances and the
-     * plan-map “You” marker. Uses proximity-style signals only (not HUD target / destination): surface fix on
-     * {@link #nearBodyId}, journal {@code ApproachBody}, journal {@code SupercruiseExit} drop body (wide-orbit
-     * fallback when Approach never fires), then carrier parked when {@link SystemState#isDocked()} and in
-     * scope, then Status near-body, then {@link #lastVisitedNonStarBodyId} (persisted sticky) before falling back to
-     * the primary star (body {@code 0}) when present. After a personal {@code FSDJump}, near-body and sticky for that
-     * destination are cleared on the EDT so stale Status does not anchor the wrong body until fresh telemetry arrives.
-     * HUD station/body targets do not move this anchor.
-     * The table proximity outline follows {@link #nearBodyId} only (no sticky-only fallback so the box clears when
-     * you leave a body).
+     * Fleet carrier parked orbit body while docked: used as commander anchor for both ship-ref modes when in scope.
      */
-    private Integer resolveShipAnchorBodyId() {
+    private Integer resolveFleetCarrierParkedBodyForAnchor(Map<Integer, BodyInfo> bodies) {
+        if (!state.isDocked()) {
+            return null;
+        }
+        Integer parked = state.getCarrierParkedBodyId();
+        long parkedSys = state.getCarrierParkedSystemAddress();
+        long curSys = state.getSystemAddress();
+        boolean scopedOk = parked != null && parked.intValue() > 0 && bodies.containsKey(parked)
+                && ((parkedSys != 0L && parkedSys == curSys) || (parkedSys == 0L));
+        return scopedOk ? parked : null;
+    }
+
+    /**
+     * Body whose centre (plus optional Status lat/lon/alt) anchors ship-centric distances and the distance column
+     * when “from ship” / targeted mode applies. See {@link SystemTabShipRefMode} (Overlay preferences → System tab).
+     * <p>
+     * The orbit schematic map’s ▲ “You” label is {@link #resolvePlanMapShipAnchorBodyId()} instead — it never follows
+     * HUD {@link #targetBodyId} so FSS scan targets do not pin You on the wrong world.
+     * </p>
+     * <p>
+     * Both modes: docked on a fleet carrier (journal parked body in scope) → that parked body. Otherwise a surface
+     * fix ties to {@link #nearBodyId}. {@link SystemTabShipRefMode#APPROACH_BODY}: ApproachBody, journal
+     * {@code Scan} with {@code ScanType: Detailed} (DSS ship-ref only), supercruise exit drop, Status near-body, persisted
+     * last-visited sticky, primary star. {@link SystemTabShipRefMode#TARGETED_BODY}: active ApproachBody / DSS
+     * detailed scan first, then HUD body target, then sticky last HUD target until another is chosen, then the same
+     * proximity fallbacks as approach mode.
+     * </p>
+     * The table proximity outline still follows {@link #nearBodyId} only.
+     */
+    private Integer resolveCommanderRefBodyId() {
         Map<Integer, BodyInfo> bodies = state.getBodies();
         if (bodies == null || bodies.isEmpty()) {
             return null;
+        }
+        Integer fc = resolveFleetCarrierParkedBodyForAnchor(bodies);
+        if (fc != null) {
+            return fc;
         }
         boolean hasSurfaceFix = statusLatitude != null && statusLongitude != null
                 && statusAltitude != null && statusPlanetRadius != null
@@ -4096,26 +4349,49 @@ static class Row {
         if (hasSurfaceFix && nearBodyId != null && bodies.containsKey(nearBodyId)) {
             return nearBodyId;
         }
-        Integer ap = approachReferenceBodyId;
-        if (ap != null && ap.intValue() > 0 && bodies.containsKey(ap)) {
+
+        SystemTabShipRefMode mode = OverlayPreferences.getSystemTabShipRefMode();
+        if (mode == SystemTabShipRefMode.TARGETED_BODY) {
+            Integer ap = resolveJournalShipRefBodyId(bodies);
+            if (ap != null) {
+                return ap;
+            }
+            if (targetBodyId != null && bodies.containsKey(targetBodyId)) {
+                return targetBodyId;
+            }
+            Integer stickyTgt = stickyHudTargetBodyId;
+            if (stickyTgt != null && bodies.containsKey(stickyTgt)) {
+                return stickyTgt;
+            }
+            Integer drop = supercruiseDropReferenceBodyId;
+            if (drop != null && drop.intValue() > 0 && bodies.containsKey(drop)) {
+                return drop;
+            }
+            Integer nb = nearBodyId;
+            if (nb != null && nb.intValue() >= 0 && bodies.containsKey(nb)) {
+                return nb;
+            }
+            Integer sticky = lastVisitedNonStarBodyId;
+            if (sticky != null && sticky.intValue() > 0 && bodies.containsKey(sticky)) {
+                return sticky;
+            }
+            if (bodies.containsKey(Integer.valueOf(0))) {
+                return Integer.valueOf(0);
+            }
+            int anch = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+            if (bodies.containsKey(Integer.valueOf(anch))) {
+                return Integer.valueOf(anch);
+            }
+            return null;
+        }
+
+        Integer ap = resolveJournalShipRefBodyId(bodies);
+        if (ap != null) {
             return ap;
         }
         Integer drop = supercruiseDropReferenceBodyId;
         if (drop != null && drop.intValue() > 0 && bodies.containsKey(drop)) {
             return drop;
-        }
-        // Fleet carrier service body (only while docked): journal Location, CarrierJump, and CarrierLocation carry
-        // BodyID for the world the carrier orbits; Status often omits it while aboard. Scoped to
-        // carrierParkedSystemAddress so a personal FSD to another system does not mis-apply the same numeric id there.
-        if (state.isDocked()) {
-            Integer parked = state.getCarrierParkedBodyId();
-            long parkedSys = state.getCarrierParkedSystemAddress();
-            long curSys = state.getSystemAddress();
-            boolean scopedOk = parked != null && parked.intValue() > 0 && bodies.containsKey(parked)
-                    && ((parkedSys != 0L && parkedSys == curSys) || (parkedSys == 0L));
-            if (scopedOk) {
-                return parked;
-            }
         }
         Integer nb = nearBodyId;
         if (nb != null && nb.intValue() >= 0 && bodies.containsKey(nb)) {
@@ -4127,6 +4403,73 @@ static class Row {
         }
         if (bodies.containsKey(Integer.valueOf(0))) {
             return Integer.valueOf(0);
+        }
+        int anch = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+        if (bodies.containsKey(Integer.valueOf(anch))) {
+            return Integer.valueOf(anch);
+        }
+        return null;
+    }
+
+    /**
+     * Orbit schematic map “▲ You” anchor only: never HUD {@link #targetBodyId}/{@link #stickyHudTargetBodyId} —
+     * FSS/analysis targets Elite mirrors into Destination would otherwise pin You on rings you only zoomed toward.
+     * Ship-centric distance mode still uses {@link #resolveCommanderRefBodyId()} (may follow HUD target in
+     * {@link SystemTabShipRefMode#TARGETED_BODY}).
+     */
+    private Integer resolvePlanMapShipAnchorBodyId() {
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        if (bodies == null || bodies.isEmpty()) {
+            return null;
+        }
+        Integer fc = resolveFleetCarrierParkedBodyForAnchor(bodies);
+        if (fc != null) {
+            return fc;
+        }
+        boolean hasSurfaceFix = statusLatitude != null && statusLongitude != null
+                && statusAltitude != null && statusPlanetRadius != null
+                && statusPlanetRadius.doubleValue() > 1.0;
+        if (hasSurfaceFix && nearBodyId != null && bodies.containsKey(nearBodyId)) {
+            return nearBodyId;
+        }
+        Integer ap = resolveJournalShipRefBodyId(bodies);
+        if (ap != null) {
+            return ap;
+        }
+        Integer drop = supercruiseDropReferenceBodyId;
+        if (drop != null && drop.intValue() > 0 && bodies.containsKey(drop)) {
+            return drop;
+        }
+        Integer nb = nearBodyId;
+        if (nb != null && nb.intValue() >= 0 && bodies.containsKey(nb)) {
+            return nb;
+        }
+        Integer sticky = lastVisitedNonStarBodyId;
+        if (sticky != null && sticky.intValue() > 0 && bodies.containsKey(sticky)) {
+            return sticky;
+        }
+        if (bodies.containsKey(Integer.valueOf(0))) {
+            return Integer.valueOf(0);
+        }
+        int anch = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+        if (bodies.containsKey(Integer.valueOf(anch))) {
+            return Integer.valueOf(anch);
+        }
+        return null;
+    }
+
+    /** ApproachBody first, then DSS detailed scan — never used for {@link #nearBodyId} / table proximity outline. */
+    private Integer resolveJournalShipRefBodyId(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || bodies.isEmpty()) {
+            return null;
+        }
+        Integer ap = approachReferenceBodyId;
+        if (ap != null && ap.intValue() > 0 && bodies.containsKey(ap)) {
+            return ap;
+        }
+        Integer dss = dssDetailedScanReferenceBodyId;
+        if (dss != null && dss.intValue() > 0 && bodies.containsKey(dss)) {
+            return dss;
         }
         return null;
     }
@@ -4140,7 +4483,7 @@ static class Row {
         if (bodies == null || bodies.isEmpty()) {
             return Collections.emptyMap();
         }
-        Integer shipRef = resolveShipAnchorBodyId();
+        Integer shipRef = resolveCommanderRefBodyId();
         if (shipRef == null) {
             return Collections.emptyMap();
         }

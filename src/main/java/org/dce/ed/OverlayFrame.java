@@ -1419,6 +1419,14 @@ private void refreshPassThroughUnifiedStatus() {
         repaint();
     }
 
+    @Override
+    public void refreshSystemTabFromSavedPreferences() {
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs != null) {
+            tabs.getSystemTabPanel().refreshFromSavedOverlayPreferences();
+        }
+    }
+
     public void applyUiFontPreview(java.awt.Font font) {
         if (font == null) {
             return;
