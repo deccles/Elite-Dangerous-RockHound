@@ -12,6 +12,7 @@ import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
+import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ScanEvent;
@@ -218,6 +219,8 @@ public class RescanJournalsMain {
 
 		// Track latest carrier-related event so we can update session state for overlay countdown.
 		EliteLogEvent latestCarrierEvent = null;
+		CarrierJumpRequestEvent openCarrierJumpRequest = null;
+		Instant carrierJumpCompletionTime = null;
 
 		String prevBulkCacheWrite = System.getProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY);
 		final int eventCount = events.size();
@@ -239,12 +242,37 @@ public class RescanJournalsMain {
 				newestEventTimestamp = ts;
 			}
 
-			// Carrier jump: countdown request, jump happened, or cancelled.
-			if (event instanceof CarrierJumpRequestEvent
-					|| event.getType() == EliteEventType.CARRIER_JUMP
-					|| event.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
+			// Carrier jump: countdown request, jump completion, or cancelled.
+			if (event instanceof CarrierJumpRequestEvent req) {
+				openCarrierJumpRequest = req;
 				if (ts != null && (latestCarrierEvent == null || ts.isAfter(latestCarrierEvent.getTimestamp()))) {
 					latestCarrierEvent = event;
+				}
+			} else if (event.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
+				openCarrierJumpRequest = null;
+				if (ts != null && (latestCarrierEvent == null || ts.isAfter(latestCarrierEvent.getTimestamp()))) {
+					latestCarrierEvent = event;
+				}
+			} else if (event.getType() == EliteEventType.CARRIER_JUMP) {
+				openCarrierJumpRequest = null;
+				if (ts != null) {
+					carrierJumpCompletionTime = ts;
+					if (latestCarrierEvent == null || ts.isAfter(latestCarrierEvent.getTimestamp())) {
+						latestCarrierEvent = event;
+					}
+				}
+			} else if (event instanceof CarrierLocationEvent loc && openCarrierJumpRequest != null && ts != null) {
+				CarrierJumpRequestEvent req = openCarrierJumpRequest;
+				Instant dep = req.getDepartureTime();
+				if (dep != null
+						&& CarrierJumpCooldown.isCarrierLocationJumpArrival(ts, dep)
+						&& CarrierJumpCooldown.carrierLocationMatchesPendingJump(
+								loc.getStarSystem(),
+								loc.getSystemAddress(),
+								req.getSystemName(),
+								Long.valueOf(req.getSystemAddress()))) {
+					carrierJumpCompletionTime = ts;
+					openCarrierJumpRequest = null;
 				}
 			}
 
@@ -356,20 +384,43 @@ public class RescanJournalsMain {
 			sessionState.setCarrierParkedBodyId(replayParkedBody);
 			sessionState.setCarrierParkedSystemAddress(replayParkedSys != 0L ? Long.valueOf(replayParkedSys) : null);
 		}
-		if (latestCarrierEvent != null) {
+		if (carrierJumpCompletionTime != null) {
+			Instant now = Instant.now();
+			sessionState.setCarrierJumpDepartureTime(null);
+			sessionState.setCarrierJumpTargetSystem(null);
+			Instant cooldownEnd = CarrierJumpCooldown.cooldownEndFromJump(carrierJumpCompletionTime);
+			if (cooldownEnd != null && cooldownEnd.isAfter(now)) {
+				sessionState.setCarrierJumpCooldownEndTime(cooldownEnd.toString());
+			} else {
+				sessionState.setCarrierJumpCooldownEndTime(null);
+			}
+		} else if (latestCarrierEvent != null) {
+			Instant now = Instant.now();
 			if (latestCarrierEvent instanceof CarrierJumpRequestEvent) {
 				CarrierJumpRequestEvent req = (CarrierJumpRequestEvent) latestCarrierEvent;
 				Instant dep = req.getDepartureTime();
-				if (dep != null && dep.isAfter(Instant.now())) {
+				if (dep != null && dep.isAfter(now)) {
 					sessionState.setCarrierJumpDepartureTime(dep.toString());
 					sessionState.setCarrierJumpTargetSystem(req.getSystemName());
 				} else {
 					sessionState.setCarrierJumpDepartureTime(null);
 					sessionState.setCarrierJumpTargetSystem(null);
 				}
+				sessionState.setCarrierJumpCooldownEndTime(null);
+			} else if (latestCarrierEvent.getType() == EliteEventType.CARRIER_JUMP) {
+				sessionState.setCarrierJumpDepartureTime(null);
+				sessionState.setCarrierJumpTargetSystem(null);
+				Instant jumpTs = latestCarrierEvent.getTimestamp();
+				Instant cooldownEnd = CarrierJumpCooldown.cooldownEndFromJump(jumpTs);
+				if (cooldownEnd != null && cooldownEnd.isAfter(now)) {
+					sessionState.setCarrierJumpCooldownEndTime(cooldownEnd.toString());
+				} else {
+					sessionState.setCarrierJumpCooldownEndTime(null);
+				}
 			} else {
 				sessionState.setCarrierJumpDepartureTime(null);
 				sessionState.setCarrierJumpTargetSystem(null);
+				sessionState.setCarrierJumpCooldownEndTime(null);
 			}
 		}
 		EdoSessionPersistence.save(sessionState);

@@ -32,7 +32,7 @@ public final class ValuableBodyExplorationEstimate {
         if (pc.contains("earth-like") || pc.contains("earthlike")) {
             return Long.valueOf(ELW_TYPICAL);
         }
-        if (pc.contains("water world")) {
+        if (pc.contains("water world") || pc.contains("water giant")) {
             return Long.valueOf(WW_AW_TYPICAL);
         }
         if (pc.contains("ammonia world")) {

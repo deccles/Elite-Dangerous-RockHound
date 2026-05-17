@@ -693,7 +693,9 @@ public class EdsmClient {
             String pc = toLower(remote.subType);
             boolean highValue =
                     pc.contains("earth-like")
+                            || pc.contains("earthlike")
                             || pc.contains("water world")
+                            || pc.contains("water giant")
                             || pc.contains("ammonia world")
                             || TerraformingUtil.isTerraformableExplorationTier(remote.terraformingState);
             info.setHighValue(highValue);

@@ -1,0 +1,59 @@
+{
+  "name": "Byua Aim SZ-G d10-2113",
+  "notes": "Planet-binary 1 b / 1 c on Null:12 near gas giant 1 (~2250 Ls). Barycentre must not sit on the star.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Byua Aim SZ-G d10-2113",
+      "shortName": "Byua Aim SZ-G d10-2113",
+      "distanceLs": 0,
+      "starType": "F",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 10,
+      "bodyName": "Byua Aim SZ-G d10-2113 1",
+      "shortName": "1",
+      "distanceLs": 2250.91,
+      "planetClass": "Sudarsky class I gas giant",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 12,
+      "bodyName": "Byua Aim SZ-G d10-2113 barycentre 12",
+      "shortName": "bary 12",
+      "distanceLs": 7.0,
+      "scanBarycentreRow": true,
+      "semiMajorAxisM": 2030467450.0
+    },
+    {
+      "id": 13,
+      "bodyName": "Byua Aim SZ-G d10-2113 1 b",
+      "shortName": "1 b",
+      "distanceLs": 2250.79,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 12
+    },
+    {
+      "id": 14,
+      "bodyName": "Byua Aim SZ-G d10-2113 1 c",
+      "shortName": "1 c",
+      "distanceLs": 2250.82,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 12
+    }
+  ],
+  "expect": {
+    "layoutKind": "SINGLE_STAR_SCHEMATIC",
+    "mapStellarCount": 1,
+    "hasPlanetBinaryMutualRing": true,
+    "planetBinaryNullId": 12,
+    "barycentreMinDistanceFromStarLs": 500,
+    "bodiesOnMutualRing": ["1 b", "1 c"],
+    "bodiesWithoutOwnOrbitRing": ["1 b", "1 c"],
+    "parents": [
+      { "body": "1 b", "resolvesTo": "planetBinary:12" },
+      { "body": "1 c", "resolvesTo": "planetBinary:12" }
+    ]
+  }
+}

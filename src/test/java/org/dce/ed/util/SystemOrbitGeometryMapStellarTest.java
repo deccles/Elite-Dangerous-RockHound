@@ -3,6 +3,9 @@ package org.dce.ed.util;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.dce.ed.state.BodyInfo;
 import org.junit.jupiter.api.Test;
 
@@ -51,5 +54,18 @@ class SystemOrbitGeometryMapStellarTest {
         BodyInfo g = new BodyInfo();
         g.setBodyShortName("2");
         assertFalse(SystemOrbitGeometry.isMoonSatelliteBody(g));
+    }
+
+    @Test
+    void isMoonSatelliteBody_falseForPlanetBinaryCoOrbiterDespiteName() {
+        Map<Integer, BodyInfo> bodies = new HashMap<>();
+        BodyInfo bary = new BodyInfo();
+        bary.setScanBarycentreRow(true);
+        bodies.put(Integer.valueOf(12), bary);
+        BodyInfo co = new BodyInfo();
+        co.setBodyShortName("1 b");
+        co.setImmediateParentBodyId(12);
+        assertFalse(SystemOrbitGeometry.isMoonSatelliteBody(co, bodies));
+        assertTrue(SystemOrbitGeometry.isMoonSatelliteBody(co));
     }
 }

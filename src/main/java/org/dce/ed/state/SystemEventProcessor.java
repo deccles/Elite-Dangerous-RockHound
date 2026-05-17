@@ -15,6 +15,9 @@ import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.exobiology.NebulaGuardianClassifier;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
+import org.dce.ed.logreader.FleetCarrierCommanderPresence;
+
+import com.google.gson.JsonObject;
 import org.dce.ed.logreader.LiveJournalMonitor;
 import org.dce.ed.logreader.event.BioScanPredictionEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
@@ -56,6 +59,7 @@ public class SystemEventProcessor {
     private Double lastLongitude;
     private String lastBodyName;
     private boolean lastOnFootOrSrv;
+    private final FleetCarrierCommanderPresence fleetCarrierPresence = new FleetCarrierCommanderPresence();
 
     public SystemEventProcessor(String clientKey, SystemState state) {
         this(clientKey, state, null);
@@ -95,9 +99,10 @@ public class SystemEventProcessor {
                 state.setDocked(e.getDocked().booleanValue());
             }
             // Personal FSD does not move the fleet carrier; keep last journal-known orbit (body + system).
+            fleetCarrierPresence.onPersonalFsdJump(e);
+            syncCommanderAboardFleetCarrier();
 
             // Normal ship FSD jumps have docked == null => always update system.
-            // CarrierJump may include Docked=true/false => only update if Docked==true.
             if (e.getDocked() == null || e.getDocked()) {
                 enterSystem(e.getStarSystem(), e.getSystemAddress(), e.getStarPos());
             }
@@ -107,7 +112,9 @@ public class SystemEventProcessor {
         if (event instanceof CarrierJumpEvent) {
             CarrierJumpEvent e = (CarrierJumpEvent) event;
             state.setDocked(e.isDocked());
-            if (e.isDocked()) {
+            fleetCarrierPresence.onCarrierJump(e);
+            syncCommanderAboardFleetCarrier();
+            if (fleetCarrierPresence.shouldCarrierJumpMoveCommander(e)) {
                 enterSystem(e.getStarSystem(), e.getSystemAddress(), e.getStarPos());
             }
             assignCarrierParkedOrbit(e.getBodyId(), e.getSystemAddress());
@@ -117,13 +124,36 @@ public class SystemEventProcessor {
         // Elite often emits CarrierLocation (not Location) when aboard a fleet carrier; BodyID is the orbit body.
         if (event instanceof CarrierLocationEvent) {
             CarrierLocationEvent e = (CarrierLocationEvent) event;
-            enterSystem(e.getStarSystem(), e.getSystemAddress(), state.getStarPos());
+            if (fleetCarrierPresence.shouldCarrierLocationMoveCommander()) {
+                enterSystem(e.getStarSystem(), e.getSystemAddress(), state.getStarPos());
+            }
             assignCarrierParkedOrbit(e.getBodyId(), e.getSystemAddress());
+            return;
+        }
+
+        if (event.getType() == EliteEventType.DOCKED) {
+            state.setDocked(true);
+            JsonObject obj = event.getRawJson();
+            fleetCarrierPresence.onDocked(obj);
+            syncCommanderAboardFleetCarrier();
+            if (obj != null) {
+                int bodyId = obj.has("BodyID") && !obj.get("BodyID").isJsonNull()
+                        ? obj.get("BodyID").getAsInt()
+                        : -1;
+                long systemAddress = obj.has("SystemAddress") && !obj.get("SystemAddress").isJsonNull()
+                        ? obj.get("SystemAddress").getAsLong()
+                        : state.getSystemAddress();
+                if (bodyId > 0) {
+                    assignCarrierParkedOrbit(bodyId, systemAddress);
+                }
+            }
             return;
         }
 
         if (event.getType() == EliteEventType.UNDOCKED) {
             state.setDocked(false);
+            fleetCarrierPresence.onUndocked(event.getRawJson());
+            syncCommanderAboardFleetCarrier();
             return;
         }
 
@@ -201,6 +231,10 @@ public class SystemEventProcessor {
     // ---------------------------------------------------------------------
     // System transition handling
     // ---------------------------------------------------------------------
+
+    private void syncCommanderAboardFleetCarrier() {
+        state.setCommanderAboardFleetCarrier(fleetCarrierPresence.isAboard());
+    }
 
     /** Last known carrier orbit from journal; not cleared on commander FSD. */
     private void assignCarrierParkedOrbit(int bodyId, long systemAddress) {

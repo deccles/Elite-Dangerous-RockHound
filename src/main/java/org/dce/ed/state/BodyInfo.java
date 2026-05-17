@@ -564,6 +564,26 @@ public class BodyInfo {
 	}
 
 	/**
+	 * Whether the system-tab bio column would show the leaf icon (FSS/journal bio, not Spansh-excluded).
+	 */
+	public boolean showsExobiologyLeafIndicator() {
+		if (!hasBio()) {
+			return false;
+		}
+		if (!Boolean.TRUE.equals(getSpanshExcludeFromExobiology())) {
+			return true;
+		}
+		Integer sig = getNumberOfBioSignals();
+		if (sig != null && sig.intValue() > 0) {
+			return true;
+		}
+		if (getObservedBioDisplayNames() != null && !getObservedBioDisplayNames().isEmpty()) {
+			return true;
+		}
+		return getObservedGenusPrefixes() != null && !getObservedGenusPrefixes().isEmpty();
+	}
+
+	/**
 	 * Convenience helper: true if EDSM reports a non-empty discovery.commander
 	 * for this body.
 	 */

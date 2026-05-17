@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.testutil.OrbitGeometryTestSupport;
 import org.dce.ed.util.SystemOrbitGeometry;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -25,9 +26,12 @@ class SystemMapFixtureTest {
     static Stream<String> fixtureFiles() {
         return Stream.of(
                 "tt-x-c15-29-two-star-binary.json",
+                "two-star-primary-parents-to-companion.json",
                 "st-x-c15-294-wide-binary-planets.json",
                 "tt-x-c15-283-binary-elw.json",
-                "c16-241-single-k-star.json");
+                "c16-241-single-k-star.json",
+                "sz-g-d10-2113-planet-binary.json",
+                "gas-giant-2-binary-moons.json");
     }
 
     @ParameterizedTest(name = "{0}")
@@ -79,11 +83,37 @@ class SystemMapFixtureTest {
                 int pId = SystemMapRules.resolveOrbitParentBodyId(child, bodies, childId);
                 if ("barycentre".equalsIgnoreCase(pe.resolvesTo)) {
                     assertTrue(pId < 0, pe.body + " should orbit barycentre, got parent " + pId);
+                } else if (pe.resolvesTo != null && pe.resolvesTo.startsWith("planetBinary:")) {
+                    int nullId = Integer.parseInt(pe.resolvesTo.substring("planetBinary:".length()));
+                    assertTrue(SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(pId),
+                            pe.body + " should orbit planet-binary barycentre");
+                    assertEquals(SystemOrbitGeometry.planetBinaryBarycentreMapKey(nullId), pId);
                 } else {
                     int expParentId = fixture.bodyIdByLabel(pe.resolvesTo);
                     assertTrue(expParentId >= 0, pe.resolvesTo);
                     assertEquals(expParentId, pId, "parent of " + pe.body);
                 }
+            }
+        }
+        if (Boolean.TRUE.equals(exp.hasPlanetBinaryMutualRing) && exp.planetBinaryNullId != null) {
+            assertNotNull(OrbitGeometryTestSupport.findPlanetBinaryMutualRing(model, exp.planetBinaryNullId.intValue()),
+                    "planet-binary mutual ring Null:" + exp.planetBinaryNullId);
+        }
+        if (exp.barycentreMinDistanceFromStarLs != null && exp.planetBinaryNullId != null) {
+            OrbitGeometryTestSupport.assertBarycentreFarFromStar(model, bodies, exp.planetBinaryNullId.intValue(),
+                    exp.barycentreMinDistanceFromStarLs.doubleValue());
+        }
+        if (exp.bodiesOnMutualRing != null && exp.planetBinaryNullId != null) {
+            for (String label : exp.bodiesOnMutualRing) {
+                OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, label,
+                        exp.planetBinaryNullId.intValue(), 0.3);
+            }
+        }
+        if (exp.bodiesWithoutOwnOrbitRing != null) {
+            for (String label : exp.bodiesWithoutOwnOrbitRing) {
+                int id = fixture.bodyIdByLabel(label);
+                assertTrue(id >= 0, label);
+                assertFalse(model.hasOrbitRingForBody(id), label + " uses mutual ring, not per-body stroke");
             }
         }
         if (exp.labelsWhenZoomedOut != null) {
@@ -120,6 +150,7 @@ class SystemMapFixtureTest {
     static Stream<String> wideBinaryFixtures() {
         return Stream.of(
                 "tt-x-c15-29-two-star-binary.json",
+                "two-star-primary-parents-to-companion.json",
                 "st-x-c15-294-wide-binary-planets.json",
                 "tt-x-c15-283-binary-elw.json");
     }

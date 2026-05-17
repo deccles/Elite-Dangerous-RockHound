@@ -27,6 +27,8 @@ public final class SystemMapFixture {
         public Integer immediateParentBodyId;
         public Boolean parentIsBarycentre;
         public Double semiMajorAxisM;
+        /** Journal {@code ScanBaryCentre} sentinel row for planet-binary {@code Null:N}. */
+        public Boolean scanBarycentreRow;
     }
 
     public static final class Expect {
@@ -35,6 +37,12 @@ public final class SystemMapFixture {
         public List<String> barycentricStarLabels;
         public Boolean barycentreRecentred;
         public Boolean hasBarycentreMutualRing;
+        /** Planet–planet binary: shared mutual ring at {@link #planetBinaryNullId}. */
+        public Boolean hasPlanetBinaryMutualRing;
+        public Integer planetBinaryNullId;
+        public Double barycentreMinDistanceFromStarLs;
+        public List<String> bodiesOnMutualRing;
+        public List<String> bodiesWithoutOwnOrbitRing;
         public List<String> planetsRequiringRings;
         public List<ParentExpect> parents;
         public List<LabelExpect> labelsWhenZoomedOut;
@@ -77,6 +85,9 @@ public final class SystemMapFixture {
             }
             if (spec.semiMajorAxisM != null) {
                 b.setSemiMajorAxisM(spec.semiMajorAxisM);
+            }
+            if (Boolean.TRUE.equals(spec.scanBarycentreRow)) {
+                b.setScanBarycentreRow(true);
             }
             if (Boolean.TRUE.equals(spec.parentIsBarycentre)) {
                 b.setImmediateParentBodyId(0);

@@ -42,6 +42,8 @@ public class SystemState {
     private Double fssProgress;
     /** Last known docked state from journal/status events. */
     private volatile boolean docked;
+    /** Commander is aboard their fleet carrier (docked or on-foot on the carrier deck). */
+    private volatile boolean commanderAboardFleetCarrier;
     /**
      * Last journal-known orbit body for your fleet carrier (or the carrier you are aboard): gas giant / moon
      * {@code BodyID}. Filled from {@code Location} (docked), {@code CarrierJump}, and {@code CarrierLocation}.
@@ -72,6 +74,7 @@ public class SystemState {
         allBodiesFound = null;
         edsmBodyCount = null;
         docked = false;
+        commanderAboardFleetCarrier = false;
         carrierParkedBodyId = null;
         carrierParkedSystemAddress = 0L;
 
@@ -144,6 +147,14 @@ public class SystemState {
 
     public void setDocked(boolean docked) {
         this.docked = docked;
+    }
+
+    public boolean isCommanderAboardFleetCarrier() {
+        return commanderAboardFleetCarrier;
+    }
+
+    public void setCommanderAboardFleetCarrier(boolean commanderAboardFleetCarrier) {
+        this.commanderAboardFleetCarrier = commanderAboardFleetCarrier;
     }
 
     /**

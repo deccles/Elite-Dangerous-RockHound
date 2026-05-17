@@ -36,6 +36,7 @@ public class CarrierJumpEvent extends EliteLogEvent implements IFsdJump {
     }
 
     private final boolean docked;
+    private final boolean onFoot;
     private final String stationName;
     private final String stationType;
     private final long marketId;
@@ -76,6 +77,7 @@ public class CarrierJumpEvent extends EliteLogEvent implements IFsdJump {
     public CarrierJumpEvent(Instant timestamp,
                             JsonObject json,
                             boolean docked,
+                            boolean onFoot,
                             String stationName,
                             String stationType,
                             long marketId,
@@ -108,6 +110,7 @@ public class CarrierJumpEvent extends EliteLogEvent implements IFsdJump {
         super(timestamp, EliteEventType.CARRIER_JUMP, json);
 
         this.docked = docked;
+        this.onFoot = onFoot;
         this.stationName = stationName;
         this.stationType = stationType;
         this.marketId = marketId;
@@ -148,6 +151,10 @@ public class CarrierJumpEvent extends EliteLogEvent implements IFsdJump {
 
     public boolean isDocked() {
         return docked;
+    }
+
+    public boolean isOnFoot() {
+        return onFoot;
     }
 
     public String getStationName() {

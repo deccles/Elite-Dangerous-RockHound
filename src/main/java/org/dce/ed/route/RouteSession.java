@@ -1,9 +1,11 @@
 package org.dce.ed.route;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.dce.ed.logreader.CarrierJumpCooldown;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
@@ -36,6 +38,7 @@ public final class RouteSession {
     private String pendingJumpSystemName;
     private String pendingJumpLockedName;
     private long pendingJumpLockedAddress;
+    private Instant pendingJumpDepartureTime;
     private boolean inHyperspace;
 
     private long displayRevision;
@@ -88,6 +91,10 @@ public final class RouteSession {
 
     public long getPendingJumpLockedAddress() {
         return pendingJumpLockedAddress;
+    }
+
+    public Instant getPendingJumpDepartureTime() {
+        return pendingJumpDepartureTime;
     }
 
     public boolean isInHyperspace() {
@@ -243,6 +250,7 @@ public final class RouteSession {
         pendingJumpSystemName = null;
         pendingJumpLockedName = null;
         pendingJumpLockedAddress = 0L;
+        pendingJumpDepartureTime = null;
     }
 
     private RouteJournalApplyOutcome applyStatusEvent(StatusEvent se) {
@@ -282,8 +290,13 @@ public final class RouteSession {
 
     /** Fleet carrier pending-jump blink (mirrors Status charging latch). */
     public void startCarrierPendingJumpBlink(String destName, long destAddress) {
+        startCarrierPendingJumpBlink(destName, destAddress, null);
+    }
+
+    public void startCarrierPendingJumpBlink(String destName, long destAddress, Instant departureTime) {
         pendingJumpLockedName = (destName != null && !destName.isBlank()) ? destName : null;
         pendingJumpLockedAddress = destAddress;
+        pendingJumpDepartureTime = departureTime;
         pendingJumpSystemName = pendingJumpLockedName;
         jumpFlash.startTimer();
     }
@@ -293,6 +306,30 @@ public final class RouteSession {
         pendingJumpSystemName = null;
         pendingJumpLockedName = null;
         pendingJumpLockedAddress = 0L;
+        pendingJumpDepartureTime = null;
+    }
+
+    /**
+     * Off-carrier commanders get {@code CarrierLocation} at {@code DepartureTime} instead of {@code CarrierJump}.
+     */
+    public boolean isPendingCarrierJumpArrival(CarrierLocationEvent loc) {
+        if (loc == null) {
+            return false;
+        }
+        boolean hasPending = (pendingJumpLockedName != null && !pendingJumpLockedName.isBlank())
+                || pendingJumpLockedAddress != 0L;
+        if (!hasPending) {
+            return false;
+        }
+        Long pendingAddr = pendingJumpLockedAddress != 0L ? Long.valueOf(pendingJumpLockedAddress) : null;
+        if (!CarrierJumpCooldown.carrierLocationMatchesPendingJump(
+                loc.getStarSystem(), loc.getSystemAddress(), pendingJumpLockedName, pendingAddr)) {
+            return false;
+        }
+        if (pendingJumpDepartureTime != null) {
+            return CarrierJumpCooldown.isCarrierLocationJumpArrival(loc.getTimestamp(), pendingJumpDepartureTime);
+        }
+        return true;
     }
 
     public RoutePersistenceSnapshot toPersistenceSnapshot() {

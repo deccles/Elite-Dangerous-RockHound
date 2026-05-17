@@ -23,6 +23,15 @@ class ScanParentsTest {
     }
 
     @Test
+    void nonStellar_prefersNullBarycentreOverPlanetHost() {
+        ScanEvent scan = minimalPlanetScan(List.of(
+                new ParentRef("Null", 12),
+                new ParentRef("Planet", 10),
+                new ParentRef("Star", 0)));
+        assertEquals(12, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
+    }
+
+    @Test
     void nonStellar_prefersNullBarycentreWhenStarListedSecond() {
         ScanEvent scan = minimalPlanetScan(List.of(new ParentRef("Null", 13), new ParentRef("Star", 0)));
         assertEquals(13, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
@@ -56,6 +65,21 @@ class ScanParentsTest {
     void scanIndicatesStellarBody_starTypeOnly() {
         ScanEvent scan = minimalStarScan(List.of(new ParentRef("Null", 0)));
         assertTrue(ScanParents.scanIndicatesStellarBody(scan));
+    }
+
+    @Test
+    void nonStellar_nullOnlyBeforeStar() {
+        ScanEvent scan = minimalPlanetScan(List.of(new ParentRef("Null", 25), new ParentRef("Star", 0)));
+        assertEquals(25, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
+    }
+
+    @Test
+    void nonStellar_planetBeforeNullInList_stillPrefersNull() {
+        ScanEvent scan = minimalPlanetScan(List.of(
+                new ParentRef("Planet", 20),
+                new ParentRef("Null", 25),
+                new ParentRef("Star", 0)));
+        assertEquals(25, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
     }
 
     private static ScanEvent minimalPlanetScan(List<ParentRef> parents) {

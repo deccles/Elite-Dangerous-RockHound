@@ -158,6 +158,53 @@ public final class ExplorationBodyCredits {
         return at != null ? at.trim() : "";
     }
 
+    /** System map dot colours (FSS scanner family). */
+    public enum SystemMapDotKind {
+        DEFAULT,
+        /** Earth-like — green on the in-game FSS; green on the map for parity. */
+        EARTH_LIKE,
+        /** Water / ammonia / water-giant family — blue on the FSS and map. */
+        WATER_LIKE
+    }
+
+    /**
+     * Classify a body for system-map fill colour. Uses planet class, display type, and atmosphere text so
+     * dots update when a detailed scan arrives after the map was first drawn.
+     */
+    public static SystemMapDotKind systemMapDotKind(BodyInfo b, boolean stellar) {
+        if (b == null || stellar) {
+            return SystemMapDotKind.DEFAULT;
+        }
+        String combined = combinedExplorationTypeText(b);
+        if (combined.contains("earth-like") || combined.contains("earthlike")) {
+            return SystemMapDotKind.EARTH_LIKE;
+        }
+        if (combined.contains("water world") || combined.contains("water giant")
+                || combined.contains("gas giant with water based life")
+                || combined.contains("ammonia world")) {
+            return SystemMapDotKind.WATER_LIKE;
+        }
+        return SystemMapDotKind.DEFAULT;
+    }
+
+    private static String combinedExplorationTypeText(BodyInfo b) {
+        StringBuilder sb = new StringBuilder(96);
+        appendToken(sb, explorationTypeHint(b));
+        appendToken(sb, b.getAtmoOrType());
+        appendToken(sb, b.getAtmosphere());
+        return lc(sb.toString());
+    }
+
+    private static void appendToken(StringBuilder sb, String token) {
+        if (token == null || token.isBlank()) {
+            return;
+        }
+        if (sb.length() > 0) {
+            sb.append(' ');
+        }
+        sb.append(token.trim());
+    }
+
     /**
      * ELW / WW / ammonia world / terraformable tier — matches the bodies we show exploration estimates for.
      * Uses {@link #explorationTypeHint(BodyInfo)} so cached rows still work when {@code PlanetClass} was stored
@@ -178,7 +225,7 @@ public final class ExplorationBodyCredits {
         if (pc.contains("earth-like") || pc.contains("earthlike")) {
             return true;
         }
-        if (pc.contains("water world") || pc.contains("ammonia world")) {
+        if (pc.contains("water world") || pc.contains("water giant") || pc.contains("ammonia world")) {
             return true;
         }
         return TerraformingUtil.isTerraformableExplorationTier(terraformState);

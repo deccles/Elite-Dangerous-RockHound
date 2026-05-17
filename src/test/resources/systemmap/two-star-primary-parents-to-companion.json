@@ -1,0 +1,33 @@
+{
+  "name": "Binary K/M wide",
+  "notes": "Regression: cache/journal may parent the arrival star to the companion (Star ref). Both stars must orbit the barycentre and share one mutual ring.",
+  "bodies": [
+    {
+      "id": 5,
+      "bodyName": "Binary K/M",
+      "shortName": "A",
+      "distanceLs": 0,
+      "starType": "K6 VA",
+      "immediateParentBodyId": 12
+    },
+    {
+      "id": 12,
+      "bodyName": "Binary K/M B",
+      "shortName": "B",
+      "distanceLs": 32320,
+      "starType": "M0 VA",
+      "immediateParentBodyId": 5
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 2,
+    "barycentricStarLabels": ["A", "B"],
+    "barycentreRecentred": true,
+    "hasBarycentreMutualRing": true,
+    "parents": [
+      { "body": "A", "resolvesTo": "barycentre" },
+      { "body": "B", "resolvesTo": "barycentre" }
+    ]
+  }
+}

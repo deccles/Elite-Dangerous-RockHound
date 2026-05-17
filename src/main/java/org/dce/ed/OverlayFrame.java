@@ -51,8 +51,10 @@ import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.FleetCarrierSessionData;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.LiveJournalMonitor;
+import org.dce.ed.logreader.CarrierJumpCooldown;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
+import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.state.BodyInfo;
@@ -103,25 +105,6 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 
     private static final String DEFAULT_TITLE_BAR_TITLE = "Elite Dangerous RockHound";
 
-    /** Cooldown duration after fleet jump countdown expires (seconds). */
-    private static final int CARRIER_JUMP_COOLDOWN_SECONDS = 5 * 60;
-    /**
-     * Empirical correction to {@link #CARRIER_JUMP_COOLDOWN_SECONDS} when anchoring the bar to {@code CarrierJump}
-     * journal time: game-ready cooldown ends earlier than a naive +5:00 (earlier ~10s tweak plus a consistent
-     * ~1 minute display overrun vs in-game UI in current builds).
-     */
-    private static final int CARRIER_JUMP_COOLDOWN_END_CORRECTION_SECONDS = -(10 + 60);
-    private static final int CARRIER_JUMP_COOLDOWN_SECONDS_EFFECTIVE =
-            CARRIER_JUMP_COOLDOWN_SECONDS + CARRIER_JUMP_COOLDOWN_END_CORRECTION_SECONDS;
-    /**
-     * Start cooldown on {@code CarrierJump} when the journal timestamp is this recent, even if we never had an
-     * in-memory {@code CarrierJumpRequest} countdown (overlay restarted, missed request line, etc.).
-     * Ancient jumps from full file replay stay ignored.
-     */
-    private static final long CARRIER_JUMP_COOLDOWN_LIVE_MAX_AGE_SECONDS = 15L * 60L;
-    /** Allow journal timestamps slightly ahead of the local clock. */
-    private static final long CARRIER_JUMP_COOLDOWN_LIVE_FUTURE_SKEW_SECONDS = 120L;
-
     private static final TtsSprintf CARRIER_JUMP_TTS = new TtsSprintf(new PollyTtsCached());
 
     private final LineBorder overlayBorder = new LineBorder(
@@ -166,6 +149,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private javax.swing.Timer carrierJumpCountdownTimer;
     private Instant carrierJumpDepartureTime;
     private String carrierJumpTargetSystem;
+    private Long carrierJumpTargetSystemAddress;
 
     /** Cooldown phase (5 min) after fleet jump countdown expires. */
     private Instant carrierJumpCooldownEndTime;
@@ -583,8 +567,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         // Restore session_json into tabs/SystemState before LiveJournalMonitor listeners merge or save,
         // so SystemState matches SQLite before journal backlog is processed.
         installSessionPersistence();
-        installTabbedPaneJournalListener();
+        // Register before any listener that starts LiveJournalMonitor so CarrierJump is not missed at startup.
         installCarrierJumpTitleUpdater();
+        installTabbedPaneJournalListener();
         installExoCreditsTracker();
         installGeoSurveyCreditsTracker();
     }
@@ -701,18 +686,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             String depStr = state.getCarrierJumpDepartureTime();
             if (depStr != null && !depStr.isBlank()) {
                 Instant departure = Instant.parse(depStr);
-                if (departure.isAfter(Instant.now())) {
-                    carrierJumpDepartureTime = departure;
-                    carrierJumpTargetSystem = state.getCarrierJumpTargetSystem();
-                    setTitleBarText("");
-                    if (carrierJumpCountdownTimer != null) {
-                        carrierJumpCountdownTimer.stop();
-                    }
-                    carrierJumpCountdownTimer = new Timer(500, e -> updateCarrierJumpCountdown());
-                    carrierJumpCountdownTimer.setRepeats(true);
-                    carrierJumpCountdownTimer.start();
-                    updateCarrierJumpCountdown();
-                    syncFleetCarrierPendingBlinkIfCountdownRestoredWithoutRouteLatch(state);
+                if (CarrierJumpCooldown.isDepartureRestorable(departure, Instant.now())) {
+                    restoreCarrierJumpCountdownFromSession(departure, state.getCarrierJumpTargetSystem(), state);
                     return;
                 }
             }
@@ -726,6 +701,20 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         } catch (Exception e) {
             // ignore invalid or old timestamp
         }
+    }
+
+    private void restoreCarrierJumpCountdownFromSession(Instant departure, String targetSystem, EdoSessionState state) {
+        carrierJumpDepartureTime = departure;
+        carrierJumpTargetSystem = targetSystem;
+        setTitleBarText("");
+        if (carrierJumpCountdownTimer != null) {
+            carrierJumpCountdownTimer.stop();
+        }
+        carrierJumpCountdownTimer = new Timer(500, e -> updateCarrierJumpCountdown());
+        carrierJumpCountdownTimer.setRepeats(true);
+        carrierJumpCountdownTimer.start();
+        updateCarrierJumpCountdown();
+        syncFleetCarrierPendingBlinkIfCountdownRestoredWithoutRouteLatch(state);
     }
 
     /** Restore cooldown UI/timer after restart; does not recompute end from jump time. */
@@ -810,7 +799,8 @@ private void installCarrierJumpTitleUpdater() {
                 if (e.getDepartureTime() != null) {
                     Instant dep = e.getDepartureTime();
                     String sys = e.getSystemName();
-                    SwingUtilities.invokeLater(() -> startCarrierJumpCountdown(dep, sys));
+                    long addr = e.getSystemAddress();
+                    SwingUtilities.invokeLater(() -> startCarrierJumpCountdown(dep, sys, addr));
                 }
                 return;
             }
@@ -820,29 +810,30 @@ private void installCarrierJumpTitleUpdater() {
                 return;
             }
 
-            if (event.getType() == EliteEventType.CARRIER_JUMP && event instanceof CarrierJumpEvent jump) {
-                // Jump completion must follow the journal `CarrierJump` line, not `DepartureTime` from
-                // `CarrierJumpRequest` (hyperspace can run long after that) and not `CarrierLocation`.
-                // `CarrierStats` tends to arrive after `CarrierJump`; resync cooldown backwards when
-                // a heuristic left us with too much remaining time, without extending it.
+            if (event.getType() == EliteEventType.CARRIER_JUMP && event instanceof CarrierJumpEvent) {
                 Instant jumpTs = event.getTimestamp();
+                SwingUtilities.invokeLater(() -> onCarrierJumpCompleted(jumpTs));
+                return;
+            }
+
+            if (event instanceof CarrierLocationEvent loc) {
+                // Off-carrier owners get CarrierLocation at DepartureTime, not CarrierJump (see journal).
+                Instant locTs = event.getTimestamp();
                 SwingUtilities.invokeLater(() -> {
-                    boolean hadPendingCountdown = carrierJumpDepartureTime != null;
-                    clearCarrierJumpCountdownStateOnly();
-                    if (jumpTs == null) {
+                    if (carrierJumpDepartureTime == null) {
                         return;
                     }
-                    Instant newEndTime = jumpTs.plusSeconds(CARRIER_JUMP_COOLDOWN_SECONDS_EFFECTIVE);
-                    Instant now = Instant.now();
-                    boolean jumpLooksLive = !jumpTs.isBefore(now.minusSeconds(CARRIER_JUMP_COOLDOWN_LIVE_MAX_AGE_SECONDS))
-                            && !jumpTs.isAfter(now.plusSeconds(CARRIER_JUMP_COOLDOWN_LIVE_FUTURE_SKEW_SECONDS));
-                    boolean shouldStartOrResync = hadPendingCountdown
-                            || jumpLooksLive
-                            || ((carrierJumpCooldownEndTime != null)
-                                    && newEndTime.isBefore(carrierJumpCooldownEndTime));
-                    if (shouldStartOrResync) {
-                        startCarrierJumpCooldown(jumpTs);
+                    if (!CarrierJumpCooldown.isCarrierLocationJumpArrival(locTs, carrierJumpDepartureTime)) {
+                        return;
                     }
+                    if (!CarrierJumpCooldown.carrierLocationMatchesPendingJump(
+                            loc.getStarSystem(),
+                            loc.getSystemAddress(),
+                            carrierJumpTargetSystem,
+                            carrierJumpTargetSystemAddress)) {
+                        return;
+                    }
+                    onCarrierJumpCompleted(locTs);
                 });
             }
         });
@@ -851,9 +842,22 @@ private void installCarrierJumpTitleUpdater() {
     }
 }
 
-private void startCarrierJumpCountdown(Instant departureTime, String targetSystem) {
+private void onCarrierJumpCompleted(Instant arrivalTime) {
+    boolean hadPendingCountdown = carrierJumpDepartureTime != null;
+    clearCarrierJumpCountdownStateOnly();
+    Instant now = Instant.now();
+    if (!CarrierJumpCooldown.shouldStartOrResyncCooldown(
+            hadPendingCountdown, arrivalTime, carrierJumpCooldownEndTime, now)) {
+        return;
+    }
+    Instant cooldownStart = arrivalTime != null ? arrivalTime : now;
+    startCarrierJumpCooldown(cooldownStart);
+}
+
+private void startCarrierJumpCountdown(Instant departureTime, String targetSystem, long targetSystemAddress) {
     carrierJumpDepartureTime = departureTime;
     carrierJumpTargetSystem = targetSystem;
+    carrierJumpTargetSystemAddress = targetSystemAddress > 0L ? Long.valueOf(targetSystemAddress) : null;
     carrierJumpCompleteSpokenForCurrentJump = false;
 
     if (carrierJumpCountdownTimer != null) {
@@ -873,6 +877,14 @@ private void updateCarrierJumpCountdown() {
     if (carrierJumpDepartureTime == null) {
         return;
     }
+    long seconds = Math.max(0, carrierJumpDepartureTime.getEpochSecond() - Instant.now().getEpochSecond());
+    if (seconds == 0 && carrierJumpCooldownEndTime == null) {
+        long pastDeparture = Instant.now().getEpochSecond() - carrierJumpDepartureTime.getEpochSecond();
+        if (pastDeparture >= 5L && pastDeparture <= CarrierJumpCooldown.LIVE_JUMP_MAX_AGE_SECONDS) {
+            onCarrierJumpCompleted(carrierJumpDepartureTime);
+            return;
+        }
+    }
     publishRightStatusText();
 }
 
@@ -880,6 +892,7 @@ private void updateCarrierJumpCountdown() {
 private void clearCarrierJumpCountdownStateOnly() {
     carrierJumpDepartureTime = null;
     carrierJumpTargetSystem = null;
+    carrierJumpTargetSystemAddress = null;
     if (carrierJumpCountdownTimer != null) {
         carrierJumpCountdownTimer.stop();
         carrierJumpCountdownTimer = null;
@@ -892,7 +905,7 @@ private void startCarrierJumpCooldown() {
 
 private void startCarrierJumpCooldown(Instant startTime) {
     Instant effectiveStart = startTime != null ? startTime : Instant.now();
-    carrierJumpCooldownEndTime = effectiveStart.plusSeconds(CARRIER_JUMP_COOLDOWN_SECONDS_EFFECTIVE);
+    carrierJumpCooldownEndTime = CarrierJumpCooldown.cooldownEndFromJump(effectiveStart);
     if (carrierJumpCooldownTimer != null) {
         carrierJumpCooldownTimer.stop();
     }

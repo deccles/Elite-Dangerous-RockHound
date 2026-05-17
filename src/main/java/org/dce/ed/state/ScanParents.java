@@ -6,8 +6,8 @@ import org.dce.ed.logreader.event.ScanEvent;
 
 /**
  * Resolves journal {@code Scan} {@code Parents[]} into the immediate orbit parent id stored on {@link BodyInfo}.
- * Planet-class scans may list both a {@code Planet} anchor (moon / binary giant host) and a {@code Star} root — the first
- * array element is not always the Kepler parent, so prefer {@code Planet} when present for non-stellar bodies.
+ * Planet-class scans may list {@code Null} (planet-binary barycentre), a {@code Planet} anchor (moon host), and
+ * {@code Star} — the first array element is not always the Kepler parent; prefer inner {@code Null} then {@code Planet}.
  */
 public final class ScanParents {
 
@@ -15,8 +15,8 @@ public final class ScanParents {
     }
 
     /**
-     * Elite journal: each {@code Parents} element is typically one keyed ref, inner-to-outer hierarchy. For planets,
-     * a {@code Planet} entry denotes the body's direct gravitational parent even when followed by {@code Star}.
+     * Elite journal: each {@code Parents} element is typically one keyed ref, inner-to-outer hierarchy. Co-orbiting
+     * planets list {@code Null:N} before the host {@code Planet}; moons list only {@code Planet} (and {@code Star}).
      */
     public static int immediateOrbitParentBodyId(List<ScanEvent.ParentRef> parents, ScanEvent scan) {
         if (parents == null || parents.isEmpty() || parents.get(0) == null) {
@@ -27,7 +27,7 @@ public final class ScanParents {
                 if (p == null || p.getType() == null) {
                     continue;
                 }
-                if ("Planet".equalsIgnoreCase(p.getType())) {
+                if ("Null".equalsIgnoreCase(p.getType()) && p.getBodyId() > 0) {
                     return p.getBodyId();
                 }
             }
@@ -35,7 +35,7 @@ public final class ScanParents {
                 if (p == null || p.getType() == null) {
                     continue;
                 }
-                if ("Null".equalsIgnoreCase(p.getType()) && p.getBodyId() > 0) {
+                if ("Planet".equalsIgnoreCase(p.getType())) {
                     return p.getBodyId();
                 }
             }

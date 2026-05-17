@@ -150,8 +150,10 @@ public class RouteTabPanel extends JPanel {
 	private static final int ROUTE_COL_MIN_STATUS_EXTRA = 12;
 	/** Horizontal padding around measured Ly text (renderer borders). */
 	private static final int ROUTE_COL_DISTANCE_PAD = 20;
-	/** Keep star-class / fuel gauge usable; may shrink below preferred if the window is very narrow. */
-	private static final int ROUTE_COL_MIN_CLASS_EXTRA = 6;
+	/** Padding around Class cell content (matches {@link StarClassRenderer} borders + slack). */
+	private static final int ROUTE_COL_CLASS_HORIZONTAL_PAD = 10;
+	/** Gap between fuel gauge icon and star-type letter in the Class column. */
+	private static final int ROUTE_COL_CLASS_ICON_TEXT_GAP = 4;
 	/** Keep current system row at this offset from top when auto-scrolling (e.g. one jump = one row scroll). */
 	private static final int TARGET_CURRENT_ROW_OFFSET = 4;
 	/** Padding above/beside “Copy next destination” under the route table. */
@@ -680,10 +682,14 @@ public class RouteTabPanel extends JPanel {
 	 * (mirrors FSD “charging” behavior driven by {@link org.dce.ed.logreader.event.StatusEvent}).
 	 */
 	protected void startPendingJumpBlink(String destName, long destAddress) {
+		startPendingJumpBlink(destName, destAddress, null);
+	}
+
+	protected void startPendingJumpBlink(String destName, long destAddress, java.time.Instant departureTime) {
 		if (jumpFlashTimer == null) {
 			return;
 		}
-		routeSession.startCarrierPendingJumpBlink(destName, destAddress);
+		routeSession.startCarrierPendingJumpBlink(destName, destAddress, departureTime);
 		rebuildDisplayedEntries();
 		fireSessionStateChanged();
 	}
@@ -1187,7 +1193,7 @@ public class RouteTabPanel extends JPanel {
 		cm.getColumn(COL_MARKER).setMaxWidth(ROUTE_COL_WIDTH_MARKER);
 		cm.getColumn(COL_INDEX).setMinWidth(ROUTE_COL_MIN_INDEX);
 		cm.getColumn(COL_SYSTEM).setMinWidth(ROUTE_COL_MIN_SYSTEM);
-		cm.getColumn(COL_CLASS).setMinWidth(routeClassColumnMinWidthPx());
+		cm.getColumn(COL_CLASS).setMinWidth(measureRouteClassColumnMinWidthPx());
 		cm.getColumn(COL_STATUS).setMinWidth(routeStatusColumnMinWidthPx());
 		cm.getColumn(COL_DISTANCE).setMinWidth(measureRouteDistanceColumnMinWidthPx());
 	}
@@ -1226,8 +1232,8 @@ public class RouteTabPanel extends JPanel {
 		int wIdx = Math.max(ROUTE_COL_MIN_INDEX, ROUTE_COL_PREF_INDEX);
 		int wStat = routeStatusColumnMinWidthPx();
 		int wDist = measureRouteDistanceColumnMinWidthPx();
-		int wClassPref = routeClassColumnPreferredWidthPx();
-		int wClassMin = routeClassColumnMinWidthPx();
+		int wClassPref = measureRouteClassColumnPreferredWidthPx();
+		int wClassMin = measureRouteClassColumnMinWidthPx();
 		int wClass = wClassPref;
 		int wSys = avail - wMark - wIdx - wClass - wStat - wDist;
 		if (wSys < ROUTE_COL_MIN_SYSTEM) {
@@ -1325,8 +1331,37 @@ public class RouteTabPanel extends JPanel {
 		return Math.max(72, w);
 	}
 
-	private static int routeClassColumnMinWidthPx() {
-		return Math.max(30, fuelGaugeIconSizePx() + ROUTE_COL_MIN_CLASS_EXTRA);
+	/**
+	 * Minimum Class column width for one star-type letter plus optional fuel gauge icon.
+	 */
+	private int measureRouteClassColumnMinWidthPx() {
+		int icon = fuelGaugeIconSizePx();
+		int borders = 8;
+		int charW = 10;
+		if (table != null) {
+			FontMetrics fm = table.getFontMetrics(table.getFont());
+			charW = Math.max(fm.charWidth('M'), fm.charWidth('?'));
+		}
+		return Math.max(40, icon + ROUTE_COL_CLASS_ICON_TEXT_GAP + charW + borders + ROUTE_COL_CLASS_HORIZONTAL_PAD);
+	}
+
+	private int measureRouteClassColumnPreferredWidthPx() {
+		return measureRouteClassColumnMinWidthPx() + 6;
+	}
+
+	/** One-letter route table label; full {@code StarClass} stays in tooltip / model. */
+	private static String routeStarClassColumnText(String starClass) {
+		if (starClass == null) {
+			return "";
+		}
+		String s = starClass.trim();
+		if (s.isEmpty()) {
+			return "";
+		}
+		if (s.length() == 1) {
+			return s.toUpperCase(Locale.ROOT);
+		}
+		return String.valueOf(Character.toUpperCase(s.charAt(0)));
 	}
 
 	private static final int VIEWPORT_EDSM_DEBOUNCE_MS = 200;
@@ -2362,6 +2397,7 @@ public class RouteTabPanel extends JPanel {
 			l.setBackground(EdoUi.Internal.TRANSPARENT);
 			l.setForeground(EdoUi.User.MAIN_TEXT);
 			l.setIcon(null);
+			l.setToolTipText(null);
 			RouteEntry e = null;
 			try {
 				e = tableModel.getEntries(row);
@@ -2372,11 +2408,15 @@ public class RouteTabPanel extends JPanel {
 				l.setText("");
 				return l;
 			}
-			String text = value != null ? value.toString() : "";
-			l.setText(text);
+			String full = value != null ? value.toString() : "";
+			String display = routeStarClassColumnText(full);
+			l.setText(display);
+			if (!full.isBlank() && !full.equals(display)) {
+				l.setToolTipText(full);
+			}
 			if (e != null && FuelScoopStarClass.isFuelScoopable(e.starClass)) {
 				l.setIcon(ICON_FUEL_SCOOP);
-				l.setIconTextGap(4);
+				l.setIconTextGap(ROUTE_COL_CLASS_ICON_TEXT_GAP);
 			}
 			l.setBorder(new EmptyBorder(3, 4, 3, 4));
 			return l;
@@ -2388,7 +2428,22 @@ public class RouteTabPanel extends JPanel {
 					RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
 			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
 					RenderingHints.VALUE_ANTIALIAS_ON);
-			super.paintComponent(g2);
+			java.awt.Insets ins = getInsets();
+			int x = ins.left + 4;
+			int contentH = getHeight() - ins.top - ins.bottom;
+			Icon icon = getIcon();
+			if (icon != null) {
+				int iy = ins.top + Math.max(0, (contentH - icon.getIconHeight()) / 2);
+				icon.paintIcon(this, g2, x, iy);
+				x += icon.getIconWidth() + getIconTextGap();
+			}
+			String text = getText();
+			if (text != null && !text.isEmpty()) {
+				g2.setColor(getForeground());
+				FontMetrics fm = g2.getFontMetrics();
+				int ty = ins.top + Math.max(0, (contentH - fm.getHeight()) / 2) + fm.getAscent();
+				g2.drawString(text, x, ty);
+			}
 			g2.setColor(EdoUi.ED_ORANGE_TRANS);
 			int y = getHeight() - 1;
 			g2.drawLine(0, y, getWidth(), y);
@@ -2513,10 +2568,6 @@ public class RouteTabPanel extends JPanel {
 	/** Same nominal size as {@link StatusCircleIcon} (Class column aligns with status column). */
 	private static int fuelGaugeIconSizePx() {
 		return OverlayPreferences.getUiFontSize();
-	}
-
-	private static int routeClassColumnPreferredWidthPx() {
-		return Math.max(40, fuelGaugeIconSizePx() + 22);
 	}
 
 	/**

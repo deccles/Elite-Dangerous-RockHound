@@ -1143,6 +1143,16 @@ public final class SystemOrbitGeometry {
             return -1;
         }
         if (declared >= 0 && bodies.containsKey(Integer.valueOf(declared))) {
+            if (isMapStellarBody(child) && countMapStellarBodies(bodies) >= 2) {
+                BodyInfo declaredParent = bodies.get(Integer.valueOf(declared));
+                if (declaredParent != null && isMapStellarBody(declaredParent)) {
+                    return -1;
+                }
+            }
+            BodyInfo declaredParent = bodies.get(Integer.valueOf(declared));
+            if (declaredParent != null && declaredParent.isScanBarycentreRow()) {
+                return planetBinaryBarycentreMapKey(declared);
+            }
             if (!isMapStellarBody(child)) {
                 int inferredNull = inferPlanetBinaryNullParentId(child, bodies, mapBodyId);
                 if (inferredNull > 0) {
@@ -1294,7 +1304,7 @@ public final class SystemOrbitGeometry {
         if (central < 0) {
             return false;
         }
-        if (hasPlanetBinaryNullParentInSystem(bodies)) {
+        if (hasPlanetBinaryNullParentInSystem(bodies) && countMapStellarBodies(bodies) < 2) {
             return true;
         }
         return countMapStellarBodies(bodies) == 1;
@@ -1307,7 +1317,7 @@ public final class SystemOrbitGeometry {
         }
         HashSet<Integer> nullParents = new HashSet<>();
         for (BodyInfo b : bodies.values()) {
-            if (b == null || isMapStellarBody(b) || isMoonSatelliteBody(b)) {
+            if (b == null || isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
                 continue;
             }
             int ip = b.getImmediateParentBodyId();
@@ -1402,8 +1412,23 @@ public final class SystemOrbitGeometry {
      * only has another gas giant co-orbiting as a hierarchical child must not qualify.
      */
     public static boolean isMoonSatelliteBody(BodyInfo b) {
+        return isMoonSatelliteBody(b, null);
+    }
+
+    /**
+     * @param bodies when non-null, direct children of a journal {@code ScanBaryCentre} / missing {@code Null:N} row are
+     *               planet-binary majors ({@code 1 b}, {@code 1 c}), not moons, even though the short name looks like
+     *               {@code 2 a}.
+     */
+    public static boolean isMoonSatelliteBody(BodyInfo b, Map<Integer, BodyInfo> bodies) {
         if (b == null) {
             return false;
+        }
+        if (bodies != null) {
+            int ip = b.getImmediateParentBodyId();
+            if (ip > 0 && isPlanetBinaryNullParentRef(ip, bodies)) {
+                return false;
+            }
         }
         String s = firstNonBlank(b.getShortName(), b.getBodyName());
         if (s == null) {
@@ -1463,7 +1488,7 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             BodyInfo b = e.getValue();
-            if (isMapStellarBody(b) || isMoonSatelliteBody(b)) {
+            if (isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
                 continue;
             }
             if (b.getImmediateParentBodyId() == journalNullParentId) {
@@ -1496,7 +1521,7 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             BodyInfo b = e.getValue();
-            if (isMapStellarBody(b) || isMoonSatelliteBody(b)) {
+            if (isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
                 continue;
             }
             if (b.getImmediateParentBodyId() != journalNullParentId) {
@@ -1521,7 +1546,7 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             BodyInfo b = e.getValue();
-            if (isMapStellarBody(b) || isMoonSatelliteBody(b)) {
+            if (isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
                 continue;
             }
             if (b.getImmediateParentBodyId() != journalNullParentId) {
@@ -1548,7 +1573,7 @@ public final class SystemOrbitGeometry {
         }
         HashSet<Integer> nullParents = new HashSet<>();
         for (BodyInfo b : bodies.values()) {
-            if (b == null || isMapStellarBody(b) || isMoonSatelliteBody(b)) {
+            if (b == null || isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
                 continue;
             }
             int ip = b.getImmediateParentBodyId();
@@ -1602,7 +1627,7 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             BodyInfo b = e.getValue();
-            if (isMapStellarBody(b) || isMoonSatelliteBody(b)
+            if (isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)
                     || b.getImmediateParentBodyId() != journalNullParentId) {
                 continue;
             }
@@ -1631,7 +1656,7 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             BodyInfo b = e.getValue();
-            if (isMapStellarBody(b) || isMoonSatelliteBody(b)
+            if (isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)
                     || b.getImmediateParentBodyId() != journalNullParentId) {
                 continue;
             }
@@ -1661,13 +1686,12 @@ public final class SystemOrbitGeometry {
         if (child == null) {
             return new double[] { 0.0, 0.0, 0.0 };
         }
+        double mutualRingLs = planetBinaryMutualOrbitRadiusLs(journalNullId, bodies);
         double dBary = planetBinaryBarycentreDistanceLsFromStar(journalNullId, bodies);
         double dC = child.getDistanceLs();
-        double radialLs;
+        double radialLs = mutualRingLs;
         if (Double.isFinite(dC) && Double.isFinite(dBary) && dC > 0.0) {
-            radialLs = Math.max(0.5, Math.abs(dC - dBary));
-        } else {
-            radialLs = planetBinaryMutualOrbitRadiusLs(journalNullId, bodies);
+            radialLs = Math.max(mutualRingLs, Math.max(0.5, Math.abs(dC - dBary)));
         }
         double r = radialLs * LIGHT_SECOND_METRES;
         /* freezeBarycentreStars is for wide-binary stellar barycentres, not mutual phase on this ring. */
@@ -1770,7 +1794,7 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             BodyInfo other = e.getValue();
-            if (isMapStellarBody(other) || isMoonSatelliteBody(other)) {
+            if (isMapStellarBody(other) || isMoonSatelliteBody(other, bodies)) {
                 continue;
             }
             int otherIp = other.getImmediateParentBodyId();
@@ -1827,7 +1851,7 @@ public final class SystemOrbitGeometry {
         }
         HashSet<Integer> nullParents = new HashSet<>();
         for (BodyInfo b : bodies.values()) {
-            if (b == null || isMapStellarBody(b) || isMoonSatelliteBody(b)) {
+            if (b == null || isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
                 continue;
             }
             int ip = b.getImmediateParentBodyId();
@@ -1886,7 +1910,7 @@ public final class SystemOrbitGeometry {
         }
         HashSet<Integer> nullParents = new HashSet<>();
         for (BodyInfo b : bodies.values()) {
-            if (b == null || isMapStellarBody(b) || isMoonSatelliteBody(b)) {
+            if (b == null || isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
                 continue;
             }
             int ip = b.getImmediateParentBodyId();
@@ -2567,6 +2591,13 @@ public final class SystemOrbitGeometry {
         if (primary == null || !isMapStellarBody(primary)) {
             return false;
         }
+        /*
+         * Two-star systems always use barycentric map layout; journal/cache may parent the companion to the arrival
+         * star even when separation is still below the wide-binary flatten threshold.
+         */
+        if (countMapStellarBodies(bodies) == 2) {
+            return true;
+        }
         double dC = child.getDistanceLs();
         double dP = primary.getDistanceLs();
         return Double.isFinite(dC) && Double.isFinite(dP)
@@ -2593,6 +2624,10 @@ public final class SystemOrbitGeometry {
         }
 
         BodyInfo b = bodies.get(key);
+        if (b != null && b.isScanBarycentreRow()) {
+            return positionRecursive(planetBinaryBarycentreMapKey(bodyId), bodies, memo, visiting, now,
+                    freezeBarycentreStars);
+        }
         if (b == null) {
             if (isPlanetBinaryBarycentreMapKey(bodyId)) {
                 if (memo.containsKey(key)) {

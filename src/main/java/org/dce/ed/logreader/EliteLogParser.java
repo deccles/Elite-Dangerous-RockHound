@@ -475,6 +475,7 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
 
     private CarrierJumpEvent parseCarrierJump(Instant ts, JsonObject obj) {
         boolean docked = getBoolean(obj, "Docked", false);
+        boolean onFoot = getBoolean(obj, "OnFoot", false);
         String stationName = getString(obj, "StationName");
         String stationType = getString(obj, "StationType");
         long marketId = getLong(obj, "MarketID");
@@ -557,6 +558,7 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
                 ts,
                 obj,
                 docked,
+                onFoot,
                 stationName,
                 stationType,
                 marketId,

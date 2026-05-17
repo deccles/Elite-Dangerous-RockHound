@@ -341,7 +341,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		}
 		// Only update on carrier events; ignore everything else so ship jumps / NavRoute don't affect this tab.
 		if (event instanceof CarrierJumpRequestEvent req) {
-			startPendingJumpBlink(req.getSystemName(), req.getSystemAddress());
+			startPendingJumpBlink(req.getSystemName(), req.getSystemAddress(), req.getDepartureTime());
 			return;
 		}
 		if (event.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
@@ -353,12 +353,16 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			if (spanshRouteLoaded) {
 				SwingUtilities.invokeLater(() -> copyNextSystemFromBaseRoute(jump.getSystemAddress()));
 			}
-		} else if (event instanceof CarrierLocationEvent) {
-			// CarrierLocation often appears in the journal around the same time as CarrierJump but can be ordered
-			// earlier; applying it advances the "you are here" arrows before the post-jump cooldown phase the
-			// overlay tracks from CarrierJump. With a loaded Spansh route, only CarrierJump should move the marker.
+		} else if (event instanceof CarrierLocationEvent loc) {
+			// CarrierLocation often appears before CarrierJump when aboard; with a Spansh route we only advance
+			// on jump completion. Off-carrier owners get CarrierLocation at DepartureTime instead of CarrierJump.
 			if (!spanshRouteLoaded) {
 				super.handleLogEvent(event);
+				return;
+			}
+			if (routeSession.isPendingCarrierJumpArrival(loc)) {
+				super.handleLogEvent(event);
+				SwingUtilities.invokeLater(() -> copyNextSystemFromBaseRoute(loc.getSystemAddress()));
 			}
 		}
 	}

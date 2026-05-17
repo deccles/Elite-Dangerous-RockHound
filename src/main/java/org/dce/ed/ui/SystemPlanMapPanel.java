@@ -41,6 +41,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javax.swing.BorderFactory;
+import javax.swing.Icon;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -50,6 +51,8 @@ import org.dce.ed.OverlayPreferences;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.systemmap.SystemMapPipeline;
 import org.dce.ed.systemmap.SystemMapRules;
+import org.dce.ed.util.ExplorationBodyCredits;
+import org.dce.ed.util.ExplorationBodyCredits.SystemMapDotKind;
 import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 
@@ -273,6 +276,8 @@ public final class SystemPlanMapPanel extends JPanel {
     private static final double APPROACH_SUBSYSTEM_FIT_MARGIN = 0.10;
 
     private final List<BodyDot> dots = new ArrayList<>();
+    private int exobiologyLeafIconPx = -1;
+    private Icon exobiologyLeafIcon = new LeafIcon(22, 22);
     private List<OrbitPolylineWorldXY> orbitLines = Collections.emptyList();
     /** Last sources passed to {@link SystemOrbitGeometry#orbitPolylinesWorldMetresXY}; rebuilt when zoom changes. */
     private Map<Integer, BodyInfo> orbitGeomBodies;
@@ -707,14 +712,15 @@ public final class SystemPlanMapPanel extends JPanel {
                 } else {
                     label = planetMapLabel(b, mapKey);
                 }
-                boolean moon = !star && !isPrimaryStarBody(b) && SystemOrbitGeometry.isMoonSatelliteBody(b);
-                boolean fssEarthLike = isFssEarthLikeBody(b, star);
-                boolean fssWaterWorld = !fssEarthLike && isFssBlueWaterWorldBody(b, star);
+                boolean moon = !star && !isPrimaryStarBody(b)
+                        && SystemOrbitGeometry.isMoonSatelliteBody(b, bodies);
                 boolean giant = isGiantPlanetBody(b, star);
                 boolean rings = hasPlanetaryRingsForMap(b, star);
                 boolean soleOrbitCluster = !star && orbitChildrenOfParent.getOrDefault(Integer.valueOf(mapKey), 0) == 0;
+                boolean hasExobiology = !star && !primaryStarAsterisk
+                        && mapBodyShowsExobiologyLeaf(mapKey, bodies);
                 dots.add(new BodyDot(mapKey, x, y, label, star, primaryStarAsterisk, loneCentralPrimary, moon,
-                        fssEarthLike, fssWaterWorld, giant, rings, soleOrbitCluster));
+                        giant, rings, soleOrbitCluster, hasExobiology));
             }
             dots.sort(Comparator.comparingInt(d -> d.bodyId));
         }
@@ -2241,9 +2247,10 @@ public final class SystemPlanMapPanel extends JPanel {
                 if (ringsZoomOk) {
                     drawPlanetaryRingsDecor(g2, sx, sy, r);
                 }
+                BodyInfo mapBody = orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(d.bodyId)) : null;
                 if (moonHostHub) {
                     if (!lumpHub) {
-                        Color fill = mapBodyFillColor(d);
+                        Color fill = mapBodyFillColor(mapBody, d);
                         g2.setColor(fill);
                         g2.fill(new Ellipse2D.Double(sx - r, sy - r, r * 2, r * 2));
                     }
@@ -2257,7 +2264,7 @@ public final class SystemPlanMapPanel extends JPanel {
                     } else if (d.star) {
                         fill = new Color(255, 200, 80);
                     } else {
-                        fill = mapBodyFillColor(d);
+                        fill = mapBodyFillColor(mapBody, d);
                     }
                     g2.setColor(fill);
                     g2.fill(new Ellipse2D.Double(sx - r, sy - r, r * 2, r * 2));
@@ -2327,6 +2334,9 @@ public final class SystemPlanMapPanel extends JPanel {
 
             maybeDrawDetachedCommanderGlyph(g2, labelFont, labelFm, showClusterDetail, showMoonLabels, starR, bodyR,
                     dotEm, vcx, vcy, scale, availW, availH, plotCx, plotCy);
+
+            drawExobiologyLeafMarkers(g2, showClusterDetail, showMoonLabels, starR, bodyR, dotEm, vcx, vcy, scale,
+                    availW, availH, plotCx, plotCy);
 
             drawMeasureDragOverlay(g2, labelFm, vcx, vcy, scale, availW, availH);
             drawOrbitPlaybackTimeReadout(g2, labelFm, availW, availH);
@@ -2472,39 +2482,15 @@ public final class SystemPlanMapPanel extends JPanel {
         return s == null ? "" : s.toLowerCase(Locale.ROOT);
     }
 
-    private static Color mapBodyFillColor(BodyDot d) {
-        if (d.fssEarthLike) {
+    private static Color mapBodyFillColor(BodyInfo body, BodyDot d) {
+        SystemMapDotKind kind = ExplorationBodyCredits.systemMapDotKind(body, d != null && d.star);
+        if (kind == SystemMapDotKind.EARTH_LIKE) {
             return MAP_FSS_EARTH_LIKE_DOT;
         }
-        if (d.fssWaterWorld) {
+        if (kind == SystemMapDotKind.WATER_LIKE) {
             return MAP_FSS_WATER_WORLD_DOT;
         }
         return EdoUi.User.MAIN_TEXT;
-    }
-
-    /** Earth-like worlds — Elite FSS green marker (not the water-world blue family). */
-    private static boolean isFssEarthLikeBody(BodyInfo b, boolean star) {
-        if (b == null || star) {
-            return false;
-        }
-        String pc = mapLc(b.getPlanetClass());
-        String at = mapLc(b.getAtmoOrType());
-        return pc.contains("earth-like") || pc.contains("earthlike")
-                || at.contains("earth-like") || at.contains("earthlike");
-    }
-
-    /** Water worlds and water-based giants — FSS blue-dot family (not ammonia). */
-    private static boolean isFssBlueWaterWorldBody(BodyInfo b, boolean star) {
-        if (b == null || star) {
-            return false;
-        }
-        String pc = mapLc(b.getPlanetClass());
-        String at = mapLc(b.getAtmoOrType());
-        if (pc.contains("water world") || pc.contains("water giant")
-                || pc.contains("gas giant with water based life")) {
-            return true;
-        }
-        return at.contains("water world");
     }
 
     private static boolean isGiantPlanetBody(BodyInfo b, boolean star) {
@@ -2593,7 +2579,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 continue;
             }
             BodyInfo child = e.getValue();
-            if (!SystemOrbitGeometry.isMoonSatelliteBody(child)) {
+            if (!SystemOrbitGeometry.isMoonSatelliteBody(child, bodies)) {
                 continue;
             }
             int pId = SystemOrbitGeometry.resolveOrbitParentBodyId(child, bodies, e.getKey().intValue());
@@ -2967,6 +2953,112 @@ public final class SystemPlanMapPanel extends JPanel {
             default:
                 return new float[] { sx - wlab - gap * 0.92f, sy - (gap * 0.48f + hlab * 0.55f) };
         }
+    }
+
+    private void ensureExobiologyLeafIconSize(float dotEm) {
+        int px = Math.max(18, Math.min(30, Math.round(dotEm * 2.1f)));
+        if (px != exobiologyLeafIconPx) {
+            exobiologyLeafIconPx = px;
+            exobiologyLeafIcon = new LeafIcon(px, px);
+        }
+    }
+
+    /**
+     * Exobiology leaf on every bio body, independent of zoom label visibility (same idea as
+     * {@link #maybeDrawDetachedCommanderGlyph}). Drawn after commander cues so both stay visible.
+     */
+    private void drawExobiologyLeafMarkers(Graphics2D g2, boolean showClusterDetail, boolean showMoonLabels,
+            float starR, float bodyR, float dotEm, double vcx, double vcy, double scale, double availW,
+            double availH, double plotCx, double plotCy) {
+        ensureExobiologyLeafIconSize(dotEm);
+        int leafW = exobiologyLeafIcon.getIconWidth();
+        int leafH = exobiologyLeafIcon.getIconHeight();
+        for (BodyDot d : dots) {
+            if (!d.hasExobiology) {
+                continue;
+            }
+            boolean lockHub = subsystemScreenLockHubId >= 0 && d.bodyId == subsystemScreenLockHubId;
+            double[] cxy = bodyDotScreenMetres(d, lockHub, vcx, vcy, scale, availW, availH, plotCx, plotCy);
+            float cx = (float) cxy[0];
+            float cy = (float) cxy[1];
+            float rr = mapBodyDotRadiusPx(d, starR, bodyR, zoomFactor);
+            boolean commanderHere = anchorBodyId != null && d.bodyId == anchorBodyId.intValue();
+            String commanderSlotKey = null;
+            if (commanderHere) {
+                if (d.label != null && !d.label.isEmpty()
+                        && bodyDotLabelWouldDraw(d, showClusterDetail, showMoonLabels)) {
+                    commanderSlotKey = MAP_COMMANDER_TRIANGLE_CHAR + d.label;
+                } else {
+                    commanderSlotKey = MAP_COMMANDER_TRIANGLE_CHAR + d.bodyId;
+                }
+            }
+            float[] lp = exobiologyLeafAnchor(cx, cy, rr, d.bodyId, leafW, leafH, commanderSlotKey, d.moon);
+            exobiologyLeafIcon.paintIcon(this, g2, Math.round(lp[0]), Math.round(lp[1]));
+        }
+    }
+
+    /**
+     * Leaf anchor near the body dot; when the commander is on the same body, use the slot opposite the ▲ label
+     * ({@link #bodyLabelAnchor}) so the two cues do not overlap.
+     */
+    private static float[] exobiologyLeafAnchor(float sx, float sy, float r, int bodyId, int leafW, int leafH,
+            String commanderSlotKey, boolean moon) {
+        int slot;
+        if (commanderSlotKey != null) {
+            int commanderSlot = Math.floorMod(bodyId * 17 + commanderSlotKey.hashCode(), 8);
+            slot = (commanderSlot + 4) % 8;
+        } else {
+            slot = Math.floorMod(bodyId * 17 + ("bio:" + bodyId).hashCode(), 8);
+        }
+        float gap = Math.max(4f, r * 0.65f + 4f);
+        if (moon) {
+            gap *= 0.78f;
+        }
+        if (commanderSlotKey != null) {
+            gap += Math.max(leafW, leafH) * 0.15f;
+        }
+        float vTweak = leafH * 0.12f;
+        switch (slot) {
+            case 0:
+                return new float[] { sx + gap, sy - leafH - vTweak };
+            case 1:
+                return new float[] { sx - leafW - gap, sy - leafH - vTweak };
+            case 2:
+                return new float[] { sx - leafW * 0.5f, sy - (gap * 0.62f + leafH + vTweak) };
+            case 3:
+                return new float[] { sx + gap * 0.42f, sy - leafH * 0.85f - vTweak };
+            case 4:
+                return new float[] { sx + gap * 0.55f, sy - (gap * 0.52f + leafH + vTweak * 0.5f) };
+            case 5:
+                return new float[] { sx - leafW - gap * 0.55f, sy + gap * 0.28f };
+            case 6:
+                return new float[] { sx + gap * 0.92f, sy + gap * 0.22f };
+            default:
+                return new float[] { sx - leafW - gap * 0.92f, sy - (gap * 0.48f + leafH + vTweak * 0.5f) };
+        }
+    }
+
+    /**
+     * True when this map marker (or a body orbiting it) should show the exobiology leaf.
+     */
+    private static boolean mapBodyShowsExobiologyLeaf(int bodyId, Map<Integer, BodyInfo> bodies) {
+        if (bodies == null) {
+            return false;
+        }
+        BodyInfo self = bodies.get(Integer.valueOf(bodyId));
+        if (self != null && self.showsExobiologyLeafIndicator()) {
+            return true;
+        }
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            int parentId = SystemOrbitGeometry.resolveOrbitParentBodyId(e.getValue(), bodies, e.getKey().intValue());
+            if (parentId == bodyId && e.getValue().showsExobiologyLeafIndicator()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void drawLabelOutlined(Graphics2D g2, String text, float x, float y) {
@@ -4031,18 +4123,15 @@ public final class SystemPlanMapPanel extends JPanel {
         final boolean loneCentralPrimary;
 
         final boolean moon;
-        /** Earth-like — FSS green marker. */
-        final boolean fssEarthLike;
-        /** Water world / water-based giant — FSS blue-dot family. */
-        final boolean fssWaterWorld;
         final boolean giantPlanet;
         final boolean hasPlanetaryRings;
         /** No other body orbits this one (no moons) — ring art always shown when this body has rings. */
         final boolean soleOrbitCluster;
+        final boolean hasExobiology;
 
         BodyDot(int bodyId, double wx, double wy, String label, boolean star, boolean primaryStarAsterisk,
-                boolean loneCentralPrimary, boolean moon, boolean fssEarthLike, boolean fssWaterWorld,
-                boolean giantPlanet, boolean hasPlanetaryRings, boolean soleOrbitCluster) {
+                boolean loneCentralPrimary, boolean moon, boolean giantPlanet, boolean hasPlanetaryRings,
+                boolean soleOrbitCluster, boolean hasExobiology) {
             this.bodyId = bodyId;
             this.wx = wx;
             this.wy = wy;
@@ -4051,11 +4140,10 @@ public final class SystemPlanMapPanel extends JPanel {
             this.primaryStarAsterisk = primaryStarAsterisk;
             this.loneCentralPrimary = loneCentralPrimary;
             this.moon = moon;
-            this.fssEarthLike = fssEarthLike;
-            this.fssWaterWorld = fssWaterWorld;
             this.giantPlanet = giantPlanet;
             this.hasPlanetaryRings = hasPlanetaryRings;
             this.soleOrbitCluster = soleOrbitCluster;
+            this.hasExobiology = hasExobiology;
         }
     }
 }

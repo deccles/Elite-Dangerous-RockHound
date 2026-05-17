@@ -3,6 +3,7 @@ package org.dce.ed.util;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -265,6 +266,43 @@ class SystemOrbitGeometryPlanetBinaryTest {
         assertTrue(SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(parent));
     }
 
+    /**
+     * Byua Aim SZ-G d10-2113: journal {@code ScanBaryCentre} BodyID 12 with {@code 1 b}/{@code 1 c} on Null:12.
+     * The sentinel row must not anchor the pair at its tiny heliocentric SMA (~7 Ls) next to the star.
+     */
+    @Test
+    void pipeline_szG_d10_2113_planetBinaryBarycentreNotAtStar() {
+        Map<Integer, BodyInfo> bodies = szG_d10_2113FromJournal();
+        int pB = findByShortName(bodies, "1 b");
+        int parentB = SystemOrbitGeometry.resolveOrbitParentBodyId(
+                bodies.get(Integer.valueOf(pB)), bodies, pB);
+        assertTrue(SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(parentB));
+        assertFalse(bodies.containsKey(Integer.valueOf(parentB)));
+
+        var model = SystemMapPipeline.build("Byua Aim SZ-G d10-2113", bodies, Instant.EPOCH, true);
+        int bKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(12);
+        Map<Integer, double[]> pos = model.positionsMetres();
+        assertNotNull(pos.get(Integer.valueOf(bKey)),
+                "barycentre map key missing from positions; keys=" + pos.keySet());
+        int star = SystemOrbitGeometry.schematicCentralStarMapKey(bodies);
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double dBaryStar = distOnAxes(pos.get(Integer.valueOf(bKey)), pos.get(Integer.valueOf(star)),
+                model.projectionAxis0(), model.projectionAxis1()) / ls;
+        assertTrue(dBaryStar > 500.0,
+                "1 b/1 c barycentre should orbit near the gas giant (~2250 Ls), not beside the star; was "
+                        + dBaryStar + " Ls");
+
+        int pC = findByShortName(bodies, "1 c");
+        double d8Bary = distOnAxes(pos.get(Integer.valueOf(pB)), pos.get(Integer.valueOf(bKey)),
+                model.projectionAxis0(), model.projectionAxis1()) / ls;
+        double d9Bary = distOnAxes(pos.get(Integer.valueOf(pC)), pos.get(Integer.valueOf(bKey)),
+                model.projectionAxis0(), model.projectionAxis1()) / ls;
+        assertTrue(d8Bary > 0.5 && d9Bary > 0.5, "1 b and 1 c should orbit the mutual barycentre ring");
+        double d89 = distOnAxes(pos.get(Integer.valueOf(pB)), pos.get(Integer.valueOf(pC)),
+                model.projectionAxis0(), model.projectionAxis1()) / ls;
+        assertTrue(d89 > 1.0, "1 b and 1 c should be separated on the mutual orbit");
+    }
+
     private static void assertPairOnBarycentreRingNotOnStar(org.dce.ed.systemmap.SystemMapModel model,
             Map<Integer, BodyInfo> bodies) {
         Map<Integer, double[]> pos = model.positionsMetres();
@@ -309,6 +347,49 @@ class SystemOrbitGeometryPlanetBinaryTest {
                 "body 8 should orbit near the barycentre, not at the star");
         assertTrue(Math.abs(d9Star - dBaryStar) < 0.65 * dBaryStar,
                 "body 9 should orbit near the barycentre, not at the star");
+    }
+
+    /** Journal snapshot from Byua Aim SZ-G d10-2113 (2026-05-17). */
+    private static Map<Integer, BodyInfo> szG_d10_2113FromJournal() {
+        Map<Integer, BodyInfo> bodies = new HashMap<>();
+        BodyInfo star = new BodyInfo();
+        star.setBodyName("Byua Aim SZ-G d10-2113");
+        star.setBodyShortName("Byua Aim SZ-G d10-2113");
+        star.setStarType("F");
+        star.setDistanceLs(0);
+        bodies.put(Integer.valueOf(0), star);
+
+        BodyInfo giant = new BodyInfo();
+        giant.setBodyShortName("1");
+        giant.setPlanetClass("Sudarsky class I gas giant");
+        giant.setDistanceLs(2250.910720);
+        giant.setImmediateParentBodyId(0);
+        bodies.put(Integer.valueOf(10), giant);
+
+        BodyInfo bary = new BodyInfo();
+        bary.setBodyId(12);
+        bary.setBodyName("Byua Aim SZ-G d10-2113 barycentre 12");
+        bary.setScanBarycentreRow(true);
+        bary.setSemiMajorAxisM(2_030_467_450.618744);
+        bary.setOrbitalPeriod(2_386_382.281780);
+        bary.setMeanAnomaly(106.643193);
+        bodies.put(Integer.valueOf(12), bary);
+
+        BodyInfo pB = new BodyInfo();
+        pB.setBodyShortName("1 b");
+        pB.setPlanetClass("Icy body");
+        pB.setDistanceLs(2250.794836);
+        pB.setImmediateParentBodyId(12);
+        bodies.put(Integer.valueOf(13), pB);
+
+        BodyInfo pC = new BodyInfo();
+        pC.setBodyShortName("1 c");
+        pC.setPlanetClass("Icy body");
+        pC.setDistanceLs(2250.820447);
+        pC.setImmediateParentBodyId(12);
+        bodies.put(Integer.valueOf(14), pC);
+
+        return bodies;
     }
 
     private static Map<Integer, BodyInfo> c15210PlanetBinaryPair() {
