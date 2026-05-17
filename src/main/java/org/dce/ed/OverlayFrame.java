@@ -1736,6 +1736,12 @@ private void refreshPassThroughUnifiedStatus() {
     /**
      * Centralized close method: saves bounds then exits.
      */
+    /** Persist window bounds and session before {@link org.dce.ed.util.OverlayAppRestart}. */
+    public void prepareForApplicationRestart() {
+        persistPassThroughBoundsRectangle(windowOuterRectangle(this));
+        flushSessionStateNow();
+    }
+
     public void closeOverlay() {
         persistPassThroughBoundsRectangle(windowOuterRectangle(this));
         dispose();

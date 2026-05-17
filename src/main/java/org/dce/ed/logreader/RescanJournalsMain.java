@@ -39,6 +39,14 @@ import org.dce.ed.util.SpanshLandmarkCache;
  */
 public class RescanJournalsMain {
 
+	/**
+	 * Optional UI/CLI progress hook. {@code percent} is 0–100, or negative for indeterminate.
+	 * Invoked from the rescan worker thread.
+	 */
+	@FunctionalInterface
+	public interface RescanProgressListener {
+		void onProgress(String phase, int percent, String detail);
+	}
 
 	public static void main(String[] args) throws IOException {
 		System.out.println("Rescanning Elite Dangerous journals and rebuilding local system cache...");
@@ -87,6 +95,14 @@ public class RescanJournalsMain {
 	 *  - forcedCacheFile: if provided, sets {@link SystemCache#CACHE_DB_PATH_PROPERTY} (SQLite DB path).
 	 */
 	public static void rescanJournals(boolean forceFull, Path forcedJournalFile, Path forcedCacheFile) throws IOException {
+		rescanJournals(forceFull, forcedJournalFile, forcedCacheFile, null);
+	}
+
+	/**
+	 * @param progress optional; may be called frequently from the rescan worker thread
+	 */
+	public static void rescanJournals(boolean forceFull, Path forcedJournalFile, Path forcedCacheFile,
+			RescanProgressListener progress) throws IOException {
 		Path journalDirectory;
 		if (forcedJournalFile != null) {
 			Path abs = forcedJournalFile.toAbsolutePath().normalize();
@@ -109,6 +125,7 @@ public class RescanJournalsMain {
 			}
 		}
 		long rescanStartNs = System.nanoTime();
+		reportProgress(progress, "Preparing", -1, null);
 		EliteJournalReader reader = new EliteJournalReader(journalDirectory);
 		List<Path> journalLogFiles = reader.listJournalPaths();
 		System.out.println("Journal folder: " + journalDirectory);
@@ -151,6 +168,8 @@ public class RescanJournalsMain {
 			System.out.println("        " + cursorPath);
 		}
 
+		reportProgress(progress, "Reading journals", -1,
+				journalLogFiles.size() + " log file" + (journalLogFiles.size() == 1 ? "" : "s"));
 		long loadStartNs = System.nanoTime();
 		List<EliteLogEvent> events;
 		if (forcedJournalFile != null) {
@@ -169,10 +188,12 @@ public class RescanJournalsMain {
 
 		double loadSeconds = (System.nanoTime() - loadStartNs) / 1_000_000_000.0;
 		System.out.printf(Locale.US, "Journal read + parse: %.2f s — %d parsed event(s).%n", loadSeconds, events.size());
+		reportProgress(progress, "Journals parsed", 0, events.size() + " event" + (events.size() == 1 ? "" : "s"));
 
 		SystemCache cache = SystemCache.getInstance();
 		if (forceFull)
 		{
+			reportProgress(progress, "Clearing cache", -1, null);
 			cache.clearAndDeleteOnDisk();
 		}
 
@@ -199,9 +220,20 @@ public class RescanJournalsMain {
 		EliteLogEvent latestCarrierEvent = null;
 
 		String prevBulkCacheWrite = System.getProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY);
+		final int eventCount = events.size();
+		int lastReportedPercent = -1;
 		try {
 			System.setProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY, "true");
-			for (EliteLogEvent event : events) {
+			for (int eventIndex = 0; eventIndex < eventCount; eventIndex++) {
+			EliteLogEvent event = events.get(eventIndex);
+			if (eventCount > 0) {
+				int pct = (int) ((eventIndex + 1L) * 100L / eventCount);
+				if (pct != lastReportedPercent && (pct == 100 || pct % 2 == 0 || eventIndex == 0)) {
+					lastReportedPercent = pct;
+					reportProgress(progress, "Rebuilding cache", pct,
+							(eventIndex + 1) + " / " + eventCount + " events");
+				}
+			}
 			Instant ts = event.getTimestamp();
 			if (ts != null && (newestEventTimestamp == null || ts.isAfter(newestEventTimestamp))) {
 				newestEventTimestamp = ts;
@@ -341,6 +373,7 @@ public class RescanJournalsMain {
 			}
 		}
 		EdoSessionPersistence.save(sessionState);
+		reportProgress(progress, "Finishing", 100, null);
 
 		if (forcedJournalFile == null && journalDirectory != null && newestEventTimestamp != null) {
 			JournalImportCursor.write(journalDirectory, newestEventTimestamp);
@@ -353,6 +386,12 @@ public class RescanJournalsMain {
 		System.out.printf(Locale.US, "Total rescan wall time: %.2f s%n", totalSeconds);
 
 		System.out.println("Rescan complete. Exobiology expected credits total (unsold): " + exoCreditsTotal);
+	}
+
+	private static void reportProgress(RescanProgressListener progress, String phase, int percent, String detail) {
+		if (progress != null) {
+			progress.onProgress(phase, percent, detail);
+		}
 	}
 
 	private static void persistIfSystemIsChanging(SystemCache cache, SystemState state, String nextName, long nextAddr) {

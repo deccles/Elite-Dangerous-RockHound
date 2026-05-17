@@ -126,6 +126,14 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		this.persistenceDelegate = overlayFrame;
 	}
 
+	/** Persist window bounds and session before {@link org.dce.ed.util.OverlayAppRestart}. */
+	public void prepareForApplicationRestart() {
+		if (persistenceDelegate != null) {
+			persistenceDelegate.flushSessionStateNow();
+		}
+		OverlayFrame.persistOuterBounds(this);
+	}
+
 	private void firePassThroughRequest() {
 		Runnable r = onRequestSwitchToPassThrough;
 		if (r != null) {
