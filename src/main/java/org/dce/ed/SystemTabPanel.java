@@ -16,6 +16,8 @@ import java.awt.PointerInfo;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Window;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.awt.event.ItemEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
@@ -367,6 +369,15 @@ public class SystemTabPanel extends JPanel {
 //        setBackground(Color.BLACK);
         // Header label
         headerLabel = new JTextField("Waiting for system data…");
+        headerLabel.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusLost(FocusEvent e) {
+                if (e.isTemporary()) {
+                    return;
+                }
+                syncHeaderLabelFromState();
+            }
+        });
         headerLabel.addKeyListener(new KeyListener() {
             public void keyTyped(KeyEvent e) {}
             public void keyReleased(KeyEvent e) {}
@@ -387,7 +398,8 @@ public class SystemTabPanel extends JPanel {
                     state.setSystemName(text);
                     state.setSystemAddress(0L);
 
-                    loadSystem(text, 0L, true);
+                    loadSystem(text.trim(), 0L, true);
+                    syncHeaderLabelFromState();
                 }
             }
         });
@@ -2161,10 +2173,16 @@ public class SystemTabPanel extends JPanel {
         return parts.length > 0 ? parts[0] : "";
     }
 
-    private void updateHeaderLabel() {
+    private void syncHeaderLabelFromState() {
         String systemName = state.getSystemName();
         headerLabel.setText(systemName != null ? systemName : "");
-        
+    }
+
+    private void updateHeaderLabel() {
+        if (!headerLabel.hasFocus()) {
+            syncHeaderLabelFromState();
+        }
+
         StringBuilder sb = new StringBuilder();
 
         if (state.getTotalBodies() != null) {

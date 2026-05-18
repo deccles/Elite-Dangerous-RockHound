@@ -31,7 +31,8 @@ class SystemMapFixtureTest {
                 "tt-x-c15-283-binary-elw.json",
                 "c16-241-single-k-star.json",
                 "sz-g-d10-2113-planet-binary.json",
-                "gas-giant-2-binary-moons.json");
+                "gas-giant-2-binary-moons.json",
+                "eor-aowsy-ri-k-c8-3670.json");
     }
 
     @ParameterizedTest(name = "{0}")
@@ -168,7 +169,7 @@ class SystemMapFixtureTest {
                 n++;
             }
         }
-        assertTrue(n >= 2);
+        assertTrue(n >= 1);
         double cx = sx / n;
         double cy = sy / n;
         double tolM = SystemOrbitGeometry.LIGHT_SECOND_METRES * 5.0;

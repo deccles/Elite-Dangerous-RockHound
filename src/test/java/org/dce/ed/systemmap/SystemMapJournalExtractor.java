@@ -4,15 +4,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
-import org.dce.ed.logreader.EliteJournalReader;
-import org.dce.ed.logreader.EliteLogEvent;
-import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.state.BodyInfo;
-import org.dce.ed.state.ScanParents;
 import org.dce.ed.state.SystemState;
 
 import com.google.gson.Gson;
@@ -23,7 +17,7 @@ import com.google.gson.GsonBuilder;
  * developers refreshing fixtures from a real journal folder.
  * <p>
  * Run manually, e.g.:
- * {@code mvn -q test -Dtest=SystemMapJournalExtractorTest#exportSystem -Dedo.journal.dir="%USERPROFILE%\\Saved Games\\Frontier Developments\\Elite Dangerous" -Dedo.export.system="Byua Aim TT-X c15-29"}
+ * {@code mvn -q test -Dtest=SystemMapJournalExtractorTest#exportSystem -Dedo.journal.dir="%USERPROFILE%\\Saved Games\\Frontier Developments\\Elite Dangerous" -Dedo.export.system="Byua Aim TT-X c15-29"}}
  */
 public final class SystemMapJournalExtractor {
 
@@ -36,25 +30,7 @@ public final class SystemMapJournalExtractor {
      * @return fixture built from the most recent scans of {@code systemName} found in {@code journalDirectory}
      */
     public static SystemMapFixture extractFromJournals(Path journalDirectory, String systemName) throws IOException {
-        if (journalDirectory == null || !Files.isDirectory(journalDirectory)) {
-            throw new IOException("Journal directory not found: " + journalDirectory);
-        }
-        EliteJournalReader reader = new EliteJournalReader(journalDirectory);
-        SystemState state = new SystemState();
-        String target = systemName.trim().toUpperCase(Locale.ROOT);
-        for (EliteLogEvent event : reader.readAllEvents()) {
-            if (!(event instanceof ScanEvent scan)) {
-                continue;
-            }
-            String sys = scan.getStarSystem();
-            if (sys == null || !sys.trim().toUpperCase(Locale.ROOT).equals(target)) {
-                continue;
-            }
-            applyScan(state, scan);
-        }
-        if (state.getBodies().isEmpty()) {
-            throw new IOException("No Scan events found for system: " + systemName);
-        }
+        SystemState state = JournalSystemMapLoader.loadFromJournal(journalDirectory, systemName);
         return toFixture(state);
     }
 
@@ -62,40 +38,7 @@ public final class SystemMapJournalExtractor {
         Files.writeString(out, GSON.toJson(fixture));
     }
 
-    private static void applyScan(SystemState state, ScanEvent e) {
-        if (e.getBodyName() != null && e.getBodyName().contains("Belt")) {
-            return;
-        }
-        state.setSystemName(e.getStarSystem());
-        state.setSystemAddress(e.getSystemAddress());
-        int key = e.getBodyId() >= 0 ? e.getBodyId() : stableTempKey(e.getBodyName());
-        BodyInfo info = state.getOrCreateBody(key);
-        info.setBodyId(key);
-        info.setBodyName(e.getBodyName());
-        info.setStarSystem(e.getStarSystem());
-        info.setBodyShortName(state.computeShortName(e.getStarSystem(), e.getBodyName()));
-        info.setDistanceLs(e.getDistanceFromArrivalLs());
-        info.setPlanetClass(e.getPlanetClass());
-        info.setAtmosphere(e.getAtmosphere());
-        info.setAtmoOrType(e.getAtmosphere() != null ? e.getAtmosphere() : e.getPlanetClass());
-        if (e.getStarType() != null) {
-            info.setStarType(e.getStarType());
-        }
-        if (e.getSemiMajorAxisM() != null) {
-            info.setSemiMajorAxisM(e.getSemiMajorAxisM());
-        }
-        List<ScanEvent.ParentRef> parents = e.getParents();
-        int ip = ScanParents.immediateOrbitParentBodyId(parents, e);
-        if (ip >= 0) {
-            info.setImmediateParentBodyId(ip);
-        }
-    }
-
-    private static int stableTempKey(String bodyName) {
-        return -Math.abs(bodyName.hashCode());
-    }
-
-    private static SystemMapFixture toFixture(SystemState state) {
+    static SystemMapFixture toFixture(SystemState state) {
         SystemMapFixture fx = new SystemMapFixture();
         fx.name = state.getSystemName();
         fx.notes = "Auto-exported from journal Scan events";
@@ -109,7 +52,8 @@ public final class SystemMapJournalExtractor {
             spec.id = e.getKey().intValue();
             spec.bodyName = b.getBodyName();
             spec.shortName = b.getShortName();
-            spec.distanceLs = b.getDistanceLs();
+            double distLs = b.getDistanceLs();
+            spec.distanceLs = Double.isFinite(distLs) ? distLs : 0.0;
             spec.starType = b.getStarType();
             spec.planetClass = b.getPlanetClass();
             spec.atmoOrType = b.getAtmoOrType();
@@ -122,6 +66,9 @@ public final class SystemMapJournalExtractor {
             }
             if (b.getSemiMajorAxisM() != null) {
                 spec.semiMajorAxisM = b.getSemiMajorAxisM();
+            }
+            if (b.isScanBarycentreRow()) {
+                spec.scanBarycentreRow = Boolean.TRUE;
             }
             fx.bodies.add(spec);
         }

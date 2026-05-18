@@ -17,6 +17,7 @@ import javax.swing.SwingWorker;
 import org.dce.ed.exobiology.audit.ExoPredictionDebuggerMain;
 import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.tools.EdoSqliteDatabaseFrame;
+import org.dce.ed.tools.SystemHierarchyGraphFrame;
 import org.dce.ed.ui.ShowConsoleAction;
 import org.dce.ed.util.EdsmQueryTool;
 import org.dce.ed.util.GithubMsiUpdater;
@@ -205,6 +206,10 @@ public final class OverlayToolsLaunchers {
 
     public static void launchSqliteCacheBrowser(Component parent) {
         EdoSqliteDatabaseFrame.showDefaultOrBringToFront(parent);
+    }
+
+    public static void launchSystemHierarchyGraph(Component parent) {
+        SystemHierarchyGraphFrame.showDefaultOrBringToFront(parent);
     }
 
     public static void launchExoPredictionDebugger(Component parent) {

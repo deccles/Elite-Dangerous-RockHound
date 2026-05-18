@@ -49,6 +49,8 @@ import javax.swing.border.EmptyBorder;
 
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.systemmap.SystemMapClassification;
+import org.dce.ed.systemmap.SystemMapModel;
 import org.dce.ed.systemmap.SystemMapPipeline;
 import org.dce.ed.systemmap.SystemMapRules;
 import org.dce.ed.util.ExplorationBodyCredits;
@@ -342,6 +344,12 @@ public final class SystemPlanMapPanel extends JPanel {
 
     /** Wide-binary flatten chord captured at {@link #setScene}; reused during schematic playback ticks. */
     private SystemOrbitGeometry.WideBinaryFlattenFrame wideBinaryFlattenFrame;
+
+    /**
+     * Schematic topology + layout from {@link SystemMapPipeline}; parent links, hubs, and map-plane positions must
+     * come from here — not re-derived in paint code.
+     */
+    private SystemMapModel mapModel;
 
     /** Barycentre ring vertices from {@link #setScene}; not recomputed each playback tick. */
     private double[] cachedBarycentreRingWx;
@@ -647,6 +655,7 @@ public final class SystemPlanMapPanel extends JPanel {
         this.orbitSchematicPlaybackActive = orbitSchematicPlaybackActive;
         syncOrbitPlaybackEpochTracking(orbitSchematicPlaybackActive, orbitPositionEpoch);
         sceneEmpty = bodies == null || bodies.isEmpty() || positions == null || positions.isEmpty();
+        mapModel = null;
 
         if (!MAP_AUTO_VIEW_PAN) {
             cancelSubsystemProximityHop();
@@ -654,27 +663,19 @@ public final class SystemPlanMapPanel extends JPanel {
 
         if (!sceneEmpty) {
             String mapSystemName = resolveMapSystemName(bodies);
-            org.dce.ed.systemmap.SystemMapModel mapModel = SystemMapPipeline.build(mapSystemName, bodies,
-                    orbitPositionEpoch, orbitSchematicPlaybackActive);
+            mapModel = SystemMapPipeline.build(mapSystemName, bodies, orbitPositionEpoch, orbitSchematicPlaybackActive);
             positions = new java.util.HashMap<>(mapModel.positionsMetres());
             mapProjA0 = mapModel.projectionAxis0();
             mapProjA1 = mapModel.projectionAxis1();
             wideBinaryFlattenFrame = mapModel.wideBinaryFlattenFrame();
             orbitLines = mapModel.orbitPolylines();
             lastOrbitRebuildKey = orbitRebuildCacheKey();
-            int primaryAnch = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
-            Map<Integer, Integer> orbitChildrenOfParent = new HashMap<>();
-            if (bodies != null) {
-                for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
-                    if (e.getKey() == null || e.getValue() == null) {
-                        continue;
-                    }
-                    int pid = SystemOrbitGeometry.resolveOrbitParentBodyId(e.getValue(), bodies, e.getKey().intValue());
-                    if (pid >= 0) {
-                        orbitChildrenOfParent.merge(Integer.valueOf(pid), 1, Integer::sum);
-                    }
-                }
-            }
+            SystemMapClassification clf = mapModel.classification();
+            int primaryAnch = clf.primaryAnchorBodyId() >= 0 ? clf.primaryAnchorBodyId()
+                    : SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+            boolean singleStarMap = clf.singleStarSchematicMap();
+            boolean wideBinaryMap = clf.wideBinary();
+            int centralStarId = singleStarMap ? clf.schematicCentralStarId() : -1;
             for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
                 if (e.getKey() == null || e.getValue() == null) {
                     continue;
@@ -694,10 +695,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 }
                 BodyInfo b = e.getValue();
                 int mapKey = e.getKey().intValue();
-                boolean mapStellar = SystemOrbitGeometry.isMapStellarBody(b);
-                boolean singleStarMap = SystemOrbitGeometry.isSingleStarSchematicMap(bodies);
-                boolean wideBinaryMap = SystemOrbitGeometry.countMapStellarBodies(bodies) >= 2;
-                int centralStarId = singleStarMap ? SystemOrbitGeometry.schematicCentralStarMapKey(bodies) : -1;
+                boolean mapStellar = SystemMapRules.isMapStellarBody(b);
                 /* Asterisk matches System tab: primary name = system name (FSS may omit starType). Not on wide binaries. */
                 boolean primaryStarAsterisk = !wideBinaryMap
                         && (SystemOrbitGeometry.isPrimaryStarBodyByName(b)
@@ -716,9 +714,9 @@ public final class SystemPlanMapPanel extends JPanel {
                         && SystemOrbitGeometry.isMoonSatelliteBody(b, bodies);
                 boolean giant = isGiantPlanetBody(b, star);
                 boolean rings = hasPlanetaryRingsForMap(b, star);
-                boolean soleOrbitCluster = !star && orbitChildrenOfParent.getOrDefault(Integer.valueOf(mapKey), 0) == 0;
+                boolean soleOrbitCluster = !star && mapModel.directChildCount(mapKey) == 0;
                 boolean hasExobiology = !star && !primaryStarAsterisk
-                        && mapBodyShowsExobiologyLeaf(mapKey, bodies);
+                        && mapBodyShowsExobiologyLeaf(mapKey);
                 dots.add(new BodyDot(mapKey, x, y, label, star, primaryStarAsterisk, loneCentralPrimary, moon,
                         giant, rings, soleOrbitCluster, hasExobiology));
             }
@@ -753,7 +751,7 @@ public final class SystemPlanMapPanel extends JPanel {
         if (!sceneEmpty && bodies != null && positions != null) {
             orbitGeomBodies = bodies;
             orbitGeomPositions = positions;
-            subsystemHubLumpBodyIds = collectSubsystemHubBodyIds(bodies);
+            subsystemHubLumpBodyIds = mapModel.subsystemHubBodyIds();
         } else {
             orbitGeomBodies = null;
             orbitGeomPositions = null;
@@ -834,7 +832,7 @@ public final class SystemPlanMapPanel extends JPanel {
                         }
                     }
                 }
-                if (bodies != null && SystemOrbitGeometry.countMapStellarBodies(bodies) >= 2) {
+                if (mapModel != null && mapModel.classification().wideBinary()) {
                     double[] bary = wideBinaryStellarCentroidWorldXY(dots);
                     if (Double.isFinite(bary[0]) && Double.isFinite(bary[1])) {
                         viewCenterWx = bary[0];
@@ -939,7 +937,7 @@ public final class SystemPlanMapPanel extends JPanel {
 
             BodyInfo ch = orbitGeomBodies.get(Integer.valueOf(pl.bodyId));
             String ringName = ch != null ? labelFor(ch) : "?" + pl.bodyId;
-            int pId = ch != null ? SystemOrbitGeometry.resolveOrbitParentBodyId(ch, orbitGeomBodies, pl.bodyId) : -1;
+            int pId = ch != null ? mapResolvedParent(pl.bodyId) : -1;
             BodyInfo par = pId >= 0 ? orbitGeomBodies.get(Integer.valueOf(pId)) : null;
             String parentName = par != null ? labelFor(par) : "?";
             double ppx = Double.NaN;
@@ -983,7 +981,7 @@ public final class SystemPlanMapPanel extends JPanel {
         double midCx = (bb.minX + bb.maxX) * 0.5;
         double midCy = (bb.minY + bb.maxY) * 0.5;
 
-        int frameHub = approachFrameHubId(bodyId, orbitGeomBodies);
+        int frameHub = approachFrameHubId(bodyId, orbitGeomBodies, mapResolvedParents());
         double[] frame = computeApproachSubsystemFrame(bodyId, frameHub, target);
         double targetZoom = frame[2];
         double focusX = frame[0];
@@ -1009,25 +1007,25 @@ public final class SystemPlanMapPanel extends JPanel {
      * Hub used to frame the map after {@code ApproachBody}: a body that hosts satellites uses itself so the view
      * includes that planet and its moons; otherwise the same key as subsystem proximity hops (moon → parent world).
      */
-    private static int approachFrameHubId(int bodyId, Map<Integer, BodyInfo> bodies) {
+    private static int approachFrameHubId(int bodyId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
         if (bodies == null || bodies.isEmpty() || bodyId < 0 || !bodies.containsKey(Integer.valueOf(bodyId))) {
             return -1;
         }
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
-            BodyInfo bi = e.getValue();
-            if (e.getKey() == null || bi == null) {
+            if (e.getKey() == null || e.getValue() == null) {
                 continue;
             }
-            int p = SystemOrbitGeometry.resolveOrbitParentBodyId(bi, bodies, e.getKey().intValue());
-            if (p == bodyId) {
+            if (resolvedParentFromMap(e.getKey().intValue(), resolvedParents) == bodyId) {
                 return bodyId;
             }
         }
-        return subsystemFocusKeyForBody(bodyId, bodies);
+        return subsystemFocusKeyForBody(bodyId, bodies, resolvedParents);
     }
 
-    private static boolean orbitSubtreeContainsHub(int bodyId, int hubId, Map<Integer, BodyInfo> bodies) {
-        int root = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+    private static boolean orbitSubtreeContainsHub(int bodyId, int hubId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        int root = schematicRootBodyId(bodies, resolvedParents);
         int cur = bodyId;
         for (int g = 0; g < 64 && cur >= 0; g++) {
             if (cur == hubId) {
@@ -1036,11 +1034,7 @@ public final class SystemPlanMapPanel extends JPanel {
             if (cur == root) {
                 return hubId == root;
             }
-            BodyInfo bi = bodies.get(Integer.valueOf(cur));
-            if (bi == null) {
-                break;
-            }
-            int p = SystemOrbitGeometry.resolveOrbitParentBodyId(bi, bodies, cur);
+            int p = resolvedParentFromMap(cur, resolvedParents);
             if (p < 0 || p == cur) {
                 break;
             }
@@ -1049,7 +1043,8 @@ public final class SystemPlanMapPanel extends JPanel {
         return false;
     }
 
-    private static Set<Integer> membersUnderApproachHub(int hubId, Map<Integer, BodyInfo> bodies) {
+    private static Set<Integer> membersUnderApproachHub(int hubId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
         Set<Integer> out = new HashSet<>();
         if (bodies == null || hubId < 0) {
             return out;
@@ -1059,7 +1054,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 continue;
             }
             int id = k.intValue();
-            if (orbitSubtreeContainsHub(id, hubId, bodies)) {
+            if (orbitSubtreeContainsHub(id, hubId, bodies, resolvedParents)) {
                 out.add(k);
             }
         }
@@ -1070,16 +1065,13 @@ public final class SystemPlanMapPanel extends JPanel {
      * Orbit rings that belong in the “local” frame: moons of {@code hubId}, or direct stellar orbits when {@code hubId}
      * is {@code 0}. Omits the hub’s own orbit around the star so a gas-giant approach does not zoom to system scale.
      */
-    private static boolean includeOrbitPolyForApproachFrame(int orbitingBodyId, int hubId, Map<Integer, BodyInfo> bodies) {
+    private static boolean includeOrbitPolyForApproachFrame(int orbitingBodyId, int hubId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
         if (bodies == null || orbitingBodyId == hubId) {
             return false;
         }
-        BodyInfo bi = bodies.get(Integer.valueOf(orbitingBodyId));
-        if (bi == null) {
-            return false;
-        }
-        int root = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
-        int p = SystemOrbitGeometry.resolveOrbitParentBodyId(bi, bodies, orbitingBodyId);
+        int root = schematicRootBodyId(bodies, resolvedParents);
+        int p = resolvedParentFromMap(orbitingBodyId, resolvedParents);
         if (hubId == root) {
             return p == root;
         }
@@ -1110,7 +1102,7 @@ public final class SystemPlanMapPanel extends JPanel {
             return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
         }
 
-        Set<Integer> members = membersUnderApproachHub(frameHub, orbitGeomBodies);
+        Set<Integer> members = membersUnderApproachHub(frameHub, orbitGeomBodies, mapResolvedParents());
         if (members.isEmpty()) {
             return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
         }
@@ -1139,13 +1131,15 @@ public final class SystemPlanMapPanel extends JPanel {
         }
 
         double scalePxPerM = computeScalePixelsPerWorldMetre();
-        List<OrbitPolylineWorldXY> polys = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(orbitGeomBodies,
-                orbitGeomPositions, ORBIT_SEGMENTS_MAX, scalePxPerM, mapProjA0, mapProjA1);
+        List<OrbitPolylineWorldXY> polys = mapModel != null
+                ? SystemMapPipeline.rebuildOrbitPolylines(mapModel, orbitGeomPositions, ORBIT_SEGMENTS_MAX, scalePxPerM)
+                : Collections.emptyList();
+        Map<Integer, Integer> resolvedParents = mapResolvedParents();
         for (OrbitPolylineWorldXY pl : polys) {
             if (pl == null || pl.wx == null || pl.wy == null || pl.wx.length != pl.wy.length) {
                 continue;
             }
-            if (!includeOrbitPolyForApproachFrame(pl.bodyId, frameHub, orbitGeomBodies)) {
+            if (!includeOrbitPolyForApproachFrame(pl.bodyId, frameHub, orbitGeomBodies, resolvedParents)) {
                 continue;
             }
             for (int i = 0; i < pl.wx.length; i++) {
@@ -1427,8 +1421,9 @@ public final class SystemPlanMapPanel extends JPanel {
         lastOrbitRebuildKey = key;
         double scalePxPerM = useScreenChordScaleForSegments ? computeScalePixelsPerWorldMetre() : Double.NaN;
         int legacySeg = orbitSegmentsForZoom(zoomFactor);
-        orbitLines = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(orbitGeomBodies, orbitGeomPositions, legacySeg,
-                scalePxPerM, mapProjA0, mapProjA1);
+        orbitLines = mapModel != null
+                ? SystemMapPipeline.rebuildOrbitPolylines(mapModel, orbitGeomPositions, legacySeg, scalePxPerM)
+                : Collections.emptyList();
         logOrbitLinesIfBodySetChanged(orbitLines);
     }
 
@@ -1460,7 +1455,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 joiner.add("?" + pl.bodyId + " (around ?)");
                 continue;
             }
-            int pId = SystemOrbitGeometry.resolveOrbitParentBodyId(ch, orbitGeomBodies, pl.bodyId);
+            int pId = mapResolvedParent(pl.bodyId);
             BodyInfo par = pId >= 0 ? orbitGeomBodies.get(Integer.valueOf(pId)) : null;
             String childName = labelFor(ch);
             String parName = par != null ? labelFor(par) : "?";
@@ -1546,12 +1541,13 @@ public final class SystemPlanMapPanel extends JPanel {
         return false;
     }
 
-    private static int subsystemFocusKeyForBody(int bodyId, Map<Integer, BodyInfo> bodies) {
+    private static int subsystemFocusKeyForBody(int bodyId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
         if (bodies == null || bodyId < 0 || !bodies.containsKey(Integer.valueOf(bodyId))) {
             return -1;
         }
         Set<Integer> one = Collections.singleton(Integer.valueOf(bodyId));
-        return deepestCommonOrbitAncestor(one, bodies);
+        return deepestCommonOrbitAncestor(one, bodies, resolvedParents);
     }
 
     private void maybeStartSubsystemProximityHop(Integer newHighlightId, Map<Integer, BodyInfo> bodies,
@@ -1575,8 +1571,8 @@ public final class SystemPlanMapPanel extends JPanel {
         if (prev == null || Objects.equals(prev, newHighlightId)) {
             return;
         }
-        int k0 = subsystemFocusKeyForBody(prev.intValue(), bodies);
-        int k1 = subsystemFocusKeyForBody(newHighlightId.intValue(), bodies);
+        int k0 = subsystemFocusKeyForBody(prev.intValue(), bodies, mapResolvedParents());
+        int k1 = subsystemFocusKeyForBody(newHighlightId.intValue(), bodies, mapResolvedParents());
         if (k0 < 0 || k1 < 0 || k0 == k1) {
             return;
         }
@@ -1718,12 +1714,8 @@ public final class SystemPlanMapPanel extends JPanel {
         this.anchorBodyId = anchorBodyId;
         this.highlightNearBodyId = highlightNearBodyId;
         orbitGeomBodies = bodies;
-        positions = refineSingleStarMapPositions(bodies, positions, orbitPositionEpoch, orbitSchematicPlaybackActive);
-        if (!sceneEmpty && wideBinaryFlattenFrame != null && orbitGeomBodies != null) {
-            org.dce.ed.systemmap.SystemMapModel playbackBase = SystemMapPipeline.playbackBase(orbitGeomBodies,
-                    mapProjA0, mapProjA1, orbitGeomPositions != null ? orbitGeomPositions : positions,
-                    wideBinaryFlattenFrame);
-            positions = SystemMapPipeline.refreshPositionsForPlayback(playbackBase, positions, orbitPositionEpoch,
+        if (mapModel != null) {
+            positions = SystemMapPipeline.refreshPositionsForPlayback(mapModel, positions, orbitPositionEpoch,
                     orbitSchematicPlaybackActive);
         }
         orbitGeomPositions = positions;
@@ -2034,31 +2026,6 @@ public final class SystemPlanMapPanel extends JPanel {
      */
     private static boolean isPrimaryStarBody(BodyInfo b) {
         return SystemOrbitGeometry.isPrimaryStarBodyByName(b);
-    }
-
-    private Map<Integer, double[]> refineSingleStarMapPositions(Map<Integer, BodyInfo> bodies,
-            Map<Integer, double[]> positions,
-            Instant orbitPositionEpoch,
-            boolean freezeBarycentreStars) {
-        if (bodies == null || positions == null
-                || !SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies)) {
-            return positions;
-        }
-        Instant epoch = orbitPositionEpoch != null ? orbitPositionEpoch : Instant.now();
-        return SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(bodies, epoch, mapProjA0, mapProjA1,
-                freezeBarycentreStars);
-    }
-
-    private Map<Integer, double[]> refineWideBinaryMapPositions(Map<Integer, BodyInfo> bodies,
-            Map<Integer, double[]> positions,
-            Instant orbitPositionEpoch,
-            boolean freezeBarycentreStars) {
-        if (bodies == null || positions == null || SystemOrbitGeometry.countMapStellarBodies(bodies) < 2) {
-            return positions;
-        }
-        Instant epoch = orbitPositionEpoch != null ? orbitPositionEpoch : Instant.now();
-        return SystemOrbitGeometry.bodyPositionsMetresForWideBinaryMap(bodies, positions, epoch, mapProjA0, mapProjA1,
-                freezeBarycentreStars);
     }
 
     private static String labelFor(BodyInfo b) {
@@ -2561,37 +2528,35 @@ public final class SystemPlanMapPanel extends JPanel {
         return null;
     }
 
-    /**
-     * Bodies that anchor a moon subsystem on the map (twin blue hub rings, zoomed-out lump): orbit parents with at
-     * least one <em>satellite moon</em> child — not a major that only hosts a binary gas giant (no {@code 2 a}-style name).
-     */
-    private static Set<Integer> collectSubsystemHubBodyIds(Map<Integer, BodyInfo> bodies) {
-        HashSet<Integer> hubs = new HashSet<>();
-        if (bodies == null || bodies.isEmpty()) {
-            return hubs;
+    private int mapResolvedParent(int bodyId) {
+        return mapModel != null ? mapModel.resolveParentBodyId(bodyId) : -1;
+    }
+
+    private Map<Integer, Integer> mapResolvedParents() {
+        return mapModel != null ? mapModel.resolvedParentByBodyId() : Map.of();
+    }
+
+    private static int resolvedParentFromMap(int bodyId, Map<Integer, Integer> resolvedParents) {
+        if (resolvedParents == null) {
+            return -1;
         }
-        int loneStarCentral = SystemOrbitGeometry.isSingleStarSchematicMap(bodies)
-                ? SystemOrbitGeometry.schematicCentralStarMapKey(bodies)
-                : -1;
-        boolean wideBinary = SystemOrbitGeometry.countMapStellarBodies(bodies) >= 2;
-        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
-            if (e.getKey() == null || e.getValue() == null) {
-                continue;
+        Integer p = resolvedParents.get(Integer.valueOf(bodyId));
+        return p != null ? p.intValue() : -1;
+    }
+
+    private static int schematicRootBodyId(Map<Integer, BodyInfo> bodies, Map<Integer, Integer> resolvedParents) {
+        if (resolvedParents != null) {
+            for (Map.Entry<Integer, Integer> e : resolvedParents.entrySet()) {
+                if (e.getKey() != null && e.getValue() != null && e.getValue().intValue() < 0) {
+                    BodyInfo b = bodies != null ? bodies.get(e.getKey()) : null;
+                    if (b != null && SystemMapRules.isMapStellarBody(b)
+                            && SystemOrbitGeometry.isPrimaryStarBodyByName(b)) {
+                        return e.getKey().intValue();
+                    }
+                }
             }
-            BodyInfo child = e.getValue();
-            if (!SystemOrbitGeometry.isMoonSatelliteBody(child, bodies)) {
-                continue;
-            }
-            int pId = SystemOrbitGeometry.resolveOrbitParentBodyId(child, bodies, e.getKey().intValue());
-            if (pId < 0 || pId == loneStarCentral) {
-                continue;
-            }
-            if (wideBinary && SystemMapRules.isWideBinaryBranchStarHub(bodies, pId)) {
-                continue;
-            }
-            hubs.add(Integer.valueOf(pId));
         }
-        return hubs;
+        return bodies != null ? SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies) : 0;
     }
 
     private boolean subsystemHubLump(double visibleLsMinAxis, BodyDot d) {
@@ -2660,10 +2625,8 @@ public final class SystemPlanMapPanel extends JPanel {
         if (!d.star && d.soleOrbitCluster) {
             return !d.moon || showMoonLabels;
         }
-        if (!showClusterDetail && orbitGeomBodies != null && !d.star) {
-            BodyInfo bi = orbitGeomBodies.get(Integer.valueOf(d.bodyId));
-            if (bi != null && SystemMapRules.bodyLabelVisibleWhenZoomedOut(bi, d.bodyId, orbitGeomBodies, d.star,
-                    d.moon, d.soleOrbitCluster)) {
+        if (!showClusterDetail && mapModel != null && !d.star) {
+            if (mapModel.labelVisibleWhenZoomedOut(d.bodyId, d.star, d.moon, d.soleOrbitCluster)) {
                 return !d.moon || showMoonLabels;
             }
         }
@@ -2741,26 +2704,23 @@ public final class SystemPlanMapPanel extends JPanel {
      * Outermost lump hub for a body: {@code B} for {@code B 3 a}, not the nested giant hub {@code B 3}, so only the
      * branch star label shows when zoomed out. Planets are not in {@code lumpHubs} (only parents are); walk ancestors.
      */
-    private static int outermostSubsystemLumpHub(int bodyId, Map<Integer, BodyInfo> bodies, Set<Integer> lumpHubs) {
+    private int outermostSubsystemLumpHub(int bodyId, Map<Integer, BodyInfo> bodies, Set<Integer> lumpHubs) {
         if (bodyId < 0 || bodies == null || lumpHubs == null || lumpHubs.isEmpty()) {
             return -1;
         }
-        int hub = nearestLumpHubAncestor(bodyId, bodies, lumpHubs);
+        Map<Integer, Integer> resolvedParents = mapResolvedParents();
+        int hub = nearestLumpHubAncestor(bodyId, lumpHubs, resolvedParents);
         if (hub < 0) {
             return -1;
         }
-        return outermostLumpHubFromHub(hub, bodies, lumpHubs);
+        return outermostLumpHubFromHub(hub, lumpHubs, resolvedParents);
     }
 
     /** Nearest orbit parent (walking up) that is a subsystem lump hub, or {@code -1}. */
-    private static int nearestLumpHubAncestor(int bodyId, Map<Integer, BodyInfo> bodies, Set<Integer> lumpHubs) {
+    private int nearestLumpHubAncestor(int bodyId, Set<Integer> lumpHubs, Map<Integer, Integer> resolvedParents) {
         int cur = bodyId;
         for (int guard = 0; guard < 48; guard++) {
-            BodyInfo bi = bodies.get(Integer.valueOf(cur));
-            if (bi == null) {
-                return -1;
-            }
-            int p = SystemOrbitGeometry.resolveOrbitParentBodyId(bi, bodies, cur);
+            int p = resolvedParentFromMap(cur, resolvedParents);
             if (p < 0) {
                 return lumpHubs.contains(Integer.valueOf(cur)) ? cur : -1;
             }
@@ -2773,15 +2733,11 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /** From a hub id, walk up through lump hubs to the topmost (e.g. star {@code B}, not giant {@code B 3}). */
-    private static int outermostLumpHubFromHub(int hubId, Map<Integer, BodyInfo> bodies, Set<Integer> lumpHubs) {
+    private int outermostLumpHubFromHub(int hubId, Set<Integer> lumpHubs, Map<Integer, Integer> resolvedParents) {
         int cur = hubId;
         int outermost = hubId;
         for (int guard = 0; guard < 48; guard++) {
-            BodyInfo bi = bodies.get(Integer.valueOf(cur));
-            if (bi == null) {
-                break;
-            }
-            int p = SystemOrbitGeometry.resolveOrbitParentBodyId(bi, bodies, cur);
+            int p = resolvedParentFromMap(cur, resolvedParents);
             if (p < 0 || !lumpHubs.contains(Integer.valueOf(p))) {
                 break;
             }
@@ -2794,7 +2750,7 @@ public final class SystemPlanMapPanel extends JPanel {
     /**
      * When a cluster is lumped, place the hub label outside the member centroid (e.g. {@code B} above the blob, not on it).
      */
-    private static float[] lumpHubClusterLabelAnchor(List<BodyDot> dots, int hubId, float hubSx, float hubSy,
+    private float[] lumpHubClusterLabelAnchor(List<BodyDot> dots, int hubId, float hubSx, float hubSy,
             float hubR, int hubBodyId, String labelForSlot, int labelWidthPx, FontMetrics fm,
             Map<Integer, BodyInfo> bodies, Set<Integer> lumpHubs, double vcx, double vcy, double scale, double availW,
             double availH, double plotCx, double plotCy, boolean hubScreenLocked) {
@@ -2843,18 +2799,17 @@ public final class SystemPlanMapPanel extends JPanel {
      * Nearest ancestor of {@code bodyId} (possibly itself) that hosts a child cluster and therefore appears as a
      * zoomed-out subsystem hub on the map; {@code -1} if none.
      */
-    private static int resolveLumpSubsystemHubContaining(int bodyId, Map<Integer, BodyInfo> bodies, Set<Integer> lumpHubs) {
-        if (bodyId < 0 || bodies == null || bodies.isEmpty() || lumpHubs == null || lumpHubs.isEmpty()) {
+    private int resolveLumpSubsystemHubContaining(int bodyId, Set<Integer> lumpHubs) {
+        if (bodyId < 0 || lumpHubs == null || lumpHubs.isEmpty()) {
             return -1;
         }
         if (lumpHubs.contains(Integer.valueOf(bodyId))) {
             return bodyId;
         }
+        Map<Integer, Integer> resolvedParents = mapResolvedParents();
         int curId = bodyId;
-        BodyInfo cur = bodies.get(Integer.valueOf(curId));
-        int guard = 0;
-        while (cur != null && guard++ < 48) {
-            int p = SystemOrbitGeometry.resolveOrbitParentBodyId(cur, bodies, curId);
+        for (int guard = 0; guard < 48; guard++) {
+            int p = resolvedParentFromMap(curId, resolvedParents);
             if (p < 0) {
                 return -1;
             }
@@ -2862,7 +2817,6 @@ public final class SystemPlanMapPanel extends JPanel {
                 return p;
             }
             curId = p;
-            cur = bodies.get(Integer.valueOf(curId));
         }
         return -1;
     }
@@ -3041,20 +2995,19 @@ public final class SystemPlanMapPanel extends JPanel {
     /**
      * True when this map marker (or a body orbiting it) should show the exobiology leaf.
      */
-    private static boolean mapBodyShowsExobiologyLeaf(int bodyId, Map<Integer, BodyInfo> bodies) {
-        if (bodies == null) {
+    private boolean mapBodyShowsExobiologyLeaf(int bodyId) {
+        if (orbitGeomBodies == null) {
             return false;
         }
-        BodyInfo self = bodies.get(Integer.valueOf(bodyId));
+        BodyInfo self = orbitGeomBodies.get(Integer.valueOf(bodyId));
         if (self != null && self.showsExobiologyLeafIndicator()) {
             return true;
         }
-        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+        for (Map.Entry<Integer, BodyInfo> e : orbitGeomBodies.entrySet()) {
             if (e.getKey() == null || e.getValue() == null) {
                 continue;
             }
-            int parentId = SystemOrbitGeometry.resolveOrbitParentBodyId(e.getValue(), bodies, e.getKey().intValue());
-            if (parentId == bodyId && e.getValue().showsExobiologyLeafIndicator()) {
+            if (mapResolvedParent(e.getKey().intValue()) == bodyId && e.getValue().showsExobiologyLeafIndicator()) {
                 return true;
             }
         }
@@ -3190,21 +3143,23 @@ public final class SystemPlanMapPanel extends JPanel {
             int hid = highlightNearBodyId.intValue();
             /* Only follow commander / highlight when that body is actually in the view window; otherwise zooming or
              * panning into another subsystem during playback would still snap to the highlight's parent hub. */
-            if (orbitDepthFromStar(hid, orbitGeomBodies) >= 2 && visible.contains(Integer.valueOf(hid))) {
-                hub = subsystemFocusKeyForBody(hid, orbitGeomBodies);
+            Map<Integer, Integer> resolvedParents = mapResolvedParents();
+            if (orbitDepthFromStar(hid, orbitGeomBodies, resolvedParents) >= 2 && visible.contains(Integer.valueOf(hid))) {
+                hub = subsystemFocusKeyForBody(hid, orbitGeomBodies, resolvedParents);
             }
         }
         if (hub < 0) {
             if (pickedForHub.isEmpty()) {
                 return null;
             }
-            hub = deepestCommonOrbitAncestor(pickedForHub, orbitGeomBodies);
-            int rootId = SystemOrbitGeometry.primaryAnchorBodyMapKey(orbitGeomBodies);
+            Map<Integer, Integer> resolvedParents = mapResolvedParents();
+            hub = deepestCommonOrbitAncestor(pickedForHub, orbitGeomBodies, resolvedParents);
+            int rootId = schematicRootBodyId(orbitGeomBodies, resolvedParents);
             if (hub == rootId && pickedForHub.size() > 1) {
                 Set<Integer> withoutStar = new HashSet<>(pickedForHub);
                 withoutStar.remove(Integer.valueOf(rootId));
                 if (!withoutStar.isEmpty()) {
-                    hub = deepestCommonOrbitAncestor(withoutStar, orbitGeomBodies);
+                    hub = deepestCommonOrbitAncestor(withoutStar, orbitGeomBodies, resolvedParents);
                 }
             }
             if (hub == rootId && !pickedForHub.contains(Integer.valueOf(rootId))) {
@@ -3479,7 +3434,8 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /** Deepest node in the intersection of orbit-parent chains; sole visible body uses its parent as follow hub. */
-    private static int deepestCommonOrbitAncestor(Set<Integer> visible, Map<Integer, BodyInfo> bodies) {
+    private static int deepestCommonOrbitAncestor(Set<Integer> visible, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
         if (visible == null || visible.isEmpty() || bodies == null || bodies.isEmpty()) {
             return -1;
         }
@@ -3489,7 +3445,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 continue;
             }
             Set<Integer> chain = new HashSet<>();
-            addOrbitAncestors(idObj.intValue(), bodies, chain);
+            addOrbitAncestors(idObj.intValue(), bodies, resolvedParents, chain);
             if (chain.isEmpty()) {
                 continue;
             }
@@ -3500,7 +3456,7 @@ public final class SystemPlanMapPanel extends JPanel {
             }
         }
         if (common == null || common.isEmpty()) {
-            return SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+            return schematicRootBodyId(bodies, resolvedParents);
         }
         int best = -1;
         int bestDepth = -1;
@@ -3509,7 +3465,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 continue;
             }
             int c = cObj.intValue();
-            int d = orbitDepthFromStar(c, bodies);
+            int d = orbitDepthFromStar(c, bodies, resolvedParents);
             if (d > bestDepth || (d == bestDepth && c > best)) {
                 bestDepth = d;
                 best = c;
@@ -3517,35 +3473,24 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         /* One visible leaf (e.g. a single moon): deepest-in-intersection is that body — follow its parent instead. */
         if (visible.size() == 1 && best >= 0 && visible.contains(Integer.valueOf(best))) {
-            int p = orbitImmediateParent(best, bodies);
+            int p = resolvedParentFromMap(best, resolvedParents);
             if (p >= 0) {
                 best = p;
             }
         }
-        return best >= 0 ? best : SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+        return best >= 0 ? best : schematicRootBodyId(bodies, resolvedParents);
     }
 
-    private static int orbitImmediateParent(int bodyId, Map<Integer, BodyInfo> bodies) {
-        BodyInfo bi = bodies.get(Integer.valueOf(bodyId));
-        if (bi == null) {
-            return -1;
-        }
-        return SystemOrbitGeometry.resolveOrbitParentBodyId(bi, bodies, bodyId);
-    }
-
-    private static void addOrbitAncestors(int bodyId, Map<Integer, BodyInfo> bodies, Set<Integer> into) {
-        int root = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+    private static void addOrbitAncestors(int bodyId, Map<Integer, BodyInfo> bodies, Map<Integer, Integer> resolvedParents,
+            Set<Integer> into) {
+        int root = schematicRootBodyId(bodies, resolvedParents);
         int cur = bodyId;
         for (int guard = 0; guard < 64 && cur >= 0; guard++) {
             into.add(Integer.valueOf(cur));
             if (cur == root) {
                 break;
             }
-            BodyInfo bi = bodies.get(Integer.valueOf(cur));
-            if (bi == null) {
-                break;
-            }
-            int p = SystemOrbitGeometry.resolveOrbitParentBodyId(bi, bodies, cur);
+            int p = resolvedParentFromMap(cur, resolvedParents);
             if (p < 0 || p == cur) {
                 break;
             }
@@ -3554,19 +3499,16 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /** Number of orbit-parent hops from {@code bodyId} up to the schematic root (primary anchor). */
-    private static int orbitDepthFromStar(int bodyId, Map<Integer, BodyInfo> bodies) {
-        int root = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+    private static int orbitDepthFromStar(int bodyId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        int root = schematicRootBodyId(bodies, resolvedParents);
         int hops = 0;
         int cur = bodyId;
         for (int guard = 0; guard < 64 && cur >= 0; guard++) {
             if (cur == root) {
                 return hops;
             }
-            BodyInfo bi = bodies.get(Integer.valueOf(cur));
-            if (bi == null) {
-                return hops;
-            }
-            int p = SystemOrbitGeometry.resolveOrbitParentBodyId(bi, bodies, cur);
+            int p = resolvedParentFromMap(cur, resolvedParents);
             if (p < 0 || p == cur) {
                 return hops;
             }

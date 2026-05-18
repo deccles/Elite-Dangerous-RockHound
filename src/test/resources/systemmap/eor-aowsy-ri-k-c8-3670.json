@@ -1,0 +1,421 @@
+{
+  "name": "Eor Aowsy RI-K c8-3670",
+  "notes": "Four-star hierarchy: K (A) vs BCD cluster (M+T binary at Null:3, L at Null:2). Planet-binary Null:49 = BCD 2 (ringed Sudarsky I) + BCD 3 (icy neon). BCD 4/5 are separate giants on the BCD subsystem. Journal FSS May 2026.",
+  "bodies": [
+    {
+      "id": 64,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 5 c",
+      "shortName": "BCD 5 c",
+      "distanceLs": 51335.231842,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 61,
+      "semiMajorAxisM": 7.54833817481995E8
+    },
+    {
+      "id": 65,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 5 d",
+      "shortName": "BCD 5 d",
+      "distanceLs": 51337.872753,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 61,
+      "semiMajorAxisM": 9.77464437484741E8
+    },
+    {
+      "id": 1,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "K",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 7.33475148677826E12
+    },
+    {
+      "id": 66,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 5 e",
+      "shortName": "BCD 5 e",
+      "distanceLs": 51334.886873,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 61,
+      "semiMajorAxisM": 1.416804373264313E9
+    },
+    {
+      "id": 2,
+      "bodyName": "Eor Aowsy RI-K c8-3670 barycentre 2",
+      "shortName": "bary 2",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 7.797537446022033E12,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 67,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 5 f",
+      "shortName": "BCD 5 f",
+      "distanceLs": 51342.453913,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 61,
+      "semiMajorAxisM": 1.809686064720154E9
+    },
+    {
+      "id": 3,
+      "bodyName": "Eor Aowsy RI-K c8-3670 barycentre 3",
+      "shortName": "bary 3",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 2.608955562114716E9,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 68,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 5 g",
+      "shortName": "BCD 5 g",
+      "distanceLs": 51337.624554,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 61,
+      "semiMajorAxisM": 2.563350021839142E9
+    },
+    {
+      "id": 4,
+      "bodyName": "Eor Aowsy RI-K c8-3670 B",
+      "shortName": "B",
+      "distanceLs": 49617.993385,
+      "starType": "M",
+      "immediateParentBodyId": 3,
+      "semiMajorAxisM": 4.00551950931549E8
+    },
+    {
+      "id": 5,
+      "bodyName": "Eor Aowsy RI-K c8-3670 C",
+      "shortName": "C",
+      "distanceLs": 49614.02353,
+      "starType": "T",
+      "immediateParentBodyId": 3,
+      "semiMajorAxisM": 8.45609962940216E8
+    },
+    {
+      "id": 6,
+      "bodyName": "Eor Aowsy RI-K c8-3670 D",
+      "shortName": "D",
+      "distanceLs": 49594.349885,
+      "starType": "L",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 7.556976675987244E9
+    },
+    {
+      "id": 12,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 1",
+      "shortName": "A 1",
+      "distanceLs": 8.148873,
+      "planetClass": "High metal content body",
+      "atmoOrType": "hot thick silicate vapour atmosphere",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 2.442975282669067E9
+    },
+    {
+      "id": 20,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 2",
+      "shortName": "A 2",
+      "distanceLs": 966.96388,
+      "planetClass": "Sudarsky class III gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 2.900112271308899E11
+    },
+    {
+      "id": 22,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 2 a",
+      "shortName": "A 2 a",
+      "distanceLs": 971.706418,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 20,
+      "semiMajorAxisM": 6.591744422912598E9
+    },
+    {
+      "id": 23,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 3",
+      "shortName": "A 3",
+      "distanceLs": 1444.830819,
+      "planetClass": "Gas giant with ammonia based life",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 4.327726662158966E11
+    },
+    {
+      "id": 26,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 3 a",
+      "shortName": "A 3 a",
+      "distanceLs": 1444.157165,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 23,
+      "semiMajorAxisM": 6.41775214672089E8
+    },
+    {
+      "id": 27,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 3 a a",
+      "shortName": "A 3 a a",
+      "distanceLs": 1444.173492,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 26,
+      "semiMajorAxisM": 5595347.702503
+    },
+    {
+      "id": 28,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 3 b",
+      "shortName": "A 3 b",
+      "distanceLs": 1442.845842,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 23,
+      "semiMajorAxisM": 1.258531987667084E9
+    },
+    {
+      "id": 29,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 3 c",
+      "shortName": "A 3 c",
+      "distanceLs": 1446.256169,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 23,
+      "semiMajorAxisM": 1.824107348918915E9
+    },
+    {
+      "id": 30,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 3 d",
+      "shortName": "A 3 d",
+      "distanceLs": 1449.19825,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 23,
+      "semiMajorAxisM": 2.35121738910675E9
+    },
+    {
+      "id": 31,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 3 e",
+      "shortName": "A 3 e",
+      "distanceLs": 1453.654148,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 23,
+      "semiMajorAxisM": 3.220795750617981E9
+    },
+    {
+      "id": 32,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 4",
+      "shortName": "A 4",
+      "distanceLs": 2608.267594,
+      "planetClass": "Sudarsky class I gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 7.680809497833252E11
+    },
+    {
+      "id": 33,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 4 a",
+      "shortName": "A 4 a",
+      "distanceLs": 2608.472173,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 32,
+      "semiMajorAxisM": 3.15112453699112E8
+    },
+    {
+      "id": 34,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 4 b",
+      "shortName": "A 4 b",
+      "distanceLs": 2606.171602,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 32,
+      "semiMajorAxisM": 6.31684350967407E8
+    },
+    {
+      "id": 35,
+      "bodyName": "Eor Aowsy RI-K c8-3670 A 4 c",
+      "shortName": "A 4 c",
+      "distanceLs": 2610.593794,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 32,
+      "semiMajorAxisM": 1.779892981052399E9
+    },
+    {
+      "id": 36,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 1",
+      "shortName": "BCD 1",
+      "distanceLs": 49523.897317,
+      "planetClass": "Icy body",
+      "atmoOrType": "hot thick ammonia rich atmosphere",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 2.9339771270751953E10
+    },
+    {
+      "id": 49,
+      "bodyName": "Eor Aowsy RI-K c8-3670 barycentre 49",
+      "shortName": "bary 49",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 3.386194944381714E11,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 50,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 2",
+      "shortName": "BCD 2",
+      "distanceLs": 50071.349855,
+      "planetClass": "Sudarsky class I gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 49,
+      "semiMajorAxisM": 6.647962808609E7
+    },
+    {
+      "id": 52,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 2 a",
+      "shortName": "BCD 2 a",
+      "distanceLs": 50072.354346,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 50,
+      "semiMajorAxisM": 3.02989166975021E8
+    },
+    {
+      "id": 53,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 3",
+      "shortName": "BCD 3",
+      "distanceLs": 50108.963939,
+      "planetClass": "Icy body",
+      "atmoOrType": "neon rich atmosphere",
+      "immediateParentBodyId": 49,
+      "semiMajorAxisM": 1.1573524475097656E10
+    },
+    {
+      "id": 55,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 4",
+      "shortName": "BCD 4",
+      "distanceLs": 50343.259433,
+      "planetClass": "Sudarsky class I gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 4.56248676776886E11
+    },
+    {
+      "id": 58,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 4 a",
+      "shortName": "BCD 4 a",
+      "distanceLs": 50343.388977,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 55,
+      "semiMajorAxisM": 4.28456771373749E8
+    },
+    {
+      "id": 59,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 4 b",
+      "shortName": "BCD 4 b",
+      "distanceLs": 50342.871986,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 55,
+      "semiMajorAxisM": 8.47908014059067E8
+    },
+    {
+      "id": 60,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 4 c",
+      "shortName": "BCD 4 c",
+      "distanceLs": 50348.140775,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 55,
+      "semiMajorAxisM": 1.950271368026733E9
+    },
+    {
+      "id": 61,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 5",
+      "shortName": "BCD 5",
+      "distanceLs": 51337.202166,
+      "planetClass": "Sudarsky class I gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 6.243621349334717E11
+    },
+    {
+      "id": 62,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 5 a",
+      "shortName": "BCD 5 a",
+      "distanceLs": 51336.633473,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 61,
+      "semiMajorAxisM": 3.39811605215073E8
+    },
+    {
+      "id": 63,
+      "bodyName": "Eor Aowsy RI-K c8-3670 BCD 5 b",
+      "shortName": "BCD 5 b",
+      "distanceLs": 51338.668997,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 61,
+      "semiMajorAxisM": 4.94736516475677E8
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 4,
+    "barycentricStarLabels": ["A"],
+    "barycentreRecentred": true,
+    "hasBarycentreMutualRing": false,
+    "hasPlanetBinaryMutualRing": true,
+    "planetBinaryNullId": 49,
+    "bodiesOnMutualRing": ["BCD 2", "BCD 3"],
+    "bodiesWithoutOwnOrbitRing": ["BCD 2", "BCD 3"],
+    "planetsRequiringRings": ["A 1", "A 2", "A 3", "BCD 2", "BCD 4"],
+    "parents": [
+      { "body": "A", "resolvesTo": "barycentre" },
+      { "body": "B", "resolvesTo": "planetBinary:3" },
+      { "body": "C", "resolvesTo": "planetBinary:3" },
+      { "body": "D", "resolvesTo": "planetBinary:2" },
+      { "body": "A 1", "resolvesTo": "A" },
+      { "body": "A 2", "resolvesTo": "A" },
+      { "body": "A 3", "resolvesTo": "A" },
+      { "body": "A 4", "resolvesTo": "A" },
+      { "body": "A 2 a", "resolvesTo": "A 2" },
+      { "body": "A 3 a", "resolvesTo": "A 3" },
+      { "body": "A 3 a a", "resolvesTo": "A 3 a" },
+      { "body": "A 3 b", "resolvesTo": "A 3" },
+      { "body": "A 3 c", "resolvesTo": "A 3" },
+      { "body": "A 3 d", "resolvesTo": "A 3" },
+      { "body": "A 3 e", "resolvesTo": "A 3" },
+      { "body": "A 4 a", "resolvesTo": "A 4" },
+      { "body": "A 4 b", "resolvesTo": "A 4" },
+      { "body": "A 4 c", "resolvesTo": "A 4" },
+      { "body": "BCD 1", "resolvesTo": "planetBinary:2" },
+      { "body": "BCD 2", "resolvesTo": "planetBinary:49" },
+      { "body": "BCD 3", "resolvesTo": "planetBinary:49" },
+      { "body": "BCD 2 a", "resolvesTo": "BCD 2" },
+      { "body": "BCD 4", "resolvesTo": "planetBinary:2" },
+      { "body": "BCD 4 a", "resolvesTo": "BCD 4" },
+      { "body": "BCD 4 b", "resolvesTo": "BCD 4" },
+      { "body": "BCD 4 c", "resolvesTo": "BCD 4" },
+      { "body": "BCD 5", "resolvesTo": "planetBinary:2" },
+      { "body": "BCD 5 a", "resolvesTo": "BCD 5" },
+      { "body": "BCD 5 b", "resolvesTo": "BCD 5" },
+      { "body": "BCD 5 c", "resolvesTo": "BCD 5" },
+      { "body": "BCD 5 d", "resolvesTo": "BCD 5" },
+      { "body": "BCD 5 e", "resolvesTo": "BCD 5" },
+      { "body": "BCD 5 f", "resolvesTo": "BCD 5" },
+      { "body": "BCD 5 g", "resolvesTo": "BCD 5" }
+    ],
+    "labelsWhenZoomedOut": [
+      { "body": "A 1", "visible": true },
+      { "body": "A 2", "visible": true },
+      { "body": "A 3", "visible": true },
+      { "body": "BCD 2", "visible": true },
+      { "body": "BCD 4", "visible": true }
+    ]
+  }
+}

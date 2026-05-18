@@ -6,8 +6,9 @@ import org.dce.ed.logreader.event.ScanEvent;
 
 /**
  * Resolves journal {@code Scan} {@code Parents[]} into the immediate orbit parent id stored on {@link BodyInfo}.
- * Planet-class scans may list {@code Null} (planet-binary barycentre), a {@code Planet} anchor (moon host), and
- * {@code Star} — the first array element is not always the Kepler parent; prefer inner {@code Null} then {@code Planet}.
+ * Planet-class scans list parents inner-to-outer. Walk that order and take the first {@code Planet} (moon host) or
+ * {@code Null:N} (planet-binary barycentre); do not scan all {@code Null}s before {@code Planet}s or moons in deep
+ * hierarchies parent to the wrong barycentre.
  */
 public final class ScanParents {
 
@@ -27,15 +28,10 @@ public final class ScanParents {
                 if (p == null || p.getType() == null) {
                     continue;
                 }
-                if ("Null".equalsIgnoreCase(p.getType()) && p.getBodyId() > 0) {
+                if ("Planet".equalsIgnoreCase(p.getType())) {
                     return p.getBodyId();
                 }
-            }
-            for (ScanEvent.ParentRef p : parents) {
-                if (p == null || p.getType() == null) {
-                    continue;
-                }
-                if ("Planet".equalsIgnoreCase(p.getType())) {
+                if ("Null".equalsIgnoreCase(p.getType()) && p.getBodyId() > 0) {
                     return p.getBodyId();
                 }
             }

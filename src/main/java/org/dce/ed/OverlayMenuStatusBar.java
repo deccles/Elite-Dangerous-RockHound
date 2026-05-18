@@ -432,6 +432,11 @@ public final class OverlayMenuStatusBar {
         sqlite.addActionListener(e -> OverlayToolsLaunchers.launchSqliteCacheBrowser(parent));
         toolsMenu.add(sqlite);
 
+        JMenuItem hierarchyGraph = new JMenuItem("System hierarchy graph…");
+        styleMenuItem(hierarchyGraph);
+        hierarchyGraph.addActionListener(e -> OverlayToolsLaunchers.launchSystemHierarchyGraph(parent));
+        toolsMenu.add(hierarchyGraph);
+
         JMenuItem console = new JMenuItem("Show console");
         styleMenuItem(console);
         console.addActionListener(e -> OverlayToolsLaunchers.showConsole());

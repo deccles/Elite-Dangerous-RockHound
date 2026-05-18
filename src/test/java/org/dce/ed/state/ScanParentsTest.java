@@ -74,12 +74,24 @@ class ScanParentsTest {
     }
 
     @Test
-    void nonStellar_planetBeforeNullInList_stillPrefersNull() {
+    void nonStellar_planetBeforeNull_prefersMoonHost() {
         ScanEvent scan = minimalPlanetScan(List.of(
-                new ParentRef("Planet", 20),
-                new ParentRef("Null", 25),
+                new ParentRef("Planet", 50),
+                new ParentRef("Null", 49),
+                new ParentRef("Null", 2),
                 new ParentRef("Star", 0)));
-        assertEquals(25, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
+        assertEquals(50, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
+    }
+
+    /** Eor Aowsy RI-K c8-3670 BCD 2 a: moon host before planet-binary Null:49 in Parents chain. */
+    @Test
+    void eorAowsy_bcd2Moon_planetBeforeNull49() {
+        ScanEvent scan = minimalPlanetScan(List.of(
+                new ParentRef("Planet", 50),
+                new ParentRef("Null", 49),
+                new ParentRef("Null", 2),
+                new ParentRef("Star", 0)));
+        assertEquals(50, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
     }
 
     private static ScanEvent minimalPlanetScan(List<ParentRef> parents) {
