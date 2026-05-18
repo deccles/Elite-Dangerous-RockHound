@@ -69,8 +69,17 @@ public final class OrbitGeometryTestSupport {
         int a0 = model.projectionAxis0();
         int a1 = model.projectionAxis1();
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
-        double cx = ringCentroid(ring.wx);
-        double cy = ringCentroid(ring.wy);
+        int bKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(journalNullId);
+        double[] hub = model.positionsMetres().get(Integer.valueOf(bKey));
+        double cx;
+        double cy;
+        if (hub != null) {
+            cx = axisCoord(hub, a0);
+            cy = axisCoord(hub, a1);
+        } else {
+            cx = ringCentroid(ring.wx);
+            cy = ringCentroid(ring.wy);
+        }
         double ringRad = meanRadius(ring.wx, ring.wy, cx, cy);
         double bodyRad = distOnAxes(pos, mapPlanePoint(cx, cy, a0, a1), a0, a1);
         double tolM = toleranceLs * ls;
@@ -83,6 +92,40 @@ public final class OrbitGeometryTestSupport {
     public static void assertNoPerBodyOrbitRing(SystemMapModel model, int bodyMapKey) {
         assertFalse(model.hasOrbitRingForBody(bodyMapKey),
                 "body id " + bodyMapKey + " should not have its own orbit stroke (uses mutual ring)");
+    }
+
+    /** Per-body orbit stroke (moon around giant): dot should lie on its own ring at roughly journal separation. */
+    public static void assertBodyOnPerBodyOrbitRing(SystemMapModel model, Map<Integer, BodyInfo> bodies,
+            String shortName, double toleranceLs) {
+        int mapKey = findByShortName(bodies, shortName);
+        assertTrue(mapKey >= 0, "missing body: " + shortName);
+        assertTrue(model.hasOrbitRingForBody(mapKey), "missing per-body ring for " + shortName);
+        OrbitPolylineWorldXY ring = null;
+        for (OrbitPolylineWorldXY p : model.orbitPolylines()) {
+            if (p != null && p.bodyId == mapKey) {
+                ring = p;
+                break;
+            }
+        }
+        assertNotNull(ring, "polyline for " + shortName);
+        int parentId = model.resolveParentBodyId(mapKey);
+        double[] parentPos = model.positionsMetres().get(Integer.valueOf(parentId));
+        double[] bodyPos = model.positionsMetres().get(Integer.valueOf(mapKey));
+        assertNotNull(parentPos, "parent position");
+        assertNotNull(bodyPos, "body position");
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double cx = axisCoord(parentPos, a0);
+        double cy = axisCoord(parentPos, a1);
+        double ringRad = meanRadius(ring.wx, ring.wy, cx, cy);
+        double bodyRad = distOnAxes(bodyPos, parentPos, a0, a1);
+        double tolM = toleranceLs * ls;
+        assertTrue(Math.abs(bodyRad - ringRad) <= Math.max(tolM, ringRad * 0.15),
+                shortName + " on per-body ring (bodyR=" + (bodyRad / ls) + " Ls ringR=" + (ringRad / ls)
+                        + " Ls parent=" + parentId + ")");
+        assertTrue(ringRad / ls < 500.0,
+                shortName + " moon ring should be parent-relative, not heliocentric; ringR=" + (ringRad / ls) + " Ls");
     }
 
     public static void assertBarycentreFarFromStar(SystemMapModel model, Map<Integer, BodyInfo> bodies,
@@ -113,6 +156,37 @@ public final class OrbitGeometryTestSupport {
         return wx.length > 0 ? sum / wx.length : 0.0;
     }
 
+    /** Hierarchical A vs BCD: one schematic ring at the system barycentre; A on the ring, not at the centre. */
+    public static void assertHierarchicalSchematicBarycentreRing(SystemMapModel model, Map<Integer, BodyInfo> bodies,
+            int primaryStarId) {
+        assertTrue(model.hasBarycentreMutualRing(), "expected schematic system barycentre ring");
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double[] aPos = model.positionsMetres().get(Integer.valueOf(primaryStarId));
+        assertNotNull(aPos, "primary position");
+        double ax = axisCoord(aPos, a0);
+        double ay = axisCoord(aPos, a1);
+        double halfTrunk = 3750.0;
+        double distAFromOrigin = Math.hypot(ax, ay) / ls;
+        assertTrue(Math.abs(distAFromOrigin - halfTrunk) <= halfTrunk * 0.3,
+                "A on barycentre ring (~" + halfTrunk + " Ls from origin); was " + distAFromOrigin);
+        for (OrbitPolylineWorldXY poly : model.orbitPolylines()) {
+            if (poly == null || poly.bodyId != SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
+                continue;
+            }
+            double cx = ringCentroid(poly.wx);
+            double cy = ringCentroid(poly.wy);
+            double ringRad = meanRadius(poly.wx, poly.wy, cx, cy) / ls;
+            double centreOff = Math.hypot(cx - ax, cy - ay) / ls;
+            assertTrue(ringRad <= halfTrunk * 1.5, "ring radius schematic");
+            assertTrue(centreOff >= ringRad * 0.55 && centreOff <= ringRad * 1.45,
+                    "ring centre is barycentre, primary on rim");
+            return;
+        }
+        fail("missing BINARY_BARYCENTRE_ORBIT_RING");
+    }
+
     /**
      * Mirrors the screenshot failure: one light-blue circle centred on the arrival star at heliocentric (~50k Ls)
      * scale with B/C on its rim — not the schematic ~7k Ls BCD trunk.
@@ -125,11 +199,6 @@ public final class OrbitGeometryTestSupport {
 
     public static void assertNoHeliocentricRingAroundPrimaryStar(SystemMapModel model, Map<Integer, BodyInfo> bodies,
             int primaryStarId, double maxRingRadiusLs, List<OrbitPolylineWorldXY> polylines) {
-        for (OrbitPolylineWorldXY poly : polylines) {
-            if (poly != null && poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
-                fail("system barycentre mutual ring");
-            }
-        }
         int a0 = model.projectionAxis0();
         int a1 = model.projectionAxis1();
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
@@ -142,13 +211,23 @@ public final class OrbitGeometryTestSupport {
             if (poly == null || poly.wx == null || poly.wy == null || poly.wx.length < 3) {
                 continue;
             }
-            if (poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
-                fail("heliocentric mutual barycentre ring (bodyId=" + poly.bodyId + ")");
-            }
             double cx = ringCentroid(poly.wx);
             double cy = ringCentroid(poly.wy);
             double ringRad = meanRadius(poly.wx, poly.wy, cx, cy);
             double centreOff = Math.hypot(cx - ax, cy - ay);
+            double distAFromRingCentre = centreOff;
+            /* Hierarchical schematic: large ring at barycentre (origin), primary on the ring — not star at centre. */
+            if (poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID
+                    && ringRad <= maxRadM * 1.5
+                    && distAFromRingCentre >= ringRad * 0.55
+                    && distAFromRingCentre <= ringRad * 1.45) {
+                continue;
+            }
+            if (poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID
+                    && centreOff <= ringRad * 0.25
+                    && ringRad > maxRadM) {
+                fail("mutual ring centred on primary star (heliocentric layout)");
+            }
             if (ringRad <= maxRadM || centreOff > ringRad * 0.35) {
                 continue;
             }

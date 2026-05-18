@@ -61,22 +61,32 @@ public final class SystemMapPipeline {
              */
             if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
                 SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(positions, bodies, a0, a1);
-                SystemOrbitGeometry.recenterBinaryBarycentreInMapPlane(positions, bodies, a0, a1);
             }
             frame = SystemOrbitGeometry.captureWideBinaryFlattenFrame(positions, bodies, a0, a1);
+            if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+                SystemOrbitGeometry.placeHierarchicalWideBinaryOnSystemBarycentre(positions, bodies, a0, a1);
+                SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
+                SystemOrbitGeometry.alignPrimaryBranchPlanetsOnSchematicRings(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
+                SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
+            }
         }
 
-        List<OrbitPolylineWorldXY> polylines = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(bodies, positions,
-                DEFAULT_ORBIT_SEGMENTS, Double.NaN, a0, a1);
-
         Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies);
+        boolean includeBinaryBarycentreRing = !SystemOrbitGeometry.isHierarchicalWideBinary(bodies);
+        List<OrbitPolylineWorldXY> polylines = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(bodies, positions,
+                DEFAULT_ORBIT_SEGMENTS, Double.NaN, a0, a1, includeBinaryBarycentreRing, resolvedParents);
         Map<Integer, Integer> childCounts = buildDirectChildCounts(resolvedParents);
         Set<Integer> hubIds = SystemMapRules.subsystemHubBodyIds(bodies, resolvedParents, classification);
+        Set<Integer> revolutionCenters = SystemMapRules.orbitRevolutionCenterBodyIds(bodies, resolvedParents,
+                childCounts);
         Map<Integer, Boolean> labelVisibility = buildLabelVisibility(bodies, resolvedParents, childCounts,
                 classification);
 
         return new SystemMapModel(systemName, bodies, classification, a0, a1, positions, polylines, frame,
-                resolvedParents, childCounts, hubIds, labelVisibility);
+                resolvedParents, childCounts, hubIds, revolutionCenters, labelVisibility);
     }
 
     /**
@@ -90,15 +100,17 @@ public final class SystemMapPipeline {
         if (base == null || positionsMetres == null || base.bodies().isEmpty()) {
             return List.of();
         }
+        boolean includeBinaryBarycentreRing = base.hasBarycentreMutualRing();
         return SystemOrbitGeometry.orbitPolylinesWorldMetresXY(base.bodies(), positionsMetres, segments,
-                scalePixelsPerMetre, base.projectionAxis0(), base.projectionAxis1());
+                scalePixelsPerMetre, base.projectionAxis0(), base.projectionAxis1(), includeBinaryBarycentreRing,
+                base.resolvedParentByBodyId());
     }
 
     private static SystemMapModel emptyModel(String systemName) {
         SystemMapClassification empty = new SystemMapClassification(SystemLayoutKind.GENERIC, 0, -1, -1,
                 List.of(), false);
         return new SystemMapModel(systemName, Map.of(), empty, 0, 1, Map.of(), List.of(), null, Map.of(), Map.of(),
-                Set.of(), Map.of());
+                Set.of(), Set.of(), Map.of());
     }
 
     private static Map<Integer, Integer> buildResolvedParents(Map<Integer, BodyInfo> bodies) {
@@ -169,6 +181,7 @@ public final class SystemMapPipeline {
         return new SystemMapModel(null, bodies, clf, projectionAxis0, projectionAxis1,
                 lastPositions != null ? lastPositions : Map.of(), List.of(), frame, resolvedParents, childCounts,
                 SystemMapRules.subsystemHubBodyIds(bodies, resolvedParents, clf),
+                SystemMapRules.orbitRevolutionCenterBodyIds(bodies, resolvedParents, childCounts),
                 buildLabelVisibility(bodies, resolvedParents, childCounts, clf));
     }
 
@@ -203,8 +216,16 @@ public final class SystemMapPipeline {
         Map<Integer, double[]> refreshed = SystemOrbitGeometry.bodyPositionsMetresForWideBinaryMap(bodies, positions,
                 t, a0, a1, freezeBarycentreStars);
         if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
-            SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(refreshed, bodies, a0, a1);
-            SystemOrbitGeometry.recenterBinaryBarycentreInMapPlane(refreshed, bodies, a0, a1);
+            /*
+             * Do not re-flatten after wide-binary schematic placement — it spreads the BCD cluster back onto the
+             * ~7.5k Ls trunk circle and breaks B+C at Null:3 / D at Null:2.
+             */
+            SystemOrbitGeometry.placeHierarchicalWideBinaryOnSystemBarycentre(refreshed, bodies, a0, a1);
+            SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(refreshed, bodies, t, a0, a1, freezeBarycentreStars);
+            SystemOrbitGeometry.alignPrimaryBranchPlanetsOnSchematicRings(refreshed, bodies, t, a0, a1,
+                    freezeBarycentreStars);
+            SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(refreshed, bodies, t, a0, a1,
+                    freezeBarycentreStars);
         }
         return refreshed;
     }

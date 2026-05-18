@@ -31,6 +31,7 @@ public final class SystemMapModel {
     private final Map<Integer, Integer> resolvedParentByBodyId;
     private final Map<Integer, Integer> directChildCountByBodyId;
     private final Set<Integer> subsystemHubBodyIds;
+    private final Set<Integer> orbitRevolutionCenterBodyIds;
     private final Map<Integer, Boolean> labelVisibleWhenZoomedOut;
 
     SystemMapModel(String systemName,
@@ -44,6 +45,7 @@ public final class SystemMapModel {
             Map<Integer, Integer> resolvedParentByBodyId,
             Map<Integer, Integer> directChildCountByBodyId,
             Set<Integer> subsystemHubBodyIds,
+            Set<Integer> orbitRevolutionCenterBodyIds,
             Map<Integer, Boolean> labelVisibleWhenZoomedOut) {
         this.systemName = systemName;
         this.bodies = Collections.unmodifiableMap(bodies);
@@ -56,6 +58,7 @@ public final class SystemMapModel {
         this.resolvedParentByBodyId = Collections.unmodifiableMap(resolvedParentByBodyId);
         this.directChildCountByBodyId = Collections.unmodifiableMap(directChildCountByBodyId);
         this.subsystemHubBodyIds = Set.copyOf(subsystemHubBodyIds);
+        this.orbitRevolutionCenterBodyIds = Set.copyOf(orbitRevolutionCenterBodyIds);
         this.labelVisibleWhenZoomedOut = Collections.unmodifiableMap(labelVisibleWhenZoomedOut);
     }
 
@@ -111,6 +114,15 @@ public final class SystemMapModel {
 
     public Set<Integer> subsystemHubBodyIds() {
         return subsystemHubBodyIds;
+    }
+
+    /** Major orbit anchor (star, giant host, planet-binary pair member) — not moons. */
+    public boolean isOrbitRevolutionCenter(int bodyId) {
+        return orbitRevolutionCenterBodyIds.contains(Integer.valueOf(bodyId));
+    }
+
+    public Set<Integer> orbitRevolutionCenterBodyIds() {
+        return orbitRevolutionCenterBodyIds;
     }
 
     public boolean labelVisibleWhenZoomedOut(int bodyId, boolean starDot, boolean moon, boolean soleOrbitCluster) {

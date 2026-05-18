@@ -23,6 +23,8 @@ import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.Cursor;
 import java.awt.FlowLayout;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Line2D;
@@ -48,6 +50,7 @@ import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JSplitPane;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -103,6 +106,7 @@ import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.SystemOrbitGeometry;
 
 import org.dce.ed.ui.DistanceToggleIcons;
+import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.OrbitSchematicTransportIcons;
 import org.dce.ed.ui.LeafIcon;
 import org.dce.ed.ui.SystemPlanMapPanel;
@@ -121,9 +125,19 @@ public class SystemTabPanel extends JPanel {
     private static final int ORBIT_ANIM_SPEED_STEP = 5;
     /**
      * Wall period between orbit-playback ticks; sim advance uses this fixed interval (not variable EDT gaps) so a
-     * delayed paint cannot advance many in-game days in one frame at high d/s.
+     * delayed paint cannot advance many in-game days in one frame at high d/s. Kept well below video frame rate:
+     * schematic positions change slowly on screen and each tick rebuilds orbit polylines.
      */
-    private static final int ORBIT_ANIM_TIMER_MS = 33;
+    private static final int ORBIT_ANIM_TIMER_MS = 150;
+
+    /** Debounce before recomputing ship-centric table distances after Status telemetry (no near-body change). */
+    private static final int SHIP_TELEMETRY_REBUILD_DEBOUNCE_MS = 2_000;
+
+    /**
+     * Background check for ship-centric distances while the commander is stationary; journal orbits move bodies
+     * slowly relative to displayed whole-number Ls.
+     */
+    private static final int ORBIT_EVOLUTION_REBUILD_INTERVAL_MS = 30_000;
 
     // Bio column icons (painted, no external resources) - scaled from current UI font.
     private Icon bioLeafIcon = new LeafIcon(18, 18);
@@ -140,6 +154,8 @@ public class SystemTabPanel extends JPanel {
     private final JTable table;
     /** Main bodies table scroller (pass-through wheel forwarding). */
     private final JScrollPane systemBodyScrollPane;
+    /** Resizable split between bodies table (top) and plan map (bottom), like Mining tab dividers. */
+    private JSplitPane systemTableMapSplit;
     /** Bottom panel: top-down schematic of approximate body and ship positions. */
     private final SystemPlanMapPanel systemPlanMapPanel = new SystemPlanMapPanel();
     private final JTextField headerLabel;
@@ -219,12 +235,17 @@ public class SystemTabPanel extends JPanel {
     /** Periodically refreshes ship-distance ordering / displayed Ls as mean anomaly evolves (wall-clock). */
     private Timer orbitEvolutionTimer;
 
+    /** Last ship-centric distances used for table sort; avoids rebuild when rounded Ls are unchanged. */
+    private Map<Integer, Double> lastShipCentricDistLsSnapshot = Collections.emptyMap();
+
     /**
      * When selected, advances a synthetic {@link Instant} for the plan map so schematic orbits move at a visible rate
      * (journal elements; not real-time flight).
      */
     private Timer orbitAnimDemoTimer;
     private volatile boolean orbitAnimDemoActive;
+    /** Frozen schematic epoch while orbit playback is paused (also used before first Play). */
+    private Instant schematicMapFreezeEpoch;
     private Instant orbitAnimSimInstant;
     private JToggleButton orbitAnimPlayButton;
     private JButton orbitAnimSpeedDownButton;
@@ -756,7 +777,11 @@ public class SystemTabPanel extends JPanel {
         updateDistModeToggleAppearance();
 
         add(headerPanel, BorderLayout.NORTH);
-        add(systemBodyScrollPane, BorderLayout.CENTER);
+
+        JPanel tablePane = new JPanel(new BorderLayout());
+        tablePane.setOpaque(false);
+        tablePane.add(systemBodyScrollPane, BorderLayout.CENTER);
+
         JPanel mapColumn = new JPanel(new BorderLayout());
         mapColumn.setOpaque(false);
         JPanel mapToolbar = new JPanel(new FlowLayout(FlowLayout.TRAILING, 8, 2));
@@ -775,12 +800,16 @@ public class SystemTabPanel extends JPanel {
         orbitAnimPlayButton.addItemListener(ev -> {
             if (ev.getStateChange() == ItemEvent.SELECTED) {
                 orbitAnimDemoActive = true;
-                orbitAnimSimInstant = Instant.now();
+                if (schematicMapFreezeEpoch == null) {
+                    schematicMapFreezeEpoch = Instant.now();
+                }
+                orbitAnimSimInstant = schematicMapFreezeEpoch;
                 orbitAnimDemoTimer.start();
                 refreshPlanMap();
             } else if (ev.getStateChange() == ItemEvent.DESELECTED) {
                 orbitAnimDemoActive = false;
                 orbitAnimDemoTimer.stop();
+                schematicMapFreezeEpoch = orbitAnimSimInstant;
                 refreshPlanMap();
                 systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
             }
@@ -811,7 +840,30 @@ public class SystemTabPanel extends JPanel {
         mapToolbar.add(orbitAnimSpeedUpButton);
         mapColumn.add(mapToolbar, BorderLayout.NORTH);
         mapColumn.add(systemPlanMapPanel, BorderLayout.CENTER);
-        add(mapColumn, BorderLayout.SOUTH);
+
+        double tableSplitRatio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
+        systemTableMapSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tablePane, mapColumn);
+        EdoMiningSplitPaneUi.install(systemTableMapSplit);
+        configureSystemTableMapSplit(systemTableMapSplit, tableSplitRatio);
+        systemTableMapSplit.addPropertyChangeListener(evt -> {
+            if (!JSplitPane.DIVIDER_LOCATION_PROPERTY.equals(evt.getPropertyName())) {
+                return;
+            }
+            saveSystemTableMapSplitRatio();
+        });
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (systemTableMapSplit == null || systemTableMapSplit.getHeight() < 32) {
+                    return;
+                }
+                double ratio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
+                systemTableMapSplit.setResizeWeight(ratio);
+                systemTableMapSplit.setDividerLocation(ratio);
+                EdoMiningSplitPaneUi.applyDividerTheme(systemTableMapSplit);
+            }
+        });
+        add(systemTableMapSplit, BorderLayout.CENTER);
 
         refreshFromCache();
         
@@ -854,13 +906,27 @@ public class SystemTabPanel extends JPanel {
         bioHeaderAllDwellTimer = new Timer(BIO_EXPAND_HOVER_OPEN_DELAY_MS, e -> commitBioHeaderAllDwellAction());
         bioHeaderAllDwellTimer.setRepeats(false);
 
-        shipTelemetryRebuildTimer = new Timer(150, e -> requestRebuild());
+        shipTelemetryRebuildTimer = new Timer(SHIP_TELEMETRY_REBUILD_DEBOUNCE_MS, e -> {
+            if (!OverlayPreferences.isSystemTabDistanceFromShip() || orbitAnimDemoActive) {
+                return;
+            }
+            Map<Integer, Double> next = computeShipCentricDistancesLs();
+            if (!shipCentricDistancesMeaningfullyChanged(lastShipCentricDistLsSnapshot, next)) {
+                return;
+            }
+            requestRebuild();
+        });
         shipTelemetryRebuildTimer.setRepeats(false);
 
-        orbitEvolutionTimer = new Timer(1000, e -> {
-            if (OverlayPreferences.isSystemTabDistanceFromShip()) {
-                requestRebuild();
+        orbitEvolutionTimer = new Timer(ORBIT_EVOLUTION_REBUILD_INTERVAL_MS, e -> {
+            if (!OverlayPreferences.isSystemTabDistanceFromShip() || orbitAnimDemoActive) {
+                return;
             }
+            Map<Integer, Double> next = computeShipCentricDistancesLs();
+            if (!shipCentricDistancesMeaningfullyChanged(lastShipCentricDistLsSnapshot, next)) {
+                return;
+            }
+            requestRebuild();
         });
         orbitEvolutionTimer.setRepeats(true);
         refreshOrbitEvolutionTimerRunning();
@@ -1781,6 +1847,7 @@ public class SystemTabPanel extends JPanel {
         // Start from a clean state for this system.
         state.setSystemName(systemName);
         state.setSystemAddress(systemAddress);
+        schematicMapFreezeEpoch = null;
         state.resetBodies();
         state.setTotalBodies(null);
         state.setNonBodyCount(null);
@@ -1839,6 +1906,7 @@ public class SystemTabPanel extends JPanel {
     }
 
     /**
+
      * True when the canonical secondary-star row {@code "<systemName> B"} exists but still lacks data EDSM can
      * supply (star class, distance to arrival), which breaks binary orbit layout after a partial journal cache.
      */
@@ -1914,11 +1982,16 @@ public class SystemTabPanel extends JPanel {
         boolean shipDistMode = OverlayPreferences.isSystemTabDistanceFromShip();
         Map<Integer, Double> shipCentric = shipDistMode ? computeShipCentricDistancesLs() : null;
         boolean shipAnchorMissing = shipDistMode && (shipCentric == null || shipCentric.isEmpty());
+        if (shipAnchorMissing) {
+            shipDistMode = false;
+            shipCentric = null;
+        }
         Map<Integer, BodyInfo> bodies = state.getBodies();
         Map<Integer, Double> geometryFallbackDistLs = null;
         if (!shipDistMode && bodies != null && !bodies.isEmpty()) {
             int anchKey = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
-            Map<Integer, double[]> posGeom = SystemOrbitGeometry.bodyPositionsMetres(bodies);
+            Map<Integer, double[]> posGeom = SystemOrbitGeometry.bodyPositionsMetres(bodies, tableDistanceEpoch(),
+                    orbitAnimDemoActive);
             double[] anchPos = posGeom != null ? posGeom.get(Integer.valueOf(anchKey)) : null;
             if (anchPos != null && anchPos.length >= 3) {
                 geometryFallbackDistLs = SystemOrbitGeometry.distancesFromPointLs(bodies, anchPos);
@@ -1929,10 +2002,15 @@ public class SystemTabPanel extends JPanel {
                 hiddenBioDetails.isEmpty() ? null : hiddenBioDetails,
                 shipDistMode,
                 shipCentric,
-                shipAnchorMissing,
+                false,
                 geometryFallbackDistLs);
         injectIntermediateDestinationRow(rows);
         tableModel.setRows(rows);
+        if (shipDistMode && shipCentric != null) {
+            lastShipCentricDistLsSnapshot = new HashMap<>(shipCentric);
+        } else {
+            lastShipCentricDistLsSnapshot = Collections.emptyMap();
+        }
         table.getTableHeader().repaint();
         refreshPlanMap();
 
@@ -1954,8 +2032,16 @@ public class SystemTabPanel extends JPanel {
             systemPlanMapPanel.clearScene();
             return;
         }
-        Instant now = orbitAnimDemoActive ? orbitAnimSimInstant : Instant.now();
-        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, now, orbitAnimDemoActive);
+        Instant mapEpoch;
+        if (orbitAnimDemoActive) {
+            mapEpoch = orbitAnimSimInstant;
+        } else {
+            if (schematicMapFreezeEpoch == null) {
+                schematicMapFreezeEpoch = Instant.now();
+            }
+            mapEpoch = schematicMapFreezeEpoch;
+        }
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, mapEpoch, orbitAnimDemoActive);
         Integer commanderRefMap = resolvePlanMapShipAnchorBodyId();
         double[] ship = null;
         if (commanderRefMap != null) {
@@ -1971,7 +2057,7 @@ public class SystemTabPanel extends JPanel {
         Integer commanderHighlight = resolveCommanderRefBodyId();
         if (orbitAnimDemoActive) {
             if (systemPlanMapPanel.tryApplyPositionUpdate(
-                    bodies, pos, ship, commanderRefMap, commanderHighlight, orbitAnimDemoActive, now)) {
+                    bodies, pos, ship, commanderRefMap, commanderHighlight, orbitAnimDemoActive, mapEpoch)) {
                 return;
             }
             orbitAnimDemoActive = false;
@@ -1982,12 +2068,12 @@ public class SystemTabPanel extends JPanel {
                 orbitAnimPlayButton.setSelected(false);
             }
             systemPlanMapPanel.setScene(bodies, pos, ship, commanderRefMap, commanderHighlight,
-                    orbitAnimDemoActive, now);
+                    orbitAnimDemoActive, mapEpoch);
             systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
             return;
         }
         systemPlanMapPanel.setScene(bodies, pos, ship, commanderRefMap, commanderHighlight,
-                orbitAnimDemoActive, now);
+                orbitAnimDemoActive, mapEpoch);
     }
 
     private void tickOrbitAnimDemo() {
@@ -4354,6 +4440,39 @@ static class Row {
      * Approximate distance from the commander to each body centre (Ls), using orbital elements +
      * Status near-body / lat-lon when available.
      */
+    private Instant tableDistanceEpoch() {
+        if (orbitAnimDemoActive && orbitAnimSimInstant != null) {
+            return orbitAnimSimInstant;
+        }
+        if (schematicMapFreezeEpoch != null) {
+            return schematicMapFreezeEpoch;
+        }
+        return Instant.now();
+    }
+
+    private static boolean shipCentricDistancesMeaningfullyChanged(Map<Integer, Double> previous,
+            Map<Integer, Double> next) {
+        if (next == null || next.isEmpty()) {
+            return previous != null && !previous.isEmpty();
+        }
+        if (previous == null || previous.isEmpty()) {
+            return true;
+        }
+        if (previous.size() != next.size()) {
+            return true;
+        }
+        for (Map.Entry<Integer, Double> e : next.entrySet()) {
+            Double p = previous.get(e.getKey());
+            if (p == null) {
+                return true;
+            }
+            if (Math.round(p.doubleValue()) != Math.round(e.getValue().doubleValue())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private Map<Integer, Double> computeShipCentricDistancesLs() {
         Map<Integer, BodyInfo> bodies = state.getBodies();
         if (bodies == null || bodies.isEmpty()) {
@@ -4363,7 +4482,8 @@ static class Row {
         if (shipRef == null) {
             return Collections.emptyMap();
         }
-        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies);
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, tableDistanceEpoch(),
+                orbitAnimDemoActive);
         double[] ship = SystemOrbitGeometry.shipPositionMetres(
                 bodies,
                 pos,
@@ -4447,6 +4567,40 @@ static class Row {
         }
     }
 
+    /**
+     * Journal {@code Scan} parents ({@code Null:N}, moon hosts) beat EDSM rows that only know the arrival star.
+     * EDSM used to store {@code Null} refs as parent id {@code 0}, which then collapsed to star A in the map.
+     */
+    private static boolean preferImmediateParentForMerge(BodyInfo keep, BodyInfo drop) {
+        if (keep == null || drop == null) {
+            return false;
+        }
+        int candidate = drop.getImmediateParentBodyId();
+        int current = keep.getImmediateParentBodyId();
+        if (candidate < 0) {
+            return false;
+        }
+        if (current < 0) {
+            return true;
+        }
+        if (candidate == current) {
+            return false;
+        }
+        int anchorStar = keep.getParentStarBodyId();
+        if (anchorStar < 0) {
+            anchorStar = drop.getParentStarBodyId();
+        }
+        boolean candidateIsNullRef = candidate > 0 && candidate != anchorStar
+                && !isLikelyPlanetHostBodyId(candidate);
+        boolean currentIsWeak = current == 0 || current == anchorStar;
+        return candidateIsNullRef && currentIsWeak;
+    }
+
+    /** Planet hosts are usually high journal body ids; Null barycentre refs are small scan row ids. */
+    private static boolean isLikelyPlanetHostBodyId(int bodyId) {
+        return bodyId >= 12;
+    }
+
     private static void mergeBodiesKeepBest(BodyInfo keep, BodyInfo drop) {
 
         if (keep == null || drop == null) {
@@ -4515,7 +4669,9 @@ static class Row {
             keep.setMassEm(drop.getMassEm());
         }
 
-        if (keep.getImmediateParentBodyId() < 0 && drop.getImmediateParentBodyId() >= 0) {
+        if (preferImmediateParentForMerge(keep, drop)) {
+            keep.setImmediateParentBodyId(drop.getImmediateParentBodyId());
+        } else if (keep.getImmediateParentBodyId() < 0 && drop.getImmediateParentBodyId() >= 0) {
             keep.setImmediateParentBodyId(drop.getImmediateParentBodyId());
         }
 
@@ -4627,8 +4783,49 @@ static class Row {
                 "Slower: fewer model days per second of real time.",
                 "Faster: more model days per second of real time.",
                 "Orbit model days advanced per second of real time while playing.");
+        EdoMiningSplitPaneUi.applyDividerTheme(systemTableMapSplit);
         revalidate();
         repaint();
+    }
+
+    private static void configureSystemTableMapSplit(JSplitPane split, double resizeWeight) {
+        split.setOpaque(false);
+        split.setBorder(null);
+        split.setContinuousLayout(true);
+        split.setOneTouchExpandable(false);
+        split.setDividerSize(9);
+        split.setResizeWeight(Math.max(0.05, Math.min(0.95, resizeWeight)));
+        split.setDividerLocation(resizeWeight);
+    }
+
+    private void saveSystemTableMapSplitRatio() {
+        if (systemTableMapSplit == null || systemTableMapSplit.getHeight() < 32) {
+            return;
+        }
+        double ratio = computeVerticalSplitRatio(systemTableMapSplit);
+        OverlayPreferences.setSystemTabPanelTableSplitRatio(ratio);
+        systemTableMapSplit.setResizeWeight(ratio);
+    }
+
+    private static double computeVerticalSplitRatio(JSplitPane split) {
+        if (split == null) {
+            return 0.5;
+        }
+        int h = split.getHeight();
+        if (h <= 0) {
+            return 0.5;
+        }
+        int d = split.getDividerSize();
+        int usable = Math.max(1, h - d);
+        int loc = split.getDividerLocation();
+        double r = loc / (double) usable;
+        if (r < 0.05) {
+            return 0.05;
+        }
+        if (r > 0.95) {
+            return 0.95;
+        }
+        return r;
     }
 
     private static void applyFontRecursively(Component c, Font font) {

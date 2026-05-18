@@ -7,6 +7,7 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
@@ -35,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
+import javax.swing.AbstractButton;
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JPanel;
@@ -838,7 +840,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	private JButton createTabButton(String text) {
 		JButton button = new JButton(text);
-		button.setUI(new BasicButtonUI());
+		button.setUI(TabButtonUI.INSTANCE);
 		button.setFocusable(false);
 		button.setFocusPainted(false);
 		button.setFont(button.getFont().deriveFont(Font.BOLD, 11f));
@@ -852,6 +854,61 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		applyTabButtonStyle(button);
 		return button;
+	}
+
+	/**
+	 * BasicButtonUI clips labels with an ellipsis when the laid-out width is smaller than the text.
+	 * On some JDK/LAF/DPI combinations the preferred width is underestimated (border + margin),
+	 * which shows up intermittently as abbreviated tab names (e.g. "Rou...").
+	 */
+	private static final class TabButtonUI extends BasicButtonUI {
+		private static final TabButtonUI INSTANCE = new TabButtonUI();
+
+		@Override
+		protected void paintText(Graphics g, AbstractButton b, Rectangle textRect, String text) {
+			super.paintText(g, b, textRect, b.getText());
+		}
+	}
+
+	/** Minimum width/height so the full tab label fits (margin + border + text). */
+	private static Dimension computeTabButtonSize(JButton button) {
+		FontMetrics fm = button.getFontMetrics(button.getFont());
+		String text = button.getText() != null ? button.getText() : "";
+		int textW = fm.stringWidth(text);
+		int textH = fm.getHeight();
+
+		Insets margin = button.getMargin();
+		if (margin == null) {
+			margin = new Insets(0, 0, 0, 0);
+		}
+		Insets borderInsets = new Insets(0, 0, 0, 0);
+		if (button.getBorder() != null) {
+			borderInsets = button.getBorder().getBorderInsets(button);
+		}
+
+		int w = textW + margin.left + margin.right + borderInsets.left + borderInsets.right + 4;
+		int h = textH + margin.top + margin.bottom + borderInsets.top + borderInsets.bottom + 2;
+		return new Dimension(w, h);
+	}
+
+	private static void applyTabButtonLayoutSize(JButton button) {
+		if (button == null) {
+			return;
+		}
+		Dimension size = computeTabButtonSize(button);
+		button.setMinimumSize(size);
+		button.setPreferredSize(size);
+	}
+
+	private void refreshAllTabButtonSizes() {
+		applyTabButtonLayoutSize(routeButton);
+		applyTabButtonLayoutSize(systemButton);
+		applyTabButtonLayoutSize(biologyButton);
+		applyTabButtonLayoutSize(miningButton);
+		applyTabButtonLayoutSize(fleetCarrierButton);
+		if (tabBar != null) {
+			tabBar.revalidate();
+		}
 	}
 
 	private javax.swing.border.Border createTabBorder(Color c) {
@@ -890,6 +947,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (fleetCarrierButton != null) {
 			fleetCarrierButton.setVisible(f);
 		}
+		refreshAllTabButtonSizes();
 	}
 
 	/**
@@ -999,6 +1057,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		button.setMargin(TAB_PADDING);
 		button.setForeground(c);
 		button.setBorder(createTabBorder(c));
+		applyTabButtonLayoutSize(button);
 	}
 
 	private void armCarrierStatsGalaxyMapLatch() {

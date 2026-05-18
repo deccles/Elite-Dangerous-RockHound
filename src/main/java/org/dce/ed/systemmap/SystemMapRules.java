@@ -35,6 +35,20 @@ import org.dce.ed.util.SystemOrbitGeometry;
  *   <li><b>R-LABEL-01</b> — At cluster zoom, each branch shows labels for planets under that branch star (not only
  *       hub lump).</li>
  * </ul>
+ * <p>
+ * GUI translation ({@link org.dce.ed.ui.SystemPlanMapPanel}) — see model-to-draw plan; enforced by
+ * {@code SystemPlanMapPanelDrawTranslationTest}:
+ * <ul>
+ *   <li><b>R-DRAW-01</b> — {@code setScene} uses {@link SystemMapPipeline#build}; Kepler positions from caller are
+ *       discarded.</li>
+ *   <li><b>R-DRAW-02</b> — Dots and rings use {@code model.positionsMetres()} / {@code orbitPolylines()} after rebuild;
+ *       parents from {@code model.resolveParentBodyId}, not re-resolved in paint.</li>
+ *   <li><b>R-DRAW-03</b> — {@link SystemMapPipeline#rebuildOrbitPolylines} passes {@code resolvedParentByBodyId} into
+ *       geometry so strokes match the model contract.</li>
+ *   <li><b>R-DRAW-04</b> — No {@code BINARY_BARYCENTRE_ORBIT_RING_BODY_ID} for hierarchical wide binaries; no
+ *       heliocentric ~49k Ls ring around arrival star.</li>
+ *   <li><b>R-DRAW-05</b> — No dots for {@code scanBarycentreRow} bodies (Null:2/3/49 metadata rows).</li>
+ * </ul>
  */
 public final class SystemMapRules {
 
@@ -49,7 +63,9 @@ public final class SystemMapRules {
         boolean loneStarLayout = SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies);
         List<Integer> baryStars = barycentricMapStellarIds(bodies);
         SystemLayoutKind kind;
-        if (stellar >= 2 && !loneStarLayout) {
+        if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+            kind = SystemLayoutKind.WIDE_BINARY;
+        } else if (stellar >= 2 && !loneStarLayout) {
             kind = SystemLayoutKind.WIDE_BINARY;
         } else if (singleSchematic || loneStarLayout) {
             kind = SystemLayoutKind.SINGLE_STAR_SCHEMATIC;
@@ -80,6 +96,54 @@ public final class SystemMapRules {
      * Moon-host hubs for lump view: parents of satellite moons, excluding wide-binary branch stars (computed once in
      * {@link SystemMapPipeline}).
      */
+    /**
+     * Bodies whose labels may show at subsystem / cluster zoom before moon designations appear: branch stars,
+     * moon-host giants, direct planets under a star, and planet-binary mutual members (e.g. BCD 2 and BCD 3).
+     */
+    public static Set<Integer> orbitRevolutionCenterBodyIds(Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents,
+            Map<Integer, Integer> directChildCounts) {
+        Set<Integer> centers = new HashSet<>();
+        if (bodies == null || bodies.isEmpty()) {
+            return centers;
+        }
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            int id = e.getKey().intValue();
+            BodyInfo b = e.getValue();
+            if (isMapStellarBody(b)) {
+                centers.add(e.getKey());
+                continue;
+            }
+            if (SystemOrbitGeometry.isMoonSatelliteBody(b, bodies)) {
+                continue;
+            }
+            int children = directChildCounts != null
+                    ? directChildCounts.getOrDefault(e.getKey(), Integer.valueOf(0)).intValue()
+                    : 0;
+            if (children > 0) {
+                centers.add(e.getKey());
+                continue;
+            }
+            int pId = resolvedParents != null
+                    ? resolvedParents.getOrDefault(e.getKey(), Integer.valueOf(-1)).intValue()
+                    : -1;
+            if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(pId)) {
+                centers.add(e.getKey());
+                continue;
+            }
+            if (pId >= 0) {
+                BodyInfo parent = bodies.get(Integer.valueOf(pId));
+                if (parent != null && isMapStellarBody(parent)) {
+                    centers.add(e.getKey());
+                }
+            }
+        }
+        return centers;
+    }
+
     public static Set<Integer> subsystemHubBodyIds(Map<Integer, BodyInfo> bodies,
             Map<Integer, Integer> resolvedParents,
             SystemMapClassification classification) {
@@ -122,13 +186,22 @@ public final class SystemMapRules {
         if (bodies == null || body == null) {
             return false;
         }
+        SystemMapClassification clf = classify(bodies);
+        if (clf.wideBinary() && SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+            if (starDot) {
+                return true;
+            }
+            if (SystemOrbitGeometry.isWideBinaryPrimaryBranchBody(mapBodyId, bodies) && !moon) {
+                return true;
+            }
+            return false;
+        }
         if (!starDot && soleOrbitCluster) {
             return true;
         }
         if (starDot) {
             return true;
         }
-        SystemMapClassification clf = classify(bodies);
         if (clf.singleStarSchematicMap()) {
             if (mapBodyId != clf.schematicCentralStarId()) {
                 return true;

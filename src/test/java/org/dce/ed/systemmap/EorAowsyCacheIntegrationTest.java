@@ -65,7 +65,7 @@ class EorAowsyCacheIntegrationTest {
         assertEquals(null3Key, model.resolveParentBodyId(5));
         assertNotEquals(idA, model.resolveParentBodyId(4));
         assertNotEquals(idA, model.resolveParentBodyId(5));
-        assertFalse(model.hasBarycentreMutualRing());
+        OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, idA);
         OrbitGeometryTestSupport.assertNoHeliocentricRingAroundPrimaryStar(model, bodies, idA, MAX_PRIMARY_RING_LS);
     }
 

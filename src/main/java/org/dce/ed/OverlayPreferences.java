@@ -135,6 +135,8 @@ public final class OverlayPreferences {
     private static final String KEY_MINING_PANEL_SPLIT_OUTER = "mining.panel.splitOuter";
     /** Vertical split: fraction of the lower pane for prospector (top of inner split). */
     private static final String KEY_MINING_PANEL_SPLIT_INNER = "mining.panel.splitInner";
+    /** Vertical split: fraction of System tab height for the bodies table (top pane). */
+    private static final String KEY_SYSTEM_TAB_PANEL_TABLE_SPLIT = "system.panel.splitTable";
 
     // Mining: low-limpet reminder
     private static final String KEY_MINING_LIMPET_REMINDER_ENABLED = "mining.limpetReminder.enabled";
@@ -1068,6 +1070,22 @@ public static Engine getSpeechEngine() {
 
     public static void setMiningPanelSplitInnerRatio(double ratio) {
         PREFS.put(KEY_MINING_PANEL_SPLIT_INNER, Double.toString(clampSplitRatio(ratio)));
+    }
+
+    /**
+     * Fraction of System tab height (below the header) for the bodies table; the remainder is the plan map.
+     */
+    public static double getSystemTabPanelTableSplitRatio() {
+        String s = PREFS.get(KEY_SYSTEM_TAB_PANEL_TABLE_SPLIT, "0.58");
+        try {
+            return clampSplitRatio(Double.parseDouble(s.trim()));
+        } catch (Exception e) {
+            return 0.58;
+        }
+    }
+
+    public static void setSystemTabPanelTableSplitRatio(double ratio) {
+        PREFS.put(KEY_SYSTEM_TAB_PANEL_TABLE_SPLIT, Double.toString(clampSplitRatio(ratio)));
     }
 
     private static double clampSplitRatio(double ratio) {

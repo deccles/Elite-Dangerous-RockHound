@@ -7,13 +7,16 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.testutil.OrbitGeometryTestSupport;
 import org.dce.ed.util.SystemOrbitGeometry;
+import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -99,8 +102,7 @@ class EorAowsyRiKC83670SystemMapTest {
             assertEquals(SystemLayoutKind.WIDE_BINARY, clf.layoutKind());
             assertEquals(4, clf.mapStellarCount());
             assertTrue(clf.wideBinary());
-            assertFalse(model.hasBarycentreMutualRing(),
-                    "only A orbits Null:0; B/C/D use inner Null:2/3 — no giant ring through all four stars");
+            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, id("A"));
         }
 
         @Test
@@ -147,9 +149,33 @@ class EorAowsyRiKC83670SystemMapTest {
         }
 
         @Test
+        void bodyPositionsMetres_withScanBarycentreRows_terminates() {
+            Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH);
+            assertNotNull(pos);
+            int null49Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(49);
+            assertTrue(pos.containsKey(Integer.valueOf(null49Key)), "Null:49 barycentre position");
+            assertTrue(pos.containsKey(Integer.valueOf(49)), "scan row aliases Null:49");
+        }
+
+        @Test
         void innerStars_notParentedToArrivalStar() {
             for (String label : new String[] { "B", "C", "D" }) {
                 assertNotEquals(primaryId, resolvedParent(label), label + " must not orbit A directly");
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("Map label tiers")
+    class MapLabelTiers {
+
+        @Test
+        void revolutionCenters_includeBcdMajorsAndStars() {
+            for (String label : new String[] { "A", "B", "C", "D", "BCD 2", "BCD 3", "BCD 4", "BCD 5", "A 2" }) {
+                assertTrue(model.isOrbitRevolutionCenter(id(label)), label);
+            }
+            for (String label : new String[] { "BCD 2 a", "BCD 4 a", "A 2 a", "A 3 a" }) {
+                assertFalse(model.isOrbitRevolutionCenter(id(label)), label);
             }
         }
     }
@@ -217,6 +243,53 @@ class EorAowsyRiKC83670SystemMapTest {
         }
 
         @Test
+        void bcd4ab_separateOrbitRings_notMerged() {
+            int idA = id("BCD 4 a");
+            int idB = id("BCD 4 b");
+            assertTrue(model.hasOrbitRingForBody(idA));
+            assertTrue(model.hasOrbitRingForBody(idB));
+            OrbitPolylineWorldXY ringA = null;
+            OrbitPolylineWorldXY ringB = null;
+            for (OrbitPolylineWorldXY p : model.orbitPolylines()) {
+                if (p == null) {
+                    continue;
+                }
+                if (p.bodyId == idA) {
+                    ringA = p;
+                } else if (p.bodyId == idB) {
+                    ringB = p;
+                }
+            }
+            assertNotNull(ringA);
+            assertNotNull(ringB);
+            assertNotEquals(ringA, ringB, "BCD 4 a and BCD 4 b must not share one deduped orbit curve");
+        }
+
+        @Test
+        void bcd1_journalParentNull2_notMisreadAsStarD() {
+            int idBcd1 = id("BCD 1");
+            assertEquals(SystemOrbitGeometry.planetBinaryBarycentreMapKey(2),
+                    SystemOrbitGeometry.resolveOrbitParentBodyId(bodies.get(idBcd1), bodies, idBcd1));
+        }
+
+        @Test
+        void bcd1_onNull2Trunk_withMapPosition() {
+            int idBcd1 = id("BCD 1");
+            double[] pos = model.positionsMetres().get(Integer.valueOf(idBcd1));
+            assertNotNull(pos, "BCD 1 should have a map position");
+            int null2Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(2);
+            double[] hub = model.positionsMetres().get(Integer.valueOf(null2Key));
+            assertNotNull(hub);
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            double dist = Math.hypot(model.mapPlaneX(idBcd1) - model.mapPlaneX(null2Key),
+                    model.mapPlaneY(idBcd1) - model.mapPlaneY(null2Key)) / ls;
+            double mutual2 = SystemOrbitGeometry.planetBinaryMutualOrbitRadiusLsPublic(2, bodies);
+            assertTrue(dist >= mutual2 * 0.35 && dist <= mutual2 * 1.05,
+                    "BCD 1 should sit on the Null:2 trunk ring, not at the hub; dist=" + dist + " Ls mutual2="
+                            + mutual2);
+        }
+
+        @Test
         void bcd5Moons_orbitBcd5() {
             int host = id("BCD 5");
             for (String moon : new String[] { "BCD 5 a", "BCD 5 b", "BCD 5 c", "BCD 5 d", "BCD 5 e", "BCD 5 f", "BCD 5 g" }) {
@@ -264,6 +337,28 @@ class EorAowsyRiKC83670SystemMapTest {
         }
 
         @Test
+        void a3aa_treatedAsMoon_withOrbitRingAndNearA3a() {
+            int idA3a = id("A 3 a");
+            int idA3aa = id("A 3 a a");
+            assertTrue(SystemOrbitGeometry.isMoonSatelliteBody(bodies.get(idA3aa), bodies));
+            assertTrue(model.hasOrbitRingForBody(idA3aa),
+                    "sub-moon needs its own orbit stroke around A 3 a");
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            double sep = Math.hypot(model.mapPlaneX(idA3aa) - model.mapPlaneX(idA3a),
+                    model.mapPlaneY(idA3aa) - model.mapPlaneY(idA3a)) / ls;
+            assertTrue(sep < 25.0,
+                    "A 3 a a should stay near A 3 a, not on the A 3 schematic ring; sep=" + sep + " Ls");
+            OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, "A 3 a a", 5.0);
+        }
+
+        @Test
+        void a3Moons_eachHaveOrbitRing() {
+            for (String moon : new String[] { "A 3 a", "A 3 b", "A 3 c", "A 3 d", "A 3 e", "A 3 a a" }) {
+                assertTrue(model.hasOrbitRingForBody(id(moon)), "missing orbit ring for " + moon);
+            }
+        }
+
+        @Test
         void noABranchBody_onBcdSubsystem() {
             for (String label : new String[] { "A 1", "A 2", "A 3", "A 4", "A 2 a", "A 3 a" }) {
                 int p = resolvedParent(label);
@@ -274,23 +369,20 @@ class EorAowsyRiKC83670SystemMapTest {
     }
 
     @Nested
-    @DisplayName("Schematic GUI layout (no giant A-ring)")
+    @DisplayName("Schematic GUI layout (barycentre ring, A on rim)")
     class SchematicGuiLayout {
 
         @Test
-        void innerStars_notOnSystemBarycentreMutualRing() {
-            assertFalse(model.hasBarycentreMutualRing());
+        void innerStars_notParentedToStarA() {
+            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, primaryId);
             for (String label : new String[] { "B", "C", "D" }) {
                 assertNotEquals(primaryId, resolvedParent(label));
             }
         }
 
         @Test
-        void noSystemBarycentreRingThroughAllStars() {
-            for (SystemOrbitGeometry.OrbitPolylineWorldXY poly : model.orbitPolylines()) {
-                assertNotEquals(SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID, poly.bodyId,
-                        "must not draw one giant Null:0 ring through A+B+C+D");
-            }
+        void schematicBarycentreRing_atOriginPrimaryOnRim() {
+            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, primaryId);
         }
 
         @Test
@@ -315,7 +407,7 @@ class EorAowsyRiKC83670SystemMapTest {
                     partialModel.resolveParentBodyId(id("C")));
             assertEquals(SystemOrbitGeometry.planetBinaryBarycentreMapKey(2),
                     partialModel.resolveParentBodyId(id("D")));
-            assertFalse(partialModel.hasBarycentreMutualRing());
+            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(partialModel, partial, id("A"));
         }
     }
 
@@ -353,14 +445,125 @@ class EorAowsyRiKC83670SystemMapTest {
     class MapLayout {
 
         @Test
+        void a2a_hasPerBodyOrbitRingAroundA2() {
+            int idA2a = id("A 2 a");
+            assertEquals(id("A 2"), resolvedParent("A 2 a"));
+            assertTrue(model.hasOrbitRingForBody(idA2a),
+                    "moon A 2 a needs a per-parent orbit ring around A 2, not only the A-branch schematic rings");
+            OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, "A 2 a", 2.0);
+        }
+
+        @Test
+        void a2a_moonOrbit_enforcesMinScreenRadiusWhenScaleKnown() {
+            int idA2a = id("A 2 a");
+            int idA2 = id("A 2");
+            double scalePxPerM = 8.0E-4;
+            var polys = SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 256, scalePxPerM);
+            OrbitPolylineWorldXY ring = null;
+            for (OrbitPolylineWorldXY p : polys) {
+                if (p != null && p.bodyId == idA2a) {
+                    ring = p;
+                    break;
+                }
+            }
+            assertNotNull(ring, "A 2 a orbit polyline");
+            double px = model.mapPlaneX(idA2);
+            double py = model.mapPlaneY(idA2);
+            double sum = 0.0;
+            for (int i = 0; i < ring.wx.length; i++) {
+                sum += Math.hypot(ring.wx[i] - px, ring.wy[i] - py);
+            }
+            double rPx = (sum / ring.wx.length) * scalePxPerM;
+            assertTrue(rPx >= SystemOrbitGeometry.MIN_MOON_ORBIT_SCREEN_RADIUS_PX - 0.05,
+                    "moon orbit must stay visible on screen; rPx=" + rPx);
+        }
+
+        @Test
+        void a2a_nearA2_journalSeparation() {
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            int idA2 = id("A 2");
+            int idA2a = id("A 2 a");
+            double sep = Math.hypot(model.mapPlaneX(idA2a) - model.mapPlaneX(idA2),
+                    model.mapPlaneY(idA2a) - model.mapPlaneY(idA2)) / ls;
+            double hint = Math.abs(bodies.get(idA2a).getDistanceLs() - bodies.get(idA2).getDistanceLs());
+            assertTrue(sep < 15.0,
+                    "A 2 a should stay near A 2 on the map; sep=" + sep + " Ls journalHint=" + hint + " Ls");
+            assertTrue(Math.abs(sep - hint) <= Math.max(2.0, hint * 0.25),
+                    "map separation should follow journal parent-relative distance");
+        }
+
+        @Test
+        void a2_onSchematicRingAtStarA() {
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            int idA = id("A");
+            int idA2 = id("A 2");
+            double dist = Math.hypot(
+                    model.mapPlaneX(idA2) - model.mapPlaneX(idA),
+                    model.mapPlaneY(idA2) - model.mapPlaneY(idA)) / ls;
+            double hint = Math.abs(bodies.get(idA2).getDistanceLs() - bodies.get(idA).getDistanceLs());
+            assertTrue(Math.abs(dist - hint) <= hint * 0.06,
+                    "A 2 should sit on branch schematic ring at journal distance from A; dist=" + dist
+                            + " Ls hint=" + hint + " Ls");
+        }
+
+        @Test
         void bcStars_separated_mutualOrbitAtNull3() {
             double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
             double sepBc = Math.hypot(
                     model.mapPlaneX(id("B")) - model.mapPlaneX(id("C")),
                     model.mapPlaneY(id("B")) - model.mapPlaneY(id("C")))
                     / ls;
-            assertTrue(sepBc > 10.0,
+            assertTrue(sepBc > 140.0,
                     "B and C should not stack (mutual orbit at Null:3); separation was " + sepBc + " Ls");
+        }
+
+        @Test
+        void bc_onMutualRingAtNull3() {
+            OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "B", 3, 2.0);
+            OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "C", 3, 2.0);
+        }
+
+        @Test
+        void d_onMutualRingAtNull2_oppositeBcBarycentre() {
+            OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "D", 2, 3.0);
+            int null3Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(3);
+            int a0 = model.projectionAxis0();
+            int a1 = model.projectionAxis1();
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            double[] dPos = model.positionsMetres().get(Integer.valueOf(id("D")));
+            double[] bcPos = model.positionsMetres().get(Integer.valueOf(null3Key));
+            assertNotNull(dPos);
+            assertNotNull(bcPos);
+            double dist = Math.hypot(
+                    SystemOrbitGeometry.worldAxisMetres(dPos, a0) - SystemOrbitGeometry.worldAxisMetres(bcPos, a0),
+                    SystemOrbitGeometry.worldAxisMetres(dPos, a1) - SystemOrbitGeometry.worldAxisMetres(bcPos, a1))
+                    / ls;
+            double mutual2 = SystemOrbitGeometry.planetBinaryMutualOrbitRadiusLsPublic(2, bodies);
+            assertTrue(dist >= mutual2 * 0.85 && dist <= mutual2 * 2.2,
+                    "D and B+C barycentre should be on opposite sides of Null:2 mutual orbit; dist=" + dist
+                            + " Ls mutual2=" + mutual2);
+        }
+
+        @Test
+        void playbackRefresh_preservesBcClusterAndA2aNearA2() {
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            double bcBefore = Math.hypot(model.mapPlaneX(id("B")) - model.mapPlaneX(id("C")),
+                    model.mapPlaneY(id("B")) - model.mapPlaneY(id("C"))) / ls;
+            double a2aBefore = Math.hypot(model.mapPlaneX(id("A 2 a")) - model.mapPlaneX(id("A 2")),
+                    model.mapPlaneY(id("A 2 a")) - model.mapPlaneY(id("A 2"))) / ls;
+            Map<Integer, double[]> kepler = new HashMap<>(model.positionsMetres());
+            Map<Integer, double[]> after = SystemMapPipeline.refreshPositionsForPlayback(model, kepler,
+                    Instant.EPOCH, true);
+            SystemMapModel playback = SystemMapPipeline.playbackBase(model.bodies(), model.projectionAxis0(),
+                    model.projectionAxis1(), after, model.wideBinaryFlattenFrame());
+            double bcAfter = Math.hypot(playback.mapPlaneX(id("B")) - playback.mapPlaneX(id("C")),
+                    playback.mapPlaneY(id("B")) - playback.mapPlaneY(id("C"))) / ls;
+            double a2aAfter = Math.hypot(playback.mapPlaneX(id("A 2 a")) - playback.mapPlaneX(id("A 2")),
+                    playback.mapPlaneY(id("A 2 a")) - playback.mapPlaneY(id("A 2"))) / ls;
+            assertTrue(bcAfter > 140.0 && bcAfter < 250.0, "playback must keep B+C mutual cluster; sep=" + bcAfter);
+            assertTrue(a2aAfter < 15.0, "playback must keep A 2 a near A 2; sep=" + a2aAfter);
+            assertTrue(Math.abs(bcAfter - bcBefore) < 5.0, "playback should not re-flatten B+C apart");
+            assertTrue(Math.abs(a2aAfter - a2aBefore) < 3.0, "playback should not drift A 2 a away from A 2");
         }
 
         @Test
@@ -385,11 +588,41 @@ class EorAowsyRiKC83670SystemMapTest {
         }
 
         @Test
-        void primaryBarycentricStar_nearOrigin_afterRecenter() {
+        void bcd4_fartherFromNull2Hub_thanNull49Hub() {
             double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
-            double ax = model.mapPlaneX(id("A"));
-            double ay = model.mapPlaneY(id("A"));
-            assertTrue(Math.hypot(ax, ay) / ls < 5.0, "A (system barycentre star) should be near map origin");
+            int null2 = SystemOrbitGeometry.planetBinaryBarycentreMapKey(2);
+            int null49 = SystemOrbitGeometry.planetBinaryBarycentreMapKey(49);
+            int a0 = model.projectionAxis0();
+            int a1 = model.projectionAxis1();
+            double[] hub2 = model.positionsMetres().get(Integer.valueOf(null2));
+            double[] hub49 = model.positionsMetres().get(Integer.valueOf(null49));
+            double[] p4 = model.positionsMetres().get(Integer.valueOf(id("BCD 4")));
+            double d49 = Math.hypot(
+                    SystemOrbitGeometry.worldAxisMetres(hub49, a0) - SystemOrbitGeometry.worldAxisMetres(hub2, a0),
+                    SystemOrbitGeometry.worldAxisMetres(hub49, a1) - SystemOrbitGeometry.worldAxisMetres(hub2, a1))
+                    / ls;
+            double d4 = Math.hypot(
+                    SystemOrbitGeometry.worldAxisMetres(p4, a0) - SystemOrbitGeometry.worldAxisMetres(hub2, a0),
+                    SystemOrbitGeometry.worldAxisMetres(p4, a1) - SystemOrbitGeometry.worldAxisMetres(hub2, a1)) / ls;
+            assertTrue(d4 > d49 + 15.0, "BCD 4 should sit outside the BCD 2+3 mutual hub on the Null:2 trunk");
+        }
+
+        @Test
+        void bcd2Cluster_nearBcStellarHub_notIsolated() {
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            double bx = model.mapPlaneX(id("B"));
+            double by = model.mapPlaneY(id("B"));
+            double cx = model.mapPlaneX(id("C"));
+            double cy = model.mapPlaneY(id("C"));
+            double hubX = (bx + cx) * 0.5;
+            double hubY = (by + cy) * 0.5;
+            double d2 = Math.hypot(model.mapPlaneX(id("BCD 2")) - hubX, model.mapPlaneY(id("BCD 2")) - hubY) / ls;
+            assertTrue(d2 < 250.0, "BCD 2 should stay near the B+C/D cluster, not float away; d=" + d2);
+        }
+
+        @Test
+        void primaryBarycentricStar_onSystemBarycentreRing() {
+            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, id("A"));
         }
     }
 

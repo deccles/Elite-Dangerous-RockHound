@@ -877,14 +877,6 @@ private void updateCarrierJumpCountdown() {
     if (carrierJumpDepartureTime == null) {
         return;
     }
-    long seconds = Math.max(0, carrierJumpDepartureTime.getEpochSecond() - Instant.now().getEpochSecond());
-    if (seconds == 0 && carrierJumpCooldownEndTime == null) {
-        long pastDeparture = Instant.now().getEpochSecond() - carrierJumpDepartureTime.getEpochSecond();
-        if (pastDeparture >= 5L && pastDeparture <= CarrierJumpCooldown.LIVE_JUMP_MAX_AGE_SECONDS) {
-            onCarrierJumpCompleted(carrierJumpDepartureTime);
-            return;
-        }
-    }
     publishRightStatusText();
 }
 

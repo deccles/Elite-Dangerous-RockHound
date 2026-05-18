@@ -367,7 +367,7 @@
     "layoutKind": "WIDE_BINARY",
     "mapStellarCount": 4,
     "barycentricStarLabels": ["A"],
-    "barycentreRecentred": true,
+    "barycentreRecentred": false,
     "hasBarycentreMutualRing": false,
     "hasPlanetBinaryMutualRing": true,
     "planetBinaryNullId": 49,
@@ -411,11 +411,14 @@
       { "body": "BCD 5 g", "resolvesTo": "BCD 5" }
     ],
     "labelsWhenZoomedOut": [
-      { "body": "A 1", "visible": true },
-      { "body": "A 2", "visible": true },
-      { "body": "A 3", "visible": true },
-      { "body": "BCD 2", "visible": true },
-      { "body": "BCD 4", "visible": true }
+      { "body": "A 1", "visible": false },
+      { "body": "A 2", "visible": false },
+      { "body": "A 3", "visible": false },
+      { "body": "B", "visible": true },
+      { "body": "C", "visible": true },
+      { "body": "D", "visible": true },
+      { "body": "BCD 2", "visible": false },
+      { "body": "BCD 4", "visible": false }
     ]
   }
 }

@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.testutil.OrbitGeometryTestSupport;
 import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 import org.junit.jupiter.api.BeforeAll;
@@ -191,8 +192,7 @@ class EorAowsySystemMapValidationTest {
             double dB = distLs(idA, id("B"));
             double dA1 = distLs(idA, id("A 1"));
             assertTrue(dB > dA1 + 1000.0, "BCD trunk must be outside A inner planets; dB=" + dB);
-            assertFalse(model.hasBarycentreMutualRing(),
-                    "must not draw one Null:0 ring through A+B+C+D at heliocentric radius");
+            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, idA);
         }
     }
 
@@ -201,8 +201,8 @@ class EorAowsySystemMapValidationTest {
     class OrbitStrokes {
 
         @Test
-        void noSystemBarycentreMutualRingThroughFourStars() {
-            assertFalse(model.hasBarycentreMutualRing());
+        void schematicSystemBarycentreRing_primaryOnRim() {
+            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, idA);
         }
 
         @Test
@@ -238,18 +238,19 @@ class EorAowsySystemMapValidationTest {
     @DisplayName("Partial FSS (no ScanBaryCentre rows — regression)")
     class WithoutScanBarycentreRows {
 
+        private static Map<Integer, BodyInfo> partialBodies;
         private static SystemMapModel partialModel;
 
         @BeforeAll
         static void buildWithoutBaryRows() throws IOException {
-            Map<Integer, BodyInfo> copy = new HashMap<>();
+            partialBodies = new HashMap<>();
             for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
                 if (e.getValue() != null && e.getValue().isScanBarycentreRow()) {
                     continue;
                 }
-                copy.put(e.getKey(), e.getValue());
+                partialBodies.put(e.getKey(), e.getValue());
             }
-            partialModel = SystemMapPipeline.build(fixture.name, copy, java.time.Instant.EPOCH, true);
+            partialModel = SystemMapPipeline.build(fixture.name, partialBodies, java.time.Instant.EPOCH, true);
         }
 
         @Test
@@ -270,6 +271,21 @@ class EorAowsySystemMapValidationTest {
                     partialModel.mapPlaneY(id("A 1")) - partialModel.mapPlaneY(idA)) / LS;
             assertTrue(dBcd2 > dA1 + 1000.0,
                     "BCD 2 must stay on companion trunk, not A inner ring; dBcd2=" + dBcd2 + " dA1=" + dA1);
+        }
+
+        @Test
+        void dAndBcBary_onStellarPairMutualRing_withoutBaryRows() {
+            assertTrue(SystemOrbitGeometry.hierarchicalOuterStellarNullPairForDebug(2, partialBodies),
+                    "Null:2 should be D vs B+C hub even without ScanBaryCentre rows");
+            double mutual2 = SystemOrbitGeometry.planetBinaryMutualOrbitRadiusLsPublic(2, partialBodies);
+            assertTrue(mutual2 >= 170.0 && mutual2 < 250.0,
+                    "Null:2 mutual radius should be schematic D–BC sep, not BCD giants; was " + mutual2);
+            int null3Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(3);
+            double distDbc = Math.hypot(
+                    partialModel.mapPlaneX(id("D")) - partialModel.mapPlaneX(null3Key),
+                    partialModel.mapPlaneY(id("D")) - partialModel.mapPlaneY(null3Key)) / LS;
+            assertTrue(distDbc >= mutual2 * 1.6 && distDbc <= mutual2 * 2.4,
+                    "D and B+C barycentre on opposite sides of Null:2 ring; dist=" + distDbc + " mutual2=" + mutual2);
         }
     }
 

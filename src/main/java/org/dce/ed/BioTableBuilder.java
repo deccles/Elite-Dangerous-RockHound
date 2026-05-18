@@ -23,8 +23,18 @@ import org.dce.ed.util.SpanshLandmarkCache;
 
 final class BioTableBuilder {
 
+    /** Match Dist column display ({@code %.0f Ls}) so sub-ls jitter does not reshuffle rows. */
+    private static final double DIST_LS_SORT_QUANTUM = 1.0;
+
     private BioTableBuilder() {
         // utility
+    }
+
+    static double distanceSortKeyForTable(double rawLs) {
+        if (!Double.isFinite(rawLs)) {
+            return Double.MAX_VALUE;
+        }
+        return Math.round(rawLs / DIST_LS_SORT_QUANTUM) * DIST_LS_SORT_QUANTUM;
     }
 
     /**
@@ -385,9 +395,13 @@ final class BioTableBuilder {
                 aDist = arrivalOrGeometrySortKey(a, ea.getKey(), geometryFallbackDistLs);
                 bDist = arrivalOrGeometrySortKey(b, eb.getKey(), geometryFallbackDistLs);
             }
-            int cmp = Double.compare(aDist, bDist);
+            int cmp = Double.compare(distanceSortKeyForTable(aDist), distanceSortKeyForTable(bDist));
             if (cmp != 0) {
                 return cmp;
+            }
+            int keyCmp = Integer.compare(ea.getKey().intValue(), eb.getKey().intValue());
+            if (keyCmp != 0) {
+                return keyCmp;
             }
             return Integer.compare(a.getBodyId(), b.getBodyId());
         });

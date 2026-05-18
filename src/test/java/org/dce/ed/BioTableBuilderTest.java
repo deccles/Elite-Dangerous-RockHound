@@ -286,6 +286,37 @@ class BioTableBuilderTest {
         return makeCandidate(displayName, 1_000_000L);
     }
 
+    @Test
+    void sortByShipDistance_roundsToDisplayedLs_stableOrderForSubLsJitter() {
+        BodyInfo near = new BodyInfo();
+        near.setBodyId(10);
+        near.setBodyName("Test Near");
+        BodyInfo far = new BodyInfo();
+        far.setBodyId(20);
+        far.setBodyName("Test Far");
+        java.util.Map<Integer, BodyInfo> bodies = new java.util.LinkedHashMap<>();
+        bodies.put(Integer.valueOf(10), near);
+        bodies.put(Integer.valueOf(20), far);
+        java.util.Map<Integer, Double> ship = new java.util.HashMap<>();
+        ship.put(Integer.valueOf(10), Double.valueOf(24047.4));
+        ship.put(Integer.valueOf(20), Double.valueOf(24047.6));
+        List<String> order1 = bodyRowShortNames(BioTableBuilder.buildRows(bodies, false, null, true, ship, false, null));
+        ship.put(Integer.valueOf(10), Double.valueOf(24046.4));
+        ship.put(Integer.valueOf(20), Double.valueOf(24047.6));
+        List<String> order2 = bodyRowShortNames(BioTableBuilder.buildRows(bodies, false, null, true, ship, false, null));
+        assertEquals(order1, order2, "sub-ls changes within same displayed Ls must not reshuffle");
+    }
+
+    private static List<String> bodyRowShortNames(List<Row> rows) {
+        if (rows == null) {
+            return List.of();
+        }
+        return rows.stream()
+                .filter(r -> !r.detail && r.body != null && r.body.getShortName() != null)
+                .map(r -> r.body.getShortName())
+                .collect(Collectors.toList());
+    }
+
     private static BioCandidate makeCandidate(String displayName, long basePayoutCr) {
         String[] parts = displayName.split(" ", 2);
         String genus = parts.length > 0 ? parts[0] : "";

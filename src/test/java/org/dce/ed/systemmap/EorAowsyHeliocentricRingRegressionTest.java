@@ -2,6 +2,7 @@ package org.dce.ed.systemmap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -56,21 +57,71 @@ class EorAowsyHeliocentricRingRegressionTest {
         int null3 = SystemOrbitGeometry.planetBinaryBarycentreMapKey(3);
         assertEquals(null3, broken.resolveParentBodyId(fixture.bodyIdByLabel("B")));
         assertEquals(null3, broken.resolveParentBodyId(fixture.bodyIdByLabel("C")));
-        assertFalse(broken.hasBarycentreMutualRing());
+        OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(broken, copy, idA);
         OrbitGeometryTestSupport.assertNoHeliocentricRingAroundPrimaryStar(broken, copy, idA, MAX_PRIMARY_RING_LS);
     }
 
     @Test
-    @DisplayName("GUI rebuild path (SystemPlanMapPanel.rebuildOrbitPolylines) — no barycentre ring")
-    void rebuildOrbitPolylines_noHeliocentricRing() {
+    @DisplayName("live cache: B/C/D with planet class still use wide-binary schematic trunk")
+    void noHeliocentricRing_whenCompanionStarsExcludedFromMapStellarCount() {
+        Map<Integer, BodyInfo> copy = fixture.toBodies();
+        for (String label : new String[] { "B", "C", "D" }) {
+            BodyInfo b = copy.get(Integer.valueOf(fixture.bodyIdByLabel(label)));
+            if (b != null) {
+                b.setPlanetClass("High metal content body");
+                b.setAtmosphere("thin");
+            }
+        }
+        SystemMapModel liveLike = SystemMapPipeline.build(fixture.name, copy, java.time.Instant.EPOCH, true);
+        assertEquals(org.dce.ed.systemmap.SystemLayoutKind.WIDE_BINARY,
+                liveLike.classification().layoutKind());
+        OrbitGeometryTestSupport.assertNoHeliocentricRingAroundPrimaryStar(liveLike, copy, idA,
+                MAX_PRIMARY_RING_LS);
+        OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(liveLike, copy, idA);
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        int idB = fixture.bodyIdByLabel("B");
+        double distBa = Math.hypot(liveLike.mapPlaneX(idB) - liveLike.mapPlaneX(idA),
+                liveLike.mapPlaneY(idB) - liveLike.mapPlaneY(idA)) / ls;
+        org.junit.jupiter.api.Assertions.assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0,
+                "BCD trunk schematic distance from A; was " + distBa + " Ls");
+        boolean hasMutual3 = false;
+        boolean hasMutual2 = false;
+        boolean hasMutual49 = false;
+        for (var poly : liveLike.orbitPolylines()) {
+            if (poly == null) {
+                continue;
+            }
+            if (poly.bodyId == SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - 3) {
+                hasMutual3 = true;
+            }
+            if (poly.bodyId == SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - 2) {
+                hasMutual2 = true;
+            }
+            if (poly.bodyId == SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - 49) {
+                hasMutual49 = true;
+            }
+        }
+        assertTrue(hasMutual3, "B+C mutual orbit at Null:3");
+        assertTrue(hasMutual2, "BCD cluster mutual orbit at Null:2");
+        assertTrue(hasMutual49, "BCD 2+3 mutual orbit at Null:49");
+        assertTrue(liveLike.orbitPolylines().size() >= 26,
+                "hierarchical companion needs schematic + mutual rings; had " + liveLike.orbitPolylines().size());
+    }
+
+    @Test
+    @DisplayName("GUI rebuild path (SystemPlanMapPanel.rebuildOrbitPolylines) — schematic barycentre ring")
+    void rebuildOrbitPolylines_schematicBarycentreRing() {
         var rebuilt = SystemMapPipeline.rebuildOrbitPolylines(model,
                 new HashMap<>(model.positionsMetres()), 96, Double.NaN);
         assertFalse(rebuilt.isEmpty());
-        for (var poly : rebuilt) {
-            assertFalse(poly != null
-                    && poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID);
-        }
         OrbitGeometryTestSupport.assertNoHeliocentricRingAroundPrimaryStar(model, bodies, idA, MAX_PRIMARY_RING_LS,
                 rebuilt);
+        boolean hasBaryRing = false;
+        for (var poly : rebuilt) {
+            if (poly != null && poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
+                hasBaryRing = true;
+            }
+        }
+        assertTrue(hasBaryRing, "rebuild should keep schematic system barycentre ring");
     }
 }

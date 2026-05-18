@@ -752,7 +752,7 @@ public class EdsmClient {
                     break;
                 }
                 if (p.Null != null) {
-                    info.setImmediateParentBodyId(0);
+                    info.setImmediateParentBodyId(p.Null.intValue());
                     break;
                 }
             }

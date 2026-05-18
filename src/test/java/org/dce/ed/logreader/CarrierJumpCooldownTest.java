@@ -61,6 +61,17 @@ class CarrierJumpCooldownTest {
         assertTrue(CarrierJumpCooldown.isCarrierLocationJumpArrival(location, departure));
     }
 
+    /**
+     * Aboard-carrier arrivals are logged as {@code CarrierJump} many minutes after {@code DepartureTime}.
+     * Do not treat elapsed time past departure as jump completion (regression: premature "Jump complete" TTS).
+     */
+    @Test
+    void carrierLocationArrival_doesNotMatchRealAboardArrivalTime() {
+        Instant departure = Instant.parse("2026-05-17T12:00:00Z");
+        Instant aboardArrival = departure.plusSeconds(15 * 60);
+        assertFalse(CarrierJumpCooldown.isCarrierLocationJumpArrival(aboardArrival, departure));
+    }
+
     @Test
     void carrierLocationMatches_byNameOrAddress() {
         assertTrue(CarrierJumpCooldown.carrierLocationMatchesPendingJump(

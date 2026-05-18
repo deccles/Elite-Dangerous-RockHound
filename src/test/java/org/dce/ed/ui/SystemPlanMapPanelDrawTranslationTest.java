@@ -1,0 +1,380 @@
+package org.dce.ed.ui;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.time.Instant;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.dce.ed.state.BodyInfo;
+import org.dce.ed.systemmap.SystemMapFixture;
+import org.dce.ed.systemmap.SystemMapFixtureLoader;
+import org.dce.ed.systemmap.SystemMapModel;
+import org.dce.ed.systemmap.SystemMapPipeline;
+import org.dce.ed.testutil.OrbitGeometryTestSupport;
+import org.dce.ed.util.SystemOrbitGeometry;
+import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+/**
+ * R-DRAW: {@link SystemPlanMapPanel} must translate {@link SystemMapModel} without re-deriving topology in paint.
+ */
+class SystemPlanMapPanelDrawTranslationTest {
+
+    private static final double MAX_PRIMARY_RING_LS = 12_000.0;
+    private static final double EPS_M = 1.0;
+
+    private static SystemMapFixture fixture;
+    private static Map<Integer, BodyInfo> bodies;
+    private static SystemMapModel pipelineModel;
+    private static int idA;
+    private static int idB;
+    private static int idC;
+
+    @BeforeAll
+    static void loadFixture() throws IOException {
+        fixture = SystemMapFixtureLoader.loadClasspath("eor-aowsy-ri-k-c8-3670.json");
+        bodies = fixture.toBodies();
+        pipelineModel = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false);
+        idA = fixture.bodyIdByLabel("A");
+        idB = fixture.bodyIdByLabel("B");
+        idC = fixture.bodyIdByLabel("C");
+    }
+
+    private static SystemPlanMapPanel panelAfterSetScene() {
+        SystemPlanMapPanel panel = new SystemPlanMapPanel();
+        panel.setSize(900, 700);
+        Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
+        panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
+        return panel;
+    }
+
+    @Nested
+    @DisplayName("R-DRAW C: orbit polylines after setScene")
+    class OrbitPolylines {
+
+        @Test
+        void hierarchicalBarycentreRing_bodyIdMinus2_atOrigin() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(panel.mapModelForTests(), bodies, idA);
+        }
+
+        @Test
+        void noHeliocentricRingAroundPrimaryStar() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            OrbitGeometryTestSupport.assertNoHeliocentricRingAroundPrimaryStar(
+                    panel.mapModelForTests(), bodies, idA, MAX_PRIMARY_RING_LS, panel.orbitLinesForTests());
+        }
+
+        @Test
+        void rebuildMatchesPipelineTopologyFlags() {
+            assertTrue(pipelineModel.hasBarycentreMutualRing());
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            assertTrue(panel.mapModelForTests().hasBarycentreMutualRing());
+        }
+    }
+
+    @Nested
+    @DisplayName("R-DRAW D: body dots match model map plane")
+    class BodyDots {
+
+        @Test
+        void dotsAlignWithMapPlanePositions() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            SystemMapModel model = panel.mapModelForTests();
+            for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+                if (e.getValue() == null || e.getValue().isScanBarycentreRow()) {
+                    continue;
+                }
+                int id = e.getKey().intValue();
+                assertTrue(panel.hasBodyDotForTests(id), "missing dot for id " + id);
+                double mx = model.mapPlaneX(id);
+                double my = model.mapPlaneY(id);
+                assertEquals(mx, panel.dotWorldXForTests(id), EPS_M, "wx id " + id);
+                assertEquals(my, panel.dotWorldYForTests(id), EPS_M, "wy id " + id);
+            }
+        }
+
+        @Test
+        void noDotsForScanBarycentreRows() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            assertFalse(panel.hasBodyDotForTests(2));
+            assertFalse(panel.hasBodyDotForTests(3));
+            assertFalse(panel.hasBodyDotForTests(49));
+        }
+
+        @Test
+        void panelOrbitLines_includeMoonRingAroundA2a() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            int idA2a = fixture.bodyIdByLabel("A 2 a");
+            boolean found = false;
+            for (OrbitPolylineWorldXY p : panel.orbitLinesForTests()) {
+                if (p != null && p.bodyId == idA2a) {
+                    found = true;
+                    break;
+                }
+            }
+            assertTrue(found, "panel orbitLines after setScene must include per-body ring for moon A 2 a");
+        }
+
+        @Test
+        void moonLabels_visibleAtSubsystemHubDetailZoom_notLayoutLsAlone() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            int idA2a = fixture.bodyIdByLabel("A 2 a");
+            assertTrue(panel.hasBodyDotForTests(idA2a));
+            double wideViewLs = 2_000.0;
+            assertFalse(panel.mapShowMoonLabelsForTests(wideViewLs),
+                    "layout-Ls alone must not enable moon labels at fit zoom");
+            assertFalse(panel.bodyLabelWouldDrawForTests(idA2a, wideViewLs),
+                    "A 2 a label hidden at fit-scale visible span");
+            panel.zoomFactorForTests(8.0);
+            assertFalse(panel.mapShowMoonLabelsForTests(wideViewLs),
+                    "subsystem-detail zoom shows revolution centers only, not moons");
+            int idBcd2 = fixture.bodyIdByLabel("BCD 2");
+            int idBcd2a = fixture.bodyIdByLabel("BCD 2 a");
+            assertTrue(panel.bodyLabelWouldDrawForTests(idBcd2, 80.0),
+                    "BCD 2 revolution center visible at cluster zoom");
+            assertFalse(panel.bodyLabelWouldDrawForTests(idBcd2a, 80.0),
+                    "BCD 2 a hidden until deep zoom");
+            panel.zoomFactorForTests(14.0);
+            assertTrue(panel.mapShowMoonLabelsForTests(wideViewLs),
+                    "moon labels at deep zoom (× fit), not layout Ls alone");
+            assertTrue(panel.bodyLabelWouldDrawForTests(idA2a, wideViewLs),
+                    "A 2 a label should draw at deep zoom");
+        }
+
+        @Test
+        void hubTwinBlueRings_whenZoomedOut_notWhenZoomedIn() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            int idA2 = fixture.bodyIdByLabel("A 2");
+            assertTrue(panel.mapModelForTests().subsystemHubBodyIds().contains(Integer.valueOf(idA2)),
+                    "A 2 is a moon-host subsystem hub");
+            panel.zoomFactorForTests(1.0);
+            assertFalse(panel.mapShowClusterDetailForTests(8_000.0),
+                    "fit-scale view is lump mode, not cluster detail");
+            assertTrue(panel.hubTwinBlueRingsWouldDrawForTests(idA2, 8_000.0),
+                    "twin blue rings cue zoomed-out hubs (e.g. A 2 moons)");
+            panel.zoomFactorForTests(12.0);
+            assertTrue(panel.mapShowClusterDetailForTests(400.0),
+                    "deep zoom enables cluster detail");
+            assertFalse(panel.hubTwinBlueRingsWouldDrawForTests(idA2, 400.0),
+                    "twin rings hidden when individual moon orbits are shown");
+        }
+
+        @Test
+        void bAndCNearEachOther_notOnPrimaryRing() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            double bx = panel.dotWorldXForTests(idB);
+            double by = panel.dotWorldYForTests(idB);
+            double cx = panel.dotWorldXForTests(idC);
+            double cy = panel.dotWorldYForTests(idC);
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            double bcSep = Math.hypot(bx - cx, by - cy) / ls;
+            assertTrue(bcSep < 500.0, "B and C should be a close binary pair; sep=" + bcSep + " Ls");
+
+            double ax = panel.dotWorldXForTests(idA);
+            double ay = panel.dotWorldYForTests(idA);
+            double distBA = Math.hypot(bx - ax, by - ay) / ls;
+            assertTrue(distBA >= 5_000.0 && distBA <= 15_000.0,
+                    "BCD trunk schematic distance from A; was " + distBA + " Ls");
+        }
+    }
+
+    @Nested
+    @DisplayName("Barycentre markers and ring cull")
+    class BarycentreMarkersAndRingCull {
+
+        @Test
+        void barycentreMarkers_includeScanRowsAndPlanetBinaryKeys() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            int count = panel.barycentreMarkerCountForTests();
+            assertTrue(count >= 5,
+                    "scan rows 2/3/49 plus planet-binary map keys should yield multiple + markers; count=" + count);
+        }
+
+        @Test
+        void mutualOrbitRing_stillDrawnWhenZoomedIn() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            OrbitPolylineWorldXY mutual2 = null;
+            for (OrbitPolylineWorldXY p : panel.orbitLinesForTests()) {
+                if (p != null && p.bodyId == SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - 2) {
+                    mutual2 = p;
+                    break;
+                }
+            }
+            assertNotNull(mutual2, "Null:2 mutual ring");
+            SystemMapModel model = panel.mapModelForTests();
+            double vcx = model.mapPlaneX(fixture.bodyIdByLabel("BCD 2"));
+            double vcy = model.mapPlaneY(fixture.bodyIdByLabel("BCD 2"));
+            assertFalse(panel.skipOversizeSchematicRingForTests(mutual2, 80.0, vcx, vcy, 0.08, 876.0, 676.0, true),
+                    "mutual orbit rings must not disappear when zooming in");
+        }
+
+        @Test
+        void heliocentricGiantSchematic_stillCulledAtBcdZoom() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            SystemMapModel model = panel.mapModelForTests();
+            double vcx = model.mapPlaneX(fixture.bodyIdByLabel("BCD 2"));
+            double vcy = model.mapPlaneY(fixture.bodyIdByLabel("BCD 2"));
+            double rM = 49_524.0 * SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            int n = 48;
+            double[] wx = new double[n];
+            double[] wy = new double[n];
+            for (int i = 0; i < n; i++) {
+                double theta = (Math.PI * 2.0 * i) / n;
+                wx[i] = vcx + rM * Math.cos(theta);
+                wy[i] = vcy + rM * Math.sin(theta);
+            }
+            OrbitPolylineWorldXY giant = new OrbitPolylineWorldXY(-153524, wx, wy);
+            assertTrue(panel.skipOversizeSchematicRingForTests(giant, 80.0, vcx, vcy, 0.08, 876.0, 676.0, true),
+                    "legacy ~50k Ls schematic rings should still be culled when focused on BCD");
+        }
+    }
+
+    @Nested
+    @DisplayName("Map labels (BCD branch)")
+    class MapLabels {
+
+        @Test
+        void bcdPlanets_keepBcdPrefix_notD() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            assertEquals("BCD 5 a", panel.dotLabelForTests(fixture.bodyIdByLabel("BCD 5 a")));
+            assertEquals("BCD 2", panel.dotLabelForTests(fixture.bodyIdByLabel("BCD 2")));
+            assertEquals("BCD 4", panel.dotLabelForTests(fixture.bodyIdByLabel("BCD 4")));
+        }
+
+        @Test
+        void primaryBranchPlanets_labeledAtMediumZoom() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(2.5);
+            assertTrue(panel.bodyLabelWouldDrawForTests(fixture.bodyIdByLabel("A 2"), 5_000.0),
+                    "A-branch giants should be labeled before deep zoom");
+            assertTrue(panel.bodyLabelWouldDrawForTests(fixture.bodyIdByLabel("A 1"), 5_000.0),
+                    "A-branch planets should be labeled before deep zoom");
+        }
+
+        @Test
+        void bcdCluster_usesSummaryOrFanOutWhenLabelsOverlap() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(8.0);
+            FontMetrics fm = panel.getFontMetrics(panel.getFont().deriveFont(Font.PLAIN, 11f));
+            SystemMapModel model = panel.mapModelForTests();
+            double vcx = model.mapPlaneX(fixture.bodyIdByLabel("BCD 2"));
+            double vcy = model.mapPlaneY(fixture.bodyIdByLabel("BCD 2"));
+            double availW = 876.0;
+            double availH = 676.0;
+            double plotCx = 12.0 + availW * 0.5;
+            double plotCy = 12.0 + availH * 0.5;
+            int idBcd2 = fixture.bodyIdByLabel("BCD 2");
+            int idBcd3 = fixture.bodyIdByLabel("BCD 3");
+            int idBcd4 = fixture.bodyIdByLabel("BCD 4");
+            int idBcd5 = fixture.bodyIdByLabel("BCD 5");
+            double sepM = Math.hypot(panel.dotWorldXForTests(idBcd2) - panel.dotWorldXForTests(idBcd3),
+                    panel.dotWorldYForTests(idBcd2) - panel.dotWorldYForTests(idBcd3));
+            double scale = Math.min(0.02, 18.0 / Math.max(sepM, 1.0));
+            SystemPlanMapPanel.MapLabelDrawPlan plan = panel.labelDrawPlanForTests(panel.dotsForTests(), 80.0, fm, vcx,
+                    vcy, scale, availW, availH, plotCx, plotCy);
+            boolean summary = plan.summaryTextByHubId.containsKey(Integer.valueOf(idBcd2))
+                    || plan.summaryTextByHubId.containsKey(Integer.valueOf(idBcd3));
+            if (summary) {
+                String text = plan.summaryTextByHubId.values().iterator().next();
+                assertTrue(text.contains("BCD"), "summary should name the cluster: " + text);
+                assertTrue(plan.suppressedBodyIds.contains(Integer.valueOf(idBcd4))
+                        || plan.suppressedBodyIds.contains(Integer.valueOf(idBcd5)),
+                        "overlapping BCD labels should collapse to one hub");
+            } else {
+                assertTrue(plan.anchors.containsKey(Integer.valueOf(idBcd2)), "expected fan-out for BCD 2");
+                assertTrue(plan.anchors.containsKey(Integer.valueOf(idBcd3)), "expected fan-out for BCD 3");
+                float[] a2 = plan.anchors.get(Integer.valueOf(idBcd2));
+                float[] a3 = plan.anchors.get(Integer.valueOf(idBcd3));
+                assertTrue(Math.hypot(a2[0] - a3[0], a2[1] - a3[1]) > 8.0,
+                        "BCD 2 and BCD 3 labels should fan out when summary not needed");
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("Paused zoom: stable orbit geometry")
+    class PausedZoomStability {
+
+        @Test
+        void moonOrbitRadius_stableAcrossZoomRebuildWhenPlaybackPaused() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            int idA2a = fixture.bodyIdByLabel("A 2 a");
+            double r0 = moonOrbitMeanRadiusM(panel, idA2a);
+            panel.zoomFactorForTests(12.0);
+            panel.rebuildOrbitPolylinesForTests(false, false);
+            double r1 = moonOrbitMeanRadiusM(panel, idA2a);
+            assertTrue(Double.isFinite(r0) && r0 > 0.0);
+            assertEquals(r0, r1, r0 * 0.02, "paused zoom rebuild must not rescale moon orbit world radius");
+        }
+
+        private static double moonOrbitMeanRadiusM(SystemPlanMapPanel panel, int moonBodyId) {
+            int parentId = panel.mapModelForTests().resolveParentBodyId(moonBodyId);
+            double px = panel.mapModelForTests().mapPlaneX(parentId);
+            double py = panel.mapModelForTests().mapPlaneY(parentId);
+            for (OrbitPolylineWorldXY poly : panel.orbitLinesForTests()) {
+                if (poly != null && poly.bodyId == moonBodyId) {
+                    double sum = 0.0;
+                    for (int i = 0; i < poly.wx.length; i++) {
+                        sum += Math.hypot(poly.wx[i] - px, poly.wy[i] - py);
+                    }
+                    return sum / poly.wx.length;
+                }
+            }
+            return Double.NaN;
+        }
+    }
+
+    @Nested
+    @DisplayName("R-DRAW H: pipeline build vs panel rebuild")
+    class PolylineParity {
+
+        @Test
+        void panelOrbitBodyIds_matchPipelineRebuild() {
+            List<OrbitPolylineWorldXY> fromPipeline = SystemMapPipeline.rebuildOrbitPolylines(pipelineModel,
+                    new HashMap<>(pipelineModel.positionsMetres()), 96, Double.NaN);
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            Set<Integer> pipelineIds = polylineBodyIds(fromPipeline);
+            Set<Integer> panelIds = polylineBodyIds(panel.orbitLinesForTests());
+            assertEquals(pipelineIds, panelIds,
+                    "panel orbitLines bodyId set must match pipeline rebuild with model parents");
+        }
+
+        @Test
+        void firstDivergence_documentedAsBodyIdSetOnly() {
+            List<OrbitPolylineWorldXY> atBuild = pipelineModel.orbitPolylines();
+            List<OrbitPolylineWorldXY> afterRebuild = SystemMapPipeline.rebuildOrbitPolylines(pipelineModel,
+                    new HashMap<>(pipelineModel.positionsMetres()), 96, Double.NaN);
+            Set<Integer> buildIds = polylineBodyIds(atBuild);
+            Set<Integer> rebuildIds = polylineBodyIds(afterRebuild);
+            assertEquals(buildIds, rebuildIds,
+                    "build vs rebuild should expose same synthetic ring ids when using model parents");
+        }
+    }
+
+    private static Set<Integer> polylineBodyIds(List<OrbitPolylineWorldXY> polys) {
+        Set<Integer> ids = new HashSet<>();
+        if (polys == null) {
+            return ids;
+        }
+        for (OrbitPolylineWorldXY p : polys) {
+            if (p != null) {
+                ids.add(Integer.valueOf(p.bodyId));
+            }
+        }
+        return ids;
+    }
+}
