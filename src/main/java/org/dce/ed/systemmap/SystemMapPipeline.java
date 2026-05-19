@@ -259,6 +259,30 @@ public final class SystemMapPipeline {
             SystemOrbitGeometry.placeHierarchicalWideBinaryOnSystemBarycentre(positions, bodies, a0, a1);
             SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
                     freezeBarycentreStars);
+            /*
+             * Triple-star trunk placement shifts the companion branch after A-branch schematic rings; re-seat A planets
+             * and moons (live cache parents A 2/A 3 to C → wrong branch shift undoes alignPrimaryBranch).
+             */
+            SystemOrbitGeometry.alignPrimaryBranchPlanetsOnSchematicRings(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
+            SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
+            SystemOrbitGeometry.snapCompanionClusterOntoTrunkRing(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
+        } else if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+            /*
+             * Four-star A vs BCD: parent-resolution + A-branch align can drift the companion trunk off the schematic
+             * chord; re-place and re-align so B/C/D sit on mutual rings before orbit polylines are built.
+             */
+            SystemOrbitGeometry.placeHierarchicalWideBinaryOnSystemBarycentre(positions, bodies, a0, a1);
+            SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
+            SystemOrbitGeometry.alignPrimaryBranchPlanetsOnSchematicRings(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
+            SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
+            SystemOrbitGeometry.snapCompanionClusterOntoTrunkRing(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
         }
         SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
     }

@@ -329,6 +329,49 @@ class SystemPlanMapPanelDrawTranslationTest {
         }
 
         @Test
+        void abranchSummary_notAnchoredBesideStarC() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(1.0);
+            FontMetrics fm = panel.getFontMetrics(panel.getFont().deriveFont(Font.PLAIN, 11f));
+            SystemMapModel model = panel.mapModelForTests();
+            double vcx = model.mapPlaneX(idA);
+            double vcy = model.mapPlaneY(idA);
+            double availW = 876.0;
+            double availH = 676.0;
+            double plotCx = 12.0 + availW * 0.5;
+            double plotCy = 12.0 + availH * 0.5;
+            double scale = panel.mapPlotScaleForTests(availW, availH);
+            SystemPlanMapPanel.MapLabelDrawPlan plan = panel.labelDrawPlanForTests(panel.dotsForTests(), 8_000.0, fm,
+                    vcx, vcy, scale, availW, availH, plotCx, plotCy);
+            for (Map.Entry<Integer, String> e : plan.summaryTextByHubId.entrySet()) {
+                String text = e.getValue();
+                if (text == null || !text.startsWith("A ")) {
+                    continue;
+                }
+                float[] anchor = plan.anchors.get(e.getKey());
+                assertNotNull(anchor, "anchor for " + text);
+                float[] nearA = bodyScreenPx(panel, idA, vcx, vcy, scale, availW, availH);
+                float[] nearC = bodyScreenPx(panel, idC, vcx, vcy, scale, availW, availH);
+                double distA = Math.hypot(anchor[0] - nearA[0], anchor[1] - nearA[1]);
+                double distC = Math.hypot(anchor[0] - nearC[0], anchor[1] - nearC[1]);
+                assertTrue(distA + 24.0 < distC,
+                        "A-branch summary " + text + " must anchor near star A, not C (dA=" + distA + " dC=" + distC
+                                + ")");
+            }
+        }
+
+        private static float[] bodyScreenPx(SystemPlanMapPanel panel, int bodyId, double vcx, double vcy,
+                double scale, double availW, double availH) {
+            double pad = 12.0;
+            double wx = panel.dotWorldXForTests(bodyId);
+            double wy = panel.dotWorldYForTests(bodyId);
+            return new float[] {
+                    (float) (pad + availW / 2.0 + (wx - vcx) * scale),
+                    (float) (pad + availH / 2.0 - (wy - vcy) * scale)
+            };
+        }
+
+        @Test
         void companionBcdCluster_lumpsIntoSingleTwinRingHubWhenZoomedOut() {
             SystemPlanMapPanel panel = panelAfterSetScene();
             panel.zoomFactorForTests(1.0);
@@ -359,6 +402,16 @@ class SystemPlanMapPanelDrawTranslationTest {
             }
             assertNotNull(mutual49);
             assertTrue(panel.skipOrbitPolylineForCompanionLumpForTests(mutual49, lump, false));
+            OrbitPolylineWorldXY mutual3 = null;
+            for (OrbitPolylineWorldXY p : panel.orbitLinesForTests()) {
+                if (p != null && p.bodyId == SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - 3) {
+                    mutual3 = p;
+                    break;
+                }
+            }
+            assertNotNull(mutual3, "B+C Null:3 mutual ring");
+            assertFalse(panel.skipOrbitPolylineForCompanionLumpForTests(mutual3, lump, false),
+                    "stellar B+C mutual ring must stay visible at companion-lump zoom");
             boolean branchPathStillVisible = false;
             for (OrbitPolylineWorldXY p : panel.orbitLinesForTests()) {
                 if (p == null || p.wx == null || p.wx.length < 3 || p.bodyId >= 0) {
@@ -374,6 +427,23 @@ class SystemPlanMapPanelDrawTranslationTest {
             }
             assertTrue(branchPathStillVisible,
                     "companion lump must keep branch schematic paths, not only twin-ring hub cue");
+        }
+
+        @Test
+        void companionBcdCluster_hidesLumpedPlanetLabelsAtFitZoom() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(1.0);
+            double wideLs = 8_000.0;
+            assertNotNull(panel.companionBranchLumpForTests(wideLs));
+            int idB = fixture.bodyIdByLabel("B");
+            int idC = fixture.bodyIdByLabel("C");
+            int idD = fixture.bodyIdByLabel("D");
+            int idBcd2 = fixture.bodyIdByLabel("BCD 2");
+            assertTrue(panel.bodyLabelWouldDrawForTests(idB, wideLs), "B star label at fit zoom");
+            assertTrue(panel.bodyLabelWouldDrawForTests(idC, wideLs), "C star label at fit zoom");
+            assertTrue(panel.bodyLabelWouldDrawForTests(idD, wideLs), "D star label at fit zoom");
+            assertFalse(panel.bodyLabelWouldDrawForTests(idBcd2, wideLs),
+                    "BCD 2–5 summary must not appear until subsystem-detail zoom");
         }
 
         @Test

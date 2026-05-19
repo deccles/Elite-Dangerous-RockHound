@@ -123,6 +123,9 @@ class EorAowsyHeliocentricRingRegressionTest {
         assertTrue(hasMutual3, "B+C mutual orbit at Null:3");
         assertTrue(hasMutual2, "BCD cluster mutual orbit at Null:2");
         assertTrue(hasMutual49, "BCD 2+3 mutual orbit at Null:49");
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(liveLike, copy, "B", 3, 2.5);
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(liveLike, copy, "C", 3, 2.5);
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(liveLike, copy, "D", 2, 3.5);
         assertTrue(liveLike.orbitPolylines().size() >= 26,
                 "hierarchical companion needs schematic + mutual rings; had " + liveLike.orbitPolylines().size());
     }

@@ -410,16 +410,20 @@ public class SystemTabPanel extends JPanel {
                     if (text == null) {
                         return;
                     }
-//PLOEA EURL mn-j d9-22
-//PLOEA EURL ZP-T C18-0
-                    
-                    System.out.println("User hit enter for system: '" + text + "'");
+                    String trimmed = text.trim();
+                    if (trimmed.isEmpty()) {
+                        reloadCommanderSystem();
+                        syncHeaderLabelFromState();
+                        return;
+                    }
+
+                    System.out.println("User hit enter for system: '" + trimmed + "'");
 
                     // User is specifying by name; let loadSystem resolve address
-                    state.setSystemName(text);
+                    state.setSystemName(trimmed);
                     state.setSystemAddress(0L);
 
-                    loadSystem(text.trim(), 0L, true);
+                    loadSystem(trimmed, 0L, true);
                     syncHeaderLabelFromState();
                 }
             }
@@ -1324,6 +1328,55 @@ public class SystemTabPanel extends JPanel {
         } catch (Exception ex) {
             ex.printStackTrace();
         }
+    }
+
+    /**
+     * Restores the system tab to the commander's real location after a manual header lookup.
+     * Journal transition is preferred (live while playing); cache is the fallback.
+     */
+    private void reloadCommanderSystem() {
+        String systemName = null;
+        long systemAddress = 0L;
+
+        try {
+            java.nio.file.Path journalDir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
+            if (journalDir != null && java.nio.file.Files.isDirectory(journalDir)) {
+                EliteJournalReader reader = new EliteJournalReader(journalDir);
+                EliteLogEvent transition = reader.findMostRecentSystemTransitionEvent(null);
+                if (transition instanceof LocationEvent le) {
+                    systemName = le.getStarSystem();
+                    systemAddress = le.getSystemAddress();
+                } else if (transition instanceof FsdJumpEvent fj) {
+                    systemName = fj.getStarSystem();
+                    systemAddress = fj.getSystemAddress();
+                } else if (transition instanceof CarrierJumpEvent cj) {
+                    if (cj.isDocked() || cj.isOnFoot()) {
+                        systemName = cj.getStarSystem();
+                        systemAddress = cj.getSystemAddress();
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        if (systemName == null || systemName.isBlank()) {
+            try {
+                CachedSystem last = SystemCache.load();
+                if (last != null && last.systemName != null && !last.systemName.isBlank() && last.systemAddress != 0L) {
+                    systemName = last.systemName;
+                    systemAddress = last.systemAddress;
+                }
+            } catch (java.io.IOException ex) {
+                ex.printStackTrace();
+            }
+        }
+
+        if (systemName == null || systemName.isBlank()) {
+            return;
+        }
+
+        loadSystem(systemName, systemAddress, false);
     }
 
     private void updateTargetBodyFromStatus(StatusEvent e) {

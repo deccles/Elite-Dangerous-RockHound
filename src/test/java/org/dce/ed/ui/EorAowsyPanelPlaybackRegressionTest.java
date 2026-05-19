@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
@@ -101,7 +102,7 @@ class EorAowsyPanelPlaybackRegressionTest {
     void playback_aBranchParentedToStarC_onMapNearAnotC() {
         Map<Integer, BodyInfo> bodies = copyBodies();
         corruptBcdParentedToA(bodies);
-        for (String label : new String[] { "A 2", "A 3", "A 3 a", "A 3 b", "A 3 e" }) {
+        for (String label : List.of("A 1", "A 2", "A 3", "A 4", "A 2 a", "A 3 a", "A 3 b", "A 3 e", "A 4 c")) {
             bodies.get(Integer.valueOf(fixture.bodyIdByLabel(label))).setImmediateParentBodyId(idC);
         }
         SystemPlanMapPanel panel = new SystemPlanMapPanel();
@@ -109,11 +110,21 @@ class EorAowsyPanelPlaybackRegressionTest {
         Instant epoch = Instant.EPOCH;
         Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, epoch, false);
         panel.setScene(bodies, pos, null, null, null, true, epoch);
-        for (int tick = 0; tick < 6; tick++) {
+        for (int tick = 0; tick < 12; tick++) {
             epoch = epoch.plusSeconds(86_400);
             pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, epoch, true);
-            panel.tryApplyPositionUpdate(bodies, pos, null, null, null, true, epoch);
+            assertTrue(panel.tryApplyPositionUpdate(bodies, pos, null, null, null, true, epoch),
+                    "tick " + tick);
         }
-        OrbitGeometryTestSupport.assertPlanetaryBranchConsistency(panel.mapModelForTests(), bodies);
+        OrbitGeometryTestSupport.assertNuclearDesignationBranchPlacement(panel.mapModelForTests(), bodies);
+        for (String label : List.of("A 2", "A 3", "A 3 a", "A 3 b", "A 4 c")) {
+            int bodyId = fixture.bodyIdByLabel(label);
+            double nearA = Math.hypot(panel.dotWorldXForTests(bodyId) - panel.dotWorldXForTests(idA),
+                    panel.dotWorldYForTests(bodyId) - panel.dotWorldYForTests(idA)) / LS;
+            double nearC = Math.hypot(panel.dotWorldXForTests(bodyId) - panel.dotWorldXForTests(idC),
+                    panel.dotWorldYForTests(bodyId) - panel.dotWorldYForTests(idC)) / LS;
+            assertTrue(nearA + OrbitGeometryTestSupport.DESIGNATION_BRANCH_MIN_MARGIN_LS < nearC,
+                    label + " must draw near A (" + nearA + " Ls) not C (" + nearC + " Ls)");
+        }
     }
 }

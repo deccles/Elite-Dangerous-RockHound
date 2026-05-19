@@ -2211,7 +2211,7 @@ public final class SystemPlanMapPanel extends JPanel {
             boolean showAllBodyLabels = mapShowAllBodyLabels(visibleLsMinAxis);
 
             MapLabelDrawPlan labelPlan = buildCollisionAwareLabelPlan(dots, showClusterDetail, showMoonLabels,
-                    showAllBodyLabels, labelFm, vcx, vcy, scale, availW, availH, plotCx, plotCy);
+                    showAllBodyLabels, companionLump, labelFm, vcx, vcy, scale, availW, availH, plotCx, plotCy);
 
             for (BodyDot d : dots) {
                 boolean lockHub = subsystemScreenLockHubId >= 0 && d.bodyId == subsystemScreenLockHubId;
@@ -2312,7 +2312,8 @@ public final class SystemPlanMapPanel extends JPanel {
                     continue;
                 }
 
-                boolean drawName = bodyDotLabelWouldDraw(d, showClusterDetail, showMoonLabels, showAllBodyLabels);
+                boolean drawName = bodyDotLabelWouldDraw(d, showClusterDetail, showMoonLabels, showAllBodyLabels,
+                        companionLump);
                 if (!drawName || labelPlan.suppressedBodyIds.contains(Integer.valueOf(d.bodyId))) {
                     continue;
                 }
@@ -2322,9 +2323,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 }
 
                 boolean commanderHere = anchorBodyId != null && d.bodyId == anchorBodyId.intValue();
-                String displayLabel = companionLump != null && d.bodyId == companionLump.hubBodyId
-                        ? companionLump.summaryLabel
-                        : labelPlan.summaryTextByHubId.getOrDefault(Integer.valueOf(d.bodyId), d.label);
+                String displayLabel = labelPlan.summaryTextByHubId.getOrDefault(Integer.valueOf(d.bodyId), d.label);
                 String slotLabel = commanderHere ? MAP_COMMANDER_TRIANGLE_CHAR + displayLabel : displayLabel;
                 int labelWidthPx = commanderHere
                         ? commanderPrefixedLabelWidth(labelFm, displayLabel)
@@ -2353,10 +2352,10 @@ public final class SystemPlanMapPanel extends JPanel {
             }
 
             maybeDrawDetachedCommanderGlyph(g2, labelFont, labelFm, showClusterDetail, showMoonLabels, showAllBodyLabels,
-                    starR, bodyR, dotEm, vcx, vcy, scale, availW, availH, plotCx, plotCy);
+                    companionLump, starR, bodyR, dotEm, vcx, vcy, scale, availW, availH, plotCx, plotCy);
 
-            drawExobiologyLeafMarkers(g2, visibleLsMinAxis, showClusterDetail, showMoonLabels, showAllBodyLabels, starR,
-                    bodyR, dotEm, vcx, vcy, scale, availW, availH, plotCx, plotCy);
+            drawExobiologyLeafMarkers(g2, visibleLsMinAxis, showClusterDetail, showMoonLabels, showAllBodyLabels,
+                    companionLump, starR, bodyR, dotEm, vcx, vcy, scale, availW, availH, plotCx, plotCy);
 
             drawMeasureDragOverlay(g2, labelFm, vcx, vcy, scale, availW, availH);
             drawOrbitPlaybackTimeReadout(g2, labelFm, availW, availH);
@@ -2857,8 +2856,15 @@ public final class SystemPlanMapPanel extends JPanel {
      * closer view than majors.
      */
     private boolean bodyDotLabelWouldDraw(BodyDot d, boolean showClusterDetail, boolean showMoonLabels,
-            boolean showAllBodyLabels) {
+            boolean showAllBodyLabels, CompanionBranchLump companionLump) {
         if (d.label == null || d.label.isEmpty()) {
+            return false;
+        }
+        /*
+         * Wide-zoom companion lump (BCD 2–5): twin-ring hub only — no summary text until subsystem-detail zoom
+         * (individual B/C/D star labels stay on via the star branch below).
+         */
+        if (companionLump != null && companionLump.contains(d.bodyId)) {
             return false;
         }
         if (d.moon && !showMoonLabels) {
@@ -3094,9 +3100,9 @@ public final class SystemPlanMapPanel extends JPanel {
      * offset from the dot as other body labels ({@link #bodyLabelAnchor}).
      */
     private void maybeDrawDetachedCommanderGlyph(Graphics2D g2, Font labelFont, FontMetrics labelFm,
-            boolean showClusterDetail, boolean showMoonLabels, boolean showAllBodyLabels, float starR, float bodyR,
-            float dotEm, double vcx, double vcy, double scale, double availW, double availH, double plotCx,
-            double plotCy) {
+            boolean showClusterDetail, boolean showMoonLabels, boolean showAllBodyLabels,
+            CompanionBranchLump companionLump, float starR, float bodyR, float dotEm, double vcx, double vcy,
+            double scale, double availW, double availH, double plotCx, double plotCy) {
         if (anchorBodyId == null || orbitGeomBodies == null) {
             return;
         }
@@ -3105,7 +3111,7 @@ public final class SystemPlanMapPanel extends JPanel {
         if (cmd == null || cmd.label == null || cmd.label.isEmpty()) {
             return;
         }
-        if (bodyDotLabelWouldDraw(cmd, showClusterDetail, showMoonLabels, showAllBodyLabels)) {
+        if (bodyDotLabelWouldDraw(cmd, showClusterDetail, showMoonLabels, showAllBodyLabels, companionLump)) {
             return;
         }
         boolean lockCmd = subsystemScreenLockHubId >= 0 && cmdId == subsystemScreenLockHubId;
@@ -3212,7 +3218,8 @@ public final class SystemPlanMapPanel extends JPanel {
 
     /**
      * When the companion branch is zoomed out, merge its major planets (e.g. BCD 2–5) into one lump hub with twin
-     * orbit-blue rings instead of overlapping dots, polylines, and barycentre crosses.
+     * orbit-blue rings instead of overlapping dots, polylines, and barycentre crosses. Summary text is deferred until
+     * subsystem-detail zoom ({@link #mapShowClusterDetail}); branch stars B/C/D keep their single-letter labels.
      */
     private CompanionBranchLump buildCompanionBranchRevolutionLump(List<BodyDot> dots, boolean showClusterDetail,
             double visibleLsMinAxis) {
@@ -3466,15 +3473,37 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Wide-zoom companion lump hides inner planet-binary mutual strokes only. Branch / trunk schematic paths (the
-     * arcs majors move along, like A 4 on the primary ring) must stay visible.
+     * Wide-zoom companion lump hides planet-binary mutual strokes only when every body on that ring is merged into
+     * the lump (e.g. BCD 2–5 around Null:49). Stellar mutual rings (B+C around Null:3) stay visible because branch
+     * stars are never lump members. Branch / trunk schematic paths must stay visible too.
      */
-    private static boolean skipOrbitPolylineForCompanionLump(OrbitPolylineWorldXY poly, CompanionBranchLump lump,
+    private boolean skipOrbitPolylineForCompanionLump(OrbitPolylineWorldXY poly, CompanionBranchLump lump,
             boolean detailOrbits) {
         if (lump == null || detailOrbits || poly == null) {
             return false;
         }
-        return SystemOrbitGeometry.isPlanetBinaryMutualOrbitRingBodyId(poly.bodyId);
+        if (!SystemOrbitGeometry.isPlanetBinaryMutualOrbitRingBodyId(poly.bodyId)) {
+            return false;
+        }
+        if (orbitGeomBodies == null || orbitGeomBodies.isEmpty()) {
+            return true;
+        }
+        int nullId = SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - poly.bodyId;
+        int orbiting = 0;
+        int inLump = 0;
+        for (BodyInfo b : orbitGeomBodies.values()) {
+            if (b == null || b.isScanBarycentreRow()) {
+                continue;
+            }
+            if (b.getImmediateParentBodyId() != nullId) {
+                continue;
+            }
+            orbiting++;
+            if (lump.contains(b.getBodyId())) {
+                inLump++;
+            }
+        }
+        return orbiting > 0 && inLump == orbiting;
     }
 
     private static boolean suppressBarycentreMarkerForCompanionLump(double mapX, double mapY,
@@ -3569,8 +3598,8 @@ public final class SystemPlanMapPanel extends JPanel {
      * Screen-space label collision: fan out when there is room; otherwise one summary label for the cluster.
      */
     private MapLabelDrawPlan buildCollisionAwareLabelPlan(List<BodyDot> dots, boolean showClusterDetail,
-            boolean showMoonLabels, boolean showAllBodyLabels, FontMetrics fm, double vcx, double vcy, double scale,
-            double availW, double availH, double plotCx, double plotCy) {
+            boolean showMoonLabels, boolean showAllBodyLabels, CompanionBranchLump companionLump, FontMetrics fm,
+            double vcx, double vcy, double scale, double availW, double availH, double plotCx, double plotCy) {
         Map<Integer, float[]> anchors = new HashMap<>();
         Map<Integer, String> summaryTextByHubId = new HashMap<>();
         Set<Integer> suppressedBodyIds = new HashSet<>();
@@ -3585,7 +3614,7 @@ public final class SystemPlanMapPanel extends JPanel {
             if (d == null || d.label == null || d.label.isEmpty()) {
                 continue;
             }
-            if (!bodyDotLabelWouldDraw(d, showClusterDetail, showMoonLabels, showAllBodyLabels)) {
+            if (!bodyDotLabelWouldDraw(d, showClusterDetail, showMoonLabels, showAllBodyLabels, companionLump)) {
                 continue;
             }
             if (d.star && d.label.length() == 1) {
@@ -3621,8 +3650,12 @@ public final class SystemPlanMapPanel extends JPanel {
                 int cur = queue.removeFirst().intValue();
                 cluster.add(Integer.valueOf(cur));
                 java.awt.geom.Rectangle2D.Float curRect = slots.get(cur).screenRect(fm, pad);
+                int clusterBranchKey = labelBranchGroupKey(slots.get(cur).dot.bodyId);
                 for (int j = 0; j < slots.size(); j++) {
                     if (used[j]) {
+                        continue;
+                    }
+                    if (labelBranchGroupKey(slots.get(j).dot.bodyId) != clusterBranchKey) {
                         continue;
                     }
                     if (labelRectsOverlap(curRect, slots.get(j).screenRect(fm, pad))) {
@@ -3635,24 +3668,18 @@ public final class SystemPlanMapPanel extends JPanel {
                 continue;
             }
             cluster.sort(Comparator.comparingInt(idx -> slots.get(idx.intValue()).dot.bodyId));
-            float cx = 0f;
-            float cy = 0f;
             List<String> labels = new ArrayList<>();
             for (Integer idxObj : cluster) {
-                LabelSlot s = slots.get(idxObj.intValue());
-                cx += s.dotScreenX();
-                cy += s.dotScreenY();
-                labels.add(s.dot.label);
+                labels.add(slots.get(idxObj.intValue()).dot.label);
             }
-            cx /= cluster.size();
-            cy /= cluster.size();
             int n = cluster.size();
             boolean fanOk = true;
             Map<Integer, float[]> fanAnchors = new HashMap<>();
             for (int slot = 0; slot < n; slot++) {
                 LabelSlot s = slots.get(cluster.get(slot).intValue());
                 float r = Math.max(6f, fm.getHeight() * 0.28f);
-                float[] anchor = revolutionCenterClusterSlotAnchor(cx, cy, r, slot, n, s.labelWidthPx, fm);
+                float[] anchor = revolutionCenterClusterSlotAnchor(s.dotScreenX(), s.dotScreenY(), r, slot, n,
+                        s.labelWidthPx, fm);
                 fanAnchors.put(Integer.valueOf(s.dot.bodyId), anchor);
             }
             for (int a = 0; a < n && fanOk; a++) {
@@ -3684,19 +3711,22 @@ public final class SystemPlanMapPanel extends JPanel {
                 for (int slot = 0; slot < n; slot++) {
                     LabelSlot c = slots.get(cluster.get(slot).intValue());
                     float r = Math.max(6f, fm.getHeight() * 0.28f);
-                    float[] anchor = revolutionCenterClusterSlotAnchor(cx, cy, r, slot, n, c.labelWidthPx, fm);
+                    float[] anchor = revolutionCenterClusterSlotAnchor(c.dotScreenX(), c.dotScreenY(), r, slot, n,
+                            c.labelWidthPx, fm);
                     anchors.put(Integer.valueOf(c.dot.bodyId), anchor);
                 }
                 continue;
             }
-            int hubId = slots.get(cluster.get(0).intValue()).dot.bodyId;
+            LabelSlot hubSlot = slots.get(cluster.get(0).intValue());
+            int hubId = hubSlot.dot.bodyId;
             String summary = clusterSummaryLabel(labels);
             int summaryW = fm.stringWidth(summary);
-            float[] hubAnchor = revolutionCenterClusterSlotAnchor(cx, cy, Math.max(6f, fm.getHeight() * 0.28f), 0, 1,
-                    summaryW, fm);
+            float[] hubAnchor = revolutionCenterClusterSlotAnchor(hubSlot.dotScreenX(), hubSlot.dotScreenY(),
+                    Math.max(6f, fm.getHeight() * 0.28f), 0, 1, summaryW, fm);
             summaryTextByHubId.put(Integer.valueOf(hubId), summary);
             anchors.put(Integer.valueOf(hubId), hubAnchor);
-            summaryClusterCentroids.put(Integer.valueOf(hubId), new float[] { cx, cy });
+            summaryClusterCentroids.put(Integer.valueOf(hubId),
+                    new float[] { hubSlot.dotScreenX(), hubSlot.dotScreenY() });
             for (Integer idxObj : cluster) {
                 int memberId = slots.get(idxObj.intValue()).dot.bodyId;
                 summaryClusterMemberIds.add(Integer.valueOf(memberId));
@@ -3707,6 +3737,65 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         return new MapLabelDrawPlan(anchors, summaryTextByHubId, suppressedBodyIds, summaryClusterMemberIds,
                 summaryClusterCentroids);
+    }
+
+    /**
+     * Screen-space label clusters must not merge A-branch with B/C/D-branch bodies — otherwise an {@code A 2–4}
+     * summary can anchor beside star C when rects overlap at wide zoom.
+     */
+    private int labelBranchGroupKey(int bodyId) {
+        if (mapModel == null || orbitGeomBodies == null) {
+            return bodyId;
+        }
+        if (mapModel.isPrimaryBranchBody(bodyId)) {
+            for (Map.Entry<Integer, BodyInfo> e : orbitGeomBodies.entrySet()) {
+                if (e.getKey() != null && e.getValue() != null
+                        && SystemOrbitGeometry.isWideBinaryPrimaryBranchBody(e.getKey().intValue(), orbitGeomBodies)) {
+                    return e.getKey().intValue();
+                }
+            }
+        }
+        BodyInfo self = orbitGeomBodies.get(Integer.valueOf(bodyId));
+        if (self != null && SystemMapRules.isMapStellarBody(self)) {
+            return bodyId;
+        }
+        if (self != null) {
+            String shortName = self.getShortName();
+            if (shortName != null && shortName.startsWith("BCD")) {
+                for (Map.Entry<Integer, BodyInfo> e : orbitGeomBodies.entrySet()) {
+                    if (e.getKey() != null && e.getValue() != null
+                            && "B".equalsIgnoreCase(e.getValue().getShortName())) {
+                        return e.getKey().intValue();
+                    }
+                }
+            }
+            String branchLetter = SystemOrbitGeometry.designationBranchLetter(self);
+            if (branchLetter != null && branchLetter.length() == 1) {
+                for (Map.Entry<Integer, BodyInfo> e : orbitGeomBodies.entrySet()) {
+                    if (e.getKey() != null && e.getValue() != null
+                            && branchLetter.equalsIgnoreCase(e.getValue().getShortName())) {
+                        return e.getKey().intValue();
+                    }
+                }
+            }
+        }
+        int parent = mapModel.resolveParentBodyId(bodyId);
+        if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(parent)) {
+            return parent;
+        }
+        int branchStar = SystemMapRules.branchSchematicStarParentId(orbitGeomBodies, parent);
+        if (branchStar >= 0) {
+            return branchStar;
+        }
+        int walk = parent;
+        for (int hop = 0; hop < 24 && walk >= 0; hop++) {
+            BodyInfo pb = orbitGeomBodies.get(Integer.valueOf(walk));
+            if (pb != null && SystemMapRules.isMapStellarBody(pb)) {
+                return walk;
+            }
+            walk = mapModel.resolveParentBodyId(walk);
+        }
+        return bodyId;
     }
 
     private static boolean labelRectsOverlap(java.awt.geom.Rectangle2D.Float a, java.awt.geom.Rectangle2D.Float b) {
@@ -3944,8 +4033,9 @@ public final class SystemPlanMapPanel extends JPanel {
      * zoom individual leaves on bio bodies only (not on a hub that lacks bio).
      */
     private void drawExobiologyLeafMarkers(Graphics2D g2, double visibleLsMinAxis, boolean showClusterDetail,
-            boolean showMoonLabels, boolean showAllBodyLabels, float starR, float bodyR, float dotEm, double vcx,
-            double vcy, double scale, double availW, double availH, double plotCx, double plotCy) {
+            boolean showMoonLabels, boolean showAllBodyLabels, CompanionBranchLump companionLump, float starR,
+            float bodyR, float dotEm, double vcx, double vcy, double scale, double availW, double availH, double plotCx,
+            double plotCy) {
         ensureExobiologyLeafIconSize(dotEm);
         int leafW = exobiologyLeafIcon.getIconWidth();
         int leafH = exobiologyLeafIcon.getIconHeight();
@@ -3975,7 +4065,8 @@ public final class SystemPlanMapPanel extends JPanel {
             String commanderSlotKey = null;
             if (commanderHere) {
                 if (d.label != null && !d.label.isEmpty()
-                        && bodyDotLabelWouldDraw(d, showClusterDetail, showMoonLabels, showAllBodyLabels)) {
+                        && bodyDotLabelWouldDraw(d, showClusterDetail, showMoonLabels, showAllBodyLabels,
+                                companionLump)) {
                     commanderSlotKey = MAP_COMMANDER_TRIANGLE_CHAR + d.label;
                 } else {
                     commanderSlotKey = MAP_COMMANDER_TRIANGLE_CHAR + d.bodyId;
@@ -5216,8 +5307,10 @@ public final class SystemPlanMapPanel extends JPanel {
             return false;
         }
         double visible = visibleLsMinAxis;
-        return bodyDotLabelWouldDraw(dot, mapShowClusterDetail(visible), mapShowMoonLabels(visible),
-                mapShowAllBodyLabels(visible));
+        boolean showClusterDetail = mapShowClusterDetail(visible);
+        CompanionBranchLump lump = buildCompanionBranchRevolutionLump(dots, showClusterDetail, visible);
+        return bodyDotLabelWouldDraw(dot, showClusterDetail, mapShowMoonLabels(visible),
+                mapShowAllBodyLabels(visible), lump);
     }
 
     final boolean skipOversizeSchematicRingForTests(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
@@ -5272,8 +5365,13 @@ public final class SystemPlanMapPanel extends JPanel {
         boolean showClusterDetail = mapShowClusterDetail(visibleLsMinAxis);
         boolean showMoonLabels = mapShowMoonLabels(visibleLsMinAxis);
         boolean showAllBodyLabels = mapShowAllBodyLabels(visibleLsMinAxis);
-        return buildCollisionAwareLabelPlan(dots, showClusterDetail, showMoonLabels, showAllBodyLabels, fm, vcx, vcy,
-                scale, availW, availH, plotCx, plotCy).anchors;
+        CompanionBranchLump lump = buildCompanionBranchRevolutionLump(dots, showClusterDetail, visibleLsMinAxis);
+        return buildCollisionAwareLabelPlan(dots, showClusterDetail, showMoonLabels, showAllBodyLabels, lump, fm, vcx,
+                vcy, scale, availW, availH, plotCx, plotCy).anchors;
+    }
+
+    final double mapPlotScaleForTests(double availW, double availH) {
+        return computeMapPlotScale(availW, availH, layoutSpanX, layoutSpanY);
     }
 
     final MapLabelDrawPlan labelDrawPlanForTests(List<BodyDot> dots, double visibleLsMinAxis, FontMetrics fm,
@@ -5281,8 +5379,9 @@ public final class SystemPlanMapPanel extends JPanel {
         boolean showClusterDetail = mapShowClusterDetail(visibleLsMinAxis);
         boolean showMoonLabels = mapShowMoonLabels(visibleLsMinAxis);
         boolean showAllBodyLabels = mapShowAllBodyLabels(visibleLsMinAxis);
-        return buildCollisionAwareLabelPlan(dots, showClusterDetail, showMoonLabels, showAllBodyLabels, fm, vcx, vcy,
-                scale, availW, availH, plotCx, plotCy);
+        CompanionBranchLump lump = buildCompanionBranchRevolutionLump(dots, showClusterDetail, visibleLsMinAxis);
+        return buildCollisionAwareLabelPlan(dots, showClusterDetail, showMoonLabels, showAllBodyLabels, lump, fm, vcx,
+                vcy, scale, availW, availH, plotCx, plotCy);
     }
 
     private static final class BodyDot {

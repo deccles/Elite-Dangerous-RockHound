@@ -37,7 +37,7 @@ class PlanetaryBranchConsistencyTest {
 
     @Test
     void fixture_journalTopology_planetaryBranchConsistency() {
-        OrbitGeometryTestSupport.assertPlanetaryBranchConsistency(model, bodies);
+        OrbitGeometryTestSupport.assertDesignationBranchInvariants(model, bodies);
     }
 
     @Test
@@ -47,7 +47,7 @@ class PlanetaryBranchConsistencyTest {
             cache.get(Integer.valueOf(fixture.bodyIdByLabel(label))).setImmediateParentBodyId(idC);
         }
         SystemMapModel corrupt = SystemMapPipeline.build(fixture.name, cache, Instant.EPOCH, true);
-        OrbitGeometryTestSupport.assertPlanetaryBranchConsistency(corrupt, cache);
+        OrbitGeometryTestSupport.assertDesignationBranchInvariants(corrupt, cache);
     }
 
     @Test
@@ -66,7 +66,7 @@ class PlanetaryBranchConsistencyTest {
         assertEquals(idA, corrupt.resolveParentBodyId(fixture.bodyIdByLabel("A 1")));
         assertEquals(fixture.bodyIdByLabel("A 3"),
                 corrupt.resolveParentBodyId(fixture.bodyIdByLabel("A 3 a")));
-        OrbitGeometryTestSupport.assertPlanetaryBranchConsistency(corrupt, cache);
+        OrbitGeometryTestSupport.assertDesignationBranchInvariants(corrupt, cache);
     }
 
     @Test
@@ -80,6 +80,6 @@ class PlanetaryBranchConsistencyTest {
                 new HashMap<>(base.positionsMetres()), Instant.EPOCH, true);
         SystemMapModel playback = SystemMapPipeline.playbackBase(cache, base.projectionAxis0(),
                 base.projectionAxis1(), after, base.wideBinaryFlattenFrame());
-        OrbitGeometryTestSupport.assertPlanetaryBranchConsistency(playback, cache);
+        OrbitGeometryTestSupport.assertDesignationBranchInvariants(playback, cache);
     }
 }
