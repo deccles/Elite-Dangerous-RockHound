@@ -71,6 +71,28 @@ public final class CarrierJumpCooldown {
 
     /**
      * When the commander is not aboard the carrier, Elite logs {@code CarrierLocation} at
+     * {@code DepartureTime} instead of {@code CarrierJump}. While aboard, wait for {@code CarrierJump} at arrival.
+     */
+    public static boolean shouldTreatCarrierLocationAsJumpCompletion(
+            boolean commanderAboardFleetCarrier,
+            Instant locationTimestamp,
+            Instant departureTime,
+            String locationSystem,
+            long locationSystemAddress,
+            String pendingTargetSystem,
+            Long pendingTargetSystemAddress) {
+        if (commanderAboardFleetCarrier) {
+            return false;
+        }
+        if (!isCarrierLocationJumpArrival(locationTimestamp, departureTime)) {
+            return false;
+        }
+        return carrierLocationMatchesPendingJump(
+                locationSystem, locationSystemAddress, pendingTargetSystem, pendingTargetSystemAddress);
+    }
+
+    /**
+     * When the commander is not aboard the carrier, Elite logs {@code CarrierLocation} at
      * {@code DepartureTime} instead of {@code CarrierJump}.
      */
     public static boolean isCarrierLocationJumpArrival(Instant locationTimestamp, Instant departureTime) {

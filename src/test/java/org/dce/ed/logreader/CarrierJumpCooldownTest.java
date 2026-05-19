@@ -73,6 +73,28 @@ class CarrierJumpCooldownTest {
     }
 
     @Test
+    void carrierLocationCompletion_ignoredWhenAboard() {
+        Instant departure = Instant.parse("2026-05-17T12:00:00Z");
+        Instant atDeparture = departure;
+        assertFalse(CarrierJumpCooldown.shouldTreatCarrierLocationAsJumpCompletion(
+                true,
+                atDeparture,
+                departure,
+                "Target",
+                1L,
+                "Target",
+                1L));
+        assertTrue(CarrierJumpCooldown.shouldTreatCarrierLocationAsJumpCompletion(
+                false,
+                atDeparture,
+                departure,
+                "Target",
+                1L,
+                "Target",
+                1L));
+    }
+
+    @Test
     void carrierLocationMatches_byNameOrAddress() {
         assertTrue(CarrierJumpCooldown.carrierLocationMatchesPendingJump(
                 "Eor Aowsy EW-O b6-163", 359052958122041L, "Eor Aowsy EW-O b6-163", 359052958122041L));

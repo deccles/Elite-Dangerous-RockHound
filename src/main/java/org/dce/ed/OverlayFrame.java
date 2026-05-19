@@ -823,10 +823,19 @@ private void installCarrierJumpTitleUpdater() {
                     if (carrierJumpDepartureTime == null) {
                         return;
                     }
-                    if (!CarrierJumpCooldown.isCarrierLocationJumpArrival(locTs, carrierJumpDepartureTime)) {
-                        return;
+                    boolean aboard = false;
+                    EliteOverlayTabbedPane tabPane =
+                            (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+                    SystemTabPanel systemTab =
+                            (tabPane != null) ? tabPane.getSystemTabPanel() : null;
+                    SystemState st = (systemTab != null) ? systemTab.getState() : null;
+                    if (st != null) {
+                        aboard = st.isCommanderAboardFleetCarrier();
                     }
-                    if (!CarrierJumpCooldown.carrierLocationMatchesPendingJump(
+                    if (!CarrierJumpCooldown.shouldTreatCarrierLocationAsJumpCompletion(
+                            aboard,
+                            locTs,
+                            carrierJumpDepartureTime,
                             loc.getStarSystem(),
                             loc.getSystemAddress(),
                             carrierJumpTargetSystem,
