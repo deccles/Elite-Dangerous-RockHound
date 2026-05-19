@@ -187,6 +187,33 @@ public final class OrbitGeometryTestSupport {
         fail("missing BINARY_BARYCENTRE_ORBIT_RING");
     }
 
+    /** Primary star on the rim of a schematic mutual-orbit polyline (e.g. triple-star A vs B+C trunk ring). */
+    public static void assertPrimaryOnSchematicMutualRing(SystemMapModel model, int primaryStarId, int polylineBodyId,
+            double toleranceFrac) {
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double[] aPos = model.positionsMetres().get(Integer.valueOf(primaryStarId));
+        assertNotNull(aPos, "primary position");
+        double ax = axisCoord(aPos, a0);
+        double ay = axisCoord(aPos, a1);
+        for (OrbitPolylineWorldXY poly : model.orbitPolylines()) {
+            if (poly == null || poly.bodyId != polylineBodyId) {
+                continue;
+            }
+            double cx = ringCentroid(poly.wx);
+            double cy = ringCentroid(poly.wy);
+            double ringRad = meanRadius(poly.wx, poly.wy, cx, cy);
+            double distA = Math.hypot(ax - cx, ay - cy);
+            assertTrue(Math.abs(distA - ringRad) <= Math.max(ringRad * toleranceFrac, ls * 50.0),
+                    "primary on schematic ring rim (distA=" + (distA / ls) + " Ls ringR=" + (ringRad / ls) + " Ls)");
+            assertTrue(distA >= ringRad * 0.55,
+                    "ring centre must not coincide with primary (empty ring around star)");
+            return;
+        }
+        fail("missing schematic ring polyline id " + polylineBodyId);
+    }
+
     /**
      * Mirrors the screenshot failure: one light-blue circle centred on the arrival star at heliocentric (~50k Ls)
      * scale with B/C on its rim — not the schematic ~7k Ls BCD trunk.
@@ -253,5 +280,60 @@ public final class OrbitGeometryTestSupport {
                         + poly.bodyId + ", centreOff=" + (centreOff / ls) + " Ls)");
             }
         }
+    }
+
+    /**
+     * Every body whose name starts with a branch letter (A, B, …) must resolve/orbit that branch's star, not another.
+     */
+    public static void assertPlanetaryBranchConsistency(SystemMapModel model, Map<Integer, BodyInfo> bodies) {
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            if (SystemOrbitGeometry.isMapStellarBody(e.getValue())) {
+                continue;
+            }
+            String branch = SystemOrbitGeometry.designationBranchLetter(e.getValue());
+            if (branch == null || branch.length() != 1) {
+                continue;
+            }
+            int starId = findByShortName(bodies, branch);
+            assertTrue(starId >= 0, "missing branch star " + branch);
+            int resolved = model.resolveParentBodyId(e.getKey().intValue());
+            int walk = e.getKey().intValue();
+            boolean reachesBranchStar = false;
+            for (int hop = 0; hop < 24; hop++) {
+                if (walk == starId) {
+                    reachesBranchStar = true;
+                    break;
+                }
+                if (walk < 0) {
+                    break;
+                }
+                walk = model.resolveParentBodyId(walk);
+            }
+            assertTrue(reachesBranchStar,
+                    e.getValue().getShortName() + " must chain to star " + branch + ", not elsewhere");
+            double nearOwn = mapSepLs(model, e.getKey().intValue(), starId, ls);
+            for (String otherStar : List.of("A", "B", "C", "D")) {
+                if (otherStar.equals(branch)) {
+                    continue;
+                }
+                int otherId = findByShortName(bodies, otherStar);
+                if (otherId < 0) {
+                    continue;
+                }
+                double nearOther = mapSepLs(model, e.getKey().intValue(), otherId, ls);
+                assertTrue(nearOwn <= nearOther,
+                        e.getValue().getShortName() + " must be nearer star " + branch + " (" + nearOwn
+                                + " Ls) than " + otherStar + " (" + nearOther + " Ls)");
+            }
+        }
+    }
+
+    private static double mapSepLs(SystemMapModel model, int fromId, int toId, double ls) {
+        return Math.hypot(model.mapPlaneX(fromId) - model.mapPlaneX(toId),
+                model.mapPlaneY(fromId) - model.mapPlaneY(toId)) / ls;
     }
 }

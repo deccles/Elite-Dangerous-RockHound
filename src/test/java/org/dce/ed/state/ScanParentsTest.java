@@ -94,11 +94,32 @@ class ScanParentsTest {
         assertEquals(50, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
     }
 
+    /** Co-orbit moon: journal lists Null:N before Planet host — still parent to the gas giant. */
+    @Test
+    void nonStellar_coOrbitMoon_prefersPlanetOverNull() {
+        ScanEvent scan = minimalPlanetScan("Wide A 3 e",
+                List.of(new ParentRef("Null", 15), new ParentRef("Planet", 9), new ParentRef("Star", 1)));
+        assertTrue(ScanParents.scanIndicatesMoonBody(scan));
+        assertEquals(9, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
+    }
+
+    @Test
+    void nonStellar_coOrbitPlanetBinaryMajor_stillPrefersNull() {
+        ScanEvent scan = minimalPlanetScan("Wide 1 b",
+                List.of(new ParentRef("Null", 12), new ParentRef("Planet", 10), new ParentRef("Star", 0)));
+        assertFalse(ScanParents.scanIndicatesMoonBody(scan));
+        assertEquals(12, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
+    }
+
     private static ScanEvent minimalPlanetScan(List<ParentRef> parents) {
+        return minimalPlanetScan("Sys 2", parents);
+    }
+
+    private static ScanEvent minimalPlanetScan(String bodyName, List<ParentRef> parents) {
         return new ScanEvent(
                 Instant.EPOCH,
                 new JsonObject(),
-                "Sys 2",
+                bodyName,
                 2,
                 "Sys",
                 0L,

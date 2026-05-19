@@ -3,6 +3,7 @@ package org.dce.ed.ui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -156,6 +157,33 @@ class SystemPlanMapPanelDrawTranslationTest {
         }
 
         @Test
+        void subsystemHub_lumpZoom_drawsRevolutionPathAndTwinRings() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(1.0);
+            double visibleLs = 8_000.0;
+            int idA4 = fixture.bodyIdByLabel("A 4");
+            assertTrue(panel.hubTwinBlueRingsWouldDrawForTests(idA4, visibleLs),
+                    "A 4 moon-host lump should show twin-ring cue");
+        }
+
+        @Test
+        void subsystemHub_lumpZoom_hidesMoons_showsSingleSubsystemLeafWhenDescendantsHaveBio() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(1.0);
+            double wideLs = 8_000.0;
+            int idA2 = fixture.bodyIdByLabel("A 2");
+            int idA2a = fixture.bodyIdByLabel("A 2 a");
+            assertTrue(panel.mapModelForTests().subsystemHubBodyIds().contains(Integer.valueOf(idA2)));
+            assertTrue(panel.hideDotForSubsystemLumpViewForTests(idA2a, wideLs),
+                    "moons hidden at subsystem lump zoom");
+            assertFalse(panel.hideDotForSubsystemLumpViewForTests(idA2, wideLs),
+                    "hub centre still drawn");
+            panel.zoomFactorForTests(12.0);
+            assertFalse(panel.hideDotForSubsystemLumpViewForTests(idA2a, 400.0),
+                    "moons visible again at cluster-detail zoom");
+        }
+
+        @Test
         void hubTwinBlueRings_whenZoomedOut_notWhenZoomedIn() {
             SystemPlanMapPanel panel = panelAfterSetScene();
             int idA2 = fixture.bodyIdByLabel("A 2");
@@ -171,6 +199,27 @@ class SystemPlanMapPanelDrawTranslationTest {
                     "deep zoom enables cluster detail");
             assertFalse(panel.hubTwinBlueRingsWouldDrawForTests(idA2, 400.0),
                     "twin rings hidden when individual moon orbits are shown");
+        }
+
+        @Test
+        void ringedOrbitCentre_showsPlanetaryRingsWhenZoomedOut() {
+            Map<Integer, BodyInfo> copy = new HashMap<>(bodies);
+            int idBcd2 = fixture.bodyIdByLabel("BCD 2");
+            int idBcd2a = fixture.bodyIdByLabel("BCD 2 a");
+            BodyInfo ringedGiant = copy.get(Integer.valueOf(idBcd2));
+            ringedGiant.setRingSummaryLines(List.of("Metallic Ring", "Rocky Ring"));
+            SystemPlanMapPanel panel = new SystemPlanMapPanel();
+            panel.setSize(900, 700);
+            Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(copy, Instant.EPOCH, false);
+            panel.setScene(copy, kepler, null, null, null, false, Instant.EPOCH);
+            panel.zoomFactorForTests(1.0);
+            double wideLs = 8_000.0;
+            assertFalse(panel.mapShowClusterDetailForTests(wideLs));
+            assertTrue(panel.mapModelForTests().isOrbitRevolutionCenter(idBcd2));
+            assertTrue(panel.planetaryRingsDecorWouldDrawForTests(idBcd2, wideLs),
+                    "ringed orbit centre (e.g. asteroid/planetary rings) visible when zoomed out");
+            assertFalse(panel.planetaryRingsDecorWouldDrawForTests(idBcd2a, wideLs),
+                    "moons without ring data stay uncluttered when zoomed out");
         }
 
         @Test
@@ -202,6 +251,20 @@ class SystemPlanMapPanelDrawTranslationTest {
             int count = panel.barycentreMarkerCountForTests();
             assertTrue(count >= 5,
                     "scan rows 2/3/49 plus planet-binary map keys should yield multiple + markers; count=" + count);
+        }
+
+        @Test
+        void barycentreMarkers_notStrandedAtMapOrigin_whenBcdOnTrunk() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            double distBa = Math.hypot(panel.dotWorldXForTests(idB) - panel.dotWorldXForTests(idA),
+                    panel.dotWorldYForTests(idB) - panel.dotWorldYForTests(idA)) / ls;
+            assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0);
+            double bx = panel.dotWorldXForTests(idB);
+            double by = panel.dotWorldYForTests(idB);
+            double originSep = Math.hypot(bx, by) / ls;
+            assertTrue(originSep >= 3_000.0,
+                    "BCD cluster should not sit at map origin; sep from origin=" + originSep + " Ls");
         }
 
         @Test
@@ -263,6 +326,61 @@ class SystemPlanMapPanelDrawTranslationTest {
                     "A-branch giants should be labeled before deep zoom");
             assertTrue(panel.bodyLabelWouldDrawForTests(fixture.bodyIdByLabel("A 1"), 5_000.0),
                     "A-branch planets should be labeled before deep zoom");
+        }
+
+        @Test
+        void companionBcdCluster_lumpsIntoSingleTwinRingHubWhenZoomedOut() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(1.0);
+            double visibleLs = 8_000.0;
+            assertFalse(panel.mapShowClusterDetailForTests(visibleLs));
+            SystemPlanMapPanel.CompanionBranchLump lump = panel.companionBranchLumpForTests(visibleLs);
+            assertNotNull(lump, "BCD companion majors should merge at wide zoom");
+            int idBcd2 = fixture.bodyIdByLabel("BCD 2");
+            int idBcd3 = fixture.bodyIdByLabel("BCD 3");
+            int idBcd4 = fixture.bodyIdByLabel("BCD 4");
+            int idBcd5 = fixture.bodyIdByLabel("BCD 5");
+            assertTrue(lump.memberBodyIds.contains(Integer.valueOf(idBcd2)));
+            assertTrue(lump.memberBodyIds.contains(Integer.valueOf(idBcd3)));
+            assertTrue(lump.memberBodyIds.contains(Integer.valueOf(idBcd4)));
+            assertTrue(lump.memberBodyIds.contains(Integer.valueOf(idBcd5)));
+            assertEquals(idBcd2, lump.hubBodyId);
+            assertTrue(lump.summaryLabel.contains("BCD"), lump.summaryLabel);
+            assertTrue(lump.summaryLabel.contains("2"), lump.summaryLabel);
+            assertTrue(lump.summaryLabel.contains("5"), lump.summaryLabel);
+            assertTrue(panel.hubTwinBlueRingsWouldDrawForTests(idBcd2, visibleLs));
+            assertFalse(panel.hubTwinBlueRingsWouldDrawForTests(idBcd5, visibleLs));
+            OrbitPolylineWorldXY mutual49 = null;
+            for (OrbitPolylineWorldXY p : panel.orbitLinesForTests()) {
+                if (p != null && p.bodyId == SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - 49) {
+                    mutual49 = p;
+                    break;
+                }
+            }
+            assertNotNull(mutual49);
+            assertTrue(panel.skipOrbitPolylineForCompanionLumpForTests(mutual49, lump, false));
+            boolean branchPathStillVisible = false;
+            for (OrbitPolylineWorldXY p : panel.orbitLinesForTests()) {
+                if (p == null || p.wx == null || p.wx.length < 3 || p.bodyId >= 0) {
+                    continue;
+                }
+                if (SystemOrbitGeometry.isPlanetBinaryMutualOrbitRingBodyId(p.bodyId)) {
+                    continue;
+                }
+                if (!panel.skipOrbitPolylineForCompanionLumpForTests(p, lump, false)) {
+                    branchPathStillVisible = true;
+                    break;
+                }
+            }
+            assertTrue(branchPathStillVisible,
+                    "companion lump must keep branch schematic paths, not only twin-ring hub cue");
+        }
+
+        @Test
+        void companionBcdCluster_expandsWhenZoomedIntoSubsystem() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(12.0);
+            assertNull(panel.companionBranchLumpForTests(80.0));
         }
 
         @Test

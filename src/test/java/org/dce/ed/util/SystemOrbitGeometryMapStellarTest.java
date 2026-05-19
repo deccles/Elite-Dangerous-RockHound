@@ -40,6 +40,36 @@ class SystemOrbitGeometryMapStellarTest {
     }
 
     @Test
+    void isMapStellarBody_trueWhenSpectralTypeCopiedToAtmoOrType() {
+        BodyInfo kStar = new BodyInfo();
+        kStar.setStarSystem("Eol Prou CO-R c5-267");
+        kStar.setBodyShortName("Eol Prou CO-R c5-267");
+        kStar.setStarType("K");
+        kStar.setAtmoOrType("K");
+        assertTrue(SystemOrbitGeometry.isMapStellarBody(kStar));
+    }
+
+    @Test
+    void isPrimaryStarBodyByName_trueWhenShortNameIsSpectralClassAtArrival() {
+        BodyInfo mDwarf = new BodyInfo();
+        mDwarf.setStarSystem("Eol Prou IB-R B20-4");
+        mDwarf.setBodyShortName("M");
+        mDwarf.setDistanceLs(0.0);
+        assertTrue(SystemOrbitGeometry.isPrimaryStarBodyByName(mDwarf));
+        assertTrue(SystemOrbitGeometry.isMapStellarBody(mDwarf));
+    }
+
+    @Test
+    void isMapStellarBody_trueWhenOnlySpectralAtmoAtArrival_withoutStarType() {
+        BodyInfo mDwarf = new BodyInfo();
+        mDwarf.setStarSystem("Eol Prou IB-R B20-4");
+        mDwarf.setBodyShortName("M");
+        mDwarf.setAtmoOrType("M3 VA");
+        mDwarf.setDistanceLs(0.0);
+        assertTrue(SystemOrbitGeometry.isMapStellarBody(mDwarf));
+    }
+
+    @Test
     void isMoonSatelliteBody_trueForCompactAndSpacedDesignations() {
         BodyInfo a = new BodyInfo();
         a.setBodyShortName("2a");

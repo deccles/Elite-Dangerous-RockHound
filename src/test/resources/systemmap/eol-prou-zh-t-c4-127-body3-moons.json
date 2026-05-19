@@ -1,0 +1,92 @@
+{
+  "name": "Eol Prou ZH-T c4-127",
+  "notes": "Body 3 gas giant with six moons (journal 2026-05-19). Moons must use journal parent-relative distance on schematic rings, not raw Kepler SMA.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Eol Prou ZH-T c4-127",
+      "shortName": "Eol Prou ZH-T c4-127",
+      "distanceLs": 0,
+      "starType": "K",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 16,
+      "bodyName": "Eol Prou ZH-T c4-127 3",
+      "shortName": "3",
+      "distanceLs": 921.199573,
+      "planetClass": "Sudarsky class III gas giant",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 276136714220.0,
+      "orbitalPeriod": 90702801.942825
+    },
+    {
+      "id": 19,
+      "bodyName": "Eol Prou ZH-T c4-127 3 a",
+      "shortName": "3 a",
+      "distanceLs": 924.712807,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 16,
+      "semiMajorAxisM": 1091344177.722931,
+      "orbitalPeriod": 354747.837782
+    },
+    {
+      "id": 20,
+      "bodyName": "Eol Prou ZH-T c4-127 3 b",
+      "shortName": "3 b",
+      "distanceLs": 916.412368,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 16,
+      "semiMajorAxisM": 1489562869.071960,
+      "orbitalPeriod": 565672.999620
+    },
+    {
+      "id": 21,
+      "bodyName": "Eol Prou ZH-T c4-127 3 c",
+      "shortName": "3 c",
+      "distanceLs": 915.258859,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 16,
+      "semiMajorAxisM": 2073468744.754791,
+      "orbitalPeriod": 929016.524553
+    },
+    {
+      "id": 22,
+      "bodyName": "Eol Prou ZH-T c4-127 3 d",
+      "shortName": "3 d",
+      "distanceLs": 927.710169,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 16,
+      "semiMajorAxisM": 3781495034.694672,
+      "orbitalPeriod": 2288086.175919
+    },
+    {
+      "id": 23,
+      "bodyName": "Eol Prou ZH-T c4-127 3 e",
+      "shortName": "3 e",
+      "distanceLs": 929.162425,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 16,
+      "semiMajorAxisM": 5166910171.508789,
+      "orbitalPeriod": 3654463.052750
+    },
+    {
+      "id": 24,
+      "bodyName": "Eol Prou ZH-T c4-127 3 f",
+      "shortName": "3 f",
+      "distanceLs": 914.947867,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 16,
+      "semiMajorAxisM": 7341682434.082031,
+      "orbitalPeriod": 6189714.133739
+    }
+  ],
+  "expect": {
+    "layoutKind": "SINGLE_STAR_SCHEMATIC",
+    "mapStellarCount": 1,
+    "parents": [
+      { "body": "3 a", "resolvesTo": "3" },
+      { "body": "3 d", "resolvesTo": "3" }
+    ]
+  }
+}

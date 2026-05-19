@@ -43,22 +43,41 @@ class EorAowsyHeliocentricRingRegressionTest {
     }
 
     @Test
-    @DisplayName("RockHound-style cache: B/C parented to A still no heliocentric ring")
+    @DisplayName("RockHound-style cache: B/C/D parented to A with planet class still schematic layout")
     void noHeliocentricRing_whenCompanionsWronglyParentedToArrivalStar() throws IOException {
         Map<Integer, BodyInfo> copy = fixture.toBodies();
         int aId = fixture.bodyIdByLabel("A");
-        for (String label : new String[] { "B", "C" }) {
+        for (String label : new String[] { "B", "C", "D" }) {
             BodyInfo b = copy.get(Integer.valueOf(fixture.bodyIdByLabel(label)));
             if (b != null) {
                 b.setImmediateParentBodyId(aId);
+                b.setPlanetClass("High metal content body");
+                b.setAtmosphere("thin");
             }
         }
         SystemMapModel broken = SystemMapPipeline.build(fixture.name, copy, java.time.Instant.EPOCH, true);
         int null3 = SystemOrbitGeometry.planetBinaryBarycentreMapKey(3);
         assertEquals(null3, broken.resolveParentBodyId(fixture.bodyIdByLabel("B")));
         assertEquals(null3, broken.resolveParentBodyId(fixture.bodyIdByLabel("C")));
+        assertEquals(SystemOrbitGeometry.planetBinaryBarycentreMapKey(2),
+                broken.resolveParentBodyId(fixture.bodyIdByLabel("D")));
         OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(broken, copy, idA);
         OrbitGeometryTestSupport.assertNoHeliocentricRingAroundPrimaryStar(broken, copy, idA, MAX_PRIMARY_RING_LS);
+        assertFalse(SystemOrbitGeometry.isHierarchicalTripleStarMap(copy), "four-star, not triple");
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        int idB = fixture.bodyIdByLabel("B");
+        int idC = fixture.bodyIdByLabel("C");
+        int idD = fixture.bodyIdByLabel("D");
+        double dBc = Math.hypot(broken.mapPlaneX(idB) - broken.mapPlaneX(idC),
+                broken.mapPlaneY(idB) - broken.mapPlaneY(idC)) / ls;
+        double dBd = Math.hypot(broken.mapPlaneX(idB) - broken.mapPlaneX(idD),
+                broken.mapPlaneY(idB) - broken.mapPlaneY(idD)) / ls;
+        assertTrue(dBc < 500.0, "B and C on inner mutual orbit, not stacked; dBc=" + dBc + " Ls");
+        assertTrue(dBd > dBc * 1.2, "D separated from B+C inner pair; dBd=" + dBd + " dBc=" + dBc + " Ls");
+        double distBa = Math.hypot(broken.mapPlaneX(idB) - broken.mapPlaneX(idA),
+                broken.mapPlaneY(idB) - broken.mapPlaneY(idA)) / ls;
+        assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0,
+                "BCD trunk schematic distance from A; was " + distBa + " Ls");
     }
 
     @Test

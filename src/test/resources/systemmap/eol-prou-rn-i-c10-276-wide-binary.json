@@ -1,0 +1,162 @@
+{
+  "name": "Eol Prou RN-I c10-276",
+  "notes": "Wide binary A+B (Eol Prou RN-I c10-276). Regression: cache may parent A 3 moons to companion star B; map must keep them on A 3.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Eol Prou RN-I c10-276",
+      "shortName": "A",
+      "distanceLs": 0,
+      "starType": "K",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 1,
+      "bodyName": "Eol Prou RN-I c10-276 B",
+      "shortName": "B",
+      "distanceLs": 18500,
+      "starType": "M",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou RN-I c10-276 A 1",
+      "shortName": "A 1",
+      "distanceLs": 27,
+      "planetClass": "High metal content body",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 3,
+      "bodyName": "Eol Prou RN-I c10-276 A 2",
+      "shortName": "A 2",
+      "distanceLs": 39,
+      "planetClass": "High metal content body",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 4,
+      "bodyName": "Eol Prou RN-I c10-276 A 3",
+      "shortName": "A 3",
+      "distanceLs": 1557,
+      "planetClass": "Class I gas giant",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 5,
+      "bodyName": "Eol Prou RN-I c10-276 A 4",
+      "shortName": "A 4",
+      "distanceLs": 2100,
+      "planetClass": "Class II gas giant",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 6,
+      "bodyName": "Eol Prou RN-I c10-276 A 3 a",
+      "shortName": "A 3 a",
+      "distanceLs": 1542,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 7,
+      "bodyName": "Eol Prou RN-I c10-276 A 3 b",
+      "shortName": "A 3 b",
+      "distanceLs": 1544,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 8,
+      "bodyName": "Eol Prou RN-I c10-276 A 3 c",
+      "shortName": "A 3 c",
+      "distanceLs": 1544,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 9,
+      "bodyName": "Eol Prou RN-I c10-276 A 3 d",
+      "shortName": "A 3 d",
+      "distanceLs": 1548,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 10,
+      "bodyName": "Eol Prou RN-I c10-276 A 3 e",
+      "shortName": "A 3 e",
+      "distanceLs": 1550,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 11,
+      "bodyName": "Eol Prou RN-I c10-276 A 3 f",
+      "shortName": "A 3 f",
+      "distanceLs": 1536,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 12,
+      "bodyName": "Eol Prou RN-I c10-276 B 1",
+      "shortName": "B 1",
+      "distanceLs": 18620,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 13,
+      "bodyName": "Eol Prou RN-I c10-276 B 2",
+      "shortName": "B 2",
+      "distanceLs": 18680,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 14,
+      "bodyName": "Eol Prou RN-I c10-276 B 3",
+      "shortName": "B 3",
+      "distanceLs": 18740,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 15,
+      "bodyName": "Eol Prou RN-I c10-276 B 4",
+      "shortName": "B 4",
+      "distanceLs": 18800,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 16,
+      "bodyName": "Eol Prou RN-I c10-276 B 5",
+      "shortName": "B 5",
+      "distanceLs": 18860,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1
+    },
+    {
+      "id": 17,
+      "bodyName": "Eol Prou RN-I c10-276 B 6",
+      "shortName": "B 6",
+      "distanceLs": 18920,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 2,
+    "barycentricStarLabels": ["A", "B"],
+    "barycentreRecentred": true,
+    "hasBarycentreMutualRing": true,
+    "parents": [
+      { "body": "A 3 a", "resolvesTo": "A 3" },
+      { "body": "A 3 f", "resolvesTo": "A 3" },
+      { "body": "B 1", "resolvesTo": "B" }
+    ]
+  }
+}

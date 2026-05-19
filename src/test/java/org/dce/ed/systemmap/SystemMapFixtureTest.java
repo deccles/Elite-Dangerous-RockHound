@@ -32,6 +32,8 @@ class SystemMapFixtureTest {
                 "c16-241-single-k-star.json",
                 "sz-g-d10-2113-planet-binary.json",
                 "gas-giant-2-binary-moons.json",
+                "eol-prou-zh-t-c4-127-body3-moons.json",
+                "eol-prou-or-v-d2-399.json",
                 "eor-aowsy-ri-k-c8-3670.json");
     }
 

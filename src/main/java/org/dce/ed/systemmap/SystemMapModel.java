@@ -173,6 +173,15 @@ public final class SystemMapModel {
         return false;
     }
 
+    public boolean hasHierarchicalTripleStarTrunk() {
+        for (OrbitPolylineWorldXY poly : orbitPolylines) {
+            if (poly != null && poly.bodyId == SystemOrbitGeometry.HIERARCHICAL_TRIPLE_STAR_TRUNK_POLYLINE_ID) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public boolean hasPlanetBinaryMutualRing(int journalNullId) {
         int ringId = SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - journalNullId;
         for (OrbitPolylineWorldXY poly : orbitPolylines) {

@@ -274,6 +274,15 @@ class EorAowsySystemMapValidationTest {
         }
 
         @Test
+        void bcdStars_onSchematicTrunkRing_withoutBaryRows() {
+            double distBa = Math.hypot(partialModel.mapPlaneX(id("B")) - partialModel.mapPlaneX(idA),
+                    partialModel.mapPlaneY(id("B")) - partialModel.mapPlaneY(idA)) / LS;
+            assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0,
+                    "B on schematic trunk from A; distBa=" + distBa + " Ls");
+            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(partialModel, partialBodies, idA);
+        }
+
+        @Test
         void dAndBcBary_onStellarPairMutualRing_withoutBaryRows() {
             assertTrue(SystemOrbitGeometry.hierarchicalOuterStellarNullPairForDebug(2, partialBodies),
                     "Null:2 should be D vs B+C hub even without ScanBaryCentre rows");

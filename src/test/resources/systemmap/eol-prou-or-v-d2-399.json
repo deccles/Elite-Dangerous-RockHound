@@ -1,0 +1,56 @@
+{
+  "name": "Eol Prou OR-V d2-399",
+  "notes": "Triple star: K (A) at Null:0, M+L pair (B+C) at ScanBaryCentre Null:2. Journal FSS May 2026.",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Eol Prou OR-V d2-399 A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "K",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 1.4701533913612365E13
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou OR-V d2-399 barycentre 2",
+      "shortName": "bary 2",
+      "distanceLs": 0.0,
+      "scanBarycentreRow": true,
+      "semiMajorAxisM": 2.1547659039497375E13
+    },
+    {
+      "id": 3,
+      "bodyName": "Eol Prou OR-V d2-399 B",
+      "shortName": "B",
+      "distanceLs": 124634.025991,
+      "starType": "M",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 1.66662949323654175E11
+    },
+    {
+      "id": 4,
+      "bodyName": "Eol Prou OR-V d2-399 C",
+      "shortName": "C",
+      "distanceLs": 123301.976236,
+      "starType": "L",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 5.52619284391403198E11
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 3,
+    "barycentricStarLabels": ["A"],
+    "hasBarycentreMutualRing": false,
+    "hasPlanetBinaryMutualRing": true,
+    "planetBinaryNullId": 2,
+    "bodiesOnMutualRing": ["B", "C"],
+    "bodiesWithoutOwnOrbitRing": ["B", "C"],
+    "parents": [
+      { "body": "A", "resolvesTo": "barycentre" },
+      { "body": "B", "resolvesTo": "planetBinary:2" },
+      { "body": "C", "resolvesTo": "planetBinary:2" }
+    ]
+  }
+}

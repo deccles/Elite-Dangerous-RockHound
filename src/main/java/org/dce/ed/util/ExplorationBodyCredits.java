@@ -161,9 +161,9 @@ public final class ExplorationBodyCredits {
     /** System map dot colours (FSS scanner family). */
     public enum SystemMapDotKind {
         DEFAULT,
-        /** Earth-like — green on the in-game FSS; green on the map for parity. */
+        /** Earth-like — FSS blue marker; same saturated blue on the system map. */
         EARTH_LIKE,
-        /** Water / ammonia / water-giant family — blue on the FSS and map. */
+        /** Water / ammonia / water-giant family — FSS blue marker on the system map. */
         WATER_LIKE
     }
 

@@ -173,6 +173,7 @@ public final class SystemOrbitGeometry {
             }
         } while (placed);
         alignPlanetBinaryGroupsOnMapPlane(memo, bodies, t, p0, p1, freezeBarycentreStars);
+        alignMoonsOnSchematicRingsAroundParents(memo, bodies, t, p0, p1, freezeBarycentreStars);
         return memo;
     }
 
@@ -330,6 +331,7 @@ public final class SystemOrbitGeometry {
         if (!isHierarchicalWideBinary(bodies)) {
             alignPlanetBinaryGroupsOnMapPlane(memo, bodies, t, p0, p1, freezeBarycentreStars);
         }
+        alignMoonsOnSchematicRingsAroundParents(memo, bodies, t, p0, p1, freezeBarycentreStars);
         return memo;
     }
 
@@ -367,6 +369,14 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             int mapId = e.getKey().intValue();
+            /*
+             * Live cache may parent B/C/D to the arrival star with planet class — still hierarchical companions at a
+             * Null barycentre; do not re-seat them on A-branch schematic rings after {@link #alignPlanetBinaryGroupsOnMapPlane}.
+             */
+            if (isStellarDirectNullMember(b, bodies)
+                    || resolveOrbitParentBodyId(b, bodies, mapId) != primaryId) {
+                continue;
+            }
             double[] rel = schematicMapPlaneOffsetMetres(b, mapId, bodies, primaryId, t, p0, p1, freezeBarycentreStars);
             if (!isFiniteXYZ(rel)) {
                 continue;
@@ -424,18 +434,31 @@ public final class SystemOrbitGeometry {
             return;
         }
         HashSet<Integer> nullParents = new HashSet<>();
-        for (BodyInfo b : bodies.values()) {
-            if (b == null || isMoonSatelliteBody(b, bodies)) {
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || isMoonSatelliteBody(e.getValue(), bodies)) {
                 continue;
             }
-            int ip = b.getImmediateParentBodyId();
+            int ip = e.getValue().getImmediateParentBodyId();
             if (isPlanetBinaryNullParentRef(ip, bodies)) {
                 nullParents.add(Integer.valueOf(ip));
+            }
+            int resolved = resolveOrbitParentBodyId(e.getValue(), bodies, e.getKey().intValue());
+            if (isPlanetBinaryBarycentreMapKey(resolved)) {
+                nullParents.add(Integer.valueOf(PLANET_BINARY_BARYCENTRE_MAP_KEY_BASE - resolved));
+            }
+        }
+        if (isHierarchicalTripleStarMap(bodies)) {
+            int tripleNull = hierarchicalTripleStellarNullId(bodies);
+            if (tripleNull > 0) {
+                nullParents.add(Integer.valueOf(tripleNull));
             }
         }
         for (Integer nullIdObj : nullParents) {
             int nullId = nullIdObj.intValue();
-            if (!isSharedNullBarycentreId(nullId, bodies) && !isPlanetBinaryNullParentId(nullId, bodies)) {
+            boolean tripleInnerNull = isHierarchicalTripleStarMap(bodies)
+                    && hierarchicalTripleStellarNullId(bodies) == nullId;
+            if (!isSharedNullBarycentreId(nullId, bodies) && !isPlanetBinaryNullParentId(nullId, bodies)
+                    && !tripleInnerNull) {
                 continue;
             }
             if (isNestedStellarInnerNullOfOuterPair(nullId, bodies)) {
@@ -489,21 +512,23 @@ public final class SystemOrbitGeometry {
     private static void alignSinglePlanetBinaryNullGroup(Map<Integer, double[]> positions, Map<Integer, BodyInfo> bodies,
             int nullId, Instant now, int p0, int p1, boolean freezeBarycentreStars, boolean snapBarycentreToCentroid) {
         int bKey = planetBinaryBarycentreMapKey(nullId);
+        boolean tripleStellarNull = isHierarchicalTripleStarMap(bodies)
+                && hierarchicalTripleStellarNullId(bodies) == nullId;
         int needLen = Math.max(3, Math.max(p0, p1) + 1);
         double[] bary = positions.get(Integer.valueOf(bKey));
-        if (snapBarycentreToCentroid) {
+        boolean schematicNestedPlanetPair = isNestedPlanetBinaryNullUnderOuterTrunk(nullId, bodies);
+        if (snapBarycentreToCentroid && !tripleStellarNull && !schematicNestedPlanetPair) {
             double[] centroid = planetBinaryMemberCentroidWorldXY(nullId, bodies, positions, p0, p1);
-            if (centroid == null) {
-                return;
+            if (centroid != null) {
+                if (bary == null || bary.length < needLen) {
+                    bary = new double[needLen];
+                } else {
+                    bary = Arrays.copyOf(bary, Math.max(needLen, bary.length));
+                }
+                bary[p0] = centroid[0];
+                bary[p1] = centroid[1];
+                positions.put(Integer.valueOf(bKey), bary);
             }
-            if (bary == null || bary.length < needLen) {
-                bary = new double[needLen];
-            } else {
-                bary = Arrays.copyOf(bary, Math.max(needLen, bary.length));
-            }
-            bary[p0] = centroid[0];
-            bary[p1] = centroid[1];
-            positions.put(Integer.valueOf(bKey), bary);
         }
         if (bary == null || bary.length < needLen) {
             bary = positions.get(Integer.valueOf(bKey));
@@ -511,23 +536,50 @@ public final class SystemOrbitGeometry {
                 return;
             }
         }
-        boolean schematicStellarPair = isHierarchicalWideBinary(bodies)
-                && isNestedStellarInnerNullOfOuterPair(nullId, bodies)
-                && countStellarDirectNullMembers(nullId, bodies) >= 2;
-        double schematicRadM = schematicStellarPair
-                ? planetBinaryMutualOrbitRadiusLs(nullId, bodies) * LIGHT_SECOND_METRES
-                : Double.NaN;
+        boolean schematicStellarPair = (isHierarchicalWideBinary(bodies)
+                && isNestedStellarInnerNullOfOuterPair(nullId, bodies))
+                || (isHierarchicalTripleStarMap(bodies)
+                        && hierarchicalTripleStellarNullId(bodies) == nullId
+                        && countTripleInnerStellarPairMembers(nullId, bodies) >= 2);
+        double schematicRadM = Double.NaN;
+        if (schematicNestedPlanetPair) {
+            schematicRadM = nestedPlanetBinaryMutualOrbitRadiusLs(nullId, bodies) * LIGHT_SECOND_METRES;
+        } else if (schematicStellarPair) {
+            if (isNestedStellarInnerNullOfOuterPair(nullId, bodies)
+                    && countStellarDirectNullMembers(nullId, bodies) < 2) {
+                /* Cache-parented B+C: journal heliocentric spread must not set mutual-orbit radius (~16k Ls). */
+                schematicRadM = Math.max(STELLAR_SHARED_NULL_MUTUAL_ORBIT_MIN_LS * LIGHT_SECOND_METRES,
+                        HIERARCHICAL_INNER_STELLAR_PAIR_SCHEMATIC_MIN_LS * LIGHT_SECOND_METRES * 0.5);
+            } else {
+                schematicRadM = planetBinaryMutualOrbitRadiusLs(nullId, bodies) * LIGHT_SECOND_METRES;
+            }
+        }
         int stellarPlaced = 0;
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
             if (e.getKey() == null || e.getValue() == null) {
                 continue;
             }
             BodyInfo child = e.getValue();
-            if (isMoonSatelliteBody(child, bodies) || child.getImmediateParentBodyId() != nullId) {
+            if (isMoonSatelliteBody(child, bodies)) {
                 continue;
             }
             int mapId = e.getKey().intValue();
+            boolean nullMember = child.getImmediateParentBodyId() == nullId
+                    || (isStellarDirectNullMember(child, bodies)
+                            && resolveOrbitParentBodyId(child, bodies, mapId) == bKey);
+            if (!nullMember) {
+                continue;
+            }
             if (schematicStellarPair && isStellarDirectNullMember(child, bodies)) {
+                double theta = stellarPlaced == 0 ? 0.0 : Math.PI;
+                stellarPlaced++;
+                double[] rel = new double[] { 0.0, 0.0, 0.0 };
+                rel[p0] = schematicRadM * Math.cos(theta);
+                rel[p1] = schematicRadM * Math.sin(theta);
+                positions.put(e.getKey(), combineParentAndRelativeOffset(bary, rel, p0, p1));
+                continue;
+            }
+            if (schematicNestedPlanetPair && !isStellarDirectNullMember(child, bodies)) {
                 double theta = stellarPlaced == 0 ? 0.0 : Math.PI;
                 stellarPlaced++;
                 double[] rel = new double[] { 0.0, 0.0, 0.0 };
@@ -549,6 +601,15 @@ public final class SystemOrbitGeometry {
      * Hierarchical BCD trunk: outer Null (e.g. 2) is a stellar pair D vs inner Null:3 (B+C), not a mutual ring that
      * also includes distant BCD giants.
      */
+    private static boolean orbitsJournalOrResolvedNull(int mapId, BodyInfo child, int nullId, int bKey,
+            Map<Integer, BodyInfo> bodies) {
+        if (child == null || bodies == null) {
+            return false;
+        }
+        return child.getImmediateParentBodyId() == nullId
+                || resolveOrbitParentBodyId(child, bodies, mapId) == bKey;
+    }
+
     private static void alignHierarchicalOuterStellarNullPair(Map<Integer, double[]> positions,
             Map<Integer, BodyInfo> bodies,
             int outerNullId,
@@ -569,7 +630,8 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             BodyInfo b = e.getValue();
-            if (isMoonSatelliteBody(b, bodies) || b.getImmediateParentBodyId() != outerNullId) {
+            int mapId = e.getKey().intValue();
+            if (isMoonSatelliteBody(b, bodies) || !orbitsJournalOrResolvedNull(mapId, b, outerNullId, bKey, bodies)) {
                 continue;
             }
             if (!isStellarDirectNullMember(b, bodies)) {
@@ -594,6 +656,23 @@ public final class SystemOrbitGeometry {
             n++;
         }
         if (n < 1) {
+            double[] centroid = planetBinaryMemberCentroidWorldXY(outerNullId, bodies, positions, p0, p1);
+            if (centroid == null && !innerNullIds.isEmpty()) {
+                int ik = planetBinaryBarycentreMapKey(innerNullIds.get(0).intValue());
+                double[] innerBary = positions.get(Integer.valueOf(ik));
+                if (innerBary != null && innerBary.length > Math.max(p0, p1)) {
+                    sx = worldAxisMetres(innerBary, p0);
+                    sy = worldAxisMetres(innerBary, p1);
+                    n = 1;
+                }
+            }
+            if (centroid != null) {
+                sx = centroid[0];
+                sy = centroid[1];
+                n = 1;
+            }
+        }
+        if (n < 1) {
             return;
         }
         double cx = sx / n;
@@ -613,7 +692,9 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             BodyInfo child = e.getValue();
-            if (isMoonSatelliteBody(child, bodies) || child.getImmediateParentBodyId() != outerNullId) {
+            int mapId = e.getKey().intValue();
+            if (isMoonSatelliteBody(child, bodies)
+                    || !orbitsJournalOrResolvedNull(mapId, child, outerNullId, bKey, bodies)) {
                 continue;
             }
             if (!isStellarDirectNullMember(child, bodies)) {
@@ -649,20 +730,21 @@ public final class SystemOrbitGeometry {
             double[] rel = schematicMapPlaneOffsetMetresAtHintLs(angleSource, distLs, now, p0, p1,
                     freezeBarycentreStars);
             positions.put(Integer.valueOf(ik), combineParentAndRelativeOffset(bary, rel, p0, p1));
-            alignSinglePlanetBinaryNullGroup(positions, bodies, nullId, now, p0, p1, freezeBarycentreStars, false);
+            alignSinglePlanetBinaryNullGroup(positions, bodies, nullId, now, p0, p1, freezeBarycentreStars, true);
         }
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
             if (e.getKey() == null || e.getValue() == null) {
                 continue;
             }
             BodyInfo child = e.getValue();
-            if (isMoonSatelliteBody(child, bodies) || child.getImmediateParentBodyId() != outerNullId) {
+            int mapId = e.getKey().intValue();
+            if (isMoonSatelliteBody(child, bodies)
+                    || !orbitsJournalOrResolvedNull(mapId, child, outerNullId, bKey, bodies)) {
                 continue;
             }
             if (isStellarDirectNullMember(child, bodies)) {
                 continue;
             }
-            int mapId = e.getKey().intValue();
             double[] rel = planetBinaryOffsetFromBarycentreMetres(child, mapId, bodies, outerNullId, now, p0, p1,
                     freezeBarycentreStars, null, bary);
             if (!isFiniteXYZ(rel)) {
@@ -791,6 +873,12 @@ public final class SystemOrbitGeometry {
 
     /** Synthetic map id for the wide-binary barycentre ring (never collides with journal body ids in {@code uniq}). */
     public static final int BINARY_BARYCENTRE_ORBIT_RING_BODY_ID = -2;
+
+    /**
+     * Schematic A vs B+C mutual-orbit ring ({@link #isHierarchicalTripleStarMap}) — centre between A and the inner
+     * {@code ScanBaryCentre} hub, not a straight chord.
+     */
+    public static final int HIERARCHICAL_TRIPLE_STAR_TRUNK_POLYLINE_ID = -10_003;
 
     /**
      * Synthetic map keys for planet–planet binary barycentres ({@code Parents:[{"Null":N},…]} with no body row
@@ -1069,8 +1157,13 @@ public final class SystemOrbitGeometry {
             appendPlanetBinaryMutualOrbitRings(merged, bodies, bodyWorldPositions, p0, p1, legacyN, useScreenChord,
                     scalePixelsPerMetre);
             if (isHierarchicalWideBinary(bodies)) {
-                appendHierarchicalSystemBarycentreRing(merged, bodies, bodyWorldPositions, p0, p1, legacyN,
-                        useScreenChord, scalePixelsPerMetre);
+                if (isHierarchicalTripleStarMap(bodies)) {
+                    appendHierarchicalTripleStarTrunk(merged, bodies, bodyWorldPositions, p0, p1, legacyN,
+                            useScreenChord, scalePixelsPerMetre);
+                } else {
+                    appendHierarchicalSystemBarycentreRing(merged, bodies, bodyWorldPositions, p0, p1, legacyN,
+                            useScreenChord, scalePixelsPerMetre);
+                }
                 appendSchematicRingsAtHierarchicalNullBarycentres(merged, bodies, bodyWorldPositions, p0, p1,
                         legacyN, useScreenChord, scalePixelsPerMetre);
             }
@@ -1144,6 +1237,10 @@ public final class SystemOrbitGeometry {
         if (out == null || bodies == null || bodyWorldPositions == null) {
             return;
         }
+        /* Triple A vs B+C: only branch rings at A and the B+C mutual/trunk strokes — not moon-binary hubs. */
+        if (isHierarchicalTripleStarMap(bodies)) {
+            return;
+        }
         HashSet<Integer> nullIds = new HashSet<>();
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
             if (e.getKey() == null || e.getValue() == null || !e.getValue().isScanBarycentreRow()) {
@@ -1151,9 +1248,14 @@ public final class SystemOrbitGeometry {
             }
             nullIds.add(e.getKey());
         }
+        int tripleNullId = isHierarchicalTripleStarMap(bodies) ? hierarchicalTripleStellarNullId(bodies) : -1;
         for (Integer nullIdObj : nullIds) {
             int nullId = nullIdObj.intValue();
             if (!isSharedNullBarycentreId(nullId, bodies) && !isPlanetBinaryNullParentId(nullId, bodies)) {
+                continue;
+            }
+            /* B+C stellar pair: mutual ring only — heliocentric hub rings read as empty ~50k Ls circles. */
+            if (nullId == tripleNullId) {
                 continue;
             }
             appendSchematicRingsAtBarycentreMapKey(out, bodies, bodyWorldPositions,
@@ -1744,6 +1846,15 @@ public final class SystemOrbitGeometry {
         }
         int declared = child.getImmediateParentBodyId();
         /*
+         * Moons (A 3 a, A 3 e, …) must orbit their gas-giant host even when journal/cache also lists a co-orbit
+         * {@code Null:N} pair. Without this, they parent to the synthetic barycentre map key and drift onto the
+         * companion star during wide-binary layout/playback.
+         */
+        int moonHostPlanet = resolveMoonHostPlanetParent(child, bodies, mapBodyId);
+        if (moonHostPlanet >= 0) {
+            return moonHostPlanet;
+        }
+        /*
          * ScanBaryCentre rows (Null:N) before wide-binary companion override — inner stellar multiples (B+C at Null:3)
          * must not be flattened to the system barycentre.
          */
@@ -1759,6 +1870,19 @@ public final class SystemOrbitGeometry {
          */
         if (declared > 0 && isPlanetBinaryNullParentRef(declared, bodies)) {
             return planetBinaryBarycentreMapKey(declared);
+        }
+        /*
+         * Hierarchical companion branch stars (B/C/D) wrongly parented to the arrival star in live cache — including
+         * when EDSM syncs planet class and {@link #isMapStellarBody} is false.
+         */
+        if (isHierarchicalWideBinary(bodies) && isStellarDirectNullMember(child, bodies)) {
+            int primary = primaryAnchorBodyMapKey(bodies);
+            if (primary >= 0 && mapBodyId != primary && (declared == primary || declared == 0)) {
+                int innerNull = inferInnerClusterNullForHierarchicalStar(child, bodies, mapBodyId);
+                if (innerNull > 0) {
+                    return planetBinaryBarycentreMapKey(innerNull);
+                }
+            }
         }
         /*
          * Wide-binary companion stars must orbit the barycentre (parent -1), not the primary star. Cache rows often
@@ -1802,6 +1926,13 @@ public final class SystemOrbitGeometry {
                             if (innerNull > 0) {
                                 return planetBinaryBarycentreMapKey(innerNull);
                             }
+                            if (isHierarchicalTripleStarMap(bodies)) {
+                                int tripleNull = hierarchicalTripleStellarNullId(bodies);
+                                if (tripleNull > 0
+                                        && isHierarchicalTripleCompanionShiftBody(mapBodyId, tripleNull, bodies)) {
+                                    return planetBinaryBarycentreMapKey(tripleNull);
+                                }
+                            }
                         }
                     } else {
                         return -1;
@@ -1815,9 +1946,50 @@ public final class SystemOrbitGeometry {
                 }
                 int primary = primaryAnchorBodyMapKey(bodies);
                 if (isHierarchicalWideBinary(bodies) && (declared == primary || declared == 0)) {
+                    if (isHierarchicalTripleStarMap(bodies)) {
+                        int tripleNull = hierarchicalTripleStellarNullId(bodies);
+                        if (tripleNull > 0
+                                && isHierarchicalTripleCompanionShiftBody(mapBodyId, tripleNull, bodies)) {
+                            return planetBinaryBarycentreMapKey(tripleNull);
+                        }
+                    }
+                    if (isStellarDirectNullMember(child, bodies)) {
+                        int innerNull = inferInnerClusterNullForHierarchicalStar(child, bodies, mapBodyId);
+                        if (innerNull > 0) {
+                            return planetBinaryBarycentreMapKey(innerNull);
+                        }
+                    }
                     int fromSiblings = inferNullParentFromDesignationSiblings(child, bodies, mapBodyId);
                     if (fromSiblings > 0) {
                         return planetBinaryBarycentreMapKey(fromSiblings);
+                    }
+                }
+            }
+            /*
+             * Live cache often parents moons to the companion branch star (e.g. A 3 a–f → star B). Designation
+             * {@code A 3 a} must attach to gas giant A 3 so schematic rings and map dots stay on the correct branch.
+             */
+            if (!isMapStellarBody(child) && isMoonSatelliteBody(child, bodies)) {
+                BodyInfo declaredParent = bodies.get(Integer.valueOf(declared));
+                if (declaredParent != null && isDeclaredStellarBranchParent(declaredParent, bodies)) {
+                    int desigParent = inferParentFromBinarySystemDesignation(child, bodies, mapBodyId);
+                    if (desigParent < 0) {
+                        String moonHost = moonParentDesignationFromName(child);
+                        if (moonHost != null) {
+                            desigParent = findBodyIdByDesignationTailMatch(bodies, moonHost, true);
+                        }
+                    }
+                    if (desigParent >= 0 && desigParent != mapBodyId && desigParent != declared) {
+                        return desigParent;
+                    }
+                }
+            }
+            if (!isMapStellarBody(child)) {
+                int desigParent = inferParentFromBinarySystemDesignation(child, bodies, mapBodyId);
+                if (desigParent >= 0 && desigParent != mapBodyId && desigParent != declared) {
+                    BodyInfo declaredParent = bodies.get(Integer.valueOf(declared));
+                    if (declaredParent != null && isWrongBranchStellarParent(child, declaredParent, bodies)) {
+                        return desigParent;
                     }
                 }
             }
@@ -1998,16 +2170,53 @@ public final class SystemOrbitGeometry {
         return false;
     }
 
+    /** OBAFGKM… and brown-dwarf letters used in Elite spectral tables — not binary branch letters at distance. */
+    private static boolean isSpectralTypeLetter(char c) {
+        return c == 'O' || c == 'B' || c == 'A' || c == 'F' || c == 'G' || c == 'K' || c == 'M' || c == 'L'
+                || c == 'T' || c == 'Y' || c == 'D';
+    }
+
+    /**
+     * FSS/EDSM often copies spectral class into {@link BodyInfo#getAtmoOrType()} before {@link #getStarType()} is set.
+     */
+    private static boolean isSpectralClassAtmosphereOnly(BodyInfo b) {
+        if (b == null || isStellarBody(b) || hasJournalPlanetClass(b)) {
+            return false;
+        }
+        String atmo = firstNonBlank(b.getAtmosphere(), b.getAtmoOrType());
+        if (atmo == null || atmo.isBlank()) {
+            return false;
+        }
+        return isSpectralTypeLetter(Character.toUpperCase(atmo.trim().charAt(0)));
+    }
+
     /** Same rule as System tab Body column {@code *} (short name equals system name). */
     public static boolean isPrimaryStarBodyByName(BodyInfo b) {
         if (b == null) {
             return false;
         }
         String shortName = b.getShortName();
-        return shortName != null
-                && b.getStarSystem() != null
-                && !b.getStarSystem().isBlank()
-                && shortName.trim().equals(b.getStarSystem().trim());
+        if (shortName != null && b.getStarSystem() != null && !b.getStarSystem().isBlank()
+                && shortName.trim().equals(b.getStarSystem().trim())) {
+            return true;
+        }
+        /*
+         * Arrival star row often shows short name {@code M}/{@code K} (spectral class) instead of the system name
+         * until a full FSS scan fills {@link BodyInfo#getStarType()}.
+         */
+        if (shortName != null && !hasJournalPlanetClass(b)) {
+            String sn = shortName.trim();
+            if (sn.length() == 1) {
+                char c = Character.toUpperCase(sn.charAt(0));
+                if (isSpectralTypeLetter(c)) {
+                    double d = b.getDistanceLs();
+                    if (Double.isFinite(d) && d <= 1.0) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     public static int primaryAnchorBodyMapKey(Map<Integer, BodyInfo> bodies) {
@@ -2047,8 +2256,77 @@ public final class SystemOrbitGeometry {
     }
 
     /**
-     * @return parent designation string (digits only), e.g. {@code "1"} for moon {@code "1 a"}, or {@code null}
+     * Stellar branch letter from an Elite body name ({@code A 3 e} → {@code A}, {@code BCD 2} → no single letter).
      */
+    public static String designationBranchLetter(BodyInfo body) {
+        String s = firstNonBlank(body != null ? body.getShortName() : null,
+                body != null ? body.getBodyName() : null);
+        if (s == null || s.isBlank()) {
+            return null;
+        }
+        Matcher m = TRAILING_STAR_BODY_DESIGNATION.matcher(s.trim());
+        if (!m.find()) {
+            return null;
+        }
+        String letter = m.group(1);
+        return letter != null ? letter.toUpperCase(Locale.ROOT) : null;
+    }
+
+    /**
+     * Declared parent is a branch star ({@code A}/{@code B}/…), including when live cache synced planet class onto
+     * B/C/D and {@link #isMapStellarBody} is false.
+     */
+    private static boolean isDeclaredStellarBranchParent(BodyInfo declaredParent, Map<Integer, BodyInfo> bodies) {
+        if (declaredParent == null) {
+            return false;
+        }
+        if (isMapStellarBody(declaredParent)) {
+            return true;
+        }
+        return bodies != null && isStellarDirectNullMember(declaredParent, bodies)
+                && stellarBranchLetter(declaredParent) != null;
+    }
+
+    /**
+     * True when cache/journal parents a body to a branch star that does not match its name prefix ({@code A 3} → C).
+     */
+    private static boolean isWrongBranchStellarParent(BodyInfo child, BodyInfo declaredParent,
+            Map<Integer, BodyInfo> bodies) {
+        if (child == null || declaredParent == null || !isDeclaredStellarBranchParent(declaredParent, bodies)) {
+            return false;
+        }
+        String bodyBranch = designationBranchLetter(child);
+        if (bodyBranch == null) {
+            return false;
+        }
+        String starBranch = stellarBranchLetter(declaredParent);
+        return starBranch != null && !bodyBranch.equals(starBranch);
+    }
+
+    /**
+     * Host planet for schematic moon rings ({@code A 3 a} → A 3), not a co-orbit {@code Null:N} barycentre or branch star.
+     */
+    private static int resolveMoonHostPlanetParent(BodyInfo child, Map<Integer, BodyInfo> bodies, int mapBodyId) {
+        if (child == null || bodies == null || !hasEliteMoonDesignationSuffix(child)) {
+            return -1;
+        }
+        int host = inferParentFromBinarySystemDesignation(child, bodies, mapBodyId);
+        if (host < 0) {
+            String moonHostDesig = moonParentDesignationFromName(child);
+            if (moonHostDesig != null) {
+                host = findBodyIdByDesignationTailMatch(bodies, moonHostDesig, true);
+            }
+        }
+        if (host < 0 || host == mapBodyId) {
+            return -1;
+        }
+        BodyInfo hostBody = bodies.get(Integer.valueOf(host));
+        if (hostBody == null || hostBody.isScanBarycentreRow() || isMapStellarBody(hostBody)) {
+            return -1;
+        }
+        return host;
+    }
+
     private static String moonParentDesignationFromName(BodyInfo child) {
         String s = firstNonBlank(child.getShortName(), child.getBodyName());
         if (s == null) {
@@ -2071,8 +2349,8 @@ public final class SystemOrbitGeometry {
         if (parts.length >= 2) {
             String last = parts[parts.length - 1];
             String prev = parts[parts.length - 2];
-            if (prev.matches("\\d+") && last.length() == 1 && Character.isLetter(last.charAt(0))) {
-                return prev;
+            if (last.length() == 1 && Character.isLetter(last.charAt(0)) && prev.matches("\\d+")) {
+                return String.join(" ", java.util.Arrays.copyOf(parts, parts.length - 1));
             }
         }
         return null;
@@ -2089,28 +2367,48 @@ public final class SystemOrbitGeometry {
     }
 
     /**
-     * @param bodies when non-null, direct children of a journal {@code ScanBaryCentre} / missing {@code Null:N} row are
-     *               planet-binary majors ({@code 1 b}, {@code 1 c}), not moons, even though the short name looks like
-     *               {@code 2 a}.
+     * @param bodies when non-null, direct children of a journal {@code ScanBaryCentre} / {@code Null:N} row are
+     *               planet-binary majors ({@code 1 b}, {@code 1 c}), not moons — unless the name is a moon suffix
+     *               ({@code A 3 e} co-orbiting at {@code Null:15} still orbits planet {@code A 3}).
      */
     public static boolean isMoonSatelliteBody(BodyInfo b, Map<Integer, BodyInfo> bodies) {
-        if (b == null) {
+        if (b == null || !hasEliteMoonDesignationSuffix(b)) {
             return false;
         }
         if (bodies != null) {
             int ip = b.getImmediateParentBodyId();
-            if (ip > 0 && isPlanetBinaryNullParentRef(ip, bodies)) {
+            if (ip > 0 && isPlanetBinaryNullParentRef(ip, bodies) && isPlanetBinaryMajorDesignation(b)) {
                 return false;
             }
         }
+        return true;
+    }
+
+    /** {@code 1 b} / {@code 12a} co-orbit row — not {@code A 3 e} or {@code BCD 2 a} moon suffixes. */
+    private static boolean isPlanetBinaryMajorDesignation(BodyInfo b) {
         String s = firstNonBlank(b.getShortName(), b.getBodyName());
-        if (s == null) {
+        return s != null && MOON_DESIGNATION.matcher(s.trim()).matches();
+    }
+
+    /** True when the body name ends with an Elite moon suffix ({@code 3 a}, {@code A 3 e}, {@code BCD 2 a}). */
+    public static boolean hasEliteMoonDesignationSuffix(BodyInfo b) {
+        return hasEliteMoonDesignationInName(firstNonBlank(b != null ? b.getShortName() : null,
+                b != null ? b.getBodyName() : null));
+    }
+
+    public static boolean hasEliteMoonDesignationInName(String name) {
+        if (name == null || name.isBlank()) {
             return false;
         }
-        s = s.trim();
+        String s = name.trim();
         Matcher compact = MOON_DESIGNATION.matcher(s);
         if (compact.matches()) {
             return true;
+        }
+        Matcher trailing = TRAILING_STAR_BODY_DESIGNATION.matcher(s);
+        if (trailing.find()) {
+            String moon = trailing.group(3);
+            return moon != null && !moon.isEmpty();
         }
         String[] parts = s.split("\\s+");
         if (parts.length >= 3) {
@@ -2606,6 +2904,18 @@ public final class SystemOrbitGeometry {
         return false;
     }
 
+    private static boolean hasStellarDirectMemberAtNull(int journalNullParentId, Map<Integer, BodyInfo> bodies) {
+        for (BodyInfo b : bodies.values()) {
+            if (b == null || isMoonSatelliteBody(b, bodies) || b.getImmediateParentBodyId() != journalNullParentId) {
+                continue;
+            }
+            if (isStellarDirectNullMember(b, bodies)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Outer Null hosts one stellar major (D) plus an inner stellar binary Null (B+C at Null:3) — not a single mutual
      * ring shared with distant BCD giants.
@@ -2614,16 +2924,28 @@ public final class SystemOrbitGeometry {
         if (!isHierarchicalWideBinary(bodies) || outerNullId <= 0) {
             return false;
         }
-        int stellarDirect = 0;
-        for (BodyInfo b : bodies.values()) {
-            if (b == null || isMoonSatelliteBody(b, bodies) || b.getImmediateParentBodyId() != outerNullId) {
-                continue;
-            }
-            if (isStellarDirectNullMember(b, bodies)) {
-                stellarDirect++;
-            }
+        if (nestedStellarInnerNullIds(outerNullId, bodies).isEmpty()) {
+            return false;
         }
-        return stellarDirect >= 1 && !nestedStellarInnerNullIds(outerNullId, bodies).isEmpty();
+        if (hasStellarDirectMemberAtNull(outerNullId, bodies)) {
+            return true;
+        }
+        if (nestedStellarInnerNullIds(outerNullId, bodies).isEmpty()) {
+            return false;
+        }
+        /*
+         * Planet-binary hubs (Null:49 for BCD 2+3) are not outer stellar pairs even though Null:3 also exists as a
+         * scan row. Four-star A+BCD cache case: infer outer pair only when this Null has no planet-binary majors.
+         */
+        if (isPlanetBinaryNullParentId(outerNullId, bodies)
+                && countStellarDirectNullMembers(outerNullId, bodies) == 0) {
+            return false;
+        }
+        /*
+         * Four-star A+BCD: live cache may parent D to star A while ScanBaryCentre still has Null:2 vs inner Null:3
+         * (B+C). Treat as outer pair when three branch stars exist and an inner stellar ScanBaryCentre is present.
+         */
+        return countNonPrimaryHierarchicalBranchStars(bodies) >= 3;
     }
 
     /**
@@ -2714,6 +3036,18 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             if (countStellarDirectNullMembers(innerId, bodies) >= 2) {
+                inners.add(Integer.valueOf(innerId));
+                continue;
+            }
+            /*
+             * Four-star B+C at ScanBaryCentre Null:3 under outer Null:2 — cache may parent B/C to star A so
+             * countStellarDirectNullMembers(3) is 0; still align via {@link #alignHierarchicalOuterStellarNullPair}.
+             */
+            BodyInfo scanRow = bodies.get(Integer.valueOf(innerId));
+            if (scanRow != null && scanRow.isScanBarycentreRow()
+                    && innerId != outerNullId
+                    && !isPlanetBinaryNullParentId(innerId, bodies)
+                    && countNonPrimaryHierarchicalBranchStars(bodies) >= 3) {
                 inners.add(Integer.valueOf(innerId));
             }
         }
@@ -2881,9 +3215,59 @@ public final class SystemOrbitGeometry {
         return countStellarDirectNullMembers(journalNullParentId, bodies);
     }
 
+    /**
+     * BCD 2+3 at Null:49 under Null:2: journal parent-relative separation (~tens of Ls), not heliocentric trunk scale.
+     */
+    private static double nestedPlanetBinaryMutualOrbitRadiusLs(int journalNullParentId, Map<Integer, BodyInfo> bodies) {
+        int bKey = planetBinaryBarycentreMapKey(journalNullParentId);
+        double maxHint = 0.0;
+        double dBary = sharedNullBarycentreDistanceLs(journalNullParentId, bodies);
+        if (!Double.isFinite(dBary)) {
+            dBary = planetBinaryBarycentreDistanceLsFromStar(journalNullParentId, bodies);
+        }
+        double maxRadial = 0.0;
+        double minD = Double.POSITIVE_INFINITY;
+        double maxD = Double.NEGATIVE_INFINITY;
+        int n = 0;
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            BodyInfo b = e.getValue();
+            if (isMoonSatelliteBody(b, bodies) || b.getImmediateParentBodyId() != journalNullParentId) {
+                continue;
+            }
+            int mapId = e.getKey().intValue();
+            double hintLs = journalOrbitRadiusLsFromParent(b, bKey, bodies, mapId);
+            if (Double.isFinite(hintLs) && hintLs > 0.5) {
+                maxHint = Math.max(maxHint, hintLs);
+            }
+            double dC = b.getDistanceLs();
+            if (Double.isFinite(dC) && dC > 0.0) {
+                n++;
+                minD = Math.min(minD, dC);
+                maxD = Math.max(maxD, dC);
+                if (Double.isFinite(dBary)) {
+                    maxRadial = Math.max(maxRadial, Math.abs(dC - dBary));
+                }
+            }
+        }
+        if (maxRadial < 0.5 && n >= 2 && Double.isFinite(minD) && Double.isFinite(maxD)) {
+            maxRadial = Math.max(0.5, (maxD - minD) * 0.5);
+        }
+        double rad = Math.max(maxRadial, maxHint);
+        return Math.max(rad, STELLAR_SHARED_NULL_MUTUAL_ORBIT_MIN_LS);
+    }
+
     private static double planetBinaryMutualOrbitRadiusLs(int journalNullParentId, Map<Integer, BodyInfo> bodies) {
+        if (isHierarchicalTripleStarMap(bodies) && journalNullParentId == hierarchicalTripleStellarNullId(bodies)) {
+            return hierarchicalTripleStellarPairSchematicOrbitRadiusLs(journalNullParentId, bodies);
+        }
         if (isHierarchicalOuterStellarNullPair(journalNullParentId, bodies)) {
             return planetBinaryOuterStellarPairOrbitRadiusLs(journalNullParentId, bodies);
+        }
+        if (isNestedPlanetBinaryNullUnderOuterTrunk(journalNullParentId, bodies)) {
+            return nestedPlanetBinaryMutualOrbitRadiusLs(journalNullParentId, bodies);
         }
         double dBary = sharedNullBarycentreDistanceLs(journalNullParentId, bodies);
         if (!Double.isFinite(dBary)) {
@@ -2949,6 +3333,23 @@ public final class SystemOrbitGeometry {
         return n;
     }
 
+    private static int countDirectNonMoonChildren(int hostMapId, Map<Integer, BodyInfo> bodies) {
+        int n = 0;
+        if (bodies == null || hostMapId < 0) {
+            return n;
+        }
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            if (e.getValue().getImmediateParentBodyId() == hostMapId
+                    && !isMoonSatelliteBody(e.getValue(), bodies)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     private static int planetBinarySiblingOrderIndex(int journalNullParentId, int mapBodyId,
             Map<Integer, BodyInfo> bodies) {
         int idx = 0;
@@ -3000,7 +3401,12 @@ public final class SystemOrbitGeometry {
             if (isHierarchicalOuterStellarNullPair(journalNullId, bodies)) {
                 double rOuter = planetBinaryOuterStellarPairOrbitRadiusLs(journalNullId, bodies);
                 if (Double.isFinite(hintLs) && hintLs > 0.5) {
-                    radialLs = Math.min(rOuter * 0.95, Math.max(rOuter * 0.55, hintLs));
+                    int moonSats = countDirectNonMoonChildren(mapBodyId, bodies);
+                    if (hintLs > rOuter * 1.12 && moonSats >= 2) {
+                        radialLs = hintLs;
+                    } else {
+                        radialLs = Math.min(rOuter * 0.95, Math.max(rOuter * 0.55, hintLs));
+                    }
                 }
             } else if (Double.isFinite(hintLs) && hintLs > 0.5) {
                 radialLs = hintLs;
@@ -3318,10 +3724,14 @@ public final class SystemOrbitGeometry {
             double cx;
             double cy;
             boolean outerStellarPair = isHierarchicalOuterStellarNullPair(nullId, bodies);
+            boolean nestedPlanetPair = isNestedPlanetBinaryNullUnderOuterTrunk(nullId, bodies);
             double[] memberCentroid = outerStellarPair
                     ? planetBinaryStellarPairCentroidWorldXY(nullId, bodies, bodyWorldPositions, p0, p1)
                     : planetBinaryMemberCentroidWorldXY(nullId, bodies, bodyWorldPositions, p0, p1);
-            if (memberCentroid != null) {
+            if (nestedPlanetPair && baryPos != null && baryPos.length >= needLen) {
+                cx = worldAxisMetres(baryPos, p0);
+                cy = worldAxisMetres(baryPos, p1);
+            } else if (memberCentroid != null) {
                 cx = memberCentroid[0];
                 cy = memberCentroid[1];
             } else if (baryPos == null || baryPos.length < needLen) {
@@ -3460,13 +3870,23 @@ public final class SystemOrbitGeometry {
      * Bodies Elite tags with {@link BodyInfo#getStarType()} for Sudarsky gas-giant classes but that still have
      * planetary atmosphere/class (e.g. c16-241 body 6). Must not use stellar Kepler rings or barycentre-star logic.
      */
-    private static boolean hasPlanetarySurfaceOrAtmosphere(BodyInfo b) {
+    private static boolean hasJournalPlanetClass(BodyInfo b) {
         if (b == null) {
             return false;
         }
         String pc = b.getPlanetClass();
-        if (pc != null && !pc.isBlank()) {
+        return pc != null && !pc.isBlank();
+    }
+
+    private static boolean hasPlanetarySurfaceOrAtmosphere(BodyInfo b) {
+        if (b == null) {
+            return false;
+        }
+        if (hasJournalPlanetClass(b)) {
             return true;
+        }
+        if (isStellarBody(b)) {
+            return false;
         }
         String atmo = firstNonBlank(b.getAtmosphere(), b.getAtmoOrType());
         return atmo != null && !atmo.isBlank();
@@ -3500,14 +3920,27 @@ public final class SystemOrbitGeometry {
         if (isSudarskyGasGiantStarTypeHold(b)) {
             return false;
         }
+        /* Primary row often keeps the system name as short name until FSS fills {@code starType}. */
+        if (isPrimaryStarBodyByName(b)) {
+            return true;
+        }
+        /*
+         * Scan rows copy spectral type into {@link BodyInfo#getAtmoOrType()} for the table ({@code K}, {@code M}, …).
+         * That must not disqualify the star via {@link #hasPlanetarySurfaceOrAtmosphere}.
+         */
+        if (isStellarBody(b) && !hasJournalPlanetClass(b)) {
+            return true;
+        }
+        if (isSpectralClassAtmosphereOnly(b)) {
+            double d = b.getDistanceLs();
+            if (Double.isFinite(d) && d <= 1.0) {
+                return true;
+            }
+        }
         if (hasPlanetarySurfaceOrAtmosphere(b)) {
             return false;
         }
         if (isStellarBody(b)) {
-            return true;
-        }
-        /* Primary row often keeps the system name as short name until FSS fills {@code starType}. */
-        if (isPrimaryStarBodyByName(b)) {
             return true;
         }
         /* FSS rows like short name {@code A} / {@code B} with spectral type in the table but no {@code starType} yet. */
@@ -4584,7 +5017,207 @@ public final class SystemOrbitGeometry {
          * Live cache/EDSM may attach planet class to B/C/D so only A counts as a map star; still a hierarchical
          * companion cluster when ScanBaryCentre rows and branch stars sit at ~50k Ls heliocentric distance.
          */
-        return scanBaryRows >= 2 && hasHierarchicalCompanionBranchMarkers(bodies);
+        if (scanBaryRows >= 2 && hasHierarchicalCompanionBranchMarkers(bodies)) {
+            return true;
+        }
+        /* Triple (A vs B+C): one inner ScanBaryCentre row and two distant companion branch stars. */
+        if (scanBaryRows >= 1 && countNonPrimaryHierarchicalBranchStars(bodies) == 2
+                && hasHierarchicalCompanionBranchMarkers(bodies)) {
+            return true;
+        }
+        /*
+         * Four-star A+BCD when cache drops ScanBaryCentre rows but B/C/D branch stars remain at ~50k Ls — must still
+         * use hierarchical trunk layout, not a heliocentric wide-binary ring around A only.
+         */
+        return countNonPrimaryHierarchicalBranchStars(bodies) >= 3
+                && hasHierarchicalCompanionBranchMarkers(bodies);
+    }
+
+    /**
+     * Three map stars with one {@code ScanBaryCentre} stellar pair (e.g. Eol Prou OR-V d2-399: A vs B+C at Null:2) —
+     * not the four-star A vs BCD hierarchy that uses {@link #appendHierarchicalSystemBarycentreRing}.
+     */
+    public static boolean isHierarchicalTripleStarMap(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || !isHierarchicalWideBinary(bodies)) {
+            return false;
+        }
+        int tripleNull = hierarchicalTripleStellarNullId(bodies);
+        if (tripleNull < 0 || countTripleInnerStellarPairMembers(tripleNull, bodies) < 2) {
+            return false;
+        }
+        if (primaryAnchorBodyMapKey(bodies) < 0) {
+            return false;
+        }
+        if (countNonPrimaryHierarchicalBranchStars(bodies) != 2) {
+            return false;
+        }
+        /* Four-star A+BCD: outer stellar Null (e.g. 2) pairs D vs inner B+C — not planet-binary moon rows. */
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || !e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            int nullId = e.getKey().intValue();
+            if (nullId != tripleNull && isHierarchicalOuterStellarNullPair(nullId, bodies)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** B+C at the inner {@code ScanBaryCentre} and its synthetic map key — not the whole non-A subtree. */
+    private static boolean isHierarchicalTripleCompanionShiftBody(int bodyId, int tripleNullId,
+            Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || tripleNullId < 0 || bodyId < 0) {
+            return false;
+        }
+        if (bodyId == planetBinaryBarycentreMapKey(tripleNullId)) {
+            return true;
+        }
+        BodyInfo b = bodies.get(Integer.valueOf(bodyId));
+        if (b == null) {
+            return false;
+        }
+        if (b.getImmediateParentBodyId() == tripleNullId && isStellarDirectNullMember(b, bodies)) {
+            return true;
+        }
+        /*
+         * Live cache may parent B/C to the arrival star while journal has Null:2 — still move the inner pair with the
+         * schematic hub (same as {@link #isStellarDirectNullMember} fallback used for Eor Aowsy B+C).
+         */
+        if (!isStellarDirectNullMember(b, bodies)) {
+            return false;
+        }
+        String letter = stellarBranchLetter(b);
+        if (letter == null || "A".equals(letter)) {
+            return false;
+        }
+        return bodyId != primaryAnchorBodyMapKey(bodies);
+    }
+
+    /**
+     * B+C mutual-orbit radius on the schematic map — journal heliocentric spread is ~1.3k Ls but the map uses a
+     * tight circle beside the A trunk (~{@link #HIERARCHICAL_INNER_STELLAR_PAIR_SCHEMATIC_MIN_LS} scale).
+     */
+    private static double hierarchicalTripleStellarPairSchematicOrbitRadiusLs(int journalNullParentId,
+            Map<Integer, BodyInfo> bodies) {
+        double minD = Double.POSITIVE_INFINITY;
+        double maxD = Double.NEGATIVE_INFINITY;
+        for (BodyInfo b : bodies.values()) {
+            if (b == null || !isStellarDirectNullMember(b, bodies)) {
+                continue;
+            }
+            if (b.getImmediateParentBodyId() != journalNullParentId) {
+                String letter = stellarBranchLetter(b);
+                if (letter == null || "A".equals(letter)) {
+                    continue;
+                }
+            }
+            double d = b.getDistanceLs();
+            if (!Double.isFinite(d)) {
+                continue;
+            }
+            minD = Math.min(minD, d);
+            maxD = Math.max(maxD, d);
+        }
+        double spreadLs = Double.isFinite(minD) && Double.isFinite(maxD) ? (maxD - minD) * 0.5 : Double.NaN;
+        double capLs = HIERARCHICAL_INNER_STELLAR_PAIR_SCHEMATIC_MIN_LS * 0.5;
+        if (!Double.isFinite(spreadLs)) {
+            return Math.max(STELLAR_SHARED_NULL_MUTUAL_ORBIT_MIN_LS, capLs);
+        }
+        return Math.max(STELLAR_SHARED_NULL_MUTUAL_ORBIT_MIN_LS, Math.min(spreadLs, capLs));
+    }
+
+    /** Non-A single-letter branch stars (B+C in a triple, B+C+D in four-star). */
+    private static int countNonPrimaryHierarchicalBranchStars(Map<Integer, BodyInfo> bodies) {
+        int n = 0;
+        for (BodyInfo b : bodies.values()) {
+            if (b == null || b.isScanBarycentreRow()) {
+                continue;
+            }
+            if (isMapStellarBody(b) || isStellarBody(b)) {
+                String letter = stellarBranchLetter(b);
+                if (letter != null && !"A".equals(letter)) {
+                    n++;
+                }
+                continue;
+            }
+            String sn = b.getShortName();
+            if (sn == null || sn.isBlank()) {
+                sn = b.getBodyName();
+            }
+            if (sn == null) {
+                continue;
+            }
+            sn = sn.trim();
+            if (sn.length() == 1) {
+                char c = Character.toUpperCase(sn.charAt(0));
+                if (c >= 'B' && c <= 'Z') {
+                    n++;
+                }
+            }
+        }
+        return n;
+    }
+
+    /** Stellar inner pair at a {@code ScanBaryCentre} — journal-parented or cache-parented to the arrival star. */
+    private static int countTripleInnerStellarPairMembers(int tripleNullId, Map<Integer, BodyInfo> bodies) {
+        if (tripleNullId <= 0 || bodies == null) {
+            return 0;
+        }
+        int atNull = countStellarDirectNullMembers(tripleNullId, bodies);
+        if (atNull >= 2) {
+            return atNull;
+        }
+        if (!isTripleInnerStellarScanNull(tripleNullId, bodies)) {
+            return atNull;
+        }
+        return countNonPrimaryHierarchicalBranchStars(bodies);
+    }
+
+    private static boolean isTripleInnerStellarScanNull(int nullId, Map<Integer, BodyInfo> bodies) {
+        if (countNonPrimaryHierarchicalBranchStars(bodies) != 2) {
+            return false;
+        }
+        BodyInfo scanRow = bodies != null ? bodies.get(Integer.valueOf(nullId)) : null;
+        if (scanRow == null || !scanRow.isScanBarycentreRow() || isHierarchicalOuterStellarNullPair(nullId, bodies)) {
+            return false;
+        }
+        if (countStellarDirectNullMembers(nullId, bodies) >= 2) {
+            return true;
+        }
+        int planetsAtNull = 0;
+        for (BodyInfo b : bodies.values()) {
+            if (b == null || b.isScanBarycentreRow() || b.getImmediateParentBodyId() != nullId) {
+                continue;
+            }
+            if (isStellarDirectNullMember(b, bodies)) {
+                continue;
+            }
+            planetsAtNull++;
+        }
+        return planetsAtNull == 0;
+    }
+
+    /** Journal Null id hosting the inner stellar pair (B+C) in a triple-star map. */
+    public static int hierarchicalTripleStellarNullId(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null) {
+            return -1;
+        }
+        int found = -1;
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || !e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            int nullId = e.getKey().intValue();
+            if (!isTripleInnerStellarScanNull(nullId, bodies)) {
+                continue;
+            }
+            if (found >= 0) {
+                return -1;
+            }
+            found = nullId;
+        }
+        return found;
     }
 
     /**
@@ -4608,7 +5241,21 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             if (!isStellarBody(b) && !isMapStellarBody(b)) {
-                continue;
+                String sn = b.getShortName();
+                if (sn == null || sn.isBlank()) {
+                    sn = b.getBodyName();
+                }
+                if (sn == null) {
+                    continue;
+                }
+                sn = sn.trim();
+                if (sn.length() != 1) {
+                    continue;
+                }
+                char c = Character.toUpperCase(sn.charAt(0));
+                if (c < 'B' || c > 'Z') {
+                    continue;
+                }
             }
             double d = b.getDistanceLs();
             if (Double.isFinite(d) && Double.isFinite(dP) && Math.abs(d - dP) > 5_000.0) {
@@ -4624,7 +5271,7 @@ public final class SystemOrbitGeometry {
      */
     private static int inferInnerClusterNullForHierarchicalStar(BodyInfo child, Map<Integer, BodyInfo> bodies,
             int mapBodyId) {
-        if (child == null || bodies == null || !isMapStellarBody(child)) {
+        if (child == null || bodies == null || !isStellarDirectNullMember(child, bodies)) {
             return -1;
         }
         int ip = child.getImmediateParentBodyId();
@@ -4735,7 +5382,9 @@ public final class SystemOrbitGeometry {
         }
         double helioLs = Math.abs(dC - dP);
         double targetLs = helioLs;
-        if (isHierarchicalWideBinary(bodies)) {
+        if (isHierarchicalTripleStarMap(bodies)) {
+            targetLs = HIERARCHICAL_WIDE_BINARY_SCHEMATIC_SEP_LS;
+        } else if (isHierarchicalWideBinary(bodies)) {
             targetLs = Math.min(helioLs, HIERARCHICAL_WIDE_BINARY_SCHEMATIC_SEP_LS);
         }
         return targetLs * LIGHT_SECOND_METRES;
@@ -4800,33 +5449,11 @@ public final class SystemOrbitGeometry {
         double refBx = worldAxisMetres(pB, a0);
         double refBy = worldAxisMetres(pB, a1);
         if (hierarchical) {
-            double sumX = 0.0;
-            double sumY = 0.0;
-            int n = 0;
-            for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
-                if (e.getKey() == null || e.getValue() == null) {
-                    continue;
-                }
-                int id = e.getKey().intValue();
-                if (id == primaryId || isWideBinaryPrimaryBranchBody(id, primaryId, bodies)) {
-                    continue;
-                }
-                double[] p = positions.get(e.getKey());
-                if (p == null || p.length <= Math.max(a0, a1)) {
-                    continue;
-                }
-                double x = worldAxisMetres(p, a0);
-                double y = worldAxisMetres(p, a1);
-                if (!Double.isFinite(x) || !Double.isFinite(y)) {
-                    continue;
-                }
-                sumX += x;
-                sumY += y;
-                n++;
-            }
-            if (n > 0) {
-                refBx = sumX / n;
-                refBy = sumY / n;
+            double[] companionCentroid = hierarchicalCompanionClusterCentroidMapPlane(positions, bodies, primaryId,
+                    a0, a1);
+            if (companionCentroid != null) {
+                refBx = companionCentroid[0];
+                refBy = companionCentroid[1];
             }
         }
         double dPlane0 = refBx - worldAxisMetres(pA, a0);
@@ -4854,12 +5481,17 @@ public final class SystemOrbitGeometry {
         double refByNew = worldAxisMetres(pA, a1) + uy * targetSepM;
         double dPlane0Shift = refBxNew - refBx;
         double dPlane1Shift = refByNew - refBy;
+        int tripleNullId = isHierarchicalTripleStarMap(bodies) ? hierarchicalTripleStellarNullId(bodies) : -1;
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
             if (e.getKey() == null || e.getValue() == null) {
                 continue;
             }
             int id = e.getKey().intValue();
-            if (id == primaryId || isWideBinaryPrimaryBranchBody(id, primaryId, bodies)) {
+            if (tripleNullId >= 0) {
+                if (!isHierarchicalTripleCompanionShiftBody(id, tripleNullId, bodies)) {
+                    continue;
+                }
+            } else if (id == primaryId || isWideBinaryPrimaryBranchBody(id, primaryId, bodies)) {
                 continue;
             }
             double[] p = positions.get(e.getKey());
@@ -4879,6 +5511,133 @@ public final class SystemOrbitGeometry {
     }
 
     /**
+     * Centroid for placing the BCD companion trunk: branch stars and Null hubs only — not every planet at ~51k Ls,
+     * which skews the direction away from star A's schematic ring.
+     */
+    private static double[] hierarchicalCompanionClusterCentroidMapPlane(Map<Integer, double[]> positions,
+            Map<Integer, BodyInfo> bodies,
+            int primaryId,
+            int a0,
+            int a1) {
+        if (positions == null || bodies == null || primaryId < 0) {
+            return null;
+        }
+        int tripleNullId = isHierarchicalTripleStarMap(bodies) ? hierarchicalTripleStellarNullId(bodies) : -1;
+        double sumX = 0.0;
+        double sumY = 0.0;
+        int n = 0;
+        if (tripleNullId >= 0) {
+            for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null) {
+                    continue;
+                }
+                int id = e.getKey().intValue();
+                if (!isHierarchicalTripleCompanionShiftBody(id, tripleNullId, bodies)) {
+                    continue;
+                }
+                double[] p = positions.get(e.getKey());
+                if (p == null || p.length <= Math.max(a0, a1)) {
+                    continue;
+                }
+                double x = worldAxisMetres(p, a0);
+                double y = worldAxisMetres(p, a1);
+                if (!Double.isFinite(x) || !Double.isFinite(y)) {
+                    continue;
+                }
+                sumX += x;
+                sumY += y;
+                n++;
+            }
+        } else {
+            for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null) {
+                    continue;
+                }
+                int id = e.getKey().intValue();
+                if (!contributesToHierarchicalCompanionCentroid(id, e.getValue(), primaryId, bodies)) {
+                    continue;
+                }
+                double[] p = positions.get(e.getKey());
+                if (p == null || p.length <= Math.max(a0, a1)) {
+                    continue;
+                }
+                double x = worldAxisMetres(p, a0);
+                double y = worldAxisMetres(p, a1);
+                if (!Double.isFinite(x) || !Double.isFinite(y)) {
+                    continue;
+                }
+                sumX += x;
+                sumY += y;
+                n++;
+            }
+            for (Map.Entry<Integer, double[]> e : positions.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null) {
+                    continue;
+                }
+                int id = e.getKey().intValue();
+                if (!isPlanetBinaryBarycentreMapKey(id)) {
+                    continue;
+                }
+                double[] p = e.getValue();
+                if (p.length <= Math.max(a0, a1)) {
+                    continue;
+                }
+                double x = worldAxisMetres(p, a0);
+                double y = worldAxisMetres(p, a1);
+                if (!Double.isFinite(x) || !Double.isFinite(y)) {
+                    continue;
+                }
+                sumX += x;
+                sumY += y;
+                n++;
+            }
+        }
+        if (n <= 0) {
+            return null;
+        }
+        return new double[] { sumX / n, sumY / n };
+    }
+
+    private static boolean contributesToHierarchicalCompanionCentroid(int id, BodyInfo b, int primaryId,
+            Map<Integer, BodyInfo> bodies) {
+        if (b == null || bodies == null || id == primaryId) {
+            return false;
+        }
+        if (b.isScanBarycentreRow()) {
+            return true;
+        }
+        if (isWideBinaryPrimaryBranchBody(id, primaryId, bodies)) {
+            return false;
+        }
+        if (isMapStellarBody(b) || isStellarBody(b) || isStellarDirectNullMember(b, bodies)) {
+            String letter = stellarBranchLetter(b);
+            return letter != null && !"A".equals(letter);
+        }
+        return false;
+    }
+
+    /**
+     * {@code +} markers use scan-row map keys; copy schematic positions from synthetic Null hub keys after layout.
+     */
+    public static void syncScanBarycentreRowPositionsToSyntheticHubs(Map<Integer, double[]> positions,
+            Map<Integer, BodyInfo> bodies) {
+        if (positions == null || bodies == null) {
+            return;
+        }
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || !e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            int nullId = e.getKey().intValue();
+            double[] hub = positions.get(Integer.valueOf(planetBinaryBarycentreMapKey(nullId)));
+            if (hub == null || hub.length < 2) {
+                continue;
+            }
+            positions.put(e.getKey(), Arrays.copyOf(hub, Math.max(3, hub.length)));
+        }
+    }
+
+    /**
      * Four-star hierarchies: A and the BCD cluster sit on opposite sides of the system barycentre (map origin), not
      * with A at the centre of the large mutual-orbit ring.
      */
@@ -4887,6 +5646,60 @@ public final class SystemOrbitGeometry {
             int mapProjA0,
             int mapProjA1) {
         if (positions == null || bodies == null || !isHierarchicalWideBinary(bodies)) {
+            return;
+        }
+        if (isHierarchicalTripleStarMap(bodies)) {
+            placeHierarchicalTripleStarCluster(positions, bodies, mapProjA0, mapProjA1);
+            return;
+        }
+        int a0 = clampWorldAxisIndex(mapProjA0);
+        int a1 = clampWorldAxisIndex(mapProjA1);
+        if (a0 == a1) {
+            return;
+        }
+        int primaryId = primaryAnchorBodyMapKey(bodies);
+        if (primaryId < 0) {
+            return;
+        }
+        double[] pA = positions.get(Integer.valueOf(primaryId));
+        if (pA == null || pA.length < 3) {
+            return;
+        }
+        double ax = worldAxisMetres(pA, a0);
+        double ay = worldAxisMetres(pA, a1);
+        double refBx = ax;
+        double refBy = ay;
+        double[] companionCentroid = hierarchicalCompanionClusterCentroidMapPlane(positions, bodies, primaryId, a0,
+                a1);
+        if (companionCentroid != null) {
+            refBx = companionCentroid[0];
+            refBy = companionCentroid[1];
+        }
+        double halfSepM = HIERARCHICAL_WIDE_BINARY_SCHEMATIC_SEP_LS * LIGHT_SECOND_METRES * 0.5;
+        double dx = refBx - ax;
+        double dy = refBy - ay;
+        double sep = Math.hypot(dx, dy);
+        double ux = sep > LIGHT_SECOND_METRES ? dx / sep : 1.0;
+        double uy = sep > LIGHT_SECOND_METRES ? dy / sep : 0.0;
+        double targetAx = -ux * halfSepM;
+        double targetAy = -uy * halfSepM;
+        double targetBx = ux * halfSepM;
+        double targetBy = uy * halfSepM;
+        shiftMapPlaneBranch(positions, bodies, primaryId, primaryId, targetAx - ax, targetAy - ay, a0, a1);
+        shiftMapPlaneBranch(positions, bodies, primaryId, -1, targetBx - refBx, targetBy - refBy, a0, a1);
+        syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+    }
+
+    /**
+     * Triple star (A vs B+C): keep A on the arrival branch and place the inner pair on a schematic trunk (~7.5k Ls),
+     * not the four-star system-barycentre ring at map origin.
+     */
+    private static void placeHierarchicalTripleStarCluster(Map<Integer, double[]> positions,
+            Map<Integer, BodyInfo> bodies,
+            int mapProjA0,
+            int mapProjA1) {
+        int nullId = hierarchicalTripleStellarNullId(bodies);
+        if (nullId < 0) {
             return;
         }
         int a0 = clampWorldAxisIndex(mapProjA0);
@@ -4914,8 +5727,15 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             int id = e.getKey().intValue();
-            if (id == primaryId || isWideBinaryPrimaryBranchBody(id, primaryId, bodies)) {
+            BodyInfo star = e.getValue();
+            if (id == primaryId || !isStellarDirectNullMember(star, bodies)) {
                 continue;
+            }
+            if (star.getImmediateParentBodyId() != nullId) {
+                String letter = stellarBranchLetter(star);
+                if (letter == null || "A".equals(letter)) {
+                    continue;
+                }
             }
             double[] p = positions.get(e.getKey());
             if (p == null || p.length <= Math.max(a0, a1)) {
@@ -4934,18 +5754,45 @@ public final class SystemOrbitGeometry {
             refBx = sumX / n;
             refBy = sumY / n;
         }
-        double halfSepM = HIERARCHICAL_WIDE_BINARY_SCHEMATIC_SEP_LS * LIGHT_SECOND_METRES * 0.5;
+        double sepM = HIERARCHICAL_WIDE_BINARY_SCHEMATIC_SEP_LS * LIGHT_SECOND_METRES;
         double dx = refBx - ax;
         double dy = refBy - ay;
-        double sep = Math.hypot(dx, dy);
-        double ux = sep > LIGHT_SECOND_METRES ? dx / sep : 1.0;
-        double uy = sep > LIGHT_SECOND_METRES ? dy / sep : 0.0;
-        double targetAx = -ux * halfSepM;
-        double targetAy = -uy * halfSepM;
-        double targetBx = ux * halfSepM;
-        double targetBy = uy * halfSepM;
-        shiftMapPlaneBranch(positions, bodies, primaryId, primaryId, targetAx - ax, targetAy - ay, a0, a1);
-        shiftMapPlaneBranch(positions, bodies, primaryId, -1, targetBx - refBx, targetBy - refBy, a0, a1);
+        double journalSep = Math.hypot(dx, dy);
+        double ux = journalSep > LIGHT_SECOND_METRES ? dx / journalSep : 1.0;
+        double uy = journalSep > LIGHT_SECOND_METRES ? dy / journalSep : 0.0;
+        double targetCx = ax + ux * sepM;
+        double targetCy = ay + uy * sepM;
+        double dPlane0 = targetCx - refBx;
+        double dPlane1 = targetCy - refBy;
+        if (Math.abs(dPlane0) >= 1.0 || Math.abs(dPlane1) >= 1.0) {
+            for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null) {
+                    continue;
+                }
+                int id = e.getKey().intValue();
+                if (!isHierarchicalTripleCompanionShiftBody(id, nullId, bodies)) {
+                    continue;
+                }
+                double[] p = positions.get(e.getKey());
+                if (p == null || p.length < 3) {
+                    continue;
+                }
+                double[] shifted = Arrays.copyOf(p, Math.max(3, p.length));
+                shifted[a0] = worldAxisMetres(p, a0) + dPlane0;
+                shifted[a1] = worldAxisMetres(p, a1) + dPlane1;
+                positions.put(e.getKey(), shifted);
+            }
+        }
+        int bKey = planetBinaryBarycentreMapKey(nullId);
+        double[] hub = positions.get(Integer.valueOf(bKey));
+        if (hub == null || hub.length < Math.max(a0, a1) + 1) {
+            hub = new double[Math.max(3, Math.max(a0, a1) + 1)];
+        } else {
+            hub = Arrays.copyOf(hub, Math.max(3, hub.length));
+        }
+        hub[a0] = targetCx;
+        hub[a1] = targetCy;
+        positions.put(Integer.valueOf(bKey), hub);
     }
 
     private static void shiftMapPlaneBranch(Map<Integer, double[]> positions,
@@ -4977,6 +5824,33 @@ public final class SystemOrbitGeometry {
                 continue;
             }
             double[] p = positions.get(e.getKey());
+            if (p == null || p.length < 3) {
+                continue;
+            }
+            double[] shifted = Arrays.copyOf(p, Math.max(3, p.length));
+            shifted[a0] = worldAxisMetres(p, a0) + dPlane0;
+            shifted[a1] = worldAxisMetres(p, a1) + dPlane1;
+            positions.put(e.getKey(), shifted);
+        }
+        if (branchRootId < 0) {
+            shiftSyntheticBarycentrePositions(positions, dPlane0, dPlane1, a0, a1);
+        }
+    }
+
+    /** {@link #planetBinaryBarycentreMapKey} rows live only in {@code positions}, not {@code bodies}. */
+    private static void shiftSyntheticBarycentrePositions(Map<Integer, double[]> positions,
+            double dPlane0,
+            double dPlane1,
+            int a0,
+            int a1) {
+        if (positions == null) {
+            return;
+        }
+        for (Map.Entry<Integer, double[]> e : positions.entrySet()) {
+            if (e.getKey() == null || e.getKey().intValue() >= 0) {
+                continue;
+            }
+            double[] p = e.getValue();
             if (p == null || p.length < 3) {
                 continue;
             }
@@ -5020,6 +5894,76 @@ public final class SystemOrbitGeometry {
             wy[i] = cy + halfSepM * Math.sin(theta);
         }
         out.add(new OrbitPolylineWorldXY(BINARY_BARYCENTRE_ORBIT_RING_BODY_ID, wx, wy));
+    }
+
+    /**
+     * Schematic mutual-orbit ring between primary A and the B+C hub — same stroke style as other orbits, not a straight
+     * chord (replaces the empty system-barycentre ring at map origin).
+     */
+    private static void appendHierarchicalTripleStarTrunk(List<OrbitPolylineWorldXY> out,
+            Map<Integer, BodyInfo> bodies,
+            Map<Integer, double[]> bodyWorldPositions,
+            int p0,
+            int p1,
+            int legacyN,
+            boolean useScreenChord,
+            double scalePixelsPerMetre) {
+        if (out == null || bodies == null || bodyWorldPositions == null || !isHierarchicalTripleStarMap(bodies)) {
+            return;
+        }
+        int nullId = hierarchicalTripleStellarNullId(bodies);
+        if (nullId < 0) {
+            return;
+        }
+        int primaryId = primaryAnchorBodyMapKey(bodies);
+        int bKey = planetBinaryBarycentreMapKey(nullId);
+        if (primaryId < 0) {
+            return;
+        }
+        double[] aPos = bodyWorldPositions.get(Integer.valueOf(primaryId));
+        double[] bPos = bodyWorldPositions.get(Integer.valueOf(bKey));
+        int needLen = Math.max(p0, p1) + 1;
+        if (aPos == null || aPos.length < needLen) {
+            return;
+        }
+        double ax = worldAxisMetres(aPos, p0);
+        double ay = worldAxisMetres(aPos, p1);
+        double bx;
+        double by;
+        if (bPos != null && bPos.length >= needLen) {
+            bx = worldAxisMetres(bPos, p0);
+            by = worldAxisMetres(bPos, p1);
+        } else {
+            double[] centroid = planetBinaryMemberCentroidWorldXY(nullId, bodies, bodyWorldPositions, p0, p1);
+            if (centroid == null) {
+                return;
+            }
+            bx = centroid[0];
+            by = centroid[1];
+        }
+        if (!Double.isFinite(ax) || !Double.isFinite(ay) || !Double.isFinite(bx) || !Double.isFinite(by)) {
+            return;
+        }
+        double trunkLen = Math.hypot(bx - ax, by - ay);
+        double halfSepM = trunkLen * 0.5;
+        if (!Double.isFinite(halfSepM) || halfSepM < MIN_FALLBACK_ORBIT_RADIUS_METRES) {
+            return;
+        }
+        double cx = (ax + bx) * 0.5;
+        double cy = (ay + by) * 0.5;
+        int n = legacyN;
+        if (useScreenChord && Double.isFinite(scalePixelsPerMetre) && scalePixelsPerMetre > 0.0) {
+            n = segmentCountForScreenChord(scalePixelsPerMetre, Math.PI * 2.0 * halfSepM, legacyN);
+        }
+        n = Math.max(12, Math.min(ORBIT_POLYLINE_SEGMENTS_HARD_MAX, n));
+        double[] wx = new double[n];
+        double[] wy = new double[n];
+        for (int i = 0; i < n; i++) {
+            double theta = (Math.PI * 2.0 * i) / n;
+            wx[i] = cx + halfSepM * Math.cos(theta);
+            wy[i] = cy + halfSepM * Math.sin(theta);
+        }
+        out.add(new OrbitPolylineWorldXY(HIERARCHICAL_TRIPLE_STAR_TRUNK_POLYLINE_ID, wx, wy));
     }
 
     /**
@@ -5164,7 +6108,29 @@ public final class SystemOrbitGeometry {
             }
             positions.put(e.getKey(), new double[] { p[0] + dx, p[1] + dy, p[2] + dz });
         }
-        recenterBinaryBarycentreInMapPlane(positions, bodies, mapProjA0, mapProjA1);
+        shiftSyntheticBarycentrePositionsXYZ(positions, dx, dy, dz);
+        if (!isHierarchicalWideBinary(bodies)) {
+            recenterBinaryBarycentreInMapPlane(positions, bodies, mapProjA0, mapProjA1);
+        }
+    }
+
+    private static void shiftSyntheticBarycentrePositionsXYZ(Map<Integer, double[]> positions,
+            double dx,
+            double dy,
+            double dz) {
+        if (positions == null) {
+            return;
+        }
+        for (Map.Entry<Integer, double[]> e : positions.entrySet()) {
+            if (e.getKey() == null || e.getKey().intValue() >= 0) {
+                continue;
+            }
+            double[] p = e.getValue();
+            if (p == null || p.length < 3) {
+                continue;
+            }
+            positions.put(e.getKey(), new double[] { p[0] + dx, p[1] + dy, p[2] + dz });
+        }
     }
 
     private static boolean isDescendantOf(int ancestorId, int bodyId, Map<Integer, BodyInfo> bodies) {
