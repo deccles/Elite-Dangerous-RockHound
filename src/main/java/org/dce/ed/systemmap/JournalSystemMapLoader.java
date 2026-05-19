@@ -22,10 +22,13 @@ public final class JournalSystemMapLoader {
     }
 
     /**
-     * Default Elite journal directory on Windows when env is unset.
+     * Default Elite journal directory ({@code USERPROFILE} on Windows, {@code HOME} elsewhere).
      */
     public static Path defaultJournalDirectory() {
         String home = System.getenv("USERPROFILE");
+        if (home == null || home.isBlank()) {
+            home = System.getenv("HOME");
+        }
         if (home != null && !home.isBlank()) {
             return Path.of(home, "Saved Games", "Frontier Developments", "Elite Dangerous");
         }

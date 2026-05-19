@@ -122,9 +122,8 @@ class EolProuOrVD2399TripleStarTest {
 
         @BeforeAll
         static void loadJournal() throws IOException {
-            Path journalDir = Path.of(System.getenv("USERPROFILE"), "Saved Games", "Frontier Developments",
-                    "Elite Dangerous");
-            assumeTrue(Files.isDirectory(journalDir), "Elite journal directory not found");
+            Path journalDir = JournalSystemMapLoader.defaultJournalDirectory();
+            assumeTrue(Files.isDirectory(journalDir), "Elite journal directory not found: " + journalDir);
             SystemState state = JournalSystemMapLoader.loadFromJournal(journalDir, "Eol Prou OR-V d2-399");
             assumeTrue(state.getBodies().size() >= 10, "need FSS scans in journal");
             journalBodies = state.getBodies();
