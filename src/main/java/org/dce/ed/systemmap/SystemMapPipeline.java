@@ -204,17 +204,31 @@ public final class SystemMapPipeline {
         int a0 = base.projectionAxis0();
         int a1 = base.projectionAxis1();
         WideBinaryFlattenFrame frame = base.wideBinaryFlattenFrame();
-        if (frame != null) {
+        boolean hierarchical = SystemOrbitGeometry.isHierarchicalWideBinary(bodies);
+        /*
+         * Re-applying the two-star flatten chord moves only one companion anchor; inner B+C stay at the pre-align
+         * separation (~6k Ls) when cache parents companions to A. Hierarchical playback re-places from the last model.
+         */
+        if (frame != null && !hierarchical) {
             SystemOrbitGeometry.reapplyWideBinaryFlattenWithFrame(positions, bodies, a0, a1, frame);
-        } else {
+        } else if (frame == null) {
             SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(positions, bodies, a0, a1);
         }
         if (!SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
             SystemOrbitGeometry.recenterBinaryBarycentreInMapPlane(positions, bodies, a0, a1);
         }
         Instant t = epoch != null ? epoch : Instant.now();
-        Map<Integer, double[]> refreshed = SystemOrbitGeometry.bodyPositionsMetresForWideBinaryMap(bodies, positions,
-                t, a0, a1, freezeBarycentreStars);
+        /*
+         * Kepler re-seeding from heliocentric distances spreads inner stellar pairs (B+C) when cache parents them to
+         * the arrival star; keep the last schematic layout and only re-flatten + re-place hierarchically.
+         */
+        Map<Integer, double[]> refreshed;
+        if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+            refreshed = new HashMap<>(positions);
+        } else {
+            refreshed = SystemOrbitGeometry.bodyPositionsMetresForWideBinaryMap(bodies, positions, t, a0, a1,
+                    freezeBarycentreStars);
+        }
         if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
             /*
              * Match initial {@link #build}: branch seeding can undo the flatten chord; re-flatten before hierarchical

@@ -188,13 +188,7 @@ public final class SystemMapRules {
         }
         SystemMapClassification clf = classify(bodies);
         if (clf.wideBinary() && SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
-            if (starDot) {
-                return true;
-            }
-            if (SystemOrbitGeometry.isWideBinaryPrimaryBranchBody(mapBodyId, bodies) && !moon) {
-                return true;
-            }
-            return false;
+            return starDot;
         }
         if (!starDot && soleOrbitCluster) {
             return true;

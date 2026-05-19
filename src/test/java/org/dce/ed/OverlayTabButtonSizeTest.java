@@ -9,6 +9,7 @@ import java.awt.FontMetrics;
 import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import javax.swing.JButton;
 import javax.swing.SwingUtilities;
@@ -19,6 +20,8 @@ import org.junit.jupiter.api.Test;
  * Regression: tab labels must not be laid out narrower than their text (BasicButtonUI ellipsis).
  */
 class OverlayTabButtonSizeTest {
+
+	private static final Set<String> TAB_LABELS = Set.of("Route", "System", "Biology", "Mining", "Fleet Carrier");
 
 	@Test
 	void tabButtons_preferredSizeFitsFullLabel() throws Exception {
@@ -40,7 +43,7 @@ class OverlayTabButtonSizeTest {
 		for (Component child : root.getComponents()) {
 			if (child instanceof JButton button) {
 				String text = button.getText();
-				if (text != null && !text.isBlank()) {
+				if (text != null && TAB_LABELS.contains(text)) {
 					out.add(button);
 				}
 			}

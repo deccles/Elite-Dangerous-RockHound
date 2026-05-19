@@ -605,4 +605,46 @@ class SystemOrbitGeometryPlanetBinaryTest {
     private static double axisCoord(double[] p, int axis) {
         return p != null && axis >= 0 && axis < p.length ? p[axis] : 0.0;
     }
+
+    /**
+     * Regression: {@code ScanBaryCentre} rows plus corrupt parent chains must not recurse until stack overflow
+     * when the system map opens (live cache / EDSM sync).
+     */
+    @Test
+    void bodyPositionsMetres_noStackOverflow_scanBarycentreAndCyclicParents() {
+        Map<Integer, BodyInfo> bodies = new HashMap<>();
+        BodyInfo star = new BodyInfo();
+        star.setBodyId(0);
+        star.setBodyShortName("Test System");
+        star.setStarType("G");
+        star.setDistanceLs(0.0);
+        bodies.put(Integer.valueOf(0), star);
+
+        BodyInfo bary12 = new BodyInfo();
+        bary12.setBodyId(12);
+        bary12.setScanBarycentreRow(true);
+        bary12.setDistanceLs(7.0);
+        bodies.put(Integer.valueOf(12), bary12);
+
+        BodyInfo oneB = new BodyInfo();
+        oneB.setBodyId(13);
+        oneB.setBodyShortName("1 b");
+        oneB.setPlanetClass("Icy body");
+        oneB.setDistanceLs(2250.0);
+        oneB.setImmediateParentBodyId(12);
+        bodies.put(Integer.valueOf(13), oneB);
+
+        BodyInfo oneC = new BodyInfo();
+        oneC.setBodyId(14);
+        oneC.setBodyShortName("1 c");
+        oneC.setPlanetClass("Icy body");
+        oneC.setDistanceLs(2251.0);
+        oneC.setImmediateParentBodyId(13);
+        bodies.put(Integer.valueOf(14), oneC);
+
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
+        assertNotNull(pos);
+        assertTrue(pos.size() >= 2);
+        assertNotNull(pos.get(Integer.valueOf(13)));
+    }
 }

@@ -67,7 +67,7 @@ jobs:
 
       - name: Build (creates jar + src.zip)
         if: steps.decide.outputs.release == 'true'
-        run: mvn -B -U -DskipTests clean package
+        run: mvn -B -U clean package
 
       - name: Locate release artifacts
         if: steps.decide.outputs.release == 'true'
