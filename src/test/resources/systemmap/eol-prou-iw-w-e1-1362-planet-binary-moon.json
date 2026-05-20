@@ -1,0 +1,64 @@
+{
+  "name": "Eol Prou IW-W e1-1362",
+  "notes": "Neutron star + Null:2 planet-binary (1+2) + moon 2 a. Moon journal parent may be host 2 or Null:2 scan row.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Eol Prou IW-W e1-1362",
+      "shortName": "N",
+      "distanceLs": 0,
+      "starType": "N",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 100,
+      "bodyName": "Eol Prou IW-W e1-1362 barycentre 0",
+      "shortName": "Null:0",
+      "distanceLs": 0,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 102,
+      "bodyName": "Eol Prou IW-W e1-1362 barycentre 2",
+      "shortName": "Null:2",
+      "distanceLs": 1830,
+      "scanBarycentreRow": true,
+      "immediateParentBodyId": 100
+    },
+    {
+      "id": 11,
+      "bodyName": "Eol Prou IW-W e1-1362 1",
+      "shortName": "1",
+      "distanceLs": 1475,
+      "planetClass": "High metal content body",
+      "immediateParentBodyId": 102
+    },
+    {
+      "id": 22,
+      "bodyName": "Eol Prou IW-W e1-1362 2",
+      "shortName": "2",
+      "distanceLs": 2192,
+      "planetClass": "High metal content body",
+      "immediateParentBodyId": 102
+    },
+    {
+      "id": 223,
+      "bodyName": "Eol Prou IW-W e1-1362 2 a",
+      "shortName": "2 a",
+      "distanceLs": 2188,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 102
+    }
+  ],
+  "expect": {
+    "layoutKind": "SINGLE_STAR_SCHEMATIC",
+    "mapStellarCount": 1,
+    "hasPlanetBinaryMutualRing": true,
+    "planetBinaryNullId": 2,
+    "parents": [
+      { "body": "2 a", "resolvesTo": "2" },
+      { "body": "1", "resolvesTo": "planetBinary:2" },
+      { "body": "2", "resolvesTo": "planetBinary:2" }
+    ]
+  }
+}

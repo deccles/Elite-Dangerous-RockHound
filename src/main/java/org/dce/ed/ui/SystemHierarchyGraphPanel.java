@@ -30,10 +30,14 @@ import org.dce.ed.systemmap.SystemMapHierarchyBuilder.NodeKind;
  */
 public final class SystemHierarchyGraphPanel extends JPanel {
 
-    private static final int NODE_PAD_X = 10;
-    private static final int NODE_PAD_Y = 6;
-    private static final int MIN_NODE_W = 72;
-    private static final int MIN_NODE_H = 36;
+    private static final float LABEL_FONT_PT = 14f;
+    private static final float SMALL_FONT_PT = 12f;
+    private static final int TEXT_LINE_GAP = 2;
+    private static final int NODE_PAD_X = 12;
+    private static final int NODE_PAD_Y = 8;
+    private static final int MIN_NODE_W = 84;
+    private static final int MIN_NODE_H = 44;
+    private static final int SIBLING_GAP = 28;
 
     private Graph graph;
     private final Map<Integer, Rectangle2D.Double> nodeBounds = new HashMap<>();
@@ -44,11 +48,12 @@ public final class SystemHierarchyGraphPanel extends JPanel {
     private double panStartX;
     private double panStartY;
     private Integer hoverKey;
+    private Runnable viewChangeListener;
 
     public SystemHierarchyGraphPanel() {
         setBackground(EdoUi.User.BACKGROUND);
         setPreferredSize(new Dimension(900, 600));
-        setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        setFont(new Font(Font.SANS_SERIF, Font.PLAIN, (int) LABEL_FONT_PT));
 
         MouseAdapter mouse = new MouseAdapter() {
             @Override
@@ -61,8 +66,12 @@ public final class SystemHierarchyGraphPanel extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
+                boolean wasDragging = dragStart != null;
                 dragStart = null;
                 setCursor(Cursor.getDefaultCursor());
+                if (wasDragging) {
+                    fireViewChanged();
+                }
             }
 
             @Override
@@ -95,6 +104,7 @@ public final class SystemHierarchyGraphPanel extends JPanel {
                 panX = mx - wx * scale;
                 panY = my - wy * scale;
                 repaint();
+                fireViewChanged();
             }
         };
         addMouseListener(mouse);
@@ -106,23 +116,53 @@ public final class SystemHierarchyGraphPanel extends JPanel {
         this.graph = graph;
         this.hoverKey = null;
         this.nodeBounds.clear();
+        repaint();
+    }
+
+    public void setViewChangeListener(Runnable viewChangeListener) {
+        this.viewChangeListener = viewChangeListener;
+    }
+
+    public double getScale() {
+        return scale;
+    }
+
+    public double getPanX() {
+        return panX;
+    }
+
+    public double getPanY() {
+        return panY;
+    }
+
+    public void setViewTransform(double scale, double panX, double panY) {
         if (graph == null) {
-            repaint();
             return;
         }
-        fitToGraph();
+        this.scale = Math.max(0.25, Math.min(3.0, scale));
+        this.panX = panX;
+        this.panY = panY;
         repaint();
+    }
+
+    private void fireViewChanged() {
+        if (viewChangeListener != null && graph != null) {
+            viewChangeListener.run();
+        }
     }
 
     public void fitToGraph() {
         if (graph == null) {
             return;
         }
+        FontMetrics fm = getFontMetrics(getFont());
+        SystemMapHierarchyBuilder.applyLayout(graph, fm, NODE_PAD_X, MIN_NODE_W, MIN_NODE_H, SIBLING_GAP);
         Rectangle2D bounds = graphBounds(graph.root);
         if (bounds.getWidth() < 1.0 || bounds.getHeight() < 1.0) {
             scale = 1.0;
             panX = 40.0;
             panY = 40.0;
+            repaint();
             return;
         }
         double margin = 48.0;
@@ -133,6 +173,8 @@ public final class SystemHierarchyGraphPanel extends JPanel {
         scale = Math.max(0.25, Math.min(2.5, Math.min(sx, sy)));
         panX = margin - bounds.getMinX() * scale;
         panY = margin - bounds.getMinY() * scale;
+        repaint();
+        fireViewChanged();
     }
 
     @Override
@@ -149,8 +191,10 @@ public final class SystemHierarchyGraphPanel extends JPanel {
             return;
         }
 
+        FontMetrics fm = g2.getFontMetrics(getFont());
+        SystemMapHierarchyBuilder.applyLayout(graph, fm, NODE_PAD_X, MIN_NODE_W, MIN_NODE_H, SIBLING_GAP);
         nodeBounds.clear();
-        layoutNodeBounds(graph.root, g2.getFontMetrics(getFont()));
+        layoutNodeBounds(graph.root, fm);
         g2.translate(panX, panY);
         g2.scale(scale, scale);
         paintEdges(g2);
@@ -196,19 +240,44 @@ public final class SystemHierarchyGraphPanel extends JPanel {
         g2.setStroke(new BasicStroke(hover ? 2.5f : 1.5f));
         g2.drawRoundRect((int) rect.x, (int) rect.y, (int) rect.width, (int) rect.height, 10, 10);
 
-        g2.setColor(EdoUi.User.MAIN_TEXT);
+        boolean darkText = usesDarkNodeText(node.kind);
+        Color labelColor = darkText ? Color.BLACK : EdoUi.User.MAIN_TEXT;
+        Color subtitleColor = darkText ? new Color(0, 0, 0, 210) : EdoUi.Internal.mainTextAlpha(200);
+        Color parentsColor = darkText ? new Color(0, 0, 0, 175) : EdoUi.Internal.mainTextAlpha(160);
         int labelW = fm.stringWidth(node.label);
         int subW = node.subtitle != null ? fm.stringWidth(node.subtitle) : 0;
-        int textW = Math.max(labelW, subW);
-        int tx = (int) (rect.getCenterX() - textW / 2.0);
-        int ty = (int) rect.getCenterY() - (node.subtitle != null ? fm.getHeight() / 2 : 0);
-        g2.drawString(node.label, tx, ty);
+        int parW = node.parentsLine != null ? fm.stringWidth(node.parentsLine) : 0;
+        int textW = Math.max(labelW, Math.max(subW, parW));
+        int lineCount = 1;
         if (node.subtitle != null && !node.subtitle.isEmpty()) {
-            g2.setFont(getFont().deriveFont(Font.PLAIN, 10f));
+            lineCount++;
+        }
+        if (node.parentsLine != null && !node.parentsLine.isEmpty()) {
+            lineCount++;
+        }
+        int ty = (int) rect.getCenterY() - (lineCount - 1) * (fm.getHeight() / 2);
+        int tx = (int) (rect.getCenterX() - labelW / 2.0);
+        g2.setColor(labelColor);
+        g2.drawString(node.label, tx, ty);
+        int lineY = ty;
+        Font small = getFont().deriveFont(Font.PLAIN, SMALL_FONT_PT);
+        if (node.subtitle != null && !node.subtitle.isEmpty()) {
+            g2.setFont(small);
             FontMetrics sfm = g2.getFontMetrics();
+            lineY += sfm.getHeight() + TEXT_LINE_GAP;
             int stx = (int) (rect.getCenterX() - sfm.stringWidth(node.subtitle) / 2.0);
-            g2.setColor(EdoUi.Internal.mainTextAlpha(200));
-            g2.drawString(node.subtitle, stx, ty + sfm.getHeight());
+            g2.setColor(subtitleColor);
+            g2.drawString(node.subtitle, stx, lineY);
+        }
+        if (node.parentsLine != null && !node.parentsLine.isEmpty()) {
+            g2.setFont(small);
+            FontMetrics pfm = g2.getFontMetrics();
+            lineY += pfm.getHeight() + TEXT_LINE_GAP;
+            int ptx = (int) (rect.getCenterX() - pfm.stringWidth(node.parentsLine) / 2.0);
+            g2.setColor(parentsColor);
+            g2.drawString(node.parentsLine, ptx, lineY);
+            g2.setFont(getFont());
+        } else if (node.subtitle != null && !node.subtitle.isEmpty()) {
             g2.setFont(getFont());
         }
         for (Node child : node.children) {
@@ -216,11 +285,19 @@ public final class SystemHierarchyGraphPanel extends JPanel {
         }
     }
 
+    private static boolean usesDarkNodeText(NodeKind kind) {
+        return kind == NodeKind.STAR
+                || kind == NodeKind.SYSTEM_BARYCENTRE
+                || kind == NodeKind.SCAN_BARYCENTRE
+                || kind == NodeKind.PLANET_BINARY_BARYCENTRE;
+    }
+
     private static Color fillFor(NodeKind kind, boolean hover) {
         int alpha = hover ? 230 : 190;
+        Color barycentrePurple = new Color(120, 90, 200);
         return switch (kind) {
-            case SYSTEM_BARYCENTRE -> EdoUi.withAlpha(new Color(120, 90, 200), alpha);
-            case SCAN_BARYCENTRE, PLANET_BINARY_BARYCENTRE -> EdoUi.withAlpha(new Color(90, 140, 220), alpha);
+            case SYSTEM_BARYCENTRE, SCAN_BARYCENTRE, PLANET_BINARY_BARYCENTRE ->
+                    EdoUi.withAlpha(barycentrePurple, alpha);
             case STAR -> EdoUi.withAlpha(new Color(220, 170, 40), alpha);
             case PLANET -> EdoUi.withAlpha(new Color(50, 120, 180), alpha);
             case MOON -> EdoUi.withAlpha(new Color(90, 110, 130), alpha);
@@ -231,18 +308,28 @@ public final class SystemHierarchyGraphPanel extends JPanel {
     private static Color borderFor(NodeKind kind, boolean hover) {
         Color base = switch (kind) {
             case STAR -> EdoUi.User.VALUABLE;
-            case PLANET_BINARY_BARYCENTRE, SCAN_BARYCENTRE -> new Color(140, 200, 255);
+            case SYSTEM_BARYCENTRE, SCAN_BARYCENTRE, PLANET_BINARY_BARYCENTRE -> new Color(180, 150, 240);
             default -> EdoUi.User.MAIN_TEXT;
         };
         return hover ? base.brighter() : EdoUi.withAlpha(base, 220);
     }
 
     private void layoutNodeBounds(Node node, FontMetrics fm) {
-        int w = Math.max(MIN_NODE_W, Math.max(fm.stringWidth(node.label),
-                node.subtitle != null ? fm.stringWidth(node.subtitle) : 0) + 2 * NODE_PAD_X);
-        int h = MIN_NODE_H;
+        int lineStep = fm.getHeight() + TEXT_LINE_GAP;
+        int parW = node.parentsLine != null ? fm.stringWidth(node.parentsLine) : 0;
+        int w = node.layoutW > 0 ? node.layoutW
+                : Math.max(MIN_NODE_W, Math.max(fm.stringWidth(node.label),
+                        Math.max(node.subtitle != null ? fm.stringWidth(node.subtitle) : 0, parW)) + 2 * NODE_PAD_X);
+        int h = node.layoutH > 0 ? node.layoutH : MIN_NODE_H;
+        int extra = 0;
         if (node.subtitle != null && !node.subtitle.isEmpty()) {
-            h = MIN_NODE_H + 12;
+            extra += lineStep;
+        }
+        if (node.parentsLine != null && !node.parentsLine.isEmpty()) {
+            extra += lineStep;
+        }
+        if (h <= MIN_NODE_H + extra) {
+            h = MIN_NODE_H + extra;
         }
         double x = node.layoutX - w / 2.0;
         double y = node.layoutY - h / 2.0;

@@ -9,11 +9,21 @@ import java.util.Map;
 import java.util.Set;
 
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.state.JournalParentRefs;
 import org.dce.ed.util.SystemOrbitGeometry;
 
 /**
  * Builds a top-down parent/child graph from {@link SystemMapModel} resolved parents (same topology as
  * {@link SystemMapTreePrinter}).
+ * <p>
+ * Each node shows three independent facts (no guessing which line means what):
+ * <ul>
+ *   <li><b>Label</b> — body short name (or {@code Null:N} for barycentre rows / planet-binary hubs).</li>
+ *   <li><b>Subtitle</b> — physical type plus <em>map</em> orbit parent ({@link JournalParentRefs#formatMapParentLabel});
+ *       adds {@code journal: …} when journal innermost parent disagrees with map.</li>
+ *   <li><b>Parents line</b> — full journal {@code Scan.Parents[]} chain inner→outer
+ *       ({@link JournalParentRefs#formatParentsLineForMapBody} / hub variant); tree edges still follow map topology.</li>
+ * </ul>
  */
 public final class SystemMapHierarchyBuilder {
 
@@ -31,16 +41,23 @@ public final class SystemMapHierarchyBuilder {
         public final int mapKey;
         public final String label;
         public final String subtitle;
+        /** Journal {@code Parents[]} with ids resolved to names when known; may be null. */
+        public final String parentsLine;
         public final NodeKind kind;
         public final List<Node> children = new ArrayList<>();
         public int parentKey = Integer.MIN_VALUE;
         public double layoutX;
         public double layoutY;
+        /** Measured box width for layout (pixels); set by {@link #applyLayout}. */
+        public int layoutW;
+        /** Measured box height for layout (pixels); set by {@link #applyLayout}. */
+        public int layoutH;
 
-        Node(int mapKey, String label, String subtitle, NodeKind kind) {
+        Node(int mapKey, String label, String subtitle, String parentsLine, NodeKind kind) {
             this.mapKey = mapKey;
             this.label = label;
             this.subtitle = subtitle;
+            this.parentsLine = parentsLine;
             this.kind = kind;
         }
     }
@@ -69,21 +86,24 @@ public final class SystemMapHierarchyBuilder {
     }
 
     private static final int ROOT_KEY = -1;
-    private static final double H_SPACING = 140.0;
-    private static final double V_SPACING = 88.0;
+    private static final double V_SPACING = 100.0;
+    private static final int DEFAULT_SIBLING_GAP = 28;
+    private static final int ESTIMATE_MIN_NODE_W = 84;
+    private static final int ESTIMATE_MIN_NODE_H = 44;
+    private static final int ESTIMATE_EXTRA_LINE_PX = 14;
 
     private SystemMapHierarchyBuilder() {
     }
 
     public static Graph build(String systemName, SystemMapModel model, Map<Integer, BodyInfo> bodies) {
         Map<Integer, List<Integer>> childKeys = buildChildKeys(model, bodies);
-        Node root = new Node(ROOT_KEY, "Null:0", "system barycentre", NodeKind.SYSTEM_BARYCENTRE);
+        Node root = new Node(ROOT_KEY, "Null:0", "system barycentre", null, NodeKind.SYSTEM_BARYCENTRE);
         Map<Integer, Node> built = new HashMap<>();
         built.put(Integer.valueOf(ROOT_KEY), root);
         buildSubtree(root, ROOT_KEY, childKeys, bodies, model, built);
         List<Edge> edges = new ArrayList<>();
         collectEdges(root, edges);
-        layout(root, 0, 0.0);
+        applyLayoutEstimate(root);
         Graph graph = new Graph(systemName, root, edges);
         graph.nodeByKey.putAll(built);
         return graph;
@@ -91,30 +111,64 @@ public final class SystemMapHierarchyBuilder {
 
     private static Map<Integer, List<Integer>> buildChildKeys(SystemMapModel model, Map<Integer, BodyInfo> bodies) {
         Map<Integer, List<Integer>> children = new HashMap<>();
+        Set<Integer> planetBinaryNullIds = new HashSet<>();
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
             if (e.getValue() == null) {
                 continue;
             }
             int id = e.getKey().intValue();
             if (e.getValue().isScanBarycentreRow()) {
+                if (SystemOrbitGeometry.isPlanetBinaryNullParentId(id, bodies)) {
+                    planetBinaryNullIds.add(Integer.valueOf(id));
+                    continue;
+                }
                 children.computeIfAbsent(Integer.valueOf(ROOT_KEY), k -> new ArrayList<>()).add(Integer.valueOf(id));
                 continue;
             }
-            int p = model.resolveParentBodyId(id);
+            int p = hierarchyParentKey(id, e.getValue(), model, bodies);
             children.computeIfAbsent(Integer.valueOf(p), k -> new ArrayList<>()).add(Integer.valueOf(id));
-            if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(p)) {
-                children.computeIfAbsent(Integer.valueOf(ROOT_KEY), k -> new ArrayList<>()).add(Integer.valueOf(p));
+            int ip = e.getValue().getImmediateParentBodyId();
+            if (ip > 0 && SystemOrbitGeometry.isPlanetBinaryNullParentId(ip, bodies)) {
+                planetBinaryNullIds.add(Integer.valueOf(ip));
             }
+        }
+        for (Integer nullId : planetBinaryNullIds) {
+            int hubKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(nullId.intValue());
+            attachPlanetBinaryHub(children, hubKey, bodies);
         }
         for (Integer p : new ArrayList<>(children.keySet())) {
             if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(p.intValue())) {
-                children.computeIfAbsent(Integer.valueOf(ROOT_KEY), k -> new ArrayList<>()).add(p);
+                attachPlanetBinaryHub(children, p.intValue(), bodies);
             }
         }
         for (List<Integer> list : children.values()) {
             list.sort(bodySiblingComparator(bodies));
         }
         return children;
+    }
+
+    private static void attachPlanetBinaryHub(Map<Integer, List<Integer>> children, int hubKey,
+            Map<Integer, BodyInfo> bodies) {
+        int hubParent = SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(hubKey, bodies);
+        if (hubParent < 0) {
+            hubParent = ROOT_KEY;
+        }
+        List<Integer> list = children.computeIfAbsent(Integer.valueOf(hubParent), k -> new ArrayList<>());
+        Integer boxed = Integer.valueOf(hubKey);
+        if (!list.contains(boxed)) {
+            list.add(boxed);
+        }
+    }
+
+    /** Journal tree edges: co-orbit majors stay under {@code Null:N} hub; map orbit parent may differ. */
+    static int hierarchyParentKey(int bodyId, BodyInfo body, SystemMapModel model,
+            Map<Integer, BodyInfo> bodies) {
+        int ip = body.getImmediateParentBodyId();
+        if (ip > 0 && SystemOrbitGeometry.isPlanetBinaryNullParentId(ip, bodies)
+                && !SystemOrbitGeometry.isMoonSatelliteBody(body, bodies)) {
+            return SystemOrbitGeometry.planetBinaryBarycentreMapKey(ip);
+        }
+        return model.resolveParentBodyId(bodyId);
     }
 
     private static void buildSubtree(Node parentNode, int parentKey, Map<Integer, List<Integer>> childKeys,
@@ -142,40 +196,65 @@ public final class SystemMapHierarchyBuilder {
     private static Node nodeForKey(int id, Map<Integer, BodyInfo> bodies, SystemMapModel model) {
         if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(id)) {
             int nullId = SystemOrbitGeometry.journalNullIdFromPlanetBinaryBarycentreMapKey(id);
-            return new Node(id, "Null:" + nullId, "planet-binary barycentre", NodeKind.PLANET_BINARY_BARYCENTRE);
+            String parentsLine = JournalParentRefs.formatPlanetBinaryHubParentsLine(nullId, bodies, model);
+            return new Node(id, "Null:" + nullId, "planet-binary barycentre", parentsLine,
+                    NodeKind.PLANET_BINARY_BARYCENTRE);
         }
         BodyInfo b = bodies.get(Integer.valueOf(id));
         if (b == null) {
             return null;
         }
         if (b.isScanBarycentreRow()) {
-            return new Node(id, "Null:" + id, "ScanBaryCentre", NodeKind.SCAN_BARYCENTRE);
+            String parentsLine = parentsLineForBody(b, id, bodies, model);
+            return new Node(id, "Null:" + id, "ScanBaryCentre", parentsLine, NodeKind.SCAN_BARYCENTRE);
         }
         String label = b.getShortName() != null ? b.getShortName() : ("id " + id);
         String subtitle = subtitleFor(b, model, bodies, id);
-        return new Node(id, label, subtitle, kindFor(b, bodies, id));
+        String parentsLine = parentsLineForBody(b, id, bodies, model);
+        return new Node(id, label, subtitle, parentsLine, kindFor(b, bodies, id));
+    }
+
+    private static String parentsLineForBody(BodyInfo b, int mapBodyId, Map<Integer, BodyInfo> bodies,
+            SystemMapModel model) {
+        return JournalParentRefs.formatParentsLineForMapBody(b, mapBodyId, bodies, model);
     }
 
     private static String subtitleFor(BodyInfo b, SystemMapModel model, Map<Integer, BodyInfo> bodies, int id) {
-        if (b.getStarType() != null && !b.getStarType().isEmpty()) {
-            return "★ " + b.getStarType();
+        if (SystemMapRules.isMapStellarBody(b)) {
+            String st = b.getStarType();
+            if (st != null && !st.isEmpty()) {
+                return "★ " + st;
+            }
         }
-        String resolved = SystemMapTreePrinter.formatResolvedParent(model, bodies, id,
-                SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies));
+        int arrivalStar = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+        String mapParent = JournalParentRefs.formatMapParentLabel(model, bodies, id, arrivalStar);
+        StringBuilder sb = new StringBuilder();
         if (b.getPlanetClass() != null && !b.getPlanetClass().isEmpty()) {
-            return b.getPlanetClass() + " → " + resolved;
+            sb.append(b.getPlanetClass());
         }
-        return "→ " + resolved;
+        if (JournalParentRefs.journalInnermostDiffersFromMap(b, bodies, id, model, arrivalStar)) {
+            if (sb.length() > 0) {
+                sb.append(" · ");
+            }
+            sb.append("journal: ").append(JournalParentRefs.formatInnermostJournalParent(b, bodies));
+            sb.append(" · map: ").append(mapParent);
+        } else {
+            if (sb.length() > 0) {
+                sb.append(" · ");
+            }
+            sb.append("map: ").append(mapParent);
+        }
+        return sb.toString();
     }
 
     private static NodeKind kindFor(BodyInfo b, Map<Integer, BodyInfo> bodies, int id) {
-        if (b.getStarType() != null && !b.getStarType().isEmpty()) {
+        if (SystemMapRules.isMapStellarBody(b)) {
             return NodeKind.STAR;
         }
         if (SystemOrbitGeometry.isMoonSatelliteBody(b, bodies)) {
             return NodeKind.MOON;
         }
-        if (SystemMapRules.isMapStellarBody(b)) {
+        if (b.getPlanetClass() != null && !b.getPlanetClass().isEmpty()) {
             return NodeKind.PLANET;
         }
         return NodeKind.OTHER;
@@ -188,50 +267,169 @@ public final class SystemMapHierarchyBuilder {
         }
     }
 
-    private static double layout(Node node, int depth, double nextX) {
-        node.layoutY = depth * V_SPACING;
-        if (node.children.isEmpty()) {
-            node.layoutX = nextX;
-            return nextX + H_SPACING;
+    /**
+     * Width-aware top-down layout using real font metrics (call from {@link org.dce.ed.ui.SystemHierarchyGraphPanel}).
+     */
+    public static void applyLayout(Graph graph, java.awt.FontMetrics fm, int padX, int minW, int minH, int siblingGap) {
+        if (graph == null || graph.root == null || fm == null) {
+            return;
         }
-        double cursor = nextX;
-        for (Node child : node.children) {
-            cursor = layout(child, depth + 1, cursor);
-        }
-        node.layoutX = (node.children.get(0).layoutX + node.children.get(node.children.size() - 1).layoutX) / 2.0;
-        return cursor;
+        measureTree(graph.root, fm, padX, minW, minH);
+        layoutSubtree(graph.root, 0, 0.0, siblingGap);
+        separateSiblingSubtrees(graph.root, siblingGap);
+        recenterParents(graph.root);
     }
 
+    /** Rough layout when no font metrics are available (tests, first build). */
+    private static void applyLayoutEstimate(Node root) {
+        measureTreeEstimate(root);
+        layoutSubtree(root, 0, 0.0, DEFAULT_SIBLING_GAP);
+    }
+
+    private static void measureTree(Node node, java.awt.FontMetrics fm, int padX, int minW, int minH) {
+        int labelW = fm.stringWidth(node.label);
+        int subW = node.subtitle != null && !node.subtitle.isEmpty() ? fm.stringWidth(node.subtitle) : 0;
+        int parW = node.parentsLine != null && !node.parentsLine.isEmpty() ? fm.stringWidth(node.parentsLine) : 0;
+        node.layoutW = Math.max(minW, Math.max(labelW, Math.max(subW, parW)) + 2 * padX);
+        int extraLines = 0;
+        if (node.subtitle != null && !node.subtitle.isEmpty()) {
+            extraLines++;
+        }
+        if (node.parentsLine != null && !node.parentsLine.isEmpty()) {
+            extraLines++;
+        }
+        int lineStep = fm.getHeight() + 2;
+        node.layoutH = minH + extraLines * lineStep;
+        for (Node child : node.children) {
+            measureTree(child, fm, padX, minW, minH);
+        }
+    }
+
+    private static void measureTreeEstimate(Node node) {
+        int labelChars = node.label != null ? node.label.length() : 0;
+        int subChars = node.subtitle != null ? node.subtitle.length() : 0;
+        int parChars = node.parentsLine != null ? node.parentsLine.length() : 0;
+        node.layoutW = Math.max(ESTIMATE_MIN_NODE_W,
+                Math.max(labelChars, Math.max(subChars, parChars)) * 8 + 24);
+        int extraLines = 0;
+        if (node.subtitle != null && !node.subtitle.isEmpty()) {
+            extraLines++;
+        }
+        if (node.parentsLine != null && !node.parentsLine.isEmpty()) {
+            extraLines++;
+        }
+        node.layoutH = extraLines > 0
+                ? ESTIMATE_MIN_NODE_H + extraLines * ESTIMATE_EXTRA_LINE_PX
+                : ESTIMATE_MIN_NODE_H;
+        for (Node child : node.children) {
+            measureTreeEstimate(child);
+        }
+    }
+
+    private static double layoutSubtree(Node node, int depth, double left, int siblingGap) {
+        node.layoutY = depth * V_SPACING;
+        if (node.children.isEmpty()) {
+            node.layoutX = left + node.layoutW / 2.0;
+            return left + node.layoutW;
+        }
+        double cursor = left;
+        for (int i = 0; i < node.children.size(); i++) {
+            if (i > 0) {
+                cursor += siblingGap;
+            }
+            cursor = layoutSubtree(node.children.get(i), depth + 1, cursor, siblingGap);
+        }
+        Node first = node.children.get(0);
+        Node last = node.children.get(node.children.size() - 1);
+        double spanLeft = first.layoutX - first.layoutW / 2.0;
+        double spanRight = last.layoutX + last.layoutW / 2.0;
+        node.layoutX = (spanLeft + spanRight) / 2.0;
+        double ownRight = node.layoutX + node.layoutW / 2.0;
+        return Math.max(cursor, ownRight);
+    }
+
+    /** Push later siblings right so measured box widths never overlap (e.g. planet + moon beside a peer). */
+    private static void separateSiblingSubtrees(Node parent, int siblingGap) {
+        if (parent == null || parent.children.size() < 2) {
+            if (parent != null) {
+                for (Node child : parent.children) {
+                    separateSiblingSubtrees(child, siblingGap);
+                }
+            }
+            return;
+        }
+        for (int i = 1; i < parent.children.size(); i++) {
+            Node prev = parent.children.get(i - 1);
+            Node cur = parent.children.get(i);
+            double prevRight = subtreeRightEdge(prev);
+            double curLeft = subtreeLeftEdge(cur);
+            double shift = prevRight + siblingGap - curLeft;
+            if (shift > 0.0) {
+                shiftSubtreeX(cur, shift);
+            }
+        }
+        for (Node child : parent.children) {
+            separateSiblingSubtrees(child, siblingGap);
+        }
+    }
+
+    private static void recenterParents(Node node) {
+        if (node == null || node.children.isEmpty()) {
+            return;
+        }
+        for (Node child : node.children) {
+            recenterParents(child);
+        }
+        Node first = node.children.get(0);
+        Node last = node.children.get(node.children.size() - 1);
+        double spanLeft = subtreeLeftEdge(first);
+        double spanRight = subtreeRightEdge(last);
+        node.layoutX = (spanLeft + spanRight) / 2.0;
+    }
+
+    private static double subtreeLeftEdge(Node node) {
+        double left = node.layoutX - node.layoutW / 2.0;
+        for (Node child : node.children) {
+            left = Math.min(left, subtreeLeftEdge(child));
+        }
+        return left;
+    }
+
+    private static double subtreeRightEdge(Node node) {
+        double right = node.layoutX + node.layoutW / 2.0;
+        for (Node child : node.children) {
+            right = Math.max(right, subtreeRightEdge(child));
+        }
+        return right;
+    }
+
+    private static void shiftSubtreeX(Node node, double dx) {
+        node.layoutX += dx;
+        for (Node child : node.children) {
+            shiftSubtreeX(child, dx);
+        }
+    }
+
+    /** Left-to-right sibling order in the graph matches {@link #siblingSortLabel} (case-insensitive A–Z). */
     private static Comparator<Integer> bodySiblingComparator(Map<Integer, BodyInfo> bodies) {
-        return (a, b) -> {
-            if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(a.intValue())) {
-                return -1;
-            }
-            if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(b.intValue())) {
-                return 1;
-            }
-            BodyInfo ba = bodies.get(a);
-            BodyInfo bb = bodies.get(b);
-            if (ba != null && ba.isScanBarycentreRow() && (bb == null || !bb.isScanBarycentreRow())) {
-                return -1;
-            }
-            if (bb != null && bb.isScanBarycentreRow() && (ba == null || !ba.isScanBarycentreRow())) {
-                return 1;
-            }
-            boolean starA = ba != null && ba.getStarType() != null;
-            boolean starB = bb != null && bb.getStarType() != null;
-            if (starA != starB) {
-                return starA ? -1 : 1;
-            }
-            double da = ba != null ? ba.getDistanceLs() : 0.0;
-            double db = bb != null ? bb.getDistanceLs() : 0.0;
-            int c = Double.compare(da, db);
-            if (c != 0) {
-                return c;
-            }
-            String sa = ba != null && ba.getShortName() != null ? ba.getShortName() : "";
-            String sb = bb != null && bb.getShortName() != null ? bb.getShortName() : "";
-            return sa.compareTo(sb);
-        };
+        return (a, b) -> siblingSortLabel(a, bodies).compareToIgnoreCase(siblingSortLabel(b, bodies));
+    }
+
+    static String siblingSortLabel(Integer mapKey, Map<Integer, BodyInfo> bodies) {
+        if (mapKey == null) {
+            return "";
+        }
+        int id = mapKey.intValue();
+        if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(id)) {
+            return "Null:" + SystemOrbitGeometry.journalNullIdFromPlanetBinaryBarycentreMapKey(id);
+        }
+        BodyInfo b = bodies != null ? bodies.get(mapKey) : null;
+        if (b != null && b.isScanBarycentreRow()) {
+            return "Null:" + id;
+        }
+        if (b != null && b.getShortName() != null && !b.getShortName().isEmpty()) {
+            return b.getShortName();
+        }
+        return "id " + id;
     }
 }

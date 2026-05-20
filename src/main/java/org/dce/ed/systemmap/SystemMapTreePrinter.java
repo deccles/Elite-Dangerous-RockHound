@@ -16,6 +16,7 @@ import java.util.Set;
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.state.JournalParentRefs;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.util.SystemOrbitGeometry;
 
@@ -135,26 +136,36 @@ public final class SystemMapTreePrinter {
         int arrivalStar = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
         Map<Integer, List<Integer>> children = new HashMap<>();
         Set<Integer> allNodes = new HashSet<>();
+        Set<Integer> planetBinaryNullIds = new HashSet<>();
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
             if (e.getValue() == null) {
                 continue;
             }
             int id = e.getKey().intValue();
             if (e.getValue().isScanBarycentreRow()) {
+                if (SystemOrbitGeometry.isPlanetBinaryNullParentId(id, bodies)) {
+                    planetBinaryNullIds.add(Integer.valueOf(id));
+                    continue;
+                }
                 allNodes.add(Integer.valueOf(id));
                 children.computeIfAbsent(Integer.valueOf(-1), k -> new ArrayList<>()).add(Integer.valueOf(id));
                 continue;
             }
-            int p = model.resolveParentBodyId(id);
+            int p = SystemMapHierarchyBuilder.hierarchyParentKey(id, e.getValue(), model, bodies);
             children.computeIfAbsent(Integer.valueOf(p), k -> new ArrayList<>()).add(Integer.valueOf(id));
             allNodes.add(Integer.valueOf(id));
-            if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(p)) {
-                allNodes.add(Integer.valueOf(p));
+            int ip = e.getValue().getImmediateParentBodyId();
+            if (ip > 0 && SystemOrbitGeometry.isPlanetBinaryNullParentId(ip, bodies)) {
+                planetBinaryNullIds.add(Integer.valueOf(ip));
             }
+        }
+        for (Integer nullId : planetBinaryNullIds) {
+            int hubKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(nullId.intValue());
+            attachPlanetBinaryHubForTree(children, allNodes, hubKey, bodies);
         }
         for (Integer p : new ArrayList<>(children.keySet())) {
             if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(p.intValue())) {
-                children.computeIfAbsent(Integer.valueOf(-1), k -> new ArrayList<>()).add(p);
+                attachPlanetBinaryHubForTree(children, allNodes, p.intValue(), bodies);
             }
         }
         StringBuilder sb = new StringBuilder();
@@ -162,6 +173,20 @@ public final class SystemMapTreePrinter {
         appendChildren(sb, "", true, -1, children, bodies, model, arrivalStar, journalImmediateLabels);
         appendFooter(sb, model, bodies, arrivalStar);
         return sb.toString();
+    }
+
+    private static void attachPlanetBinaryHubForTree(Map<Integer, List<Integer>> children, Set<Integer> allNodes,
+            int hubKey, Map<Integer, BodyInfo> bodies) {
+        allNodes.add(Integer.valueOf(hubKey));
+        int hubParent = SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(hubKey, bodies);
+        if (hubParent < 0) {
+            hubParent = -1;
+        }
+        List<Integer> list = children.computeIfAbsent(Integer.valueOf(hubParent), k -> new ArrayList<>());
+        Integer boxed = Integer.valueOf(hubKey);
+        if (!list.contains(boxed)) {
+            list.add(boxed);
+        }
     }
 
     private static void appendChildren(StringBuilder sb, String prefix, boolean last, int parentKey,
@@ -265,21 +290,7 @@ public final class SystemMapTreePrinter {
 
     static String formatResolvedParent(SystemMapModel model, Map<Integer, BodyInfo> bodies, int bodyId,
             int arrivalStar) {
-        int p = model.resolveParentBodyId(bodyId);
-        if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(p)) {
-            return "planetBinary:" + SystemOrbitGeometry.journalNullIdFromPlanetBinaryBarycentreMapKey(p);
-        }
-        if (p < 0) {
-            return "barycentre";
-        }
-        BodyInfo parent = bodies.get(Integer.valueOf(p));
-        if (parent != null && parent.getShortName() != null) {
-            return parent.getShortName();
-        }
-        if (p == arrivalStar) {
-            return "A";
-        }
-        return "id:" + p;
+        return JournalParentRefs.formatMapParentLabel(model, bodies, bodyId, arrivalStar);
     }
 
     private static String formatJournalParent(BodyInfo b) {

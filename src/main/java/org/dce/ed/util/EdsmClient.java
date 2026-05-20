@@ -738,6 +738,24 @@ public class EdsmClient {
         if (remote.parents == null || remote.parents.isEmpty()) {
             return;
         }
+        if (info.getJournalParentRefs().isEmpty()) {
+            java.util.List<String> refs = new java.util.ArrayList<>();
+            for (BodiesResponse.ParentRef p : remote.parents) {
+                if (p == null) {
+                    continue;
+                }
+                if (p.Planet != null) {
+                    refs.add("Planet:" + p.Planet.intValue());
+                } else if (p.Star != null) {
+                    refs.add("Star:" + p.Star.intValue());
+                } else if (p.Null != null) {
+                    refs.add("Null:" + p.Null.intValue());
+                }
+            }
+            if (!refs.isEmpty()) {
+                info.setJournalParentRefs(refs);
+            }
+        }
         if (!stellarRemote && info.getImmediateParentBodyId() < 0) {
             for (BodiesResponse.ParentRef p : remote.parents) {
                 if (p == null) {

@@ -782,6 +782,9 @@ public final class BioPredictFromCacheMain {
         info.setNebula(cb.nebula);
         info.setParentStar(cb.parentStar);
         info.setImmediateParentBodyId(cb.immediateParentBodyId);
+        if (cb.journalParentRefs != null && !cb.journalParentRefs.isEmpty()) {
+            info.setJournalParentRefs(new java.util.ArrayList<>(cb.journalParentRefs));
+        }
 
         if (cb.observedGenusPrefixes != null && !cb.observedGenusPrefixes.isEmpty()) {
             info.setObservedGenusPrefixes(new java.util.HashSet<>(cb.observedGenusPrefixes));

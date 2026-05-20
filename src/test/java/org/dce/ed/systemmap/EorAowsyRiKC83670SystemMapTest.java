@@ -458,7 +458,8 @@ class EorAowsyRiKC83670SystemMapTest {
             int idA2a = id("A 2 a");
             int idA2 = id("A 2");
             double scalePxPerM = 8.0E-4;
-            var polys = SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 256, scalePxPerM);
+            var polys = SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 256, scalePxPerM,
+                    true);
             OrbitPolylineWorldXY ring = null;
             for (OrbitPolylineWorldXY p : polys) {
                 if (p != null && p.bodyId == idA2a) {

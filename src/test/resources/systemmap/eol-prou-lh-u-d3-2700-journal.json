@@ -1,0 +1,41 @@
+{
+  "name": "EOL PROU LH-U D3-2700",
+  "notes": "Journal layout from RockHound: A 0 Ls, ScanBaryCentre 1 at 225 Ls, B 1060 Ls, C 11236 Ls.",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "EOL PROU LH-U D3-2700 A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "K",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 1.0E12
+    },
+    {
+      "id": 2,
+      "bodyName": "EOL PROU LH-U D3-2700 barycentre 1",
+      "shortName": "bary 1",
+      "distanceLs": 225.0,
+      "scanBarycentreRow": true,
+      "semiMajorAxisM": 6.75E10
+    },
+    {
+      "id": 3,
+      "bodyName": "EOL PROU LH-U D3-2700 B",
+      "shortName": "B",
+      "distanceLs": 1060.0,
+      "starType": "M",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 3.18E11
+    },
+    {
+      "id": 4,
+      "bodyName": "EOL PROU LH-U D3-2700 C",
+      "shortName": "C",
+      "distanceLs": 11236.0,
+      "starType": "M",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 3.37E12
+    }
+  ]
+}

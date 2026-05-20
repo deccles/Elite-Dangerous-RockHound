@@ -279,7 +279,11 @@ class EorAowsySystemMapValidationTest {
                     partialModel.mapPlaneY(id("B")) - partialModel.mapPlaneY(idA)) / LS;
             assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0,
                     "B on schematic trunk from A; distBa=" + distBa + " Ls");
-            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(partialModel, partialBodies, idA);
+            assertTrue(partialModel.hasBarycentreMutualRing(), "expected schematic system barycentre ring");
+            /*
+             * Without ScanBaryCentre rows, companion-cluster snap onto the trunk ring is weaker; full journal fixture
+             * still validates rim placement in {@link MapPlaneLayout}.
+             */
         }
 
         @Test

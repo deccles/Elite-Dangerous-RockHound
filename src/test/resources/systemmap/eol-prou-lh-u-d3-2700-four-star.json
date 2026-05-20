@@ -1,0 +1,42 @@
+{
+  "name": "EOL PROU LH-U D3-2700",
+  "notes": "Four-star K+M hierarchy (journal distances): A 0 Ls, B 225 Ls, D 3060 Ls, C 11256 Ls. Inner A–B pair plus outer companion cluster.",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "EOL PROU LH-U D3-2700 A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "K",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 1.0E12
+    },
+    {
+      "id": 2,
+      "bodyName": "EOL PROU LH-U D3-2700 B",
+      "shortName": "B",
+      "distanceLs": 225.0,
+      "starType": "M",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 6.75E10
+    },
+    {
+      "id": 3,
+      "bodyName": "EOL PROU LH-U D3-2700 D",
+      "shortName": "D",
+      "distanceLs": 3060.0,
+      "starType": "M",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 9.0E11
+    },
+    {
+      "id": 4,
+      "bodyName": "EOL PROU LH-U D3-2700 C",
+      "shortName": "C",
+      "distanceLs": 11256.0,
+      "starType": "M",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 3.4E12
+    }
+  ]
+}

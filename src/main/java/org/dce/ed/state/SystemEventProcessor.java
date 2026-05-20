@@ -515,6 +515,9 @@ public class SystemEventProcessor {
         } else {
             info.setImmediateParentBodyId(-1);
         }
+        if (plist != null && !plist.isEmpty()) {
+            info.setJournalParentRefs(JournalParentRefs.fromScanParents(plist));
+        }
 
         int parentStarBodyId = findParentStarBodyId(e);
         if (parentStarBodyId >= 0) {
