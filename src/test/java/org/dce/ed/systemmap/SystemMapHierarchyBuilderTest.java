@@ -366,6 +366,63 @@ class SystemMapHierarchyBuilderTest {
                 model.orbitPolylines(), 12.0, 200.0);
     }
 
+    @Test
+    void coeus_trueScale_a4_viewTilt90OpensHighInclinationStroke() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        applyCoeusHighInclinationKeplerElements(bodies);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        int idA4 = coeus.bodyIdByLabel("A 4");
+        SystemOrbitGeometry.OrbitPolylineWorldXY flat = findPolyline(model.orbitPolylines(), idA4);
+        assertNotNull(flat);
+        double flatRatio = orbitPolylineApoPeriRatio(flat);
+
+        java.util.List<SystemOrbitGeometry.OrbitPolylineWorldXY> tilted = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(
+                bodies, model.positionsMetres(), 96, Double.NaN, model.projectionAxis0(), model.projectionAxis1(),
+                !SystemOrbitGeometry.isHierarchicalWideBinary(bodies), model.resolvedParentByBodyId(),
+                MapScaleMode.TRUE_SCALE, false, null, 90);
+        SystemOrbitGeometry.OrbitPolylineWorldXY opened = findPolyline(tilted, idA4);
+        assertNotNull(opened);
+        double openRatio = orbitPolylineApoPeriRatio(opened);
+        OrbitGeometryTestSupport.assertOrbitPolylineAspectRatioSane(opened, 12.0);
+        assertTrue(openRatio < flatRatio * 0.85 || flatRatio < 4.0,
+                "90° view tilt should open or preserve A 4 stroke: flat=" + flatRatio + " tilted=" + openRatio);
+    }
+
+    private static SystemOrbitGeometry.OrbitPolylineWorldXY findPolyline(
+            java.util.List<SystemOrbitGeometry.OrbitPolylineWorldXY> polys, int bodyId) {
+        if (polys == null) {
+            return null;
+        }
+        for (SystemOrbitGeometry.OrbitPolylineWorldXY p : polys) {
+            if (p != null && p.bodyId == bodyId) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    private static double orbitPolylineApoPeriRatio(SystemOrbitGeometry.OrbitPolylineWorldXY ring) {
+        double cx = 0.0;
+        double cy = 0.0;
+        for (int i = 0; i < ring.wx.length; i++) {
+            cx += ring.wx[i];
+            cy += ring.wy[i];
+        }
+        int n = ring.wx.length;
+        cx /= n;
+        cy /= n;
+        double minR = Double.POSITIVE_INFINITY;
+        double maxR = 0.0;
+        for (int i = 0; i < n; i++) {
+            double r = Math.hypot(ring.wx[i] - cx, ring.wy[i] - cy);
+            minR = Math.min(minR, r);
+            maxR = Math.max(maxR, r);
+        }
+        return maxR / Math.max(minR, 1.0);
+    }
+
     private static void applyCoeusHighInclinationKeplerElements(Map<Integer, BodyInfo> bodies) {
         BodyInfo a1 = bodies.get(Integer.valueOf(OrbitGeometryTestSupport.findByShortName(bodies, "A 1")));
         if (a1 != null) {

@@ -52,6 +52,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
 import javax.swing.JScrollPane;
+import javax.swing.JSlider;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
@@ -256,6 +257,8 @@ public class SystemTabPanel extends JPanel {
     private boolean orbitAnimSuppressPlayToggleHandler;
     private JButton mapSchematicButton;
     private JButton mapTrueScaleButton;
+    private JSlider mapViewTiltSlider;
+    private JLabel mapViewTiltValueLabel;
     private boolean mapSchematicHovered;
     private boolean mapTrueScaleHovered;
     private JButton orbitAnimSpeedDownButton;
@@ -840,10 +843,28 @@ public class SystemTabPanel extends JPanel {
         mapTrueScaleButton.addActionListener(e -> applyMapScaleMode(org.dce.ed.systemmap.MapScaleMode.TRUE_SCALE));
         org.dce.ed.systemmap.MapScaleMode savedMapScale = OverlayPreferences.getSystemPlanMapScaleMode();
         systemPlanMapPanel.setMapScaleMode(savedMapScale);
+        int savedViewTilt = OverlayPreferences.getSystemPlanMapViewTiltDegrees();
+        systemPlanMapPanel.setViewTiltDegrees(savedViewTilt, false);
         updateMapScaleToggleAppearance();
         mapToolbar.add(mapScaleLabel);
         mapToolbar.add(mapSchematicButton);
         mapToolbar.add(mapTrueScaleButton);
+        JLabel mapViewTiltLabel = new JLabel("View:");
+        mapViewTiltLabel.setForeground(EdoUi.User.MAIN_TEXT);
+        mapViewTiltSlider = new JSlider(0, 90, savedViewTilt);
+        mapViewTiltSlider.setOpaque(false);
+        mapViewTiltSlider.setPreferredSize(new Dimension(110, 22));
+        mapViewTiltSlider.setMajorTickSpacing(45);
+        mapViewTiltSlider.setPaintTicks(true);
+        mapViewTiltSlider.setToolTipText(
+                "True scale only: tilt the 3D view from top-down (0°) toward edge-on (90°) to open squashed orbits.");
+        mapViewTiltValueLabel = new JLabel(savedViewTilt + "°");
+        mapViewTiltValueLabel.setForeground(EdoUi.User.MAIN_TEXT);
+        mapViewTiltSlider.addChangeListener(e -> onMapViewTiltSliderChanged());
+        mapToolbar.add(mapViewTiltLabel);
+        mapToolbar.add(mapViewTiltSlider);
+        mapToolbar.add(mapViewTiltValueLabel);
+        updateMapViewTiltControlsEnabled();
         orbitAnimPlayButton = new JToggleButton();
         orbitAnimPlayButton.setText(null);
         orbitAnimPlayButton.setForeground(EdoUi.User.MAIN_TEXT);
@@ -4339,7 +4360,30 @@ static class Row {
     private void applyMapScaleMode(org.dce.ed.systemmap.MapScaleMode mode) {
         systemPlanMapPanel.setMapScaleMode(mode);
         updateMapScaleToggleAppearance();
+        updateMapViewTiltControlsEnabled();
         refreshPlanMap();
+    }
+
+    private void onMapViewTiltSliderChanged() {
+        if (mapViewTiltSlider == null || mapViewTiltValueLabel == null) {
+            return;
+        }
+        int deg = mapViewTiltSlider.getValue();
+        mapViewTiltValueLabel.setText(deg + "°");
+        if (!mapViewTiltSlider.isEnabled()) {
+            return;
+        }
+        boolean persist = !mapViewTiltSlider.getValueIsAdjusting();
+        systemPlanMapPanel.setViewTiltDegrees(deg, persist);
+    }
+
+    private void updateMapViewTiltControlsEnabled() {
+        if (mapViewTiltSlider == null) {
+            return;
+        }
+        boolean trueScale = systemPlanMapPanel != null
+                && systemPlanMapPanel.mapScaleMode() == org.dce.ed.systemmap.MapScaleMode.TRUE_SCALE;
+        mapViewTiltSlider.setEnabled(trueScale);
     }
 
     private void configureMapScaleToggleButton(JButton b, String tooltip) {
@@ -4368,6 +4412,7 @@ static class Row {
         applyMapScaleToggleButtonChrome(mapTrueScaleButton, trueScale, mapTrueScaleHovered);
         mapSchematicButton.repaint();
         mapTrueScaleButton.repaint();
+        updateMapViewTiltControlsEnabled();
     }
 
     /**

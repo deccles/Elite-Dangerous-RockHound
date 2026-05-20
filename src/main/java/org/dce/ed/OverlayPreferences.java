@@ -106,6 +106,8 @@ public final class OverlayPreferences {
     private static final String KEY_SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND = "system.planMap.orbitAnim.daysPerWallSecond";
     /** {@link org.dce.ed.systemmap.MapScaleMode} for the system plan map (default schematic). */
     private static final String KEY_SYSTEM_PLAN_MAP_SCALE_MODE = "system.planMap.scaleMode";
+    /** True-scale map view tilt 0…90 ({@link org.dce.ed.systemmap.MapViewProjection}). */
+    private static final String KEY_SYSTEM_PLAN_MAP_VIEW_TILT_DEG = "system.planMap.viewTiltDeg";
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_DEFAULT = 110;
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN = 1;
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX = 500;
@@ -529,6 +531,27 @@ public final class OverlayPreferences {
             PREFS.put(KEY_SYSTEM_PLAN_MAP_SCALE_MODE, mode.toPrefsString());
         }
         flushBackingStore();
+    }
+
+    public static int getSystemPlanMapViewTiltDegrees() {
+        return clampSystemPlanMapViewTiltDegrees(PREFS.getInt(KEY_SYSTEM_PLAN_MAP_VIEW_TILT_DEG, 0));
+    }
+
+    public static void setSystemPlanMapViewTiltDegrees(int degrees) {
+        int clamped = clampSystemPlanMapViewTiltDegrees(degrees);
+        if (clamped <= 0) {
+            PREFS.remove(KEY_SYSTEM_PLAN_MAP_VIEW_TILT_DEG);
+        } else {
+            PREFS.putInt(KEY_SYSTEM_PLAN_MAP_VIEW_TILT_DEG, clamped);
+        }
+        flushBackingStore();
+    }
+
+    private static int clampSystemPlanMapViewTiltDegrees(int degrees) {
+        if (degrees <= 0) {
+            return 0;
+        }
+        return Math.min(90, degrees);
     }
 
     // ---------------------------------------------------------------------

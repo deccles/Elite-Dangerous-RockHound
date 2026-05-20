@@ -144,6 +144,21 @@ public final class SystemMapPipeline {
             boolean enforceSchematicMoonMinOrbitRadius,
             Map<Integer, double[]> ringRadiusReferencePositions,
             MapScaleMode renderScaleMode) {
+        return rebuildOrbitPolylines(base, positionsMetres, segments, scalePixelsPerMetre,
+                enforceSchematicMoonMinOrbitRadius, ringRadiusReferencePositions, renderScaleMode, 0);
+    }
+
+    /**
+     * @param viewTiltDegrees true-scale view tilt 0…90 ({@link MapViewProjection}); ignored when schematic.
+     */
+    public static List<OrbitPolylineWorldXY> rebuildOrbitPolylines(SystemMapModel base,
+            Map<Integer, double[]> positionsMetres,
+            int segments,
+            double scalePixelsPerMetre,
+            boolean enforceSchematicMoonMinOrbitRadius,
+            Map<Integer, double[]> ringRadiusReferencePositions,
+            MapScaleMode renderScaleMode,
+            int viewTiltDegrees) {
         if (base == null || positionsMetres == null || base.bodies().isEmpty()) {
             return List.of();
         }
@@ -156,7 +171,7 @@ public final class SystemMapPipeline {
         return SystemOrbitGeometry.orbitPolylinesWorldMetresXY(base.bodies(), positionsMetres, segments,
                 scalePixelsPerMetre, base.projectionAxis0(), base.projectionAxis1(), includeBinaryBarycentreRing,
                 base.resolvedParentByBodyId(), mode, enforceSchematicMoonMinOrbitRadius,
-                ringRadiusReferencePositions);
+                ringRadiusReferencePositions, viewTiltDegrees);
     }
 
     private static SystemMapModel emptyModel(String systemName, MapScaleMode scaleMode) {

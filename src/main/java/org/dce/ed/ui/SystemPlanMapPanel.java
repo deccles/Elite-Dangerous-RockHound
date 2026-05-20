@@ -53,6 +53,7 @@ import javax.swing.border.EmptyBorder;
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.systemmap.MapScaleMode;
+import org.dce.ed.systemmap.MapViewProjection;
 import org.dce.ed.systemmap.SystemMapClassification;
 import org.dce.ed.systemmap.SystemMapModel;
 import org.dce.ed.systemmap.SystemMapOrbitStrokePrinter;
@@ -320,6 +321,8 @@ public final class SystemPlanMapPanel extends JPanel {
     private boolean shipKnown;
     private double shipWx;
     private double shipWy;
+    /** Last commander position in world metres from {@link #setScene}; used when view tilt changes. */
+    private double[] commanderPositionMetres;
     /**
      * Commander reference body id (landed / surface body from the System tab). Shown with a yellow ▲ on the map
      * label (no cyan ring — triangle is the commander cue).
@@ -384,6 +387,9 @@ public final class SystemPlanMapPanel extends JPanel {
 
     /** Schematic (default) vs journal Kepler positions at true scale. */
     private MapScaleMode mapScaleMode = MapScaleMode.SCHEMATIC;
+
+    /** True-scale view tilt 0…90° ({@link MapViewProjection}); ignored in schematic mode. */
+    private int viewTiltDegrees;
 
     /** When body IDs change (new system / new scan), reset pan & zoom; otherwise keep user zoom across telemetry refreshes. */
     private int[] lastSceneBodyIdsSnapshot = new int[0];
@@ -460,6 +466,110 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         mapScaleMode = next;
         OverlayPreferences.setSystemPlanMapScaleMode(next);
+    }
+
+    /** True-scale view tilt 0…90°; schematic mode ignores this. */
+    public int viewTiltDegrees() {
+        return viewTiltDegrees;
+    }
+
+    public void setViewTiltDegrees(int degrees) {
+        setViewTiltDegrees(degrees, true);
+    }
+
+    /**
+     * @param persistPrefs when false (slider drag), updates the view without writing preferences until release.
+     */
+    public void setViewTiltDegrees(int degrees, boolean persistPrefs) {
+        int next = MapViewProjection.clampViewTiltDegrees(degrees);
+        if (next == viewTiltDegrees) {
+            return;
+        }
+        viewTiltDegrees = next;
+        if (persistPrefs) {
+            OverlayPreferences.setSystemPlanMapViewTiltDegrees(next);
+        }
+        applyViewTiltProjectionRefresh();
+    }
+
+    /**
+     * Maps stored 3D world metres to the 2D view plane used for dots, orbits, pan, zoom, and hit tests.
+     */
+    private double[] mapViewCoordsFromWorldMetres(double[] positionMetres) {
+        if (positionMetres == null || positionMetres.length < 2) {
+            return new double[] { Double.NaN, Double.NaN };
+        }
+        if (!mapScaleMode.trueScale() || viewTiltDegrees <= 0) {
+            return new double[] {
+                    SystemOrbitGeometry.worldAxisMetres(positionMetres, mapProjA0),
+                    SystemOrbitGeometry.worldAxisMetres(positionMetres, mapProjA1)
+            };
+        }
+        return MapViewProjection.projectFromPositionMetres(positionMetres, mapProjA0, mapProjA1, viewTiltDegrees);
+    }
+
+    private void reprojectBodyDotsAndShipFromGeomPositions() {
+        if (orbitGeomPositions == null) {
+            return;
+        }
+        for (BodyDot d : dots) {
+            double[] p = orbitGeomPositions.get(Integer.valueOf(d.bodyId));
+            if (p == null) {
+                continue;
+            }
+            double[] xy = mapViewCoordsFromWorldMetres(p);
+            if (Double.isFinite(xy[0]) && Double.isFinite(xy[1])) {
+                d.wx = xy[0];
+                d.wy = xy[1];
+            }
+        }
+        if (commanderPositionMetres != null) {
+            double[] xy = mapViewCoordsFromWorldMetres(commanderPositionMetres);
+            if (Double.isFinite(xy[0]) && Double.isFinite(xy[1])) {
+                shipKnown = true;
+                shipWx = xy[0];
+                shipWy = xy[1];
+            }
+        }
+    }
+
+    private void applyViewTiltProjectionRefresh() {
+        if (sceneEmpty) {
+            repaint();
+            return;
+        }
+        reprojectBodyDotsAndShipFromGeomPositions();
+        lastOrbitRebuildKey = Long.MIN_VALUE;
+        rebuildOrbitPolylines(true, !orbitSchematicPlaybackActive);
+        if (mapScaleMode.trueScale()) {
+            refreshTrueScaleLayoutSpansFromView();
+        }
+        repaint();
+    }
+
+    /** Recomputes {@link #layoutSpanX}/{@link #layoutSpanY} from tilted dots and orbit strokes. */
+    private void refreshTrueScaleLayoutSpansFromView() {
+        if (dots.isEmpty()) {
+            return;
+        }
+        Bounds bb = computeBounds(dots,
+                shipKnown ? shipWx : Double.NaN,
+                shipKnown ? shipWy : Double.NaN);
+        if (Double.isFinite(bb.minX) && Double.isFinite(bb.maxX)) {
+            layoutSpanX = Math.max(1.0, layoutSpanAxisMetres(bb.minX, bb.maxX));
+        }
+        if (Double.isFinite(bb.minY) && Double.isFinite(bb.maxY)) {
+            layoutSpanY = Math.max(1.0, layoutSpanAxisMetres(bb.minY, bb.maxY));
+        }
+        expandLayoutSpansForOrbitPolylines();
+        int pw = getWidth();
+        int ph = getHeight();
+        if (pw > 0 && ph > 0) {
+            int plotH = Math.max(88, ph - MAP_BOTTOM_INSET);
+            double aw = pw - 2.0 * PAD;
+            double ah = plotH - 2.0 * PAD;
+            updateZoomMinFit(aw, ah);
+        }
     }
 
     public SystemPlanMapPanel() {
@@ -757,8 +867,9 @@ public final class SystemPlanMapPanel extends JPanel {
                 if (p.length < needLen) {
                     continue;
                 }
-                double x = SystemOrbitGeometry.worldAxisMetres(p, mapProjA0);
-                double y = SystemOrbitGeometry.worldAxisMetres(p, mapProjA1);
+                double[] xy = mapViewCoordsFromWorldMetres(p);
+                double x = xy[0];
+                double y = xy[1];
                 if (!Double.isFinite(x) || !Double.isFinite(y)) {
                     continue;
                 }
@@ -797,25 +908,19 @@ public final class SystemPlanMapPanel extends JPanel {
         }
 
         if (shipM != null && shipM.length >= 2) {
-            int sl = Math.max(mapProjA0, mapProjA1) + 1;
-            if (shipM.length >= sl) {
-                double sx = SystemOrbitGeometry.worldAxisMetres(shipM, mapProjA0);
-                double sy = SystemOrbitGeometry.worldAxisMetres(shipM, mapProjA1);
-                if (Double.isFinite(sx) && Double.isFinite(sy)) {
-                    shipKnown = true;
-                    shipWx = sx;
-                    shipWy = sy;
-                } else {
-                    shipKnown = false;
-                    shipWx = 0;
-                    shipWy = 0;
-                }
+            commanderPositionMetres = shipM;
+            double[] sxy = mapViewCoordsFromWorldMetres(shipM);
+            if (Double.isFinite(sxy[0]) && Double.isFinite(sxy[1])) {
+                shipKnown = true;
+                shipWx = sxy[0];
+                shipWy = sxy[1];
             } else {
                 shipKnown = false;
                 shipWx = 0;
                 shipWy = 0;
             }
         } else {
+            commanderPositionMetres = null;
             shipKnown = false;
             shipWx = 0;
             shipWy = 0;
@@ -1432,7 +1537,8 @@ public final class SystemPlanMapPanel extends JPanel {
         } else {
             scBits = Double.doubleToLongBits(Math.scalb(Math.rint(Math.scalb(sc, 18)), -18));
         }
-        return ((long) w << 44) ^ ((long) h << 24) ^ (((long) zq & 0xfffffL) << 4) ^ (scBits >>> 1);
+        long tiltBits = mapScaleMode.trueScale() ? ((long) viewTiltDegrees & 0x7fL) : 0L;
+        return ((long) w << 44) ^ ((long) h << 24) ^ (((long) zq & 0xfffffL) << 4) ^ (scBits >>> 1) ^ (tiltBits << 56);
     }
 
     /**
@@ -1512,9 +1618,10 @@ public final class SystemPlanMapPanel extends JPanel {
         boolean screenOrbitScale = useScreenChordScaleForSegments && !orbitSchematicPlaybackActive;
         double scalePxPerM = screenOrbitScale ? computeScalePixelsPerWorldMetre() : Double.NaN;
         int legacySeg = orbitSegmentsForZoom(zoomFactor);
+        int tiltForRebuild = mapScaleMode.trueScale() ? viewTiltDegrees : 0;
         orbitLines = mapModel != null
                 ? SystemMapPipeline.rebuildOrbitPolylines(mapModel, orbitGeomPositions, legacySeg, scalePxPerM,
-                        false, ringRadiusReferencePositions, mapScaleMode)
+                        false, ringRadiusReferencePositions, mapScaleMode, tiltForRebuild)
                 : Collections.emptyList();
         logOrbitLinesIfBodySetChanged(orbitLines);
     }
@@ -1835,34 +1942,27 @@ public final class SystemPlanMapPanel extends JPanel {
             if (p.length < needLen) {
                 continue;
             }
-            double wx = SystemOrbitGeometry.worldAxisMetres(p, mapProjA0);
-            double wy = SystemOrbitGeometry.worldAxisMetres(p, mapProjA1);
-            if (!Double.isFinite(wx) || !Double.isFinite(wy)) {
+            double[] xy = mapViewCoordsFromWorldMetres(p);
+            if (!Double.isFinite(xy[0]) || !Double.isFinite(xy[1])) {
                 continue;
             }
-            d.wx = wx;
-            d.wy = wy;
+            d.wx = xy[0];
+            d.wy = xy[1];
         }
         if (shipM != null && shipM.length >= 2) {
-            int sl = Math.max(mapProjA0, mapProjA1) + 1;
-            if (shipM.length >= sl) {
-                double sx = SystemOrbitGeometry.worldAxisMetres(shipM, mapProjA0);
-                double sy = SystemOrbitGeometry.worldAxisMetres(shipM, mapProjA1);
-                if (Double.isFinite(sx) && Double.isFinite(sy)) {
-                    shipKnown = true;
-                    shipWx = sx;
-                    shipWy = sy;
-                } else {
-                    shipKnown = false;
-                    shipWx = 0;
-                    shipWy = 0;
-                }
+            commanderPositionMetres = shipM;
+            double[] sxy = mapViewCoordsFromWorldMetres(shipM);
+            if (Double.isFinite(sxy[0]) && Double.isFinite(sxy[1])) {
+                shipKnown = true;
+                shipWx = sxy[0];
+                shipWy = sxy[1];
             } else {
                 shipKnown = false;
                 shipWx = 0;
                 shipWy = 0;
             }
         } else {
+            commanderPositionMetres = null;
             shipKnown = false;
             shipWx = 0;
             shipWy = 0;
