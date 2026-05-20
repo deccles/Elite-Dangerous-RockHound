@@ -40,6 +40,10 @@ import org.dce.ed.util.SpanshLandmarkCache;
  */
 public class RescanJournalsMain {
 
+	/** Console/UI replay progress: at most about one line every 2s or 10k events. */
+	private static final int REPLAY_PROGRESS_EVERY_EVENTS = 10_000;
+	private static final long REPLAY_PROGRESS_INTERVAL_NS = 2_000_000_000L;
+
 	/**
 	 * Optional UI/CLI progress hook. {@code percent} is 0–100, or negative for indeterminate.
 	 * Invoked from the rescan worker thread.
@@ -171,6 +175,8 @@ public class RescanJournalsMain {
 
 		reportProgress(progress, "Reading journals", -1,
 				journalLogFiles.size() + " log file" + (journalLogFiles.size() == 1 ? "" : "s"));
+		System.out.println("Reading and parsing journal log files (this may take a while)...");
+		System.out.flush();
 		long loadStartNs = System.nanoTime();
 		List<EliteLogEvent> events;
 		if (forcedJournalFile != null) {
@@ -194,8 +200,12 @@ public class RescanJournalsMain {
 		SystemCache cache = SystemCache.getInstance();
 		if (forceFull)
 		{
+			System.out.println("Clearing local system cache database...");
+			System.out.flush();
 			reportProgress(progress, "Clearing cache", -1, null);
 			cache.clearAndDeleteOnDisk();
+			System.out.println("Cache cleared; rebuilding from journal events...");
+			System.out.flush();
 		}
 
 		SystemState state = new SystemState();
@@ -224,19 +234,20 @@ public class RescanJournalsMain {
 
 		String prevBulkCacheWrite = System.getProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY);
 		final int eventCount = events.size();
-		int lastReportedPercent = -1;
+		int[] lastReportedPercent = { -1 };
+		int systemsStored = 0;
+		long replayStartNs = System.nanoTime();
+		long lastReplayProgressNs = replayStartNs;
+		if (eventCount > 0) {
+			System.out.println("Replaying " + eventCount + " event(s) into system cache...");
+			System.out.flush();
+		}
 		try {
 			System.setProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY, "true");
 			for (int eventIndex = 0; eventIndex < eventCount; eventIndex++) {
 			EliteLogEvent event = events.get(eventIndex);
-			if (eventCount > 0) {
-				int pct = (int) ((eventIndex + 1L) * 100L / eventCount);
-				if (pct != lastReportedPercent && (pct == 100 || pct % 2 == 0 || eventIndex == 0)) {
-					lastReportedPercent = pct;
-					reportProgress(progress, "Rebuilding cache", pct,
-							(eventIndex + 1) + " / " + eventCount + " events");
-				}
-			}
+			lastReplayProgressNs = maybeReportReplayProgress(progress, eventIndex, eventCount, systemsStored,
+					replayStartNs, lastReplayProgressNs, lastReportedPercent);
 			Instant ts = event.getTimestamp();
 			if (ts != null && (newestEventTimestamp == null || ts.isAfter(newestEventTimestamp))) {
 				newestEventTimestamp = ts;
@@ -288,7 +299,7 @@ public class RescanJournalsMain {
 					latestTransitionSystem = le.getStarSystem();
 					latestTransitionAddress = le.getSystemAddress();
 				}
-				persistIfSystemIsChanging(cache, state, le.getStarSystem(), le.getSystemAddress());
+				systemsStored += persistIfSystemIsChanging(cache, state, le.getStarSystem(), le.getSystemAddress());
 			} else if (event instanceof FsdJumpEvent) {
 				FsdJumpEvent je = (FsdJumpEvent) event;
 				if (ts != null && (latestTransitionTs == null || ts.isAfter(latestTransitionTs))) {
@@ -297,14 +308,14 @@ public class RescanJournalsMain {
 					latestTransitionSystem = je.getStarSystem();
 					latestTransitionAddress = je.getSystemAddress();
 				}
-				persistIfSystemIsChanging(cache, state, je.getStarSystem(), je.getSystemAddress());
+				systemsStored += persistIfSystemIsChanging(cache, state, je.getStarSystem(), je.getSystemAddress());
 			}
 
 			processor.handleEvent(event);
 
 			// Exobiology running total (Analyse == 3rd scan completion)
 			if (event.getType() == EliteEventType.SELL_ORGANIC_DATA) {
-				System.out.println("Sold " + exoCreditsTotal);
+//				System.out.println("Sold " + exoCreditsTotal);
 				exoCreditsTotal = 0L;
 				state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
 			}
@@ -332,11 +343,18 @@ public class RescanJournalsMain {
 					if (payout != null && payout.longValue() > 0L) {
 						exoCreditsTotal += payout.longValue();
 						state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
-						System.out.println("Earned total: " + exoCreditsTotal);
+//						System.out.println("Earned total: " + exoCreditsTotal);
 					}
 				}
 			}
 			//            persistIfStarScan(cache, state, event);
+		}
+		if (eventCount > 0) {
+			double replaySeconds = (System.nanoTime() - replayStartNs) / 1_000_000_000.0;
+			System.out.printf(Locale.US,
+					"Replay finished: %d events processed, %d systems written, %.2f s%n",
+					eventCount, systemsStored, replaySeconds);
+			System.out.flush();
 		}
 		} finally {
 			if (prevBulkCacheWrite != null) {
@@ -358,6 +376,7 @@ public class RescanJournalsMain {
 		if (state.getSystemName() != null && state.getSystemAddress() != 0L) {
 			// Persist together with the final system (best-effort).
 			cache.storeSystem(state);
+			systemsStored++;
 		} else {
 			// If we never built a valid system snapshot, update the cached last-system instead.
 			try {
@@ -372,8 +391,6 @@ public class RescanJournalsMain {
 				// Fallback to preferences below.
 			}
 		}
-
-		System.out.println("Exobiology expected credits total (unsold): " + exoCreditsTotal + " Cr");
 
 		// Persist exobiology total + carrier countdown into the same SQLite session blob as the overlay.
 		EdoSessionState sessionState = EdoSessionPersistence.load();
@@ -434,18 +451,84 @@ public class RescanJournalsMain {
 		}
 
 		double totalSeconds = (System.nanoTime() - rescanStartNs) / 1_000_000_000.0;
-		System.out.printf(Locale.US, "Total rescan wall time: %.2f s%n", totalSeconds);
+		System.out.printf(Locale.US,
+				"Rescan complete: %d events replayed, %d systems written, total wall time %.2f s%n",
+				eventCount, systemsStored, totalSeconds);
+		System.out.flush();
+		System.out.println("Exobiology expected credits total (unsold): " + exoCreditsTotal + " Cr");
+	}
 
-		System.out.println("Rescan complete. Exobiology expected credits total (unsold): " + exoCreditsTotal);
+	/**
+	 * Throttled replay progress (~every {@value #REPLAY_PROGRESS_EVERY_EVENTS} events or 2s, plus first/last).
+	 *
+	 * @return updated {@code lastProgressLogNs}
+	 */
+	private static long maybeReportReplayProgress(RescanProgressListener progress, int eventIndex, int eventCount,
+			int systemsStored, long replayStartNs, long lastProgressLogNs, int[] lastReportedPercent) {
+		if (eventCount <= 0) {
+			return lastProgressLogNs;
+		}
+		int processed = eventIndex + 1;
+		long nowNs = System.nanoTime();
+		boolean first = eventIndex == 0;
+		boolean last = processed >= eventCount;
+		boolean interval = processed % REPLAY_PROGRESS_EVERY_EVENTS == 0;
+		boolean time = (nowNs - lastProgressLogNs) >= REPLAY_PROGRESS_INTERVAL_NS;
+		if (!first && !last && !interval && !time) {
+			return lastProgressLogNs;
+		}
+
+		int pct = (int) (processed * 100L / eventCount);
+		double pctExact = processed * 100.0 / eventCount;
+		String eventsDetail = String.format(Locale.US, "%d / %d (%.1f%%)", processed, eventCount, pctExact);
+		String systemsSuffix = systemsStored > 0
+				? String.format(Locale.US, ", systems cached: %d", systemsStored)
+				: "";
+
+		if (progress != null) {
+			if (pct != lastReportedPercent[0] || first || last || interval || time) {
+				lastReportedPercent[0] = pct;
+				double elapsed = (nowNs - replayStartNs) / 1_000_000_000.0;
+				reportProgress(progress, "Rebuilding cache", pct,
+						processed + " / " + eventCount + " events"
+								+ (systemsStored > 0 ? ", " + systemsStored + " systems stored" : "")
+								+ String.format(Locale.US, ", %.0f s", elapsed));
+			}
+		} else {
+			System.out.printf(Locale.US, "Processing events: %s%s%n", eventsDetail, systemsSuffix);
+			System.out.flush();
+		}
+		return nowNs;
 	}
 
 	private static void reportProgress(RescanProgressListener progress, String phase, int percent, String detail) {
 		if (progress != null) {
 			progress.onProgress(phase, percent, detail);
+		} else {
+			logCliProgress(phase, percent, detail);
 		}
 	}
 
-	private static void persistIfSystemIsChanging(SystemCache cache, SystemState state, String nextName, long nextAddr) {
+	/** Console progress for CLI {@link #main} and any caller without a {@link RescanProgressListener}. */
+	private static void logCliProgress(String phase, int percent, String detail) {
+		String phaseText = phase != null ? phase : "Working";
+		String line;
+		if (percent >= 0 && percent <= 100) {
+			if (detail != null && !detail.isBlank()) {
+				line = phaseText + ": " + percent + "% — " + detail;
+			} else {
+				line = phaseText + ": " + percent + "%";
+			}
+		} else if (detail != null && !detail.isBlank()) {
+			line = phaseText + " — " + detail;
+		} else {
+			line = phaseText + "...";
+		}
+		System.out.println(line);
+		System.out.flush();
+	}
+
+	private static int persistIfSystemIsChanging(SystemCache cache, SystemState state, String nextName, long nextAddr) {
 		String curName = state.getSystemName();
 		long curAddr = state.getSystemAddress();
 
@@ -454,10 +537,11 @@ public class RescanJournalsMain {
 
 		// Only treat it as "same system" if BOTH match (when available).
 		if (sameName && sameAddr) {
-			return;
+			return 0;
 		}
 
 		cache.storeSystem(state);
+		return 1;
 	}
 	private static void persistIfStarScan(SystemCache cache, SystemState state, EliteLogEvent event) {
 		if (!(event instanceof ScanEvent)) {

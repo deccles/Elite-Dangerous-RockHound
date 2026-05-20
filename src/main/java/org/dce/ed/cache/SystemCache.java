@@ -22,6 +22,7 @@ import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.systemmap.SystemMapJournalEnricher;
 import org.dce.ed.util.RingSummaryFormatter;
 import org.dce.ed.util.ExplorationBodyCredits;
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
@@ -393,6 +394,9 @@ public final class SystemCache implements SystemStore {
             info.setParentStar(cb.parentStar);
             info.setParentStarBodyId(cb.parentStarBodyId);
             info.setImmediateParentBodyId(cb.immediateParentBodyId);
+            if (cb.journalParentRefs != null && !cb.journalParentRefs.isEmpty()) {
+                info.setJournalParentRefs(new ArrayList<>(cb.journalParentRefs));
+            }
             info.setStarType(cb.starType);
             
             info.setWasMapped(cb.wasMapped);
@@ -726,6 +730,10 @@ public final class SystemCache implements SystemStore {
         // Merge-on-save: preserve certain fields from the existing on-disk cache when the
         // current in-memory SystemState does not currently have them populated.
         CachedSystem existing = get(state.getSystemAddress(), state.getSystemName());
+        // Bulk journal rescan already replays every event; per-system journal replay here would re-read all logs.
+        if (!isBulkSystemWrite()) {
+            SystemMapJournalEnricher.enrichStateFromJournalIfSparse(state, existing);
+        }
 
         Map<Integer, CachedBody> existingBodies = new HashMap<>();
         Map<String, CachedBody> existingBodiesByName = new HashMap<>();
@@ -798,6 +806,9 @@ public final class SystemCache implements SystemStore {
             cb.parentStar = b.getParentStar();
             cb.parentStarBodyId = b.getParentStarBodyId();
             cb.immediateParentBodyId = b.getImmediateParentBodyId();
+            if (!b.getJournalParentRefs().isEmpty()) {
+                cb.journalParentRefs = new ArrayList<>(b.getJournalParentRefs());
+            }
             cb.starType = b.getStarType();
 
             cb.wasMapped = b.getWasMapped();
@@ -888,6 +899,10 @@ public final class SystemCache implements SystemStore {
                 }
                 if (cb.immediateParentBodyId < 0 && prev.immediateParentBodyId >= 0) {
                     cb.immediateParentBodyId = prev.immediateParentBodyId;
+                }
+                if ((cb.journalParentRefs == null || cb.journalParentRefs.isEmpty())
+                        && prev.journalParentRefs != null && !prev.journalParentRefs.isEmpty()) {
+                    cb.journalParentRefs = new ArrayList<>(prev.journalParentRefs);
                 }
                 if (prev.scanBarycentreRow) {
                     cb.scanBarycentreRow = true;
@@ -1009,19 +1024,22 @@ public final class SystemCache implements SystemStore {
             list.add(cb);
         }
 
-        for (CachedBody prevScanBary : existingBodies.values()) {
-            if (prevScanBary == null || !prevScanBary.scanBarycentreRow || prevScanBary.bodyId < 0) {
+        // Session snapshots are often partial (incremental rescan, one new Detailed scan). Never drop
+        // previously cached bodies that are absent from the current SystemState — only ScanBaryCentre rows
+        // used to get this treatment; widening to all bodies fixes sparse hierarchy/map loads (e.g. Coeus).
+        for (CachedBody prevBody : existingBodies.values()) {
+            if (prevBody == null || prevBody.bodyId < 0) {
                 continue;
             }
             boolean present = false;
             for (CachedBody saved : list) {
-                if (saved != null && saved.bodyId == prevScanBary.bodyId) {
+                if (saved != null && saved.bodyId == prevBody.bodyId) {
                     present = true;
                     break;
                 }
             }
             if (!present) {
-                list.add(copyCachedBody(prevScanBary));
+                list.add(copyCachedBody(prevBody));
             }
         }
 

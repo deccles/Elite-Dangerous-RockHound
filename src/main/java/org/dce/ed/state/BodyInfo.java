@@ -180,6 +180,11 @@ public class BodyInfo {
 	/** Immediate orbital parent {@link org.dce.ed.logreader.event.ScanEvent.Parents}[0] body id; -1 if unknown. */
 	private int immediateParentBodyId = -1;
 
+	/**
+	 * Full journal {@code Parents[]} chain, innermost first (e.g. {@code Null:14}, {@code Star:1}, {@code Null:0}).
+	 */
+	private List<String> journalParentRefs;
+
 	private String planetClass;
 
 	/** Journal {@code TerraformState} (e.g. Terraformable); used for exploration k and WW terraform tier. */
@@ -453,6 +458,16 @@ public class BodyInfo {
 
 	public void setImmediateParentBodyId(int immediateParentBodyId) {
 		this.immediateParentBodyId = immediateParentBodyId;
+	}
+
+	public List<String> getJournalParentRefs() {
+		return journalParentRefs != null ? journalParentRefs : Collections.emptyList();
+	}
+
+	public void setJournalParentRefs(List<String> journalParentRefs) {
+		this.journalParentRefs = journalParentRefs == null || journalParentRefs.isEmpty()
+				? null
+				: List.copyOf(journalParentRefs);
 	}
 
 	public String getPlanetClass() {

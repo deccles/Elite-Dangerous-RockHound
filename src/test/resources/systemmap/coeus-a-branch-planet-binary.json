@@ -1,0 +1,96 @@
+{
+  "name": "Coeus",
+  "notes": "Wide binary A+B; A 2 and A 3 co-orbit at journal Null:14 on the primary branch (regression for hierarchy under star A).",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Coeus",
+      "shortName": "A",
+      "distanceLs": 0,
+      "starType": "M",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 1,
+      "bodyName": "Coeus B",
+      "shortName": "B",
+      "distanceLs": 120000,
+      "starType": "T",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 14,
+      "bodyName": "Coeus barycentre 14",
+      "shortName": "Null:14",
+      "distanceLs": 1570,
+      "scanBarycentreRow": true,
+      "journalParents": ["Star:0", "Null:0"]
+    },
+    {
+      "id": 20,
+      "bodyName": "Coeus A 1",
+      "shortName": "A 1",
+      "distanceLs": 893,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 21,
+      "bodyName": "Coeus A 2",
+      "shortName": "A 2",
+      "distanceLs": 1590,
+      "planetClass": "Class I gas giant",
+      "immediateParentBodyId": 14,
+      "journalParents": ["Null:14", "Star:0", "Null:0"]
+    },
+    {
+      "id": 22,
+      "bodyName": "Coeus A 3",
+      "shortName": "A 3",
+      "distanceLs": 1554,
+      "planetClass": "Neon rich",
+      "immediateParentBodyId": 14,
+      "journalParents": ["Null:14", "Star:0", "Null:0"]
+    },
+    {
+      "id": 24,
+      "bodyName": "Coeus A 4",
+      "shortName": "A 4",
+      "distanceLs": 2298,
+      "planetClass": "Class I gas giant",
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 25,
+      "bodyName": "Coeus A 4 a",
+      "shortName": "A 4 a",
+      "distanceLs": 2299,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 19
+    },
+    {
+      "id": 26,
+      "bodyName": "Coeus A 4 b",
+      "shortName": "A 4 b",
+      "distanceLs": 2297,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 19
+    },
+    {
+      "id": 27,
+      "bodyName": "Coeus A 5",
+      "shortName": "A 5",
+      "distanceLs": 1850,
+      "planetClass": "Class II gas giant",
+      "immediateParentBodyId": 0,
+      "journalParents": ["Star:0", "Null:0"]
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "parents": [
+      { "body": "A 2", "resolvesTo": "A" },
+      { "body": "A 3", "resolvesTo": "A" }
+    ]
+  }
+}

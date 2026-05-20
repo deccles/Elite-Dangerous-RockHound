@@ -1,0 +1,2 @@
+{ "timestamp":"2026-01-01T00:00:00Z", "event":"Scan", "ScanType":"AutoScan", "BodyName":"Coeus B", "BodyID":2, "Parents":[ {"Null":0} ], "StarSystem":"Coeus", "SystemAddress":77508721788073, "DistanceFromArrivalLS":120000.0, "StarType":"T", "WasDiscovered":true }
+{ "timestamp":"2026-01-01T00:00:01Z", "event":"Scan", "ScanType":"AutoScan", "BodyName":"Coeus A 1", "BodyID":20, "Parents":[ {"Star":1}, {"Null":0} ], "StarSystem":"Coeus", "SystemAddress":77508721788073, "DistanceFromArrivalLS":893.0, "PlanetClass":"Icy body", "WasDiscovered":true }

@@ -65,6 +65,8 @@ public class CachedBody {
     public int parentStarBodyId;
     /** Journal Parents[0] body id; -1 if unknown. */
     public int immediateParentBodyId = -1;
+    /** Journal Parents[] inner-to-outer (e.g. Null:14, Star:1, Null:0). */
+    public List<String> journalParentRefs;
     public String starType;
     public String nebula; 
     

@@ -1,0 +1,2 @@
+{ "timestamp":"2026-01-01T00:00:02Z", "event":"Scan", "ScanType":"AutoScan", "BodyName":"Coeus A 2 A Ring", "BodyID":200, "Parents":[ {"Planet":21} ], "StarSystem":"Coeus", "SystemAddress":77508721788073, "DistanceFromArrivalLS":1591.0, "PlanetClass":"Icy ring", "WasDiscovered":true }
+{ "timestamp":"2026-01-01T00:00:03Z", "event":"Scan", "ScanType":"AutoScan", "BodyName":"Coeus A 2 B Ring", "BodyID":201, "Parents":[ {"Planet":21} ], "StarSystem":"Coeus", "SystemAddress":77508721788073, "DistanceFromArrivalLS":1592.0, "PlanetClass":"Icy ring", "WasDiscovered":true }
