@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.systemmap.MapScaleMode;
 import org.dce.ed.systemmap.SystemMapFixture;
 import org.dce.ed.systemmap.SystemMapFixtureLoader;
 import org.dce.ed.systemmap.SystemMapModel;
@@ -57,6 +58,7 @@ class SystemPlanMapPanelDrawTranslationTest {
     private static SystemPlanMapPanel panelAfterSetScene() {
         SystemPlanMapPanel panel = new SystemPlanMapPanel();
         panel.setSize(900, 700);
+        panel.setMapScaleMode(MapScaleMode.SCHEMATIC);
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
         panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
         return panel;
@@ -564,5 +566,56 @@ class SystemPlanMapPanelDrawTranslationTest {
             }
         }
         return ids;
+    }
+
+    @Nested
+    @DisplayName("True-scale mode")
+    class TrueScaleDraw {
+
+        @Test
+        void setScene_trueScale_usesPipelineMode() {
+            SystemPlanMapPanel panel = new SystemPlanMapPanel();
+            panel.setSize(900, 700);
+            panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
+            Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
+            panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
+            assertNotNull(panel.mapModelForTests());
+            assertTrue(panel.mapModelForTests().trueScale());
+        }
+
+        @Test
+        void trueScale_zoomScaleIsLinearWithZoomFactor() {
+            SystemPlanMapPanel panel = new SystemPlanMapPanel();
+            panel.setSize(900, 700);
+            panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
+            Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
+            panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
+            double base = panel.mapPlotScaleForTests(876.0, 676.0);
+            panel.zoomFactorForTests(8.0);
+            double zoomed = panel.mapPlotScaleForTests(876.0, 676.0);
+            assertTrue(Double.isFinite(base) && base > 0.0);
+            assertEquals(base * 8.0, zoomed, base * 0.02);
+        }
+
+        @Test
+        void rulerPlaneDistance_matchesDotSeparationInTrueScale() {
+            SystemPlanMapPanel panel = new SystemPlanMapPanel();
+            panel.setSize(900, 700);
+            panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
+            Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
+            panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
+            assertTrue(panel.mapModelForTests().trueScale());
+            double ax = panel.dotWorldXForTests(idA);
+            double ay = panel.dotWorldYForTests(idA);
+            double bx = panel.dotWorldXForTests(idB);
+            double by = panel.dotWorldYForTests(idB);
+            double ls = Math.hypot(bx - ax, by - ay) / SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            SystemMapModel model = panel.mapModelForTests();
+            double modelLs = Math.hypot(model.mapPlaneX(idB) - model.mapPlaneX(idA),
+                    model.mapPlaneY(idB) - model.mapPlaneY(idA))
+                    / SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            assertEquals(modelLs, ls, modelLs * 0.001, "dot chord should match model plane distance");
+            assertTrue(ls > 38_000.0 && ls < 56_000.0, "ruler plane chord Ls=" + ls);
+        }
     }
 }

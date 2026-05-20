@@ -9,7 +9,7 @@ import java.awt.geom.Path2D;
 
 import javax.swing.Icon;
 
-/** Small transport glyphs for the System tab schematic orbit toolbar (play, pause, speed chevrons). */
+/** Small transport glyphs for the System tab schematic orbit toolbar (play, pause, stop, speed chevrons). */
 public final class OrbitSchematicTransportIcons {
 
     private OrbitSchematicTransportIcons() {
@@ -89,6 +89,43 @@ public final class OrbitSchematicTransportIcons {
                         1, 1);
                 g2.fillRoundRect((int) Math.round(xR), (int) Math.round(top), (int) Math.round(barW), (int) Math.round(h),
                         1, 1);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+    }
+
+    /** Filled square (stop / return to live journal positions). */
+    public static final class StopSquareIcon implements Icon {
+        private final int size;
+
+        public StopSquareIcon(int size) {
+            this.size = Math.max(10, size);
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color fg = c != null ? c.getForeground() : Color.WHITE;
+                g2.setColor(fg);
+                double ox = -size * 0.035;
+                double oy = -size * 0.035;
+                double pad = size * 0.26;
+                double side = size - 2.0 * pad;
+                g2.fillRoundRect((int) Math.round(x + pad + ox), (int) Math.round(y + pad + oy),
+                        (int) Math.round(side), (int) Math.round(side), 1, 1);
             } finally {
                 g2.dispose();
             }

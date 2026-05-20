@@ -29,6 +29,8 @@ public final class SystemMapFixture {
         public Double semiMajorAxisM;
         /** Journal {@code ScanBaryCentre} sentinel row for planet-binary {@code Null:N}. */
         public Boolean scanBarycentreRow;
+        /** Journal {@code Parents[]} inner-to-outer, e.g. {@code ["Null:14","Star:1","Null:0"]}. */
+        public java.util.List<String> journalParents;
     }
 
     public static final class Expect {
@@ -95,6 +97,9 @@ public final class SystemMapFixture {
                 b.setImmediateParentBodyId(spec.immediateParentBodyId.intValue());
             } else {
                 b.setImmediateParentBodyId(-1);
+            }
+            if (spec.journalParents != null && !spec.journalParents.isEmpty()) {
+                b.setJournalParentRefs(spec.journalParents);
             }
             map.put(Integer.valueOf(spec.id), b);
         }

@@ -246,8 +246,18 @@ public class SystemTabPanel extends JPanel {
     private volatile boolean orbitAnimDemoActive;
     /** Frozen schematic epoch while orbit playback is paused (also used before first Play). */
     private Instant schematicMapFreezeEpoch;
+    /** T+0 epoch for the current play session (set on first Play; cleared on Stop). */
+    private Instant orbitAnimPlayBaseEpoch;
     private Instant orbitAnimSimInstant;
     private JToggleButton orbitAnimPlayButton;
+    private JButton orbitAnimStopButton;
+    private JButton orbitMapPrintButton;
+    /** Avoid pause handler when Stop programmatically deselects Play. */
+    private boolean orbitAnimSuppressPlayToggleHandler;
+    private JButton mapSchematicButton;
+    private JButton mapTrueScaleButton;
+    private boolean mapSchematicHovered;
+    private boolean mapTrueScaleHovered;
     private JButton orbitAnimSpeedDownButton;
     private JButton orbitAnimSpeedUpButton;
     private JLabel orbitAnimSpeedValueLabel;
@@ -789,7 +799,51 @@ public class SystemTabPanel extends JPanel {
         JPanel mapColumn = new JPanel(new BorderLayout());
         mapColumn.setOpaque(false);
         JPanel mapToolbar = new JPanel(new FlowLayout(FlowLayout.TRAILING, 8, 2));
-        mapToolbar.setOpaque(false);
+        mapToolbar.setOpaque(true);
+        mapToolbar.setBackground(EdoUi.User.PANEL_BG);
+        JLabel mapScaleLabel = new JLabel("Map:");
+        mapScaleLabel.setForeground(EdoUi.User.MAIN_TEXT);
+        mapSchematicButton = new JButton("Schematic");
+        mapTrueScaleButton = new JButton("True scale");
+        configureMapScaleToggleButton(mapSchematicButton,
+                "Compressed layout; concentric rings at the star for outer planets.");
+        configureMapScaleToggleButton(mapTrueScaleButton,
+                "Journal distances in metres (Ls on ruler). Wide binaries need heavy zoom.");
+        alignMapScaleToggleButtonWidths(mapSchematicButton, mapTrueScaleButton);
+        mapSchematicButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                mapSchematicHovered = true;
+                updateMapScaleToggleAppearance();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                mapSchematicHovered = false;
+                updateMapScaleToggleAppearance();
+            }
+        });
+        mapTrueScaleButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                mapTrueScaleHovered = true;
+                updateMapScaleToggleAppearance();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                mapTrueScaleHovered = false;
+                updateMapScaleToggleAppearance();
+            }
+        });
+        mapSchematicButton.addActionListener(e -> applyMapScaleMode(org.dce.ed.systemmap.MapScaleMode.SCHEMATIC));
+        mapTrueScaleButton.addActionListener(e -> applyMapScaleMode(org.dce.ed.systemmap.MapScaleMode.TRUE_SCALE));
+        org.dce.ed.systemmap.MapScaleMode savedMapScale = OverlayPreferences.getSystemPlanMapScaleMode();
+        systemPlanMapPanel.setMapScaleMode(savedMapScale);
+        updateMapScaleToggleAppearance();
+        mapToolbar.add(mapScaleLabel);
+        mapToolbar.add(mapSchematicButton);
+        mapToolbar.add(mapTrueScaleButton);
         orbitAnimPlayButton = new JToggleButton();
         orbitAnimPlayButton.setText(null);
         orbitAnimPlayButton.setForeground(EdoUi.User.MAIN_TEXT);
@@ -802,23 +856,50 @@ public class SystemTabPanel extends JPanel {
                 "Fast-forward schematic orbits (approximate journal elements; not real flight time). "
                         + "Use the chevron buttons to change how fast model time runs.");
         orbitAnimPlayButton.addItemListener(ev -> {
+            if (orbitAnimSuppressPlayToggleHandler) {
+                return;
+            }
             if (ev.getStateChange() == ItemEvent.SELECTED) {
                 orbitAnimDemoActive = true;
                 if (schematicMapFreezeEpoch == null) {
                     schematicMapFreezeEpoch = Instant.now();
                 }
-                orbitAnimSimInstant = schematicMapFreezeEpoch;
+                if (orbitAnimPlayBaseEpoch == null) {
+                    orbitAnimPlayBaseEpoch = schematicMapFreezeEpoch;
+                }
+                if (orbitAnimSimInstant == null) {
+                    orbitAnimSimInstant = schematicMapFreezeEpoch;
+                }
                 orbitAnimDemoTimer.start();
                 refreshPlanMap();
             } else if (ev.getStateChange() == ItemEvent.DESELECTED) {
-                orbitAnimDemoActive = false;
-                orbitAnimDemoTimer.stop();
-                schematicMapFreezeEpoch = orbitAnimSimInstant;
-                refreshPlanMap();
-                systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
+                pauseOrbitAnimPlayback();
             }
         });
         mapToolbar.add(orbitAnimPlayButton);
+        orbitAnimStopButton = new JButton();
+        orbitAnimStopButton.setText(null);
+        orbitAnimStopButton.setForeground(EdoUi.User.MAIN_TEXT);
+        orbitAnimStopButton.setOpaque(false);
+        orbitAnimStopButton.setContentAreaFilled(false);
+        orbitAnimStopButton.setBorderPainted(true);
+        orbitAnimStopButton.setFocusable(false);
+        orbitAnimStopButton.setFocusPainted(false);
+        orbitAnimStopButton.setToolTipText(
+                "Stop orbit simulation and return bodies to real-time journal positions (now).");
+        orbitAnimStopButton.addActionListener(e -> stopOrbitAnimSimulation());
+        mapToolbar.add(orbitAnimStopButton);
+        orbitMapPrintButton = new JButton("Print");
+        orbitMapPrintButton.setForeground(EdoUi.User.MAIN_TEXT);
+        orbitMapPrintButton.setOpaque(true);
+        orbitMapPrintButton.setBackground(EdoUi.User.PANEL_BG);
+        orbitMapPrintButton.setBorderPainted(true);
+        orbitMapPrintButton.setFocusable(false);
+        orbitMapPrintButton.setFocusPainted(false);
+        orbitMapPrintButton.setToolTipText(
+                "Debug: print every body and attached orbit strokes to the console (stdout).");
+        orbitMapPrintButton.addActionListener(e -> printOrbitMapStrokesToConsole());
+        mapToolbar.add(orbitMapPrintButton);
 
         String orbitSpeedTt = "Orbit model days advanced per second of real time while playing.";
         orbitAnimSpeedDownButton = new JButton();
@@ -1901,6 +1982,8 @@ public class SystemTabPanel extends JPanel {
         state.setSystemName(systemName);
         state.setSystemAddress(systemAddress);
         schematicMapFreezeEpoch = null;
+        orbitAnimPlayBaseEpoch = null;
+        orbitAnimSimInstant = null;
         state.resetBodies();
         state.setTotalBodies(null);
         state.setNonBodyCount(null);
@@ -2044,7 +2127,7 @@ public class SystemTabPanel extends JPanel {
         if (!shipDistMode && bodies != null && !bodies.isEmpty()) {
             int anchKey = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
             Map<Integer, double[]> posGeom = SystemOrbitGeometry.bodyPositionsMetres(bodies, tableDistanceEpoch(),
-                    orbitAnimDemoActive);
+                    freezeBarycentreStarsDuringOrbitAnim());
             double[] anchPos = posGeom != null ? posGeom.get(Integer.valueOf(anchKey)) : null;
             if (anchPos != null && anchPos.length >= 3) {
                 geometryFallbackDistLs = SystemOrbitGeometry.distancesFromPointLs(bodies, anchPos);
@@ -2071,6 +2154,10 @@ public class SystemTabPanel extends JPanel {
         // debugDumpBioRowsToConsole();
     }
 
+    private void printOrbitMapStrokesToConsole() {
+        systemPlanMapPanel.printOrbitStrokesToConsole(state.getSystemName());
+    }
+
     /** Updates the orbital plan map (journal-derived X/Y projection). */
     private void refreshPlanMap() {
         Map<Integer, BodyInfo> bodies = state.getBodies();
@@ -2079,8 +2166,16 @@ public class SystemTabPanel extends JPanel {
                 orbitAnimDemoTimer.stop();
             }
             orbitAnimDemoActive = false;
-            if (orbitAnimPlayButton != null) {
-                orbitAnimPlayButton.setSelected(false);
+            schematicMapFreezeEpoch = null;
+            orbitAnimPlayBaseEpoch = null;
+            orbitAnimSimInstant = null;
+            orbitAnimSuppressPlayToggleHandler = true;
+            try {
+                if (orbitAnimPlayButton != null) {
+                    orbitAnimPlayButton.setSelected(false);
+                }
+            } finally {
+                orbitAnimSuppressPlayToggleHandler = false;
             }
             systemPlanMapPanel.clearScene();
             return;
@@ -2094,7 +2189,8 @@ public class SystemTabPanel extends JPanel {
             }
             mapEpoch = schematicMapFreezeEpoch;
         }
-        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, mapEpoch, orbitAnimDemoActive);
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, mapEpoch,
+                freezeBarycentreStarsDuringOrbitAnim());
         Integer commanderRefMap = resolvePlanMapShipAnchorBodyId();
         double[] ship = null;
         if (commanderRefMap != null) {
@@ -2127,6 +2223,47 @@ public class SystemTabPanel extends JPanel {
         }
         systemPlanMapPanel.setScene(bodies, pos, ship, commanderRefMap, commanderHighlight,
                 orbitAnimDemoActive, mapEpoch);
+    }
+
+    /** Schematic playback freezes wide-binary stars; true-scale sim advances them on the mutual barycentre ring. */
+    private boolean freezeBarycentreStarsDuringOrbitAnim() {
+        return orbitAnimDemoActive && !systemPlanMapPanel.mapScaleMode().trueScale();
+    }
+
+    /** Pause fast-forward: freeze map at current sim instant (do not rewind to play T+0). */
+    private void pauseOrbitAnimPlayback() {
+        orbitAnimDemoActive = false;
+        if (orbitAnimDemoTimer != null) {
+            orbitAnimDemoTimer.stop();
+        }
+        if (orbitAnimSimInstant != null) {
+            schematicMapFreezeEpoch = orbitAnimSimInstant;
+        }
+        refreshPlanMap();
+        systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
+    }
+
+    /**
+     * Stop simulation and rebuild the map at {@link Instant#now()} (live journal geometry), clearing T+ state.
+     */
+    private void stopOrbitAnimSimulation() {
+        orbitAnimDemoActive = false;
+        if (orbitAnimDemoTimer != null) {
+            orbitAnimDemoTimer.stop();
+        }
+        schematicMapFreezeEpoch = null;
+        orbitAnimPlayBaseEpoch = null;
+        orbitAnimSimInstant = null;
+        orbitAnimSuppressPlayToggleHandler = true;
+        try {
+            if (orbitAnimPlayButton != null && orbitAnimPlayButton.isSelected()) {
+                orbitAnimPlayButton.setSelected(false);
+            }
+        } finally {
+            orbitAnimSuppressPlayToggleHandler = false;
+        }
+        refreshPlanMap();
+        systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
     }
 
     private void tickOrbitAnimDemo() {
@@ -2173,7 +2310,7 @@ public class SystemTabPanel extends JPanel {
      * to the computed row height.
      */
     private void applyOrbitMapToolbarTypography(String slowerTt, String fasterTt, String speedValueTt) {
-        if (orbitAnimPlayButton == null || orbitAnimSpeedDownButton == null
+        if (orbitAnimPlayButton == null || orbitAnimStopButton == null || orbitAnimSpeedDownButton == null
                 || orbitAnimSpeedUpButton == null || orbitAnimSpeedValueLabel == null) {
             return;
         }
@@ -2211,6 +2348,21 @@ public class SystemTabPanel extends JPanel {
         int btnW = iconSize + Math.max(8, (int) Math.round(iconSize * 0.15) + 6);
         int playSide = Math.max(btnW, btnH);
         orbitAnimPlayButton.setPreferredSize(new Dimension(playSide, playSide));
+
+        orbitAnimStopButton.setFont(toolbarFont);
+        orbitAnimStopButton.setText(null);
+        orbitAnimStopButton.setIcon(new OrbitSchematicTransportIcons.StopSquareIcon(iconSize));
+        orbitAnimStopButton.setHorizontalAlignment(SwingConstants.CENTER);
+        orbitAnimStopButton.setVerticalAlignment(SwingConstants.CENTER);
+        orbitAnimStopButton.setIconTextGap(0);
+        orbitAnimStopButton.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        orbitAnimStopButton.setPreferredSize(new Dimension(playSide, playSide));
+
+        if (orbitMapPrintButton != null) {
+            orbitMapPrintButton.setFont(toolbarFont);
+            int printW = Math.max(playSide, fm.stringWidth("Print") + 14);
+            orbitMapPrintButton.setPreferredSize(new Dimension(printW, playSide));
+        }
 
         orbitAnimSpeedValueLabel.setFont(toolbarFont);
         orbitAnimSpeedValueLabel.setToolTipText(speedValueTt);
@@ -4184,6 +4336,66 @@ static class Row {
             return false;
         }
     }
+    private void applyMapScaleMode(org.dce.ed.systemmap.MapScaleMode mode) {
+        systemPlanMapPanel.setMapScaleMode(mode);
+        updateMapScaleToggleAppearance();
+        refreshPlanMap();
+    }
+
+    private void configureMapScaleToggleButton(JButton b, String tooltip) {
+        configureDistModeToggleButton(b, tooltip);
+        b.setOpaque(true);
+        b.setBackground(EdoUi.User.PANEL_BG);
+    }
+
+    /** Equal widths so FlowLayout never stacks the two labels on top of each other. */
+    private static void alignMapScaleToggleButtonWidths(JButton schematic, JButton trueScale) {
+        int w = Math.max(schematic.getPreferredSize().width, trueScale.getPreferredSize().width);
+        int h = Math.max(schematic.getPreferredSize().height, trueScale.getPreferredSize().height);
+        Dimension size = new Dimension(w, h);
+        for (JButton b : new JButton[] { schematic, trueScale }) {
+            b.setPreferredSize(size);
+            b.setMinimumSize(size);
+        }
+    }
+
+    private void updateMapScaleToggleAppearance() {
+        if (mapSchematicButton == null || mapTrueScaleButton == null) {
+            return;
+        }
+        boolean trueScale = systemPlanMapPanel.mapScaleMode().trueScale();
+        applyMapScaleToggleButtonChrome(mapSchematicButton, !trueScale, mapSchematicHovered);
+        applyMapScaleToggleButtonChrome(mapTrueScaleButton, trueScale, mapTrueScaleHovered);
+        mapSchematicButton.repaint();
+        mapTrueScaleButton.repaint();
+    }
+
+    /**
+     * Map scale toggles stay fully opaque so the adjacent button label and map below cannot show through
+     * (transparent {@link JButton}s in a transparent toolbar caused ghosted text).
+     */
+    private void applyMapScaleToggleButtonChrome(JButton b, boolean selected, boolean hovered) {
+        Color ink = EdoUi.User.MAIN_TEXT;
+        Color hoverLine = EdoUi.Internal.MAIN_TEXT_ALPHA_200;
+        Color hoverFill = EdoUi.Internal.MAIN_TEXT_ALPHA_40;
+        b.setOpaque(true);
+        if (selected) {
+            b.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(ink, hovered ? 2 : 1),
+                    new EmptyBorder(hovered ? 1 : 2, 3, hovered ? 1 : 2, 3)));
+            b.setBackground(hovered ? hoverFill : EdoUi.User.PANEL_BG);
+        } else if (hovered) {
+            b.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(hoverLine, 1),
+                    new EmptyBorder(2, 4, 2, 4)));
+            b.setBackground(hoverFill);
+        } else {
+            b.setBorder(new EmptyBorder(3, 5, 3, 5));
+            b.setBackground(EdoUi.User.PANEL_BG);
+        }
+        b.setCursor(Cursor.getPredefinedCursor(hovered ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+    }
+
     private void configureDistModeToggleButton(JButton b, String tooltip) {
         b.setToolTipText(tooltip);
         b.setMargin(new java.awt.Insets(2, 4, 2, 4));
@@ -4536,7 +4748,7 @@ static class Row {
             return Collections.emptyMap();
         }
         Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, tableDistanceEpoch(),
-                orbitAnimDemoActive);
+                freezeBarycentreStarsDuringOrbitAnim());
         double[] ship = SystemOrbitGeometry.shipPositionMetres(
                 bodies,
                 pos,

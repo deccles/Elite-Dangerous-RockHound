@@ -10,6 +10,7 @@ import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.ScanBaryCentreEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.state.JournalParentRefs;
 import org.dce.ed.state.ScanParents;
 import org.dce.ed.state.SystemState;
 
@@ -111,6 +112,9 @@ public final class JournalSystemMapLoader {
         int ip = ScanParents.immediateOrbitParentBodyId(e.getParents(), e);
         if (ip >= 0) {
             info.setImmediateParentBodyId(ip);
+        }
+        if (e.getParents() != null && !e.getParents().isEmpty()) {
+            info.setJournalParentRefs(JournalParentRefs.fromScanParents(e.getParents()));
         }
     }
 

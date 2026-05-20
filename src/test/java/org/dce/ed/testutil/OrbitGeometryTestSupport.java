@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 
@@ -27,6 +29,33 @@ public final class OrbitGeometryTestSupport {
     public static final double DESIGNATION_BRANCH_MIN_MARGIN_LS = 500.0;
 
     private OrbitGeometryTestSupport() {
+    }
+
+    /**
+     * Major bodies (not moons, not scan rows) whose resolved orbit parent is {@code starLabel}'s map key.
+     */
+    public static List<String> directResolvedMajorChildrenOfStar(SystemMapModel model,
+            Map<Integer, BodyInfo> bodies,
+            String starLabel) {
+        int starId = findByShortName(bodies, starLabel);
+        if (starId < 0 || model == null || bodies == null) {
+            return Collections.emptyList();
+        }
+        List<String> labels = new ArrayList<>();
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            if (SystemOrbitGeometry.isMapStellarBody(e.getValue())
+                    || SystemOrbitGeometry.isMoonSatelliteBody(e.getValue(), bodies)) {
+                continue;
+            }
+            if (model.resolveParentBodyId(e.getKey().intValue()) == starId) {
+                labels.add(e.getValue().getShortName());
+            }
+        }
+        Collections.sort(labels);
+        return labels;
     }
 
     public static int findByShortName(Map<Integer, BodyInfo> bodies, String shortName) {
@@ -254,6 +283,333 @@ public final class OrbitGeometryTestSupport {
      * Mirrors the screenshot failure: one light-blue circle centred on the arrival star at heliocentric (~50k Ls)
      * scale with B/C on its rim — not the schematic ~7k Ls BCD trunk.
      */
+    /**
+     * Synthetic schematic concentric ring ids from {@code appendSchematicRingsAtStar} / branch-star layout
+     * ({@code -4000 - starId * 100_000 - ls}). Planet-binary guide rings ({@code -51k}/{@code -52k}) sit below {@code -50k}.
+     */
+    public static boolean isSchematicConcentricRingPolylineId(int bodyId) {
+        return bodyId <= -4_000 && bodyId > -50_000;
+    }
+
+    /**
+     * Per-body (positive id) orbit stroke centroid should lie near the resolved direct parent, not the wide-binary
+     * mutual-ring centre or map origin.
+     */
+    public static void assertPerBodyOrbitRingCentredOnResolvedParent(SystemMapModel model,
+            Map<Integer, BodyInfo> bodies,
+            String shortName,
+            List<OrbitPolylineWorldXY> polylines,
+            double toleranceLs) {
+        int mapKey = findByShortName(bodies, shortName);
+        assertTrue(mapKey >= 0, "missing body: " + shortName);
+        int parentId = model.resolveParentBodyId(mapKey);
+        assertTrue(parentId >= 0 || SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(parentId),
+                shortName + " needs resolved parent for orbit ring");
+        OrbitPolylineWorldXY ring = null;
+        for (OrbitPolylineWorldXY p : polylines) {
+            if (p != null && p.bodyId == mapKey) {
+                ring = p;
+                break;
+            }
+        }
+        assertNotNull(ring, "missing per-body orbit ring for " + shortName);
+        double[] parentPos = model.positionsMetres().get(
+                Integer.valueOf(parentId >= 0 ? parentId
+                        : SystemOrbitGeometry.planetBinaryBarycentreMapKey(
+                                SystemOrbitGeometry.journalNullIdFromPlanetBinaryBarycentreMapKey(parentId))));
+        assertNotNull(parentPos, "parent position for " + shortName);
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double px = axisCoord(parentPos, a0);
+        double py = axisCoord(parentPos, a1);
+        BodyInfo body = bodies.get(Integer.valueOf(mapKey));
+        double hintLs = body != null && Double.isFinite(body.getDistanceLs()) && body.getDistanceLs() > 0
+                ? body.getDistanceLs()
+                : Double.NaN;
+        double ecc = 0.0;
+        if (body != null && body.getEccentricity() != null && Double.isFinite(body.getEccentricity())) {
+            ecc = Math.max(0.0, Math.min(0.999, body.getEccentricity().doubleValue()));
+        }
+        double minFromParent = Double.POSITIVE_INFINITY;
+        double maxFromParent = 0.0;
+        for (int i = 0; i < ring.wx.length; i++) {
+            double r = Math.hypot(ring.wx[i] - px, ring.wy[i] - py) / ls;
+            minFromParent = Math.min(minFromParent, r);
+            maxFromParent = Math.max(maxFromParent, r);
+        }
+        if (Double.isFinite(hintLs) && hintLs > 2.0) {
+            assertTrue(maxFromParent <= hintLs * (1.0 + ecc) * 1.25 + 50.0,
+                    shortName + " orbit should not extend far beyond journal distance (max=" + maxFromParent
+                            + " hint=" + hintLs + ")");
+            assertTrue(minFromParent >= hintLs * Math.max(0.05, 1.0 - ecc) * 0.35,
+                    shortName + " orbit should wrap parent star focus (min=" + minFromParent + " hint=" + hintLs
+                            + ")");
+        }
+        double cx = ringCentroid(ring.wx);
+        double cy = ringCentroid(ring.wy);
+        double off = Math.hypot(cx - px, cy - py) / ls;
+        double centroidTol = toleranceLs;
+        if (!ring.estimated && ecc > 0.05 && Double.isFinite(hintLs)) {
+            centroidTol = Math.max(toleranceLs, hintLs * ecc * 1.35);
+        }
+        assertTrue(off <= centroidTol,
+                shortName + " orbit ring should anchor on direct parent (off=" + off + " Ls tol=" + centroidTol
+                        + " parent=" + parentId + ")");
+        for (OrbitPolylineWorldXY poly : polylines) {
+            if (poly == null || poly.bodyId != SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
+                continue;
+            }
+            double bx = ringCentroid(poly.wx);
+            double by = ringCentroid(poly.wy);
+            double baryOff = Math.hypot(cx - bx, cy - by) / ls;
+            assertTrue(baryOff > 500.0 || off < 50.0,
+                    shortName + " ring must not coincide with A/B mutual barycentre ring (baryOff=" + baryOff
+                            + " Ls)");
+            return;
+        }
+    }
+
+    /**
+     * True-scale Kepler stroke should be measurably non-circular when journal eccentricity is significant.
+     */
+    /**
+     * Exactly one closed stroke with {@code bodyId == map key} for {@code shortName}; no second stroke of similar
+     * radius whose centre is nearer the wide-binary system barycentre than the resolved direct parent.
+     */
+    public static void assertExactlyOneDirectParentOrbitStroke(SystemMapModel model,
+            Map<Integer, BodyInfo> bodies,
+            String shortName,
+            List<OrbitPolylineWorldXY> polylines,
+            double toleranceLs) {
+        int mapKey = findByShortName(bodies, shortName);
+        assertTrue(mapKey >= 0, "missing body: " + shortName);
+        int parentId = model.resolveParentBodyId(mapKey);
+        assertTrue(parentId >= 0, shortName + " needs star parent");
+        int matches = 0;
+        OrbitPolylineWorldXY primary = null;
+        for (OrbitPolylineWorldXY p : polylines) {
+            if (p != null && p.bodyId == mapKey) {
+                matches++;
+                primary = p;
+            }
+        }
+        assertEquals(1, matches, shortName + " should have exactly one per-body orbit polyline");
+        assertNotNull(primary);
+        assertPerBodyOrbitRingCentredOnResolvedParent(model, bodies, shortName, polylines, toleranceLs);
+        double[] parentPos = model.positionsMetres().get(Integer.valueOf(parentId));
+        assertNotNull(parentPos);
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double px = axisCoord(parentPos, a0);
+        double py = axisCoord(parentPos, a1);
+        double ringR = meanRadius(primary.wx, primary.wy, ringCentroid(primary.wx), ringCentroid(primary.wy));
+        double baryX = 0.0;
+        double baryY = 0.0;
+        int starCount = 0;
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null
+                    || !SystemOrbitGeometry.isMapStellarBody(e.getValue())) {
+                continue;
+            }
+            if (!SystemOrbitGeometry.orbitsWideBinarySystemBarycentre(e.getValue(), bodies, e.getKey().intValue())) {
+                continue;
+            }
+            double[] sp = model.positionsMetres().get(e.getKey());
+            if (sp == null) {
+                continue;
+            }
+            baryX += axisCoord(sp, a0);
+            baryY += axisCoord(sp, a1);
+            starCount++;
+        }
+        if (starCount > 0) {
+            baryX /= starCount;
+            baryY /= starCount;
+        }
+        for (OrbitPolylineWorldXY poly : polylines) {
+            if (poly == null || poly.wx == null || poly.wy == null || poly.wx.length < 3
+                    || poly.bodyId == mapKey
+                    || poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
+                continue;
+            }
+            double cx = ringCentroid(poly.wx);
+            double cy = ringCentroid(poly.wy);
+            double rad = meanRadius(poly.wx, poly.wy, cx, cy);
+            if (Math.abs(rad - ringR) > ringR * 0.45) {
+                continue;
+            }
+            double offParent = Math.hypot(cx - px, cy - py) / ls;
+            double offBary = Math.hypot(cx - baryX, cy - baryY) / ls;
+            assertTrue(offBary >= offParent * 0.5 || offParent <= toleranceLs,
+                    shortName + " ghost barycentre stroke (bodyId=" + poly.bodyId + " offBary=" + offBary
+                            + " offParent=" + offParent + " Ls)");
+        }
+    }
+
+    /**
+     * Every direct child of the primary anchor star on the A-branch should have one parent-centred stroke that is not
+     * needle-flat in the map plane (true-scale Kepler around the branch star, not the system barycentre).
+     */
+    public static void assertDirectPrimaryBranchPlanetOrbitsNotSquished(SystemMapModel model,
+            Map<Integer, BodyInfo> bodies,
+            List<String> shortNames,
+            List<OrbitPolylineWorldXY> polylines,
+            double maxApoPeriRatio,
+            double parentCentreToleranceLs) {
+        int primaryId = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+        assertTrue(primaryId >= 0, "missing wide-binary primary anchor star");
+        BodyInfo primary = bodies.get(Integer.valueOf(primaryId));
+        String starLabel = primary != null && primary.getShortName() != null ? primary.getShortName().trim() : "A";
+        List<String> targets = shortNames != null && !shortNames.isEmpty()
+                ? shortNames
+                : directResolvedMajorChildrenOfStar(model, bodies, starLabel);
+        for (String shortName : targets) {
+            int mapKey = findByShortName(bodies, shortName);
+            assertTrue(mapKey >= 0, "missing body: " + shortName);
+            assertEquals(primaryId, model.resolveParentBodyId(mapKey),
+                    shortName + " must resolve to primary anchor star");
+            assertExactlyOneDirectParentOrbitStroke(model, bodies, shortName, polylines, parentCentreToleranceLs);
+            OrbitPolylineWorldXY ring = null;
+            for (OrbitPolylineWorldXY p : polylines) {
+                if (p != null && p.bodyId == mapKey) {
+                    ring = p;
+                    break;
+                }
+            }
+            assertNotNull(ring, shortName + " orbit ring");
+            assertOrbitPolylineAspectRatioSane(ring, maxApoPeriRatio);
+            BodyInfo body = bodies.get(Integer.valueOf(mapKey));
+            double ecc = 0.0;
+            if (body != null && body.getEccentricity() != null && Double.isFinite(body.getEccentricity())) {
+                ecc = Math.max(0.0, body.getEccentricity().doubleValue());
+            }
+            if (ecc > 0.15 && !ring.estimated) {
+                assertOrbitPolylineIsNonCircularKepler(ring, 0.12);
+            }
+        }
+    }
+
+    /**
+     * High-eccentricity edge-on Kepler projections can be very flat; reject only absurd needle-like polylines.
+     */
+    public static void assertOrbitPolylineAspectRatioSane(OrbitPolylineWorldXY ring, double maxApoPeriRatio) {
+        assertNotNull(ring);
+        double cx = ringCentroid(ring.wx);
+        double cy = ringCentroid(ring.wy);
+        double minR = Double.POSITIVE_INFINITY;
+        double maxR = 0.0;
+        for (int i = 0; i < ring.wx.length; i++) {
+            double r = Math.hypot(ring.wx[i] - cx, ring.wy[i] - cy);
+            minR = Math.min(minR, r);
+            maxR = Math.max(maxR, r);
+        }
+        double ratio = maxR / Math.max(minR, 1.0);
+        assertTrue(ratio <= maxApoPeriRatio,
+                "orbit polyline too squished (apo/peri=" + ratio + ", max=" + maxApoPeriRatio + ")");
+    }
+
+    public static void assertOrbitPolylineIsNonCircularKepler(OrbitPolylineWorldXY ring, double minEccentricityHint) {
+        assertNotNull(ring, "orbit polyline");
+        assertTrue(ring.wx != null && ring.wx.length >= 8, "need enough vertices");
+        double cx = ringCentroid(ring.wx);
+        double cy = ringCentroid(ring.wy);
+        double minR = Double.POSITIVE_INFINITY;
+        double maxR = 0.0;
+        for (int i = 0; i < ring.wx.length; i++) {
+            double r = Math.hypot(ring.wx[i] - cx, ring.wy[i] - cy);
+            minR = Math.min(minR, r);
+            maxR = Math.max(maxR, r);
+        }
+        double ratio = maxR / Math.max(minR, 1.0);
+        assertTrue(ratio >= 1.0 + minEccentricityHint,
+                "expected elliptical Kepler stroke, apo/peri ratio=" + ratio);
+    }
+
+    public static void assertNoSchematicConcentricBranchRings(List<OrbitPolylineWorldXY> polylines) {
+        for (OrbitPolylineWorldXY poly : polylines) {
+            if (poly != null && isSchematicConcentricRingPolylineId(poly.bodyId)) {
+                fail("unexpected schematic concentric ring id " + poly.bodyId);
+            }
+        }
+    }
+
+    /**
+     * Regression for Coeus A-branch screenshot: one Kepler ellipse around the branch star must not stack with a second
+     * journal-radius schematic circle ({@code SINGLE_STAR_SCHEMATIC_RING_ID_BASE} or near-circular fallback).
+     */
+    public static void assertNoEllipticalAndCircularOrbitPairNearParent(SystemMapModel model,
+            Map<Integer, BodyInfo> bodies,
+            String shortName,
+            List<OrbitPolylineWorldXY> polylines,
+            double toleranceLs) {
+        int mapKey = findByShortName(bodies, shortName);
+        assertTrue(mapKey >= 0, "missing body: " + shortName);
+        int parentId = model.resolveParentBodyId(mapKey);
+        assertTrue(parentId >= 0, shortName + " needs star parent");
+        BodyInfo body = bodies.get(Integer.valueOf(mapKey));
+        assertNotNull(body);
+        double hintLs = body.getDistanceLs();
+        if (!Double.isFinite(hintLs) || hintLs <= 2.0) {
+            return;
+        }
+        double[] parentPos = model.positionsMetres().get(Integer.valueOf(parentId));
+        assertNotNull(parentPos);
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double px = axisCoord(parentPos, a0);
+        double py = axisCoord(parentPos, a1);
+        double hintM = hintLs * ls;
+        boolean circularNear = false;
+        boolean ellipticalNear = false;
+        int nearCount = 0;
+        for (OrbitPolylineWorldXY poly : polylines) {
+            if (poly == null || poly.wx == null || poly.wy == null || poly.wx.length < 3) {
+                continue;
+            }
+            if (poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
+                continue;
+            }
+            double cx = ringCentroid(poly.wx);
+            double cy = ringCentroid(poly.wy);
+            double radM = meanRadius(poly.wx, poly.wy, cx, cy);
+            double offParent = Math.hypot(cx - px, cy - py) / ls;
+            if (offParent > toleranceLs * 3.0 && poly.bodyId != mapKey) {
+                continue;
+            }
+            if (poly.bodyId != mapKey && !isSchematicConcentricRingPolylineId(poly.bodyId)) {
+                continue;
+            }
+            if (Math.abs(radM - hintM) > hintM * 0.55) {
+                continue;
+            }
+            if (isSchematicConcentricRingPolylineId(poly.bodyId)) {
+                fail(shortName + " must not have schematic branch-star ring id " + poly.bodyId
+                        + " at true scale (journal-radius circle)");
+            }
+            nearCount++;
+            double minR = Double.POSITIVE_INFINITY;
+            double maxR = 0.0;
+            for (int i = 0; i < poly.wx.length; i++) {
+                double r = Math.hypot(poly.wx[i] - cx, poly.wy[i] - cy);
+                minR = Math.min(minR, r);
+                maxR = Math.max(maxR, r);
+            }
+            double ratio = maxR / Math.max(minR, 1.0);
+            if (ratio >= 1.08) {
+                ellipticalNear = true;
+            } else if (ratio <= 1.06) {
+                circularNear = true;
+            }
+        }
+        assertTrue(nearCount <= 1,
+                shortName + " should have at most one orbit stroke near journal radius (had " + nearCount + ")");
+        assertFalse(circularNear && ellipticalNear,
+                shortName + " must not show both a circular journal-radius ring and a separate Kepler ellipse");
+    }
+
     public static void assertNoHeliocentricRingAroundPrimaryStar(SystemMapModel model, Map<Integer, BodyInfo> bodies,
             int primaryStarId, double maxRingRadiusLs) {
         assertNoHeliocentricRingAroundPrimaryStar(model, bodies, primaryStarId, maxRingRadiusLs,

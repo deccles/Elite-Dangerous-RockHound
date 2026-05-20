@@ -104,6 +104,8 @@ public final class OverlayPreferences {
     private static final String KEY_SYSTEM_TAB_STICKY_HUD_TARGET_BODY_PREFIX = "system.stickyHudTargetBody.";
     /** System plan map Play: orbit-model days advanced per wall-clock second (slider range 1–500; default 110). */
     private static final String KEY_SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND = "system.planMap.orbitAnim.daysPerWallSecond";
+    /** {@link org.dce.ed.systemmap.MapScaleMode} for the system plan map (default schematic). */
+    private static final String KEY_SYSTEM_PLAN_MAP_SCALE_MODE = "system.planMap.scaleMode";
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_DEFAULT = 110;
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN = 1;
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX = 500;
@@ -514,6 +516,19 @@ public final class OverlayPreferences {
 
     public static int getSystemTabOrbitAnimDaysPerWallSecondMax() {
         return SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX;
+    }
+
+    public static org.dce.ed.systemmap.MapScaleMode getSystemPlanMapScaleMode() {
+        return org.dce.ed.systemmap.MapScaleMode.fromPrefsString(PREFS.get(KEY_SYSTEM_PLAN_MAP_SCALE_MODE, ""));
+    }
+
+    public static void setSystemPlanMapScaleMode(org.dce.ed.systemmap.MapScaleMode mode) {
+        if (mode == null || mode == org.dce.ed.systemmap.MapScaleMode.SCHEMATIC) {
+            PREFS.remove(KEY_SYSTEM_PLAN_MAP_SCALE_MODE);
+        } else {
+            PREFS.put(KEY_SYSTEM_PLAN_MAP_SCALE_MODE, mode.toPrefsString());
+        }
+        flushBackingStore();
     }
 
     // ---------------------------------------------------------------------

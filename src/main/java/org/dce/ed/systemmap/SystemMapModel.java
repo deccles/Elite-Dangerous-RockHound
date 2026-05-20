@@ -22,6 +22,7 @@ public final class SystemMapModel {
 
     private final String systemName;
     private final Map<Integer, BodyInfo> bodies;
+    private final MapScaleMode mapScaleMode;
     private final SystemMapClassification classification;
     private final int projectionAxis0;
     private final int projectionAxis1;
@@ -36,6 +37,7 @@ public final class SystemMapModel {
 
     SystemMapModel(String systemName,
             Map<Integer, BodyInfo> bodies,
+            MapScaleMode mapScaleMode,
             SystemMapClassification classification,
             int projectionAxis0,
             int projectionAxis1,
@@ -49,6 +51,7 @@ public final class SystemMapModel {
             Map<Integer, Boolean> labelVisibleWhenZoomedOut) {
         this.systemName = systemName;
         this.bodies = Collections.unmodifiableMap(bodies);
+        this.mapScaleMode = mapScaleMode != null ? mapScaleMode : MapScaleMode.SCHEMATIC;
         this.classification = classification;
         this.projectionAxis0 = projectionAxis0;
         this.projectionAxis1 = projectionAxis1;
@@ -68,6 +71,14 @@ public final class SystemMapModel {
 
     public Map<Integer, BodyInfo> bodies() {
         return bodies;
+    }
+
+    public MapScaleMode mapScaleMode() {
+        return mapScaleMode;
+    }
+
+    public boolean trueScale() {
+        return mapScaleMode.trueScale();
     }
 
     public SystemMapClassification classification() {
