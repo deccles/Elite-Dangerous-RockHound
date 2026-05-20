@@ -1850,27 +1850,9 @@ return EdoUi.User.MAIN_TEXT;
 	 * so the next trip starts at A and clear cargo-driven logging state.
 	 */
 	public void onDocked() {
-		// If we've never seen a prospector event in this trip, there is nothing to flush; avoid
-		// logging fake "0 -> X" gains when docking with pre-existing cargo.
-		if (lastInventoryTonsAtProspector == null || lastInventoryTonsAtProspector.isEmpty()) {
-			lastProspectedMotherlode = "";
-			asteroidIdCounter = 0;
-			dudCounter = 0;
-			prospectorLimpetSeenThisTrip = false;
-			loggedCargoSinceLastProspector = false;
-			wroteRowsThisRun = false;
-			miningLoggingArmed = false;
-			haveActiveAsteroid = false;
-			asteroidBaselineTons = new HashMap<>();
-			lastCargoTonsForLogging = new HashMap<>();
-			lastUndockTime = null;
-			if (spreadsheetScatterPanel != null) {
-				spreadsheetScatterPanel.clearScatterAsteroidModelForSessionEnd();
-			}
-			syncScatterActiveRun();
-			return;
-		}
-		// Set run end time on the canonical row for the run we just finished.
+		boolean hadProspectorTrip = lastInventoryTonsAtProspector != null
+				&& !lastInventoryTonsAtProspector.isEmpty();
+		// Set run end time on the canonical row for the run we just finished (even if cargo was sold before dock).
 		if (wroteRowsThisRun && activeRun > 0) {
 			String commander = OverlayPreferences.getMiningLogCommanderName();
 			if (commander != null && !commander.isBlank()) {
@@ -1890,6 +1872,26 @@ return EdoUi.User.MAIN_TEXT;
 					scheduleSpreadsheetRefreshAfterMiningWrite();
 				}
 			}
+		}
+		// If we've never seen a prospector event in this trip, there is nothing to flush; avoid
+		// logging fake "0 -> X" gains when docking with pre-existing cargo.
+		if (!hadProspectorTrip) {
+			lastProspectedMotherlode = "";
+			asteroidIdCounter = 0;
+			dudCounter = 0;
+			prospectorLimpetSeenThisTrip = false;
+			loggedCargoSinceLastProspector = false;
+			wroteRowsThisRun = false;
+			miningLoggingArmed = false;
+			haveActiveAsteroid = false;
+			asteroidBaselineTons = new HashMap<>();
+			lastCargoTonsForLogging = new HashMap<>();
+			lastUndockTime = null;
+			if (spreadsheetScatterPanel != null) {
+				spreadsheetScatterPanel.clearScatterAsteroidModelForSessionEnd();
+			}
+			syncScatterActiveRun();
+			return;
 		}
 		lastUndockTime = null;
 		if (sessionStateChangeCallback != null) {

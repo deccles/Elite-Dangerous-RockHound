@@ -524,6 +524,11 @@ public class EliteOverlayTabbedPane extends JPanel {
         	setCurrentlyDocked(se.isDocked());
         } else if (event instanceof org.dce.ed.logreader.event.LocationEvent le) {
         	setCurrentlyDocked(le.isDocked());
+        } else if (event.getType() == EliteEventType.DOCKED) {
+        	// Journal Docked must close mining runs via setCurrentlyDocked. SystemEventProcessor also sets
+        	// docked on this event; if we only relied on Status.json afterward, previous would already be true
+        	// and onDocked would never run (common when docking at a station after mining in the same system).
+        	setCurrentlyDocked(true);
         }
 
 
