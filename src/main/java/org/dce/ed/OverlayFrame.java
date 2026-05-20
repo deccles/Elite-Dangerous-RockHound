@@ -1074,7 +1074,7 @@ private void installExoCreditsTracker() {
 
         monitor.addListener(event -> {
             if (event.getType() == EliteEventType.SELL_ORGANIC_DATA) {
-            	System.out.println("Sold " + exoCreditsTotal);
+//            	System.out.println("Sold " + exoCreditsTotal);
                 exoCreditsTotal = 0L;
                 persistExoCreditsTotal();
                 updateRightStatusDefault();
