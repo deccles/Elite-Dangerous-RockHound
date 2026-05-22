@@ -125,25 +125,35 @@ class CoeusCacheIntegrationTest {
 
     @Test
     void sparseCache_storeSystemRepairsFromJournal(@TempDir Path journalDir) throws IOException {
-        System.clearProperty(SystemMapJournalEnricher.SKIP_PROPERTY);
         SystemMapFixture full = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         SystemCache cache = SystemCache.getInstance();
         Map<Integer, BodyInfo> partial = sparseCoeusFiveBodies(full);
-        cache.storeSystem(systemStateFromBodies(partial, full.name));
         copyTestJournalSnippet(journalDir, "coeus-extra-body.log");
+
+        // Seed sparse cache without journal replay (real Saved Games dir must not affect CI).
+        System.setProperty(SystemMapJournalEnricher.SKIP_PROPERTY, "true");
+        cache.storeSystem(systemStateFromBodies(partial, full.name));
 
         SystemState saveAgain = systemStateFromBodies(partial, full.name);
         SystemMapJournalEnricher.setJournalDirectoryOverrideForTests(journalDir);
+        System.clearProperty(SystemMapJournalEnricher.SKIP_PROPERTY);
         try {
             cache.storeSystem(saveAgain);
         } finally {
             SystemMapJournalEnricher.clearJournalDirectoryOverrideForTests();
+            System.setProperty(SystemMapJournalEnricher.SKIP_PROPERTY, "true");
         }
 
         CachedSystem cs = cache.get(SYSTEM_ADDRESS, SYSTEM);
         assertNotNull(cs);
-        assertTrue(cs.bodies.size() >= 7,
-                "storeSystem should union journal scans into sparse Coeus cache (was 5, +B +A 1)");
+        int expectedMin = partial.size() + 2;
+        assertTrue(cs.bodies.size() >= expectedMin,
+                "storeSystem should union journal scans into sparse Coeus cache (was "
+                        + partial.size() + ", +B +A 1, need >= " + expectedMin + ", got " + cs.bodies.size() + ")");
+        SystemState loaded = new SystemState();
+        cache.loadInto(loaded, cs);
+        assertNotNull(findBodyByShortName(loaded.getBodies(), "B"));
+        assertNotNull(findBodyByShortName(loaded.getBodies(), "A 1"));
     }
 
     private static Map<Integer, BodyInfo> sparseCoeusFiveBodies(SystemMapFixture full) {
