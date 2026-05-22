@@ -326,7 +326,7 @@ class EorAowsySystemMapValidationTest {
                 String journal = b != null ? journalParentLabel(b) : "?";
                 String expected = entry.expectedResolve;
                 String resolved = SystemMapTreePrinter.formatResolvedParent(model, bodies, entry.id, idA);
-                boolean ok = expected.equals(resolved);
+                boolean ok = resolvedLabelsEqual(entry.expectedResolve, resolved);
                 if (ok) {
                     pass++;
                 }
@@ -336,6 +336,23 @@ class EorAowsySystemMapValidationTest {
             sb.append(String.format("%n%d/%d passed%n", pass, total));
             System.out.println(sb);
             assertEquals(total, pass, "all bodies must match expected-tree contract");
+        }
+
+        /** Expected-tree uses {@code planetBinary:N} / {@code barycentre}; map labels use {@code Null:N} / {@code Null:0}. */
+        private static boolean resolvedLabelsEqual(String expected, String resolved) {
+            if (expected == null || resolved == null) {
+                return false;
+            }
+            if (expected.equals(resolved)) {
+                return true;
+            }
+            if ("barycentre".equalsIgnoreCase(expected) && "Null:0".equals(resolved)) {
+                return true;
+            }
+            if (expected.startsWith("planetBinary:")) {
+                return ("Null:" + expected.substring("planetBinary:".length()).trim()).equals(resolved);
+            }
+            return false;
         }
 
         private static String journalParentLabel(BodyInfo b) {

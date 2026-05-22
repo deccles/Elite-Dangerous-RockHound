@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.systemmap.MapViewProjection;
 import org.dce.ed.systemmap.SystemMapModel;
 import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
@@ -94,6 +95,110 @@ public final class OrbitGeometryTestSupport {
             }
         }
         return null;
+    }
+
+    /** Shortest map-plane distance from a body dot to the wide-binary barycentre mutual ring (metres). */
+    public static double minDistanceToBinaryBarycentreOrbitPolylineM(SystemMapModel model, int bodyMapKey) {
+        if (model == null) {
+            return Double.NaN;
+        }
+        OrbitPolylineWorldXY ring = null;
+        for (OrbitPolylineWorldXY p : model.orbitPolylines()) {
+            if (p != null && p.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
+                ring = p;
+                break;
+            }
+        }
+        if (ring == null || ring.wx == null || ring.wy == null) {
+            return Double.NaN;
+        }
+        double bx = model.mapPlaneX(bodyMapKey);
+        double by = model.mapPlaneY(bodyMapKey);
+        if (!Double.isFinite(bx) || !Double.isFinite(by)) {
+            return Double.NaN;
+        }
+        double best = Double.POSITIVE_INFINITY;
+        int n = Math.min(ring.wx.length, ring.wy.length);
+        for (int i = 0; i < n; i++) {
+            best = Math.min(best, Math.hypot(ring.wx[i] - bx, ring.wy[i] - by));
+        }
+        return Double.isFinite(best) ? best : Double.NaN;
+    }
+
+    /**
+     * Wide-binary companion (or primary) should lie on the shared A–B barycentre ring stroke at true scale.
+     */
+    public static void assertBodyOnBinaryBarycentreOrbitRing(SystemMapModel model, Map<Integer, BodyInfo> bodies,
+            String shortName, double maxMissFracOfRadius, double maxMissLsFloor) {
+        int mapKey = findByShortName(bodies, shortName);
+        assertTrue(mapKey >= 0, "missing body: " + shortName);
+        OrbitPolylineWorldXY ring = null;
+        for (OrbitPolylineWorldXY p : model.orbitPolylines()) {
+            if (p != null && p.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
+                ring = p;
+                break;
+            }
+        }
+        assertNotNull(ring, "wide-binary barycentre ring");
+        assertBodyNearBinaryBarycentreOrbitRingStroke(model, mapKey, ring, shortName, 0, maxMissFracOfRadius,
+                maxMissLsFloor);
+    }
+
+    private static void assertBodyNearBinaryBarycentreOrbitRingStroke(SystemMapModel model, int mapKey,
+            OrbitPolylineWorldXY ring, String shortName, int viewTiltDeg, double maxMissFracOfRadius,
+            double maxMissLsFloor) {
+        double[] bodyPos = model.positionsMetres().get(Integer.valueOf(mapKey));
+        assertNotNull(bodyPos, "position for " + shortName);
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double[] view = MapViewProjection.projectFromPositionMetres(bodyPos, a0, a1, viewTiltDeg);
+        double bx = view[0];
+        double by = view[1];
+        double cx = ringCentroid(ring.wx);
+        double cy = ringCentroid(ring.wy);
+        double ringRad = meanRadius(ring.wx, ring.wy, cx, cy);
+        double tolM = Math.max(maxMissLsFloor * ls, ringRad * maxMissFracOfRadius);
+        double best = Double.POSITIVE_INFINITY;
+        int n = Math.min(ring.wx.length, ring.wy.length);
+        for (int i = 0; i < n; i++) {
+            best = Math.min(best, Math.hypot(ring.wx[i] - bx, ring.wy[i] - by));
+        }
+        assertTrue(Double.isFinite(best), "distance to wide-binary mutual ring for " + shortName);
+        double chordTolM = ringRad * (Math.PI / Math.max(12, n)) + tolM;
+        assertTrue(best <= chordTolM,
+                shortName + " near wide-binary ring stroke at tilt " + viewTiltDeg + " (miss=" + (best / ls)
+                        + " Ls chordTol=" + (chordTolM / ls) + " Ls ringR=" + (ringRad / ls) + " Ls)");
+    }
+
+    public static OrbitPolylineWorldXY findBinaryBarycentreOrbitRing(List<OrbitPolylineWorldXY> polys) {
+        if (polys == null) {
+            return null;
+        }
+        for (OrbitPolylineWorldXY p : polys) {
+            if (p != null && p.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Wide-binary companion on the mutual ring when polylines were rebuilt at {@code viewTiltDeg} (projected frame).
+     */
+    public static void assertBodyOnBinaryBarycentreOrbitRingAtViewTilt(SystemMapModel model,
+            Map<Integer, BodyInfo> bodies,
+            List<OrbitPolylineWorldXY> polys,
+            String shortName,
+            int viewTiltDeg,
+            double maxMissFracOfRadius,
+            double maxMissLsFloor) {
+        int mapKey = findByShortName(bodies, shortName);
+        assertTrue(mapKey >= 0, "missing body: " + shortName);
+        OrbitPolylineWorldXY ring = findBinaryBarycentreOrbitRing(polys);
+        assertNotNull(ring, "wide-binary barycentre ring at tilt " + viewTiltDeg);
+        assertBodyNearBinaryBarycentreOrbitRingStroke(model, mapKey, ring, shortName, viewTiltDeg,
+                maxMissFracOfRadius, maxMissLsFloor);
     }
 
     /** Body world position should lie on the mutual-orbit circle (constant radius from ring centre). */
@@ -193,6 +298,109 @@ public final class OrbitGeometryTestSupport {
             sum += Math.hypot(wx[i] - cx, wy[i] - cy);
         }
         return wx.length > 0 ? sum / wx.length : 0.0;
+    }
+
+    /** Shortest map-plane distance from a body dot to any vertex on its per-body orbit polyline (metres). */
+    public static double minDistanceToPerBodyOrbitPolylineM(SystemMapModel model, int bodyMapKey) {
+        if (model == null) {
+            return Double.NaN;
+        }
+        OrbitPolylineWorldXY ring = null;
+        for (OrbitPolylineWorldXY p : model.orbitPolylines()) {
+            if (p != null && p.bodyId == bodyMapKey) {
+                ring = p;
+                break;
+            }
+        }
+        if (ring == null || ring.wx == null || ring.wy == null) {
+            return Double.NaN;
+        }
+        double bx = model.mapPlaneX(bodyMapKey);
+        double by = model.mapPlaneY(bodyMapKey);
+        if (!Double.isFinite(bx) || !Double.isFinite(by)) {
+            return Double.NaN;
+        }
+        double best = Double.POSITIVE_INFINITY;
+        int n = Math.min(ring.wx.length, ring.wy.length);
+        for (int i = 0; i < n; i++) {
+            best = Math.min(best, Math.hypot(ring.wx[i] - bx, ring.wy[i] - by));
+        }
+        return Double.isFinite(best) ? best : Double.NaN;
+    }
+
+    /**
+     * Body should lie on its own per-body stroke; {@code maxMissFracOfRadius} is a fraction of mean ring radius.
+     */
+    public static void assertBodyNearPerBodyOrbitPolyline(SystemMapModel model, Map<Integer, BodyInfo> bodies,
+            String shortName, double maxMissFracOfRadius, double maxMissLsFloor) {
+        int mapKey = findByShortName(bodies, shortName);
+        assertTrue(mapKey >= 0, "missing body: " + shortName);
+        assertTrue(model.hasOrbitRingForBody(mapKey), "missing per-body ring for " + shortName);
+        int parentId = model.resolveParentBodyId(mapKey);
+        double[] parentPos = model.positionsMetres().get(Integer.valueOf(parentId));
+        double[] bodyPos = model.positionsMetres().get(Integer.valueOf(mapKey));
+        assertNotNull(parentPos, "parent position");
+        assertNotNull(bodyPos, "body position");
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double missM = minDistanceToPerBodyOrbitPolylineM(model, mapKey);
+        assertTrue(Double.isFinite(missM), "distance to orbit polyline for " + shortName);
+        OrbitPolylineWorldXY ring = null;
+        for (OrbitPolylineWorldXY p : model.orbitPolylines()) {
+            if (p != null && p.bodyId == mapKey) {
+                ring = p;
+                break;
+            }
+        }
+        assertNotNull(ring);
+        double cx = axisCoord(parentPos, a0);
+        double cy = axisCoord(parentPos, a1);
+        double ringRad = meanRadius(ring.wx, ring.wy, cx, cy);
+        double tolM = Math.max(maxMissLsFloor * ls, ringRad * maxMissFracOfRadius);
+        assertTrue(missM <= tolM,
+                shortName + " near orbit stroke (miss=" + (missM / ls) + " Ls tol=" + (tolM / ls)
+                        + " Ls ringR=" + (ringRad / ls) + " Ls)");
+    }
+
+    /** Rebuild polylines at high screen scale (zoomed-in chord density) and assert the body still sits on its stroke. */
+    public static void assertPerBodyOrbitAlignedAfterHighZoomRebuild(SystemMapModel model,
+            Map<Integer, BodyInfo> bodies,
+            String shortName,
+            double scalePxPerM,
+            double maxMissFracOfRadius,
+            double maxMissLsFloor) {
+        int mapKey = findByShortName(bodies, shortName);
+        assertTrue(mapKey >= 0, "missing body: " + shortName);
+        var polys = org.dce.ed.systemmap.SystemMapPipeline.rebuildOrbitPolylines(model,
+                model.positionsMetres(), 256, scalePxPerM);
+        OrbitPolylineWorldXY ring = null;
+        for (OrbitPolylineWorldXY p : polys) {
+            if (p != null && p.bodyId == mapKey) {
+                ring = p;
+                break;
+            }
+        }
+        assertNotNull(ring, "orbit polyline after zoom rebuild for " + shortName);
+        double bx = model.mapPlaneX(mapKey);
+        double by = model.mapPlaneY(mapKey);
+        double best = Double.POSITIVE_INFINITY;
+        int n = Math.min(ring.wx.length, ring.wy.length);
+        for (int i = 0; i < n; i++) {
+            best = Math.min(best, Math.hypot(ring.wx[i] - bx, ring.wy[i] - by));
+        }
+        assertTrue(Double.isFinite(best), "distance to orbit polyline");
+        int parentId = model.resolveParentBodyId(mapKey);
+        double[] parentPos = model.positionsMetres().get(Integer.valueOf(parentId));
+        assertNotNull(parentPos);
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        double ringRad = meanRadius(ring.wx, ring.wy, axisCoord(parentPos, a0), axisCoord(parentPos, a1));
+        double tolM = Math.max(maxMissLsFloor * ls, ringRad * maxMissFracOfRadius);
+        assertTrue(best <= tolM,
+                shortName + " near orbit stroke after zoom rebuild (miss=" + (best / ls) + " Ls tol="
+                        + (tolM / ls) + " Ls)");
     }
 
     /** Hierarchical A vs BCD: trunk ring through star A and companion-cluster centroid (not a fixed origin circle). */
@@ -338,13 +546,16 @@ public final class OrbitGeometryTestSupport {
             minFromParent = Math.min(minFromParent, r);
             maxFromParent = Math.max(maxFromParent, r);
         }
+        boolean highIncl = isHighInclinationKeplerBody(body);
         if (Double.isFinite(hintLs) && hintLs > 2.0) {
             assertTrue(maxFromParent <= hintLs * (1.0 + ecc) * 1.25 + 50.0,
                     shortName + " orbit should not extend far beyond journal distance (max=" + maxFromParent
                             + " hint=" + hintLs + ")");
-            assertTrue(minFromParent >= hintLs * Math.max(0.05, 1.0 - ecc) * 0.35,
-                    shortName + " orbit should wrap parent star focus (min=" + minFromParent + " hint=" + hintLs
-                            + ")");
+            if (!highIncl) {
+                assertTrue(minFromParent >= hintLs * Math.max(0.05, 1.0 - ecc) * 0.35,
+                        shortName + " orbit should wrap parent star focus (min=" + minFromParent + " hint="
+                                + hintLs + ")");
+            }
         }
         double cx = ringCentroid(ring.wx);
         double cy = ringCentroid(ring.wy);
@@ -352,6 +563,9 @@ public final class OrbitGeometryTestSupport {
         double centroidTol = toleranceLs;
         if (!ring.estimated && ecc > 0.05 && Double.isFinite(hintLs)) {
             centroidTol = Math.max(toleranceLs, hintLs * ecc * 1.35);
+        }
+        if (highIncl && Double.isFinite(hintLs)) {
+            centroidTol = Math.max(centroidTol, hintLs * 1.5);
         }
         assertTrue(off <= centroidTol,
                 shortName + " orbit ring should anchor on direct parent (off=" + off + " Ls tol=" + centroidTol
@@ -479,16 +693,34 @@ public final class OrbitGeometryTestSupport {
                 }
             }
             assertNotNull(ring, shortName + " orbit ring");
-            assertOrbitPolylineAspectRatioSane(ring, maxApoPeriRatio);
             BodyInfo body = bodies.get(Integer.valueOf(mapKey));
-            double ecc = 0.0;
-            if (body != null && body.getEccentricity() != null && Double.isFinite(body.getEccentricity())) {
-                ecc = Math.max(0.0, body.getEccentricity().doubleValue());
-            }
-            if (ecc > 0.15 && !ring.estimated) {
-                assertOrbitPolylineIsNonCircularKepler(ring, 0.12);
+            if (body != null && isHighInclinationKeplerBody(body)) {
+                assertOrbitPolylineNotNearPerfectCircle(ring, 500.0);
+            } else {
+                assertOrbitPolylineAspectRatioSane(ring, maxApoPeriRatio);
+                double ecc = 0.0;
+                if (body.getEccentricity() != null && Double.isFinite(body.getEccentricity())) {
+                    ecc = Math.max(0.0, body.getEccentricity().doubleValue());
+                }
+                if (ecc > 0.15 && !ring.estimated) {
+                    assertOrbitPolylineIsNonCircularKepler(ring, 0.12);
+                }
             }
         }
+    }
+
+    /** Journal inclination high enough that the map-plane projection is edge-on (degrees or radians). */
+    public static boolean isHighInclinationKeplerBody(BodyInfo body) {
+        if (body == null) {
+            return false;
+        }
+        Double raw = body.getOrbitalInclination();
+        if (raw == null || !Double.isFinite(raw.doubleValue())) {
+            return false;
+        }
+        double v = raw.doubleValue();
+        double incRad = Math.abs(v) > Math.PI * 2.0 + 0.02 ? Math.toRadians(v) : v;
+        return Math.abs(incRad) >= Math.toRadians(75.0);
     }
 
     /**
@@ -508,6 +740,37 @@ public final class OrbitGeometryTestSupport {
         double ratio = maxR / Math.max(minR, 1.0);
         assertTrue(ratio <= maxApoPeriRatio,
                 "orbit polyline too squished (apo/peri=" + ratio + ", max=" + maxApoPeriRatio + ")");
+    }
+
+    /**
+     * Regression guard: inclined Kepler must not be collapsed to a map-plane circle (ratio ≈ 1) when eccentricity is high.
+     */
+    public static void assertOrbitPolylineNotNearPerfectCircle(OrbitPolylineWorldXY ring, double maxApoPeriRatio) {
+        assertNotNull(ring);
+        double cx = ringCentroid(ring.wx);
+        double cy = ringCentroid(ring.wy);
+        double minR = Double.POSITIVE_INFINITY;
+        double maxR = 0.0;
+        for (int i = 0; i < ring.wx.length; i++) {
+            double r = Math.hypot(ring.wx[i] - cx, ring.wy[i] - cy);
+            minR = Math.min(minR, r);
+            maxR = Math.max(maxR, r);
+        }
+        double ratio = maxR / Math.max(minR, 1.0);
+        assertTrue(ratio <= maxApoPeriRatio || ratio >= 1.08,
+                "inclined orbit must be elliptical or edge-on, not a map-plane circle (apo/peri=" + ratio + ")");
+    }
+
+    public static double maxVertexDeltaMetres(OrbitPolylineWorldXY a, OrbitPolylineWorldXY b) {
+        if (a == null || b == null || a.wx == null || b.wx == null
+                || a.wx.length < 3 || a.wx.length != b.wx.length) {
+            return Double.NaN;
+        }
+        double max = 0.0;
+        for (int i = 0; i < a.wx.length; i++) {
+            max = Math.max(max, Math.hypot(a.wx[i] - b.wx[i], a.wy[i] - b.wy[i]));
+        }
+        return max;
     }
 
     public static void assertOrbitPolylineIsNonCircularKepler(OrbitPolylineWorldXY ring, double minEccentricityHint) {

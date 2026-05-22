@@ -77,7 +77,7 @@ class CoeusCacheIntegrationTest {
         }
         assertTrue(graph.nodeByKey.containsKey(Integer.valueOf(full.bodyIdByLabel("A"))));
         assertTrue(graph.nodeByKey.containsKey(Integer.valueOf(full.bodyIdByLabel("B"))));
-        assertEquals(10, graph.nodeByKey.size());
+        assertEquals(11, graph.nodeByKey.size());
     }
 
     @Test
@@ -170,7 +170,7 @@ class CoeusCacheIntegrationTest {
         SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, true);
         Graph graph = SystemMapHierarchyBuilder.build(coeus.name, model, bodies);
         assertNotNull(findNode(graph.root, "B"), "wide-binary companion B must appear under Null:0");
-        assertEquals(10, graph.nodeByKey.size());
+        assertEquals(11, graph.nodeByKey.size());
     }
 
     private static void put(Map<Integer, BodyInfo> map, SystemMapFixture fixture, String label) {

@@ -2,13 +2,17 @@ package org.dce.ed.systemmap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.dce.ed.testutil.OrbitGeometryTestSupport.assertCompanionClusterOnTrunkRing;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.testutil.OrbitGeometryTestSupport;
 import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.systemmap.SystemMapRules;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
@@ -88,6 +92,59 @@ class TrueScaleSystemMapTest {
             }
         }
         assertTrue(moonRingAroundHost, "true-scale map should stroke 2 a around planet 2");
+    }
+
+    @Test
+    @DisplayName("Coeus A 4: pipeline rebuild preserves inclined Kepler stroke (not map-plane circle)")
+    void coeus_trueScale_rebuildOrbitPolylines_inclinedA4NotFlattened() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        applyCoeusInclinedA4(bodies);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        int idA4 = coeus.bodyIdByLabel("A 4");
+        OrbitPolylineWorldXY built = findOrbitPolyline(model.orbitPolylines(), idA4);
+        assertNotNull(built, "initial build should stroke A 4");
+        OrbitGeometryTestSupport.assertOrbitPolylineIsNonCircularKepler(built, 0.12);
+
+        List<OrbitPolylineWorldXY> flat = SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(),
+                96, Double.NaN, false, null, MapScaleMode.TRUE_SCALE, 0);
+        List<OrbitPolylineWorldXY> tilt90 = SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(),
+                96, Double.NaN, false, null, MapScaleMode.TRUE_SCALE, 90);
+        OrbitPolylineWorldXY rebuilt = findOrbitPolyline(flat, idA4);
+        OrbitPolylineWorldXY tilted = findOrbitPolyline(tilt90, idA4);
+        assertNotNull(rebuilt);
+        assertNotNull(tilted);
+        OrbitGeometryTestSupport.assertOrbitPolylineNotNearPerfectCircle(rebuilt, 1.06);
+        assertTrue(OrbitGeometryTestSupport.maxVertexDeltaMetres(rebuilt, tilted) > 1.0e8,
+                "rebuildOrbitPolylines must honour view tilt for inclined orbits");
+    }
+
+    private static OrbitPolylineWorldXY findOrbitPolyline(List<OrbitPolylineWorldXY> polys, int bodyId) {
+        if (polys == null) {
+            return null;
+        }
+        for (OrbitPolylineWorldXY p : polys) {
+            if (p != null && p.bodyId == bodyId) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    private static void applyCoeusInclinedA4(Map<Integer, BodyInfo> bodies) {
+        int id = OrbitGeometryTestSupport.findByShortName(bodies, "A 4");
+        BodyInfo a4 = bodies.get(Integer.valueOf(id));
+        if (a4 == null) {
+            return;
+        }
+        a4.setSemiMajorAxisM(2.298e11);
+        a4.setEccentricity(0.35);
+        a4.setOrbitalInclination(89.0);
+        a4.setAscendingNode(120.0);
+        a4.setPeriapsis(200.0);
+        a4.setMeanAnomaly(1.0);
+        a4.setOrbitalPeriod(2.2e7);
     }
 
     @Test
@@ -187,6 +244,122 @@ class TrueScaleSystemMapTest {
             return (sumR / poly.wx.length) / LS;
         }
         return Double.NaN;
+    }
+
+    @Test
+    @DisplayName("Eor Aowsy true scale: A 2 on Kepler stroke after high-zoom polyline rebuild")
+    void eorAowsy_trueScale_a2OnOrbitPolylineAfterZoomRebuild() {
+        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        int idA2 = fixture.bodyIdByLabel("A 2");
+        assertTrue(model.hasOrbitRingForBody(idA2));
+        OrbitGeometryTestSupport.assertPerBodyOrbitAlignedAfterHighZoomRebuild(model, bodies, "A 2",
+                2.0E-5, 0.12, 500.0);
+    }
+
+    @Test
+    @DisplayName("Eor Aowsy true scale: B+C mutual orbit, D opposite BC hub on Null:2")
+    void eorAowsy_trueScale_bcdClusterStructure() {
+        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        double sepBc = distLs(model, fixture.bodyIdByLabel("B"), fixture.bodyIdByLabel("C"));
+        assertTrue(sepBc > 140.0,
+                "B and C should orbit Null:3, not stack; separation Ls=" + sepBc);
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "B", 3, 2.0);
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "C", 3, 2.0);
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "D", 2, 3.0);
+        int null3Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(3);
+        double[] dPos = model.positionsMetres().get(Integer.valueOf(fixture.bodyIdByLabel("D")));
+        double[] bcPos = model.positionsMetres().get(Integer.valueOf(null3Key));
+        assertNotNull(dPos);
+        assertNotNull(bcPos);
+        int a0 = model.projectionAxis0();
+        int a1 = model.projectionAxis1();
+        double distDbc = Math.hypot(
+                SystemOrbitGeometry.worldAxisMetres(dPos, a0) - SystemOrbitGeometry.worldAxisMetres(bcPos, a0),
+                SystemOrbitGeometry.worldAxisMetres(dPos, a1) - SystemOrbitGeometry.worldAxisMetres(bcPos, a1))
+                / LS;
+        double mutual2 = SystemOrbitGeometry.planetBinaryMutualOrbitRadiusLsPublic(2, bodies);
+        assertTrue(distDbc >= mutual2 * 0.85 && distDbc <= mutual2 * 2.2,
+                "D and B+C hub on opposite sides of Null:2; dist=" + distDbc + " Ls mutual2=" + mutual2);
+    }
+
+    @Test
+    @DisplayName("Eor Aowsy true scale: BCD cluster on outer trunk ring, inner ring, no stray Null hub")
+    void eorAowsy_trueScale_hierarchicalTrunkRingsAndClusterAlignment() {
+        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        int idA = fixture.bodyIdByLabel("A");
+        assertCompanionClusterOnTrunkRing(model, bodies, idA,
+                SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID, 0.18);
+        double outerRingLs = meanPolylineRadiusLs(model,
+                SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID);
+        double innerRingLs = meanPolylineRadiusLs(model,
+                SystemOrbitGeometry.HIERARCHICAL_INNER_STELLAR_PAIR_POLYLINE_ID);
+        assertTrue(Double.isFinite(outerRingLs) && outerRingLs > 20_000.0,
+                "outer A–BCD trunk ring Ls=" + outerRingLs);
+        assertTrue(Double.isFinite(innerRingLs) && innerRingLs > 500.0 && innerRingLs < outerRingLs * 0.98,
+                "inner A–Null:3 trunk ring Ls=" + innerRingLs + " outer=" + outerRingLs);
+        int null2Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(2);
+        int null3Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(3);
+        assertTrue(Math.hypot(model.mapPlaneX(2) - model.mapPlaneX(null2Key),
+                model.mapPlaneY(2) - model.mapPlaneY(null2Key)) < LS * 2.0,
+                "scan row Null:2 must match synthetic hub after layout");
+        assertTrue(Math.hypot(model.mapPlaneX(3) - model.mapPlaneX(null3Key),
+                model.mapPlaneY(3) - model.mapPlaneY(null3Key)) < LS * 2.0,
+                "scan row Null:3 must match synthetic hub after layout");
+        double hubSepFromCluster = Math.hypot(model.mapPlaneX(null2Key) - model.mapPlaneX(fixture.bodyIdByLabel("D")),
+                model.mapPlaneY(null2Key) - model.mapPlaneY(fixture.bodyIdByLabel("D"))) / LS;
+        assertTrue(hubSepFromCluster < 3_000.0,
+                "Null:2 hub should stay near D / BCD cluster, not float away; sep=" + hubSepFromCluster + " Ls");
+    }
+
+    @Test
+    @DisplayName("Eor Aowsy true scale: outer trunk ring keeps zoom segment floor at low px/m scale")
+    void eorAowsy_trueScale_trunkRingVertexCountRespectsLegacyFloor() {
+        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        int legacySeg = 144;
+        double scalePxPerM = 1.0E-5;
+        List<OrbitPolylineWorldXY> polys = SystemMapPipeline.rebuildOrbitPolylines(model,
+                model.positionsMetres(), legacySeg, scalePxPerM);
+        OrbitPolylineWorldXY outer = null;
+        for (OrbitPolylineWorldXY p : polys) {
+            if (p != null && p.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
+                outer = p;
+                break;
+            }
+        }
+        assertNotNull(outer, "outer A–BCD trunk ring");
+        assertTrue(outer.wx.length >= legacySeg,
+                "screen-chord count must not undercut zoom floor; vertices=" + outer.wx.length
+                        + " legacySeg=" + legacySeg);
+    }
+
+    @Test
+    @DisplayName("Coeus true scale: star-hosted A 4 ring smooth after zoom-style rebuild")
+    void coeus_trueScale_a4RingVertexCountRespectsLegacyFloor() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> coeusBodies = coeus.toBodies();
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, coeusBodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        int idA4 = coeus.bodyIdByLabel("A 4");
+        int legacySeg = 144;
+        double scalePxPerM = 8.0E-4;
+        List<OrbitPolylineWorldXY> polys = SystemMapPipeline.rebuildOrbitPolylines(model,
+                model.positionsMetres(), legacySeg, scalePxPerM);
+        OrbitPolylineWorldXY ring = null;
+        for (OrbitPolylineWorldXY p : polys) {
+            if (p != null && p.bodyId == idA4) {
+                ring = p;
+                break;
+            }
+        }
+        assertNotNull(ring, "A 4 heliocentric orbit stroke");
+        assertTrue(ring.wx.length >= legacySeg,
+                "A 4 ring vertices=" + ring.wx.length + " legacySeg=" + legacySeg);
+        OrbitGeometryTestSupport.assertPerBodyOrbitAlignedAfterHighZoomRebuild(model, coeusBodies, "A 4",
+                scalePxPerM, 0.15, 200.0);
     }
 
     @Test

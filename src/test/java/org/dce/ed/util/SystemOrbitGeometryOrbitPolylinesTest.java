@@ -3,17 +3,33 @@ package org.dce.ed.util;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.dce.ed.testutil.OrbitGeometryTestSupport.assertBarycentreFarFromStar;
+import static org.dce.ed.testutil.OrbitGeometryTestSupport.assertBodyOnBinaryBarycentreOrbitRingAtViewTilt;
 import static org.dce.ed.testutil.OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing;
 import static org.dce.ed.testutil.OrbitGeometryTestSupport.assertNoPerBodyOrbitRing;
+import static org.dce.ed.testutil.OrbitGeometryTestSupport.assertOrbitPolylineIsNonCircularKepler;
+import static org.dce.ed.testutil.OrbitGeometryTestSupport.assertOrbitPolylineNotNearPerfectCircle;
+import static org.dce.ed.testutil.OrbitGeometryTestSupport.findBinaryBarycentreOrbitRing;
 import static org.dce.ed.testutil.OrbitGeometryTestSupport.findByShortName;
+import static org.dce.ed.testutil.OrbitGeometryTestSupport.maxVertexDeltaMetres;
+import static org.dce.ed.testutil.OrbitGeometryTestSupport.meanRadius;
+import static org.dce.ed.testutil.OrbitGeometryTestSupport.ringCentroid;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.systemmap.MapScaleMode;
+import org.dce.ed.systemmap.SystemMapFixture;
+import org.dce.ed.systemmap.SystemMapFixtureLoader;
+import org.dce.ed.systemmap.SystemMapModel;
 import org.dce.ed.systemmap.SystemMapPipeline;
+import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -70,6 +86,146 @@ class SystemOrbitGeometryOrbitPolylinesTest {
 
         Map<Integer, BodyInfo> moonOnly = gasGiantWithSingleMoon();
         assertFalse(SystemOrbitGeometry.hasPlanetBinaryNullParentInSystem(moonOnly));
+    }
+
+    // --- 3D inclined orbit regressions (see .cursor/rules/system-map-3d-orbits.mdc) ---
+
+    @Test
+    @DisplayName("Coeus A 1: Kepler samples vary on out-of-plane axis; stroke not a map-plane circle")
+    void coeus_trueScale_a1_inclinedOrbitPreserves3D() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        applyCoeusHighInclinationKeplerElements(bodies);
+        int idA1 = coeus.bodyIdByLabel("A 1");
+        BodyInfo a1 = bodies.get(Integer.valueOf(idA1));
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        OrbitPolylineWorldXY ring = findPolyline(model.orbitPolylines(), idA1);
+        assertNotNull(ring, "A 1 Kepler stroke");
+        assertTrue(assertKeplerDroppedAxisSpanMetres(a1, model.projectionAxis0(), model.projectionAxis1()) > 1.0e9,
+                "inclined A 1 should retain substantial off-plane Kepler span");
+        assertOrbitPolylineIsNonCircularKepler(ring, 0.10);
+        assertOrbitPolylineNotNearPerfectCircle(ring, 1.06);
+    }
+
+    @Test
+    @DisplayName("Coeus A 4: high inclination — z-span, elliptical projection, view tilt changes stroke")
+    void coeus_trueScale_a4_inclinedOrbitPreserves3DAndViewTilt() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        applyCoeusHighInclinationKeplerElements(bodies);
+        int idA4 = coeus.bodyIdByLabel("A 4");
+        BodyInfo a4 = bodies.get(Integer.valueOf(idA4));
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        OrbitPolylineWorldXY flat = findPolyline(model.orbitPolylines(), idA4);
+        assertNotNull(flat);
+        double zSpan = assertKeplerDroppedAxisSpanMetres(a4, model.projectionAxis0(), model.projectionAxis1());
+        assertTrue(zSpan > 1.0e10, "A 4 Kepler curve must extend out of map plane (z-span=" + zSpan + " m)");
+        assertOrbitPolylineIsNonCircularKepler(flat, 0.12);
+        assertOrbitPolylineNotNearPerfectCircle(flat, 1.06);
+
+        List<OrbitPolylineWorldXY> tilted = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(
+                bodies, model.positionsMetres(), 96, Double.NaN, model.projectionAxis0(),
+                model.projectionAxis1(), !SystemOrbitGeometry.isHierarchicalWideBinary(bodies),
+                model.resolvedParentByBodyId(), MapScaleMode.TRUE_SCALE, false, null, 90);
+        OrbitPolylineWorldXY opened = findPolyline(tilted, idA4);
+        assertNotNull(opened);
+        assertTrue(maxVertexDeltaMetres(flat, opened) > 1.0e8,
+                "view tilt must change A 4 orbit stroke projection");
+    }
+
+    @Test
+    @DisplayName("Coeus A–B mutual ring: no jump 0°→1° view tilt; companion B on ring 0–90°")
+    void coeus_trueScale_binaryBarycentreRing_viewTiltContinuous() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+
+        OrbitPolylineWorldXY ring0 = findBinaryBarycentreOrbitRing(
+                SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 96, Double.NaN, false, null,
+                        MapScaleMode.TRUE_SCALE, 0));
+        OrbitPolylineWorldXY ring1 = findBinaryBarycentreOrbitRing(
+                SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 96, Double.NaN, false, null,
+                        MapScaleMode.TRUE_SCALE, 1));
+        OrbitPolylineWorldXY ring2 = findBinaryBarycentreOrbitRing(
+                SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 96, Double.NaN, false, null,
+                        MapScaleMode.TRUE_SCALE, 2));
+        assertNotNull(ring0);
+        assertNotNull(ring1);
+        assertNotNull(ring2);
+
+        double r0 = meanRadius(ring0.wx, ring0.wy, ringCentroid(ring0.wx), ringCentroid(ring0.wy));
+        double jump01 = maxVertexDeltaMetres(ring0, ring1);
+        double jump12 = maxVertexDeltaMetres(ring1, ring2);
+        assertTrue(jump01 < r0 * 0.05,
+                "0°→1° must not snap ring (max vertex Δ=" + (jump01 / ls) + " Ls, ringR=" + (r0 / ls) + " Ls)");
+        assertTrue(jump12 < r0 * 0.05,
+                "1°→2° must stay smooth (max vertex Δ=" + (jump12 / ls) + " Ls)");
+
+        double cx0 = ringCentroid(ring0.wx);
+        double cy0 = ringCentroid(ring0.wy);
+        double cx1 = ringCentroid(ring1.wx);
+        double cy1 = ringCentroid(ring1.wy);
+        assertTrue(Math.hypot(cx1 - cx0, cy1 - cy0) < r0 * 0.02,
+                "ring centre must not jump at 1° tilt");
+
+        for (int tilt : new int[] { 0, 1, 2, 45, 90 }) {
+            List<OrbitPolylineWorldXY> polys = SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(),
+                    96, Double.NaN, false, null, MapScaleMode.TRUE_SCALE, tilt);
+            assertBodyOnBinaryBarycentreOrbitRingAtViewTilt(model, bodies, polys, "B", tilt, 0.02, 5.0);
+        }
+    }
+
+    @Test
+    @DisplayName("Flattening i=0 for all samples collapses out-of-plane span (regression probe)")
+    void inclinedKepler_flattenedToMapPlane_hasNoDroppedAxisSpan() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        applyCoeusHighInclinationKeplerElements(bodies);
+        BodyInfo a4 = bodies.get(Integer.valueOf(coeus.bodyIdByLabel("A 4")));
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        double full3d = assertKeplerDroppedAxisSpanMetres(a4, model.projectionAxis0(), model.projectionAxis1());
+        double flattened = keplerDroppedAxisSpanMetres(a4, model.projectionAxis0(), model.projectionAxis1(), 0.0);
+        assertTrue(full3d > 1.0e10);
+        assertTrue(flattened < full3d * 0.01,
+                "i=0 flatten must collapse out-of-plane span: full=" + full3d + " flat=" + flattened);
+    }
+
+    @Test
+    void screenChordSegmentCount_neverBelowLegacyFloor() {
+        Map<Integer, BodyInfo> bodies = gasGiantWithSingleMoon();
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, true);
+        int legacySeg = 96;
+        double tinyScalePxPerM = 1e-15;
+        var polys = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(bodies, pos, legacySeg, tinyScalePxPerM, 0, 1,
+                false, null, MapScaleMode.SCHEMATIC);
+        int moon = findByShortName(bodies, "2 a");
+        OrbitPolylineWorldXY ring = null;
+        for (OrbitPolylineWorldXY p : polys) {
+            if (p != null && p.bodyId == moon) {
+                ring = p;
+                break;
+            }
+        }
+        assertNotNull(ring);
+        assertTrue(ring.wx.length >= legacySeg,
+                "screen-chord tessellation must not drop below legacy segment floor: " + ring.wx.length);
+    }
+
+    private static OrbitPolylineWorldXY findPolyline(java.util.List<OrbitPolylineWorldXY> polys, int bodyId) {
+        if (polys == null) {
+            return null;
+        }
+        for (OrbitPolylineWorldXY p : polys) {
+            if (p != null && p.bodyId == bodyId) {
+                return p;
+            }
+        }
+        return null;
     }
 
     @Test
@@ -169,6 +325,54 @@ class SystemOrbitGeometryOrbitPolylinesTest {
         pB.setImmediateParentBodyId(25);
         bodies.put(Integer.valueOf(22), pB);
         return bodies;
+    }
+
+    /** Span on world axis not used by map projection (out-of-plane for default 0/1). */
+    private static double assertKeplerDroppedAxisSpanMetres(BodyInfo body, int mapProjA0, int mapProjA1) {
+        double span = keplerDroppedAxisSpanMetres(body, mapProjA0, mapProjA1, Double.NaN);
+        assertTrue(span > 0.0, "expected finite Kepler samples");
+        return span;
+    }
+
+    private static double keplerDroppedAxisSpanMetres(BodyInfo body, int mapProjA0, int mapProjA1,
+            double inclinationOverrideRad) {
+        int dropped = 3 - mapProjA0 - mapProjA1;
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < 32; i++) {
+            double M = (Math.PI * 2.0 * i) / 32;
+            double[] rel = SystemOrbitGeometry.keplerDisplacementMetres(body, M, inclinationOverrideRad);
+            if (rel == null || rel.length <= dropped) {
+                continue;
+            }
+            double v = SystemOrbitGeometry.worldAxisMetres(rel, dropped);
+            min = Math.min(min, v);
+            max = Math.max(max, v);
+        }
+        return max - min;
+    }
+
+    private static void applyCoeusHighInclinationKeplerElements(Map<Integer, BodyInfo> bodies) {
+        BodyInfo a1 = bodies.get(Integer.valueOf(findByShortName(bodies, "A 1")));
+        if (a1 != null) {
+            a1.setSemiMajorAxisM(8.93e10);
+            a1.setEccentricity(0.22);
+            a1.setOrbitalInclination(1.2);
+            a1.setAscendingNode(45.0);
+            a1.setPeriapsis(10.0);
+            a1.setMeanAnomaly(0.0);
+            a1.setOrbitalPeriod(1.5e7);
+        }
+        BodyInfo a4 = bodies.get(Integer.valueOf(findByShortName(bodies, "A 4")));
+        if (a4 != null) {
+            a4.setSemiMajorAxisM(2.298e11);
+            a4.setEccentricity(0.35);
+            a4.setOrbitalInclination(89.0);
+            a4.setAscendingNode(120.0);
+            a4.setPeriapsis(200.0);
+            a4.setMeanAnomaly(1.0);
+            a4.setOrbitalPeriod(2.2e7);
+        }
     }
 
     private static Map<Integer, BodyInfo> gasGiantWithSingleMoon() {

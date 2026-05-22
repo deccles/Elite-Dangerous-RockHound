@@ -42,7 +42,7 @@ class PlanetaryBranchConsistencyTest {
 
     @Test
     void cacheParentsAbranchToStarC_resolvesAndMapsToStarA() {
-        Map<Integer, BodyInfo> cache = new HashMap<>(bodies);
+        Map<Integer, BodyInfo> cache = fixture.toBodies();
         for (String label : List.of("A 1", "A 2", "A 3", "A 4", "A 2 a", "A 3 a", "A 3 e", "A 4 b")) {
             cache.get(Integer.valueOf(fixture.bodyIdByLabel(label))).setImmediateParentBodyId(idC);
         }
@@ -52,7 +52,7 @@ class PlanetaryBranchConsistencyTest {
 
     @Test
     void cacheParentsAbranchToStarC_withPlanetClassOnC_resolvesToStarA() {
-        Map<Integer, BodyInfo> cache = new HashMap<>(bodies);
+        Map<Integer, BodyInfo> cache = fixture.toBodies();
         BodyInfo starC = cache.get(Integer.valueOf(idC));
         starC.setPlanetClass("High metal content body");
         starC.setStarType(null);
@@ -71,7 +71,7 @@ class PlanetaryBranchConsistencyTest {
 
     @Test
     void playback_cacheAbranchOnC_staysNearStarA() {
-        Map<Integer, BodyInfo> cache = new HashMap<>(bodies);
+        Map<Integer, BodyInfo> cache = fixture.toBodies();
         for (String label : List.of("A 2", "A 3", "A 3 a", "A 3 b", "A 3 c", "A 3 e")) {
             cache.get(Integer.valueOf(fixture.bodyIdByLabel(label))).setImmediateParentBodyId(idC);
         }

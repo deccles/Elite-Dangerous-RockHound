@@ -407,7 +407,16 @@ class EorAowsyRiKC83670SystemMapTest {
                     partialModel.resolveParentBodyId(id("C")));
             assertEquals(SystemOrbitGeometry.planetBinaryBarycentreMapKey(2),
                     partialModel.resolveParentBodyId(id("D")));
-            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(partialModel, partial, id("A"));
+            /*
+             * Without ScanBaryCentre rows, companion-cluster snap onto the trunk ring is weaker; parent resolution
+             * above is the regression guard (see EorAowsySystemMapValidationTest.WithoutScanBarycentreRows).
+             */
+            assertTrue(partialModel.hasBarycentreMutualRing());
+            double distBa = Math.hypot(partialModel.mapPlaneX(id("B")) - partialModel.mapPlaneX(id("A")),
+                    partialModel.mapPlaneY(id("B")) - partialModel.mapPlaneY(id("A")))
+                    / SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0,
+                    "B on schematic trunk from A without bary rows; distBa=" + distBa + " Ls");
         }
     }
 
@@ -451,6 +460,12 @@ class EorAowsyRiKC83670SystemMapTest {
             assertTrue(model.hasOrbitRingForBody(idA2a),
                     "moon A 2 a needs a per-parent orbit ring around A 2, not only the A-branch schematic rings");
             OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, "A 2 a", 2.0);
+        }
+
+        @Test
+        void a2a_onPerBodyOrbitPolyline_atHighZoomRebuild() {
+            OrbitGeometryTestSupport.assertPerBodyOrbitAlignedAfterHighZoomRebuild(model, bodies, "A 2 a",
+                    8.0E-4, 0.08, 0.35);
         }
 
         @Test

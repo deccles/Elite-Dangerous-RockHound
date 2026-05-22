@@ -143,7 +143,8 @@ public final class SystemMapTreePrinter {
             }
             int id = e.getKey().intValue();
             if (e.getValue().isScanBarycentreRow()) {
-                if (SystemOrbitGeometry.isPlanetBinaryNullParentId(id, bodies)) {
+                if (SystemOrbitGeometry.isPlanetBinaryNullParentId(id, bodies)
+                        || SystemOrbitGeometry.isSharedNullBarycentreId(id, bodies)) {
                     planetBinaryNullIds.add(Integer.valueOf(id));
                     continue;
                 }
@@ -155,7 +156,8 @@ public final class SystemMapTreePrinter {
             children.computeIfAbsent(Integer.valueOf(p), k -> new ArrayList<>()).add(Integer.valueOf(id));
             allNodes.add(Integer.valueOf(id));
             int ip = e.getValue().getImmediateParentBodyId();
-            if (ip > 0 && SystemOrbitGeometry.isPlanetBinaryNullParentId(ip, bodies)) {
+            if (ip > 0 && (SystemOrbitGeometry.isPlanetBinaryNullParentId(ip, bodies)
+                    || SystemOrbitGeometry.isSharedNullBarycentreId(ip, bodies))) {
                 planetBinaryNullIds.add(Integer.valueOf(ip));
             }
         }
@@ -168,6 +170,7 @@ public final class SystemMapTreePrinter {
                 attachPlanetBinaryHubForTree(children, allNodes, p.intValue(), bodies);
             }
         }
+        finalizePlanetBinaryHubParentsForTree(children, allNodes, bodies);
         StringBuilder sb = new StringBuilder();
         sb.append("Null:0 (system barycentre)\n");
         appendChildren(sb, "", true, -1, children, bodies, model, arrivalStar, journalImmediateLabels);
@@ -175,15 +178,40 @@ public final class SystemMapTreePrinter {
         return sb.toString();
     }
 
+    private static void finalizePlanetBinaryHubParentsForTree(Map<Integer, List<Integer>> children,
+            Set<Integer> allNodes, Map<Integer, BodyInfo> bodies) {
+        List<Integer> hubKeys = new ArrayList<>();
+        for (Integer parentKey : children.keySet()) {
+            List<Integer> kids = children.get(parentKey);
+            if (kids == null) {
+                continue;
+            }
+            for (Integer kid : kids) {
+                if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(kid.intValue())) {
+                    hubKeys.add(kid);
+                }
+            }
+        }
+        for (Integer hubKey : hubKeys) {
+            attachPlanetBinaryHubForTree(children, allNodes, hubKey.intValue(), bodies);
+        }
+    }
+
     private static void attachPlanetBinaryHubForTree(Map<Integer, List<Integer>> children, Set<Integer> allNodes,
             int hubKey, Map<Integer, BodyInfo> bodies) {
         allNodes.add(Integer.valueOf(hubKey));
         int hubParent = SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(hubKey, bodies);
-        if (hubParent < 0) {
+        if (hubParent < 0 && !SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(hubParent)) {
             hubParent = -1;
         }
-        List<Integer> list = children.computeIfAbsent(Integer.valueOf(hubParent), k -> new ArrayList<>());
         Integer boxed = Integer.valueOf(hubKey);
+        Integer scanRowKey = Integer.valueOf(
+                SystemOrbitGeometry.journalNullIdFromPlanetBinaryBarycentreMapKey(hubKey));
+        for (List<Integer> list : children.values()) {
+            list.remove(boxed);
+            list.remove(scanRowKey);
+        }
+        List<Integer> list = children.computeIfAbsent(Integer.valueOf(hubParent), k -> new ArrayList<>());
         if (!list.contains(boxed)) {
             list.add(boxed);
         }

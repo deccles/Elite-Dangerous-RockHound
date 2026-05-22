@@ -42,7 +42,7 @@ class EorAowsyPanelPlaybackRegressionTest {
     }
 
     private static Map<Integer, BodyInfo> copyBodies() {
-        return new HashMap<>(fixtureBodies);
+        return fixture.toBodies();
     }
 
     /** Live cache: B/C/D parented to arrival star A with synced planet class (not map-stellar). */

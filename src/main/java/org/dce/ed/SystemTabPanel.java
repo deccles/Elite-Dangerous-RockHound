@@ -252,7 +252,6 @@ public class SystemTabPanel extends JPanel {
     private Instant orbitAnimSimInstant;
     private JToggleButton orbitAnimPlayButton;
     private JButton orbitAnimStopButton;
-    private JButton orbitMapPrintButton;
     /** Avoid pause handler when Stop programmatically deselects Play. */
     private boolean orbitAnimSuppressPlayToggleHandler;
     private JButton mapSchematicButton;
@@ -910,18 +909,6 @@ public class SystemTabPanel extends JPanel {
                 "Stop orbit simulation and return bodies to real-time journal positions (now).");
         orbitAnimStopButton.addActionListener(e -> stopOrbitAnimSimulation());
         mapToolbar.add(orbitAnimStopButton);
-        orbitMapPrintButton = new JButton("Print");
-        orbitMapPrintButton.setForeground(EdoUi.User.MAIN_TEXT);
-        orbitMapPrintButton.setOpaque(true);
-        orbitMapPrintButton.setBackground(EdoUi.User.PANEL_BG);
-        orbitMapPrintButton.setBorderPainted(true);
-        orbitMapPrintButton.setFocusable(false);
-        orbitMapPrintButton.setFocusPainted(false);
-        orbitMapPrintButton.setToolTipText(
-                "Debug: print every body and attached orbit strokes to the console (stdout).");
-        orbitMapPrintButton.addActionListener(e -> printOrbitMapStrokesToConsole());
-        mapToolbar.add(orbitMapPrintButton);
-
         String orbitSpeedTt = "Orbit model days advanced per second of real time while playing.";
         orbitAnimSpeedDownButton = new JButton();
         orbitAnimSpeedDownButton.setText(null);
@@ -2175,10 +2162,6 @@ public class SystemTabPanel extends JPanel {
         // debugDumpBioRowsToConsole();
     }
 
-    private void printOrbitMapStrokesToConsole() {
-        systemPlanMapPanel.printOrbitStrokesToConsole(state.getSystemName());
-    }
-
     /** Updates the orbital plan map (journal-derived X/Y projection). */
     private void refreshPlanMap() {
         Map<Integer, BodyInfo> bodies = state.getBodies();
@@ -2378,12 +2361,6 @@ public class SystemTabPanel extends JPanel {
         orbitAnimStopButton.setIconTextGap(0);
         orbitAnimStopButton.setMargin(new java.awt.Insets(0, 0, 0, 0));
         orbitAnimStopButton.setPreferredSize(new Dimension(playSide, playSide));
-
-        if (orbitMapPrintButton != null) {
-            orbitMapPrintButton.setFont(toolbarFont);
-            int printW = Math.max(playSide, fm.stringWidth("Print") + 14);
-            orbitMapPrintButton.setPreferredSize(new Dimension(printW, playSide));
-        }
 
         orbitAnimSpeedValueLabel.setFont(toolbarFont);
         orbitAnimSpeedValueLabel.setToolTipText(speedValueTt);

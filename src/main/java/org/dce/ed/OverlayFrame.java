@@ -19,6 +19,8 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.Window;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.text.NumberFormat;
@@ -74,6 +76,7 @@ import com.sun.jna.Pointer;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef.HWND;
 import com.sun.jna.platform.win32.WinUser;
+import com.sun.jna.platform.win32.WinUser.WNDENUMPROC;
 
 import org.dce.ed.ui.EdoUi;
 
@@ -115,8 +118,14 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     
     private final Preferences prefs = Preferences.userNodeForPackage(OverlayFrame.class);
 
+    /** Last HWND used for native pass-through; refreshed on each apply (peer can be recreated). */
     private HWND hwnd;
     private boolean passThroughEnabled;
+
+    /**
+     * AWT can clear {@link WinUser#WS_EX_TRANSPARENT} after layered repaints or {@code setBounds}; re-apply while MPT is on.
+     */
+    private Timer mousePassThroughNativeStyleTimer;
 
     private volatile CargoMonitor.Snapshot lastCargoSnapshot;
 
@@ -504,13 +513,36 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         setResizable(true);
         setMinimumSize(new Dimension(MIN_WIDTH, MIN_HEIGHT));
 
+        // Re-apply WS_EX_TRANSPARENT whenever the frame is shown, moved, or resized (windowOpened fires only once).
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentShown(ComponentEvent e) {
+                reapplyNativeMousePassThroughIfEnabled();
+                updateMousePassThroughNativeStyleTimer();
+            }
+
+            @Override
+            public void componentHidden(ComponentEvent e) {
+                stopMousePassThroughNativeStyleTimer();
+            }
+
+            @Override
+            public void componentResized(ComponentEvent e) {
+                reapplyNativeMousePassThroughIfEnabled();
+            }
+
+            @Override
+            public void componentMoved(ComponentEvent e) {
+                reapplyNativeMousePassThroughIfEnabled();
+            }
+        });
+
         // Save bounds and session state on close; re-apply Win32 click-through once HWND exists.
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowOpened(java.awt.event.WindowEvent e) {
                 // If we toggled pass-through before first show, applyPassThrough was a no-op (hwnd was null).
-                tryAcquireHwnd();
-                applyPassThrough(passThroughEnabled);
+                reapplyNativeMousePassThroughIfEnabled();
                 SwingUtilities.invokeLater(() -> GoogleSheetsBackend.scheduleFirstLaunchMigration(OverlayFrame.this));
             }
 
@@ -1324,9 +1356,7 @@ private void refreshPassThroughUnifiedStatus() {
     public void showOverlay() {
         setVisible(true);
 
-        tryAcquireHwnd();
-        // Respect the configured startup pass-through state instead of forcing non-pass-through.
-        applyPassThrough(this.passThroughEnabled);
+        reapplyNativeMousePassThroughIfEnabled();
         System.out.println(
                 "Overlay size: " + getWidth() + "x" + getHeight()
                         + " at (" + getX() + "," + getY() + ")"
@@ -1339,24 +1369,51 @@ private void refreshPassThroughUnifiedStatus() {
      * later switched to pass-through, {@code hwnd} stayed null and clicks never passed through.
      */
     private boolean tryAcquireHwnd() {
-        if (hwnd != null) {
-            return true;
-        }
         if (!isDisplayable()) {
+            hwnd = null;
+            return false;
+        }
+        String os = System.getProperty("os.name", "").toLowerCase();
+        if (!os.contains("win")) {
             return false;
         }
         try {
             Pointer ptr = Native.getWindowPointer(this);
             if (ptr == null) {
+                hwnd = null;
                 System.err.println("Failed to obtain native window pointer for overlay window.");
                 return false;
             }
             hwnd = new HWND(ptr);
             return true;
         } catch (Exception ex) {
+            hwnd = null;
             System.err.println("Failed to obtain native window pointer for overlay window.");
             ex.printStackTrace();
             return false;
+        }
+    }
+
+    private void updateMousePassThroughNativeStyleTimer() {
+        stopMousePassThroughNativeStyleTimer();
+        if (!passThroughEnabled || !isShowing()) {
+            return;
+        }
+        mousePassThroughNativeStyleTimer = new Timer(500, e -> {
+            if (!passThroughEnabled || !isShowing()) {
+                stopMousePassThroughNativeStyleTimer();
+                return;
+            }
+            applyPassThrough(true);
+        });
+        mousePassThroughNativeStyleTimer.setRepeats(true);
+        mousePassThroughNativeStyleTimer.start();
+    }
+
+    private void stopMousePassThroughNativeStyleTimer() {
+        if (mousePassThroughNativeStyleTimer != null) {
+            mousePassThroughNativeStyleTimer.stop();
+            mousePassThroughNativeStyleTimer = null;
         }
     }
 
@@ -1369,25 +1426,32 @@ private void refreshPassThroughUnifiedStatus() {
      *                              hover dwell). When false, only apply native/UI state (mode switches, startup).
      */
     public void setPassThroughEnabled(boolean enabled, boolean persistUserPreference) {
-        if (this.passThroughEnabled == enabled) {
-            // Keep title-bar controls in sync even when caller re-applies the same mode.
-            titleBar.setPassThrough(this.passThroughEnabled);
-            OverlayPreferences.setOverlayMousePassThroughToGame(enabled);
-            return;
-        }
-
+        boolean stateChanged = this.passThroughEnabled != enabled;
         this.passThroughEnabled = enabled;
-        resetPassThroughCloseHoverState();
         OverlayPreferences.setOverlayMousePassThroughToGame(enabled);
         if (persistUserPreference) {
             OverlayPreferences.putOverlayMousePassThroughToGamePersisted(enabled);
         }
+        if (stateChanged) {
+            resetPassThroughCloseHoverState();
+            applyOverlayBackgroundFromPreferences(this.passThroughEnabled);
+            System.out.println("Pass-through " + (this.passThroughEnabled ? "ENABLED" : "DISABLED"));
+        }
+        // Always push Win32 extended style (setBounds / re-show can clear WS_EX_TRANSPARENT).
         applyPassThrough(this.passThroughEnabled);
-        applyOverlayBackgroundFromPreferences(this.passThroughEnabled);
-
-        titleBar.setPassThrough(this.passThroughEnabled); // hide/show X
-        System.out.println("Pass-through " + (this.passThroughEnabled ? "ENABLED" : "DISABLED"));
+        titleBar.setPassThrough(this.passThroughEnabled);
+        updateMousePassThroughNativeStyleTimer();
         repaint();
+    }
+
+    /**
+     * Re-applies {@link WinUser#WS_EX_TRANSPARENT} when mouse pass-through is on. Safe to call after
+     * {@code setBounds}, mode switches, or theme rebuilds.
+     */
+    public void reapplyNativeMousePassThroughIfEnabled() {
+        if (passThroughEnabled) {
+            applyPassThrough(true);
+        }
     }
 
     public void togglePassThrough() {
@@ -1430,6 +1494,7 @@ private void refreshPassThroughUnifiedStatus() {
             installSessionPersistence();
         }
 
+        reapplyNativeMousePassThroughIfEnabled();
         repaint();
     }
 
@@ -1535,16 +1600,12 @@ private void refreshPassThroughUnifiedStatus() {
             return;
         }
 
-        int exStyle = User32.INSTANCE.GetWindowLong(hwnd, WinUser.GWL_EXSTYLE);
-
-        if (enable) {
-            exStyle = exStyle | WinUser.WS_EX_LAYERED | WinUser.WS_EX_TRANSPARENT;
-        } else {
-            exStyle = exStyle | WinUser.WS_EX_LAYERED;
-            exStyle = exStyle & ~WinUser.WS_EX_TRANSPARENT;
-        }
-
-        User32.INSTANCE.SetWindowLong(hwnd, WinUser.GWL_EXSTYLE, exStyle);
+        applyNativePassThroughToHwnd(hwnd, enable);
+        WNDENUMPROC childProc = (hWnd, data) -> {
+            applyNativePassThroughToHwnd(hWnd, enable);
+            return true;
+        };
+        User32.INSTANCE.EnumChildWindows(hwnd, childProc, null);
 
         if (enable) {
             getRootPane().setBorder(null);
@@ -1553,6 +1614,25 @@ private void refreshPassThroughUnifiedStatus() {
         }
 
         revalidate();
+    }
+
+    /**
+     * Applies or clears {@link WinUser#WS_EX_TRANSPARENT} on one Win32 HWND and commits with {@code SetWindowPos}.
+     */
+    private static void applyNativePassThroughToHwnd(HWND target, boolean enable) {
+        if (target == null) {
+            return;
+        }
+        int exStyle = User32.INSTANCE.GetWindowLong(target, WinUser.GWL_EXSTYLE);
+        if (enable) {
+            exStyle = exStyle | WinUser.WS_EX_LAYERED | WinUser.WS_EX_TRANSPARENT;
+        } else {
+            exStyle = exStyle | WinUser.WS_EX_LAYERED;
+            exStyle = exStyle & ~WinUser.WS_EX_TRANSPARENT;
+        }
+        User32.INSTANCE.SetWindowLong(target, WinUser.GWL_EXSTYLE, exStyle);
+        User32.INSTANCE.SetWindowPos(target, null, 0, 0, 0, 0,
+                WinUser.SWP_NOMOVE | WinUser.SWP_NOSIZE | WinUser.SWP_NOZORDER | WinUser.SWP_FRAMECHANGED);
     }
     public void prepareForShow(boolean passThroughMode) {
         // Make sure we have the right background color/alpha set BEFORE first paint
@@ -1823,6 +1903,7 @@ private void refreshPassThroughUnifiedStatus() {
         public void mouseReleased(MouseEvent e) {
             dragging = false;
             frame.setCursor(Cursor.getDefaultCursor());
+            frame.reapplyNativeMousePassThroughIfEnabled();
         }
 
         @Override

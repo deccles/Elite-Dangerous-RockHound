@@ -54,6 +54,20 @@ public final class SystemMapPipeline {
             if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
                 SystemOrbitGeometry.placeTrueScaleHierarchicalScanHubs(positions, bodies, a0, a1);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                /*
+                 * Seat B+C at Null:3 and D vs that hub on Null:2 (journal radii). Without this, flatten only shifts
+                 * the cluster rigidly and B/C/D keep raw Kepler phase — B beside D with C far away on the map.
+                 */
+                SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
+                SystemOrbitGeometry.restoreTrueScaleHierarchicalOuterCompanionChord(positions, bodies, a0, a1);
+                /*
+                 * Outer-chord restore scales by outermost star; trunk rings use companion centroid — snap cluster onto
+                 * the rim and re-sync scan rows so Null:2/3 crosses are not left at pre-shift map keys.
+                 */
+                SystemOrbitGeometry.snapCompanionClusterOntoTrunkRing(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
+                SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
             } else {
                 SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
                         freezeBarycentreStars);
@@ -285,6 +299,13 @@ public final class SystemMapPipeline {
                 }
                 if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
                     SystemOrbitGeometry.placeTrueScaleHierarchicalScanHubs(positions, bodies, a0, a1);
+                    SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                    Instant t = epoch != null ? epoch : Instant.now();
+                    SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
+                            freezeBarycentreStars);
+                    SystemOrbitGeometry.restoreTrueScaleHierarchicalOuterCompanionChord(positions, bodies, a0, a1);
+                    SystemOrbitGeometry.snapCompanionClusterOntoTrunkRing(positions, bodies, t, a0, a1,
+                            freezeBarycentreStars);
                     SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
                 } else {
                     Instant t = epoch != null ? epoch : Instant.now();

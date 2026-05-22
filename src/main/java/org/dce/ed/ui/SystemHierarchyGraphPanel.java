@@ -16,9 +16,13 @@ import java.awt.event.MouseWheelEvent;
 import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 
 import org.dce.ed.systemmap.SystemMapHierarchyBuilder;
 import org.dce.ed.systemmap.SystemMapHierarchyBuilder.Graph;
@@ -41,6 +45,9 @@ public final class SystemHierarchyGraphPanel extends JPanel {
 
     private Graph graph;
     private final Map<Integer, Rectangle2D.Double> nodeBounds = new HashMap<>();
+    /** Collapsed-summary placeholder map key → collapsed parent map key. */
+    private final Map<Integer, Integer> collapsedPlaceholderParentKey = new HashMap<>();
+    private final Set<Integer> collapsedKeys = new HashSet<>();
     private double scale = 1.0;
     private double panX = 40.0;
     private double panY = 40.0;
@@ -58,6 +65,10 @@ public final class SystemHierarchyGraphPanel extends JPanel {
         MouseAdapter mouse = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showNodeContextMenu(e);
+                    return;
+                }
                 dragStart = e.getPoint();
                 panStartX = panX;
                 panStartY = panY;
@@ -66,6 +77,10 @@ public final class SystemHierarchyGraphPanel extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showNodeContextMenu(e);
+                    return;
+                }
                 boolean wasDragging = dragStart != null;
                 dragStart = null;
                 setCursor(Cursor.getDefaultCursor());
@@ -115,7 +130,9 @@ public final class SystemHierarchyGraphPanel extends JPanel {
     public void setGraph(Graph graph) {
         this.graph = graph;
         this.hoverKey = null;
+        this.collapsedKeys.clear();
         this.nodeBounds.clear();
+        this.collapsedPlaceholderParentKey.clear();
         repaint();
     }
 
@@ -156,7 +173,8 @@ public final class SystemHierarchyGraphPanel extends JPanel {
             return;
         }
         FontMetrics fm = getFontMetrics(getFont());
-        SystemMapHierarchyBuilder.applyLayout(graph, fm, NODE_PAD_X, MIN_NODE_W, MIN_NODE_H, SIBLING_GAP);
+        SystemMapHierarchyBuilder.applyLayout(graph, fm, NODE_PAD_X, MIN_NODE_W, MIN_NODE_H, SIBLING_GAP,
+                collapsedKeys);
         Rectangle2D bounds = graphBounds(graph.root);
         if (bounds.getWidth() < 1.0 || bounds.getHeight() < 1.0) {
             scale = 1.0;
@@ -177,6 +195,46 @@ public final class SystemHierarchyGraphPanel extends JPanel {
         fireViewChanged();
     }
 
+    private void showNodeContextMenu(MouseEvent e) {
+        if (graph == null) {
+            return;
+        }
+        Integer key = hitTest(e.getX(), e.getY());
+        if (key == null) {
+            return;
+        }
+        if (SystemMapHierarchyBuilder.isCollapsedPlaceholderMapKey(key.intValue())) {
+            key = Integer.valueOf(resolveCollapseTargetKey(key.intValue()));
+        }
+        final Integer menuKey = key;
+        Node node = graph.nodeByKey.get(menuKey);
+        if (node == null || node.children.isEmpty()) {
+            return;
+        }
+        boolean collapsed = collapsedKeys.contains(menuKey);
+        JPopupMenu menu = new JPopupMenu();
+        menu.setBackground(EdoUi.User.PANEL_BG);
+        JMenuItem collapseItem = new JMenuItem("Collapse children");
+        collapseItem.setBackground(EdoUi.User.PANEL_BG);
+        collapseItem.setForeground(EdoUi.User.MAIN_TEXT);
+        collapseItem.setEnabled(!collapsed);
+        collapseItem.addActionListener(ev -> {
+            collapsedKeys.add(menuKey);
+            fitToGraph();
+        });
+        JMenuItem expandItem = new JMenuItem("Expand children");
+        expandItem.setBackground(EdoUi.User.PANEL_BG);
+        expandItem.setForeground(EdoUi.User.MAIN_TEXT);
+        expandItem.setEnabled(collapsed);
+        expandItem.addActionListener(ev -> {
+            collapsedKeys.remove(menuKey);
+            fitToGraph();
+        });
+        menu.add(collapseItem);
+        menu.add(expandItem);
+        menu.show(e.getComponent(), e.getX(), e.getY());
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -192,8 +250,10 @@ public final class SystemHierarchyGraphPanel extends JPanel {
         }
 
         FontMetrics fm = g2.getFontMetrics(getFont());
-        SystemMapHierarchyBuilder.applyLayout(graph, fm, NODE_PAD_X, MIN_NODE_W, MIN_NODE_H, SIBLING_GAP);
+        SystemMapHierarchyBuilder.applyLayout(graph, fm, NODE_PAD_X, MIN_NODE_W, MIN_NODE_H, SIBLING_GAP,
+                collapsedKeys);
         nodeBounds.clear();
+        collapsedPlaceholderParentKey.clear();
         layoutNodeBounds(graph.root, fm);
         g2.translate(panX, panY);
         g2.scale(scale, scale);
@@ -205,22 +265,38 @@ public final class SystemHierarchyGraphPanel extends JPanel {
     private void paintEdges(Graphics2D g2) {
         g2.setStroke(new BasicStroke(1.5f));
         g2.setColor(EdoUi.Internal.mainTextAlpha(140));
-        for (SystemMapHierarchyBuilder.Edge edge : graph.edges) {
-            Rectangle2D.Double parent = nodeBounds.get(Integer.valueOf(edge.parentKey));
-            Rectangle2D.Double child = nodeBounds.get(Integer.valueOf(edge.childKey));
-            if (parent == null || child == null) {
-                continue;
+        paintEdgesRecursive(g2, graph.root);
+    }
+
+    private void paintEdgesRecursive(Graphics2D g2, Node parent) {
+        for (Node child : SystemMapHierarchyBuilder.visibleChildren(parent, collapsedKeys)) {
+            paintEdgeBetween(g2, parent, child);
+            if (!SystemMapHierarchyBuilder.isCollapsedPlaceholderMapKey(child.mapKey)) {
+                paintEdgesRecursive(g2, child);
             }
-            double x1 = parent.getCenterX();
-            double y1 = parent.getMaxY();
-            double x2 = child.getCenterX();
-            double y2 = child.getMinY();
-            Path2D path = new Path2D.Double();
-            path.moveTo(x1, y1);
-            double midY = (y1 + y2) / 2.0;
-            path.curveTo(x1, midY, x2, midY, x2, y2);
-            g2.draw(path);
         }
+    }
+
+    private void paintEdgeBetween(Graphics2D g2, Node parent, Node child) {
+        Rectangle2D.Double parentRect = nodeBounds.get(Integer.valueOf(parent.mapKey));
+        Rectangle2D.Double childRect = nodeBounds.get(Integer.valueOf(child.mapKey));
+        if (parentRect == null || childRect == null) {
+            return;
+        }
+        double x1 = parentRect.getCenterX();
+        double y1 = parentRect.getMaxY();
+        double x2 = childRect.getCenterX();
+        double y2 = childRect.getMinY();
+        Path2D path = new Path2D.Double();
+        path.moveTo(x1, y1);
+        double midY = (y1 + y2) / 2.0;
+        path.curveTo(x1, midY, x2, midY, x2, y2);
+        g2.draw(path);
+    }
+
+    private int resolveCollapseTargetKey(int mapKey) {
+        Integer parent = collapsedPlaceholderParentKey.get(Integer.valueOf(mapKey));
+        return parent != null ? parent.intValue() : mapKey;
     }
 
     private void paintNodes(Graphics2D g2) {
@@ -229,58 +305,66 @@ public final class SystemHierarchyGraphPanel extends JPanel {
     }
 
     private void paintNodeRecursive(Graphics2D g2, Node node, FontMetrics fm) {
-        Rectangle2D.Double rect = nodeBounds.get(Integer.valueOf(node.mapKey));
+        Node positioned = graph.nodeByKey.get(Integer.valueOf(node.mapKey));
+        if (positioned == null) {
+            positioned = node;
+        }
+        Rectangle2D.Double rect = nodeBounds.get(Integer.valueOf(positioned.mapKey));
         if (rect == null) {
             return;
         }
-        boolean hover = hoverKey != null && hoverKey.intValue() == node.mapKey;
-        g2.setColor(fillFor(node.kind, hover));
+        boolean hover = hoverKey != null && hoverKey.intValue() == positioned.mapKey;
+        g2.setColor(fillFor(positioned.kind, hover));
         g2.fillRoundRect((int) rect.x, (int) rect.y, (int) rect.width, (int) rect.height, 10, 10);
-        g2.setColor(borderFor(node.kind, hover));
+        g2.setColor(borderFor(positioned.kind, hover));
         g2.setStroke(new BasicStroke(hover ? 2.5f : 1.5f));
         g2.drawRoundRect((int) rect.x, (int) rect.y, (int) rect.width, (int) rect.height, 10, 10);
 
-        boolean darkText = usesDarkNodeText(node.kind);
+        boolean placeholder = positioned.kind == NodeKind.COLLAPSED_PLACEHOLDER;
+        boolean darkText = usesDarkNodeText(positioned.kind);
         Color labelColor = darkText ? Color.BLACK : EdoUi.User.MAIN_TEXT;
         Color subtitleColor = darkText ? new Color(0, 0, 0, 210) : EdoUi.Internal.mainTextAlpha(200);
         Color parentsColor = darkText ? new Color(0, 0, 0, 175) : EdoUi.Internal.mainTextAlpha(160);
-        int labelW = fm.stringWidth(node.label);
-        int subW = node.subtitle != null ? fm.stringWidth(node.subtitle) : 0;
-        int parW = node.parentsLine != null ? fm.stringWidth(node.parentsLine) : 0;
-        int textW = Math.max(labelW, Math.max(subW, parW));
+        int labelW = fm.stringWidth(positioned.label);
         int lineCount = 1;
-        if (node.subtitle != null && !node.subtitle.isEmpty()) {
+        if (positioned.subtitle != null && !positioned.subtitle.isEmpty()) {
             lineCount++;
         }
-        if (node.parentsLine != null && !node.parentsLine.isEmpty()) {
+        if (positioned.parentsLine != null && !positioned.parentsLine.isEmpty()) {
             lineCount++;
         }
         int ty = (int) rect.getCenterY() - (lineCount - 1) * (fm.getHeight() / 2);
         int tx = (int) (rect.getCenterX() - labelW / 2.0);
+        if (placeholder) {
+            g2.setFont(getFont().deriveFont(Font.ITALIC));
+            fm = g2.getFontMetrics();
+            labelW = fm.stringWidth(positioned.label);
+            tx = (int) (rect.getCenterX() - labelW / 2.0);
+        }
         g2.setColor(labelColor);
-        g2.drawString(node.label, tx, ty);
+        g2.drawString(positioned.label, tx, ty);
         int lineY = ty;
         Font small = getFont().deriveFont(Font.PLAIN, SMALL_FONT_PT);
-        if (node.subtitle != null && !node.subtitle.isEmpty()) {
+        if (positioned.subtitle != null && !positioned.subtitle.isEmpty()) {
             g2.setFont(small);
             FontMetrics sfm = g2.getFontMetrics();
             lineY += sfm.getHeight() + TEXT_LINE_GAP;
-            int stx = (int) (rect.getCenterX() - sfm.stringWidth(node.subtitle) / 2.0);
+            int stx = (int) (rect.getCenterX() - sfm.stringWidth(positioned.subtitle) / 2.0);
             g2.setColor(subtitleColor);
-            g2.drawString(node.subtitle, stx, lineY);
+            g2.drawString(positioned.subtitle, stx, lineY);
         }
-        if (node.parentsLine != null && !node.parentsLine.isEmpty()) {
+        if (positioned.parentsLine != null && !positioned.parentsLine.isEmpty()) {
             g2.setFont(small);
             FontMetrics pfm = g2.getFontMetrics();
             lineY += pfm.getHeight() + TEXT_LINE_GAP;
-            int ptx = (int) (rect.getCenterX() - pfm.stringWidth(node.parentsLine) / 2.0);
+            int ptx = (int) (rect.getCenterX() - pfm.stringWidth(positioned.parentsLine) / 2.0);
             g2.setColor(parentsColor);
-            g2.drawString(node.parentsLine, ptx, lineY);
-            g2.setFont(getFont());
-        } else if (node.subtitle != null && !node.subtitle.isEmpty()) {
+            g2.drawString(positioned.parentsLine, ptx, lineY);
+        }
+        if (positioned.subtitle != null || positioned.parentsLine != null) {
             g2.setFont(getFont());
         }
-        for (Node child : node.children) {
+        for (Node child : SystemMapHierarchyBuilder.visibleChildren(positioned, collapsedKeys)) {
             paintNodeRecursive(g2, child, fm);
         }
     }
@@ -301,6 +385,7 @@ public final class SystemHierarchyGraphPanel extends JPanel {
             case STAR -> EdoUi.withAlpha(new Color(220, 170, 40), alpha);
             case PLANET -> EdoUi.withAlpha(new Color(50, 120, 180), alpha);
             case MOON -> EdoUi.withAlpha(new Color(90, 110, 130), alpha);
+            case COLLAPSED_PLACEHOLDER -> EdoUi.withAlpha(new Color(70, 85, 105), alpha);
             case OTHER -> EdoUi.withAlpha(EdoUi.User.PANEL_BG, alpha);
         };
     }
@@ -315,26 +400,35 @@ public final class SystemHierarchyGraphPanel extends JPanel {
     }
 
     private void layoutNodeBounds(Node node, FontMetrics fm) {
+        Node positioned = graph != null ? graph.nodeByKey.get(Integer.valueOf(node.mapKey)) : null;
+        if (positioned == null) {
+            positioned = node;
+        }
         int lineStep = fm.getHeight() + TEXT_LINE_GAP;
-        int parW = node.parentsLine != null ? fm.stringWidth(node.parentsLine) : 0;
-        int w = node.layoutW > 0 ? node.layoutW
-                : Math.max(MIN_NODE_W, Math.max(fm.stringWidth(node.label),
-                        Math.max(node.subtitle != null ? fm.stringWidth(node.subtitle) : 0, parW)) + 2 * NODE_PAD_X);
-        int h = node.layoutH > 0 ? node.layoutH : MIN_NODE_H;
+        int parW = positioned.parentsLine != null ? fm.stringWidth(positioned.parentsLine) : 0;
+        int w = positioned.layoutW > 0 ? positioned.layoutW
+                : Math.max(MIN_NODE_W, Math.max(fm.stringWidth(positioned.label),
+                        Math.max(positioned.subtitle != null ? fm.stringWidth(positioned.subtitle) : 0, parW))
+                        + 2 * NODE_PAD_X);
+        int h = positioned.layoutH > 0 ? positioned.layoutH : MIN_NODE_H;
         int extra = 0;
-        if (node.subtitle != null && !node.subtitle.isEmpty()) {
+        if (positioned.subtitle != null && !positioned.subtitle.isEmpty()) {
             extra += lineStep;
         }
-        if (node.parentsLine != null && !node.parentsLine.isEmpty()) {
+        if (positioned.parentsLine != null && !positioned.parentsLine.isEmpty()) {
             extra += lineStep;
         }
         if (h <= MIN_NODE_H + extra) {
             h = MIN_NODE_H + extra;
         }
-        double x = node.layoutX - w / 2.0;
-        double y = node.layoutY - h / 2.0;
-        nodeBounds.put(Integer.valueOf(node.mapKey), new Rectangle2D.Double(x, y, w, h));
-        for (Node child : node.children) {
+        double x = positioned.layoutX - w / 2.0;
+        double y = positioned.layoutY - h / 2.0;
+        nodeBounds.put(Integer.valueOf(positioned.mapKey), new Rectangle2D.Double(x, y, w, h));
+        for (Node child : SystemMapHierarchyBuilder.visibleChildren(node, collapsedKeys)) {
+            if (SystemMapHierarchyBuilder.isCollapsedPlaceholderMapKey(child.mapKey)) {
+                collapsedPlaceholderParentKey.put(Integer.valueOf(child.mapKey),
+                        Integer.valueOf(node.mapKey));
+            }
             layoutNodeBounds(child, fm);
         }
     }
@@ -346,7 +440,7 @@ public final class SystemHierarchyGraphPanel extends JPanel {
             rect = nodeBounds.get(Integer.valueOf(node.mapKey));
         }
         Rectangle2D bounds = rect != null ? new Rectangle2D.Double(rect.x, rect.y, rect.width, rect.height) : null;
-        for (Node child : node.children) {
+        for (Node child : SystemMapHierarchyBuilder.visibleChildren(node, collapsedKeys)) {
             Rectangle2D childBounds = graphBounds(child);
             if (bounds == null) {
                 bounds = childBounds;

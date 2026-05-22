@@ -1077,18 +1077,6 @@ public final class SystemPlanMapPanel extends JPanel {
      *
      * @param approachedBodyId journal {@code ApproachBody} body id that triggered this log
      */
-    /**
-     * Debug toolbar: dump every body and attached orbit polylines (panel-active strokes) to stdout.
-     */
-    public void printOrbitStrokesToConsole(String systemName) {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> printOrbitStrokesToConsole(systemName));
-            return;
-        }
-        org.dce.ed.systemmap.SystemMapOrbitStrokePrinter.printToConsole(systemName, orbitGeomBodies, mapModel,
-                orbitLines != null ? List.copyOf(orbitLines) : List.of(), mapScaleMode, orbitSchematicPlaybackActive);
-    }
-
     public void logOrbitRingCentersForApproachDebug(int approachedBodyId) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> logOrbitRingCentersForApproachDebug(approachedBodyId));
@@ -6414,6 +6402,7 @@ public final class SystemPlanMapPanel extends JPanel {
 
     final void zoomFactorForTests(double zoom) {
         zoomFactor = zoom;
+        lastOrbitRebuildKey = Long.MIN_VALUE;
     }
 
     final String dotLabelForTests(int bodyId) {

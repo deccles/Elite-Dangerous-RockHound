@@ -194,6 +194,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
             // Start directly in decorated non-pass-through mode (no startup mode flip).
             Rectangle bounds = OverlayFrame.readDecoratedStoredBounds();
             passThroughFrame.setPassThroughEnabled(false);
+            passThroughFrame.setVisible(false);
 
             decoratedDialog.setBounds(bounds);
             decoratedDialog.attachContent();
@@ -301,6 +302,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     	} else {
     		// Prepare decorated dialog fully while hidden, then show once.
     		passThroughFrame.setPassThroughEnabled(false);
+    		passThroughFrame.setVisible(false);
 
     		decoratedDialog.setBounds(outerBounds);
     		decoratedDialog.attachContent();
@@ -498,8 +500,9 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
                 Timer t = new Timer(120, e -> {
                     ((Timer) e.getSource()).stop();
                     reapplyFixedOverlayBounds(w, finalRect);
-                    if (w instanceof OverlayFrame) {
-                        OverlayFrame.persistPassThroughBoundsRectangle(OverlayFrame.windowOuterRectangle(w));
+                    if (w instanceof OverlayFrame pt) {
+                        pt.reapplyNativeMousePassThroughIfEnabled();
+                        OverlayFrame.persistPassThroughBoundsRectangle(OverlayFrame.windowOuterRectangle(pt));
                     }
                 });
                 t.setRepeats(false);

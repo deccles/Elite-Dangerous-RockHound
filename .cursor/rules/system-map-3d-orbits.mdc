@@ -1,0 +1,45 @@
+---
+description: MAJOR REQUIREMENT — preserve 3D inclined orbit rings on the system map
+globs: "**/SystemOrbitGeometry*.java,**/SystemMapPipeline.java,**/SystemPlanMapPanel.java,**/MapViewProjection*.java,**/TrueScaleSystemMapTest.java,**/SystemOrbitGeometryOrbitPolylinesTest.java"
+alwaysApply: false
+---
+
+# System map — 3D inclined orbit rings (MAJOR REQUIREMENT)
+
+**Do not regress this behavior** when changing map layout, projection, wide-binary flattening, or orbit-stroke dedupe.
+
+## Required behavior
+
+1. **Inclined orbits stay 3D** — Kepler samples must use journal inclination (and nodes / periapsis). Do **not** rebuild all orbit polylines as circles in the map plane (`mapProjA0` / `mapProjA1` only) for bodies with non-zero inclination.
+2. **Default view** — High-inclination orbits may project as **ellipses** or flat needles in the top-down map plane; that is correct. Do not “fix” them by forcing `i = 0` unless the existing edge-on / barycentric guards apply **and** view tilt is zero.
+3. **View tilt** — True-scale **View** slider tilt must flow into `orbitPolylinesWorldMetresXY` / `rebuildOrbitPolylines` (`viewTiltDegrees` → `MapViewProjection`). Tilting must change stroke shape for out-of-plane orbits (e.g. Coeus A 4).
+4. **Parent-relative strokes** — True-scale branch-star planets use `trueScaleBranchPlanetKeplerDisplacementMetres`; keep full 3D when `viewTiltDeg > 0` (see comment at flatten guard).
+
+## Allowed exceptions (document in code if you add more)
+
+- **Schematic / trunk rings** — `fillMapPlaneCircleVertices`, branch-star schematic rings, planet-binary mutual rings, binary barycentre mutual ring: intentionally 2D in the map plane.
+- **i = 0 fallback** — Only when `viewTiltDeg <= 0` and `keplerMapPlaneProjectionTooFlat` for true-scale branch-star planets (edge-on needle avoidance), not for all bodies globally.
+- **Schematic mode** — Planets/moons use journal-radius circles; true-scale Kepler strokes are separate.
+
+## Before merging map/orbit changes
+
+- Run `SystemOrbitGeometryOrbitPolylinesTest` and Coeus / `TrueScaleSystemMapTest` 3D regressions.
+- If you change flattening or projection, verify inclined fixtures still show non-circular Kepler strokes and tilt-sensitive geometry.
+
+## Anti-patterns
+
+```java
+// BAD — flattens every Kepler orbit to map plane
+fillMapPlaneCircleVertices(wx, wy, parentPos, radiusM, p0, p1, 0);
+
+// BAD — global i=0 for all inclined bodies
+keplerDisplacementMetres(b, M, 0.0);
+
+// BAD — drop viewTilt from pipeline rebuild
+rebuildOrbitPolylines(model, positions, seg, scalePx, false, null, mode); // missing tilt when panel has tilt
+```
+
+```java
+// GOOD — 3D rel + projection
+assignMapViewVertex(wx, wy, i, parentPos, rel, p0, p1, viewTilt);
+```

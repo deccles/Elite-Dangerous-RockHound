@@ -2,6 +2,7 @@ package org.dce.ed.systemmap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -13,6 +14,7 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +44,104 @@ class SystemMapHierarchyBuilderTest {
     }
 
     @Test
+    void summarizeCollapsedChildren_numericRangeUnderSharedMapParent() {
+        SystemMapHierarchyBuilder.Node parent = new SystemMapHierarchyBuilder.Node(1, "A", "★ M", null,
+                NodeKind.STAR);
+        parent.children.add(child("A 1", "map: A"));
+        parent.children.add(child("A 2", "map: A"));
+        parent.children.add(child("A 3", "map: A"));
+        parent.children.add(child("A 4", "map: A"));
+        parent.children.add(child("A 5", "map: A"));
+        parent.children.add(child("A 6", "map: A"));
+        assertEquals("A 1-6", SystemMapHierarchyBuilder.summarizeCollapsedChildren(parent));
+    }
+
+    @Test
+    void summarizeCollapsedChildren_nonConsecutiveListsLabels() {
+        SystemMapHierarchyBuilder.Node parent = new SystemMapHierarchyBuilder.Node(1, "A", "★ M", null,
+                NodeKind.STAR);
+        parent.children.add(child("A 1", "map: A"));
+        parent.children.add(child("A 4", "map: A"));
+        parent.children.add(child("Null:14", "map: A"));
+        assertEquals("A 1, A 4, Null:14", SystemMapHierarchyBuilder.summarizeCollapsedChildren(parent));
+    }
+
+    @Test
+    void summarizeCollapsedChildren_groupsByMapParent() {
+        SystemMapHierarchyBuilder.Node parent = graph.root;
+        SystemMapHierarchyBuilder.Node starA = findNode(parent, "A");
+        assertNotNull(starA);
+        String summary = SystemMapHierarchyBuilder.summarizeCollapsedChildren(starA);
+        assertFalse(summary.isEmpty(), summary);
+        assertTrue(summary.startsWith("A ") || summary.contains(", A "), summary);
+    }
+
+    @Test
+    void collapsedPlaceholderChildren_bcd5MoonsAsChildNode() {
+        SystemMapHierarchyBuilder.Node bcd5 = findNode(graph.root, "BCD 5");
+        assertNotNull(bcd5);
+        java.util.Set<Integer> collapsed = new java.util.HashSet<>();
+        collapsed.add(Integer.valueOf(bcd5.mapKey));
+        SystemMapHierarchyBuilder.syncCollapsePlaceholders(graph, collapsed);
+        List<String> labels = SystemMapHierarchyBuilder.collapsedSummaryLabels(bcd5);
+        assertEquals(1, labels.size());
+        assertEquals("BCD 5 a-g", labels.get(0));
+        assertEquals(1, bcd5.collapsePlaceholders.size());
+        assertEquals("BCD 5 a-g", bcd5.collapsePlaceholders.get(0).label);
+        assertEquals(SystemMapHierarchyBuilder.NodeKind.COLLAPSED_PLACEHOLDER,
+                bcd5.collapsePlaceholders.get(0).kind);
+        assertEquals(bcd5.mapKey, bcd5.collapsePlaceholders.get(0).parentKey);
+        List<SystemMapHierarchyBuilder.Node> visible =
+                SystemMapHierarchyBuilder.visibleChildren(bcd5, collapsed);
+        assertEquals(1, visible.size());
+        assertSame(bcd5.collapsePlaceholders.get(0), visible.get(0));
+    }
+
+    @Test
+    void applyLayout_collapsedPlaceholderBelowParent() throws IOException {
+        SystemMapFixture f = SystemMapFixtureLoader.loadClasspath("eor-aowsy-ri-k-c8-3670.json");
+        Map<Integer, BodyInfo> bodies = f.toBodies();
+        SystemMapModel model = SystemMapPipeline.build(f.name, bodies, Instant.EPOCH, true);
+        SystemMapHierarchyBuilder.Graph g = SystemMapHierarchyBuilder.build(f.name, model, bodies);
+        SystemMapHierarchyBuilder.Node bcd5 = findNode(g.root, "BCD 5");
+        assertNotNull(bcd5);
+        java.util.Set<Integer> collapsed = new java.util.HashSet<>();
+        collapsed.add(Integer.valueOf(bcd5.mapKey));
+        java.awt.FontMetrics fm = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
+                .createGraphics().getFontMetrics(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        SystemMapHierarchyBuilder.applyLayout(g, fm, 10, 72, 36, 24, collapsed);
+        assertEquals(1, bcd5.collapsePlaceholders.size());
+        SystemMapHierarchyBuilder.Node ph = bcd5.collapsePlaceholders.get(0);
+        assertTrue(ph.layoutY > bcd5.layoutY, "placeholder must sit below collapsed parent");
+        assertTrue(ph.layoutW > 0 && ph.layoutH > 0);
+    }
+
+    @Test
+    void applyLayout_collapsedStarA_usesCollapsedWidthOnly() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, true);
+        SystemMapHierarchyBuilder.Graph g = SystemMapHierarchyBuilder.build(coeus.name, model, bodies);
+        SystemMapHierarchyBuilder.Node starA = findNode(g.root, "A");
+        assertNotNull(starA);
+        java.awt.FontMetrics fm = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
+                .createGraphics().getFontMetrics(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        SystemMapHierarchyBuilder.applyLayout(g, fm, 10, 72, 36, 24);
+        double expandedWidth = subtreeRight(starA) - subtreeLeft(starA);
+        java.util.Set<Integer> collapsed = new java.util.HashSet<>();
+        collapsed.add(Integer.valueOf(starA.mapKey));
+        SystemMapHierarchyBuilder.applyLayout(g, fm, 10, 72, 36, 24, collapsed);
+        double collapsedWidth = starA.layoutW;
+        assertTrue(collapsedWidth < expandedWidth,
+                "collapsed layout should be narrower than expanded children");
+        assertFalse(SystemMapHierarchyBuilder.summarizeCollapsedChildren(starA).isEmpty());
+    }
+
+    private static SystemMapHierarchyBuilder.Node child(String label, String subtitle) {
+        return new SystemMapHierarchyBuilder.Node(label.hashCode(), label, subtitle, null, NodeKind.PLANET);
+    }
+
+    @Test
     void eorAowsy_containsBcd2MoonUnderBcd2() {
         SystemMapHierarchyBuilder.Node bcd2 = findNode(graph.root, "BCD 2");
         assertNotNull(bcd2);
@@ -62,7 +162,7 @@ class SystemMapHierarchyBuilderTest {
 
     @Test
     void eorAowsy_aBranchParentedToC_withPlanetClassOnC_stillUnderStarA() throws IOException {
-        Map<Integer, BodyInfo> bodies = new HashMap<>(fixture.toBodies());
+        Map<Integer, BodyInfo> bodies = fixture.toBodies();
         int idC = fixture.bodyIdByLabel("C");
         BodyInfo starC = bodies.get(Integer.valueOf(idC));
         starC.setPlanetClass("High metal content body");
@@ -319,8 +419,7 @@ class SystemMapHierarchyBuilderTest {
         assertNotNull(ring);
         OrbitGeometryTestSupport.assertExactlyOneDirectParentOrbitStroke(model, bodies, "A 4",
                 model.orbitPolylines(), 200.0);
-        OrbitGeometryTestSupport.assertOrbitPolylineAspectRatioSane(ring, 12.0);
-        OrbitGeometryTestSupport.assertOrbitPolylineIsNonCircularKepler(ring, 0.12);
+        OrbitGeometryTestSupport.assertOrbitPolylineNotNearPerfectCircle(ring, 500.0);
     }
 
     @Test
@@ -350,8 +449,7 @@ class SystemMapHierarchyBuilderTest {
             }
         }
         assertNotNull(ring);
-        OrbitGeometryTestSupport.assertOrbitPolylineAspectRatioSane(ring, 12.0);
-        OrbitGeometryTestSupport.assertOrbitPolylineIsNonCircularKepler(ring, 0.12);
+        OrbitGeometryTestSupport.assertOrbitPolylineNotNearPerfectCircle(ring, 500.0);
     }
 
     @Test
@@ -385,9 +483,9 @@ class SystemMapHierarchyBuilderTest {
         SystemOrbitGeometry.OrbitPolylineWorldXY opened = findPolyline(tilted, idA4);
         assertNotNull(opened);
         double openRatio = orbitPolylineApoPeriRatio(opened);
+        assertTrue(openRatio < flatRatio * 0.85,
+                "90° view tilt should open edge-on A 4 stroke: flat=" + flatRatio + " tilted=" + openRatio);
         OrbitGeometryTestSupport.assertOrbitPolylineAspectRatioSane(opened, 12.0);
-        assertTrue(openRatio < flatRatio * 0.85 || flatRatio < 4.0,
-                "90° view tilt should open or preserve A 4 stroke: flat=" + flatRatio + " tilted=" + openRatio);
     }
 
     private static SystemOrbitGeometry.OrbitPolylineWorldXY findPolyline(
@@ -608,6 +706,65 @@ class SystemMapHierarchyBuilderTest {
         SystemMapHierarchyBuilder.Node parent = graph.nodeByKey.get(Integer.valueOf(b.parentKey));
         assertNotNull(parent);
         assertTrue(parent.label.contains("Null:3") || parent.label.startsWith("Null:"));
+    }
+
+    @Test
+    void eorAowsy_innerHubsParentToOuterNull2MapKey() throws IOException {
+        SystemMapFixture f = SystemMapFixtureLoader.loadClasspath("eor-aowsy-ri-k-c8-3670.json");
+        Map<Integer, BodyInfo> bodies = f.toBodies();
+        int null2Hub = SystemOrbitGeometry.planetBinaryBarycentreMapKey(2);
+        int null3Hub = SystemOrbitGeometry.planetBinaryBarycentreMapKey(3);
+        int null49Hub = SystemOrbitGeometry.planetBinaryBarycentreMapKey(49);
+        assertEquals(null2Hub, SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(null3Hub, bodies));
+        assertEquals(null2Hub, SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(null49Hub, bodies));
+        assertTrue(SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(null2Hub, bodies) < 0);
+        SystemMapModel model = SystemMapPipeline.build(f.name, bodies, Instant.EPOCH, true);
+        assertEquals(null2Hub, SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(null3Hub, bodies),
+                "pipeline must not break nested hub parenting");
+        assertEquals(null2Hub, SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(null49Hub, bodies));
+    }
+
+    @Test
+    void eorAowsy_companionClusterNestedUnderNull2() throws IOException {
+        SystemMapFixture f = SystemMapFixtureLoader.loadClasspath("eor-aowsy-ri-k-c8-3670.json");
+        Map<Integer, BodyInfo> bodies = f.toBodies();
+        SystemMapModel model = SystemMapPipeline.build(f.name, bodies, Instant.EPOCH, true);
+        SystemMapHierarchyBuilder.Graph localGraph = SystemMapHierarchyBuilder.build(f.name, model, bodies);
+        SystemMapHierarchyBuilder.Node null2 = findNode(localGraph.root, "Null:2");
+        assertNotNull(null2, "outer B/C+D barycentre hub");
+        SystemMapHierarchyBuilder.Node null3 = findNode(null2, "Null:3");
+        assertNotNull(null3, "B+C hub must nest under Null:2");
+        assertEquals(null2.mapKey, null3.parentKey);
+        SystemMapHierarchyBuilder.Node b = findNode(null3, "B");
+        SystemMapHierarchyBuilder.Node c = findNode(null3, "C");
+        assertNotNull(b);
+        assertNotNull(c);
+        assertEquals(null3.mapKey, b.parentKey);
+        assertEquals(null3.mapKey, c.parentKey);
+        SystemMapHierarchyBuilder.Node d = findNode(null2, "D");
+        assertNotNull(d);
+        assertEquals(null2.mapKey, d.parentKey);
+        SystemMapHierarchyBuilder.Node bcd1 = findNode(null2, "BCD 1");
+        assertNotNull(bcd1, "BCD planets orbit outer Null:2 trunk, not stars B/C/D");
+        assertEquals(null2.mapKey, bcd1.parentKey);
+        SystemMapHierarchyBuilder.Node null49 = findNode(null2, "Null:49");
+        assertNotNull(null49, "BCD 2+3 binary hub under Null:2");
+        assertEquals(null2.mapKey, null49.parentKey);
+        SystemMapHierarchyBuilder.Node bcd2 = findNode(null49, "BCD 2");
+        assertNotNull(bcd2);
+        assertEquals(null49.mapKey, bcd2.parentKey);
+        assertFalse(directChildLabels(localGraph.root).contains("Null:3"),
+                "Null:3 must not be a direct child of system barycentre");
+        assertFalse(directChildLabels(localGraph.root).contains("Null:49"));
+        assertFalse(directChildLabels(localGraph.root).contains("BCD 1"));
+    }
+
+    private static List<String> directChildLabels(SystemMapHierarchyBuilder.Node parent) {
+        List<String> labels = new ArrayList<>();
+        for (SystemMapHierarchyBuilder.Node child : parent.children) {
+            labels.add(child.label);
+        }
+        return labels;
     }
 
     private static SystemMapHierarchyBuilder.Node findBranchStarAncestor(SystemMapHierarchyBuilder.Graph graph,

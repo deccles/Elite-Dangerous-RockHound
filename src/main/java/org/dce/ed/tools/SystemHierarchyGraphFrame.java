@@ -114,7 +114,7 @@ public final class SystemHierarchyGraphFrame extends JFrame {
         statusBar.setBackground(EdoUi.User.PANEL_BG);
         statusBar.setBorder(BorderFactory.createEmptyBorder(0, 12, 6, 12));
         statusBar.add(statusLabel, BorderLayout.WEST);
-        JLabel hint = new JLabel("Drag to pan · wheel to zoom");
+        JLabel hint = new JLabel("Drag to pan · wheel to zoom · right-click nodes to collapse");
         hint.setForeground(EdoUi.Internal.mainTextAlpha(160));
         statusBar.add(hint, BorderLayout.EAST);
 

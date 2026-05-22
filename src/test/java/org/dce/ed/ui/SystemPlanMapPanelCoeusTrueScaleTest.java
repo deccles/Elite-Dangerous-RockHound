@@ -2,6 +2,7 @@ package org.dce.ed.ui;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -15,7 +16,6 @@ import org.dce.ed.systemmap.SystemMapFixture;
 import org.dce.ed.systemmap.SystemMapFixtureLoader;
 import org.dce.ed.systemmap.SystemMapModel;
 import org.dce.ed.systemmap.SystemMapPipeline;
-import org.dce.ed.testutil.OrbitGeometryTestSupport;
 import org.dce.ed.util.SystemOrbitGeometry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -82,6 +82,34 @@ class SystemPlanMapPanelCoeusTrueScaleTest {
         assertNotEquals(r0, r1, 0.5, "ellipse motion changes live hub-ring radius each tick");
         assertFalse(panel.subsystemHubRevolutionPathRingDrawnForTests(idA1, DETAIL_VISIBLE_LS),
                 "true-scale playback must not paint the breathing schematic circle");
+    }
+
+    @Test
+    @DisplayName("True scale: companion B on wide-binary mutual orbit stroke")
+    void coeus_trueScale_companionB_onBinaryBarycentreRing() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        OrbitGeometryTestSupport.assertBodyOnBinaryBarycentreOrbitRing(model, bodies, "B", 0.02, 5.0);
+        OrbitGeometryTestSupport.assertNoPerBodyOrbitRing(model, coeus.bodyIdByLabel("B"));
+    }
+
+    @Test
+    @DisplayName("True scale playback: companion B stays on mutual ring after tick")
+    void coeus_trueScale_playback_companionB_onBinaryBarycentreRing() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        Instant t1 = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(402));
+        SystemPlanMapPanel panel = new SystemPlanMapPanel();
+        panel.setSize(900, 700);
+        panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
+        Map<Integer, double[]> pos0 = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
+        panel.setScene(bodies, pos0, null, null, null, false, Instant.EPOCH);
+        Map<Integer, double[]> pos1 = SystemOrbitGeometry.bodyPositionsMetres(bodies, t1, false);
+        assertTrue(panel.tryApplyPositionUpdate(bodies, pos1, null, null, null, true, t1));
+        SystemMapModel model = panel.mapModelForTests();
+        OrbitGeometryTestSupport.assertBodyOnBinaryBarycentreOrbitRing(model, bodies, "B", 0.02, 5.0);
     }
 
     @Test

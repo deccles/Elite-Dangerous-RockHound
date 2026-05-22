@@ -54,7 +54,7 @@ class DesignationBranchInvariantTest {
     }
 
     private static Map<Integer, BodyInfo> copyBodies() {
-        return new HashMap<>(bodies);
+        return fixture.toBodies();
     }
 
     @Test
