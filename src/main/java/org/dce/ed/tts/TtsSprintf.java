@@ -133,15 +133,9 @@ public class TtsSprintf {
         Object[] a = args != null ? args : new Object[0];
         SpeechPlan plan = formatToSpeechPlanPositional(template, a);
         List<String> chunks = plan.chunkTexts;
-        System.out.print("*** SPEAKING: ");
-        for (String s : chunks) {
-            System.out.print(s + " ");
-        }
         if (chunks.isEmpty()) {
             return;
         }
-        else 
-        	System.out.println();
 
         final PollyTtsCached.SpeechSynthesisVoicePreview previewForWorker = voicePreview;
         tts.getPlaybackQueue().submit(() -> {

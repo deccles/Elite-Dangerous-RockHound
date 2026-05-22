@@ -29,6 +29,10 @@ import org.junit.jupiter.api.Test;
  */
 class MiningTabPanelProspectorUpdateTest {
 
+    static {
+        TestEnvironment.ensureTestIsolation();
+    }
+
     private static final String DEFAULT_DISABLE_SPEECH_PROPERTY = "edo.test.disableSpeech";
     private String originalDisableSpeechPropertyValue;
 

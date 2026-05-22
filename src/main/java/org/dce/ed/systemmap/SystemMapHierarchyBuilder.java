@@ -196,16 +196,10 @@ public final class SystemMapHierarchyBuilder {
         }
     }
 
-    /** Journal tree edges: co-orbit majors stay under {@code Null:N} hub; map orbit parent may differ. */
+    /** Journal tree edges: co-orbit majors under {@code Null:N} hub unless map resolution keeps them on branch star A. */
     static int hierarchyParentKey(int bodyId, BodyInfo body, SystemMapModel model,
             Map<Integer, BodyInfo> bodies) {
-        int ip = body.getImmediateParentBodyId();
-        if (ip > 0 && (SystemOrbitGeometry.isPlanetBinaryNullParentId(ip, bodies)
-                || SystemOrbitGeometry.isSharedNullBarycentreId(ip, bodies))
-                && !SystemOrbitGeometry.isMoonSatelliteBody(body, bodies)) {
-            return SystemOrbitGeometry.planetBinaryBarycentreMapKey(ip);
-        }
-        return model.resolveParentBodyId(bodyId);
+        return SystemOrbitGeometry.hierarchyTreeParentKey(body, bodyId, model.resolveParentBodyId(bodyId), bodies);
     }
 
     private static void buildSubtree(Node parentNode, int parentKey, Map<Integer, List<Integer>> childKeys,

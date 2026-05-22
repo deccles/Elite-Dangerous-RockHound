@@ -24,6 +24,10 @@ import org.junit.jupiter.api.Test;
 
 class ProspectorBackendFailureDoesNotBlockUiTest {
 
+    static {
+        TestEnvironment.ensureTestIsolation();
+    }
+
     @AfterEach
     void clearStatusSinks() {
         MiningTabPanel.clearMiningSheetsStatusSinksForTests();

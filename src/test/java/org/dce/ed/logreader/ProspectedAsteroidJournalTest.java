@@ -13,6 +13,7 @@ import java.util.List;
 import javax.swing.SwingUtilities;
 
 import org.dce.ed.MiningTabPanel;
+import org.dce.ed.TestEnvironment;
 import org.dce.ed.market.GalacticAveragePrices;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,10 @@ import org.junit.jupiter.api.Test;
  * Validates that parsing and MiningTabPanel display the correct information.
  */
 class ProspectedAsteroidJournalTest {
+
+    static {
+        TestEnvironment.ensureTestIsolation();
+    }
 
     private static final String SAMPLE_JOURNAL = "/org/dce/ed/logreader/sample_prospector_journal.log";
 

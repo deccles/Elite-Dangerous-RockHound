@@ -2341,6 +2341,36 @@ public final class SystemOrbitGeometry {
                 resolveOrbitParentBodyIdImpl(child, bodies, mapBodyId));
     }
 
+    /**
+     * Parent map key for the hierarchy graph. Co-orbit majors normally hang under {@code Null:N} hubs; when map
+     * resolution already places an {@code A n} body on star {@code A} (not companion {@code Null:3}), the tree
+     * follows that resolved parent.
+     */
+    public static int hierarchyTreeParentKey(BodyInfo body, int mapBodyId, int resolvedMapParent,
+            Map<Integer, BodyInfo> bodies) {
+        if (body == null || bodies == null) {
+            return resolvedMapParent;
+        }
+        int ip = body.getImmediateParentBodyId();
+        if (ip > 0 && (isPlanetBinaryNullParentId(ip, bodies) || isSharedNullBarycentreId(ip, bodies))
+                && !isMoonSatelliteBody(body, bodies)) {
+            int hubKey = planetBinaryBarycentreMapKey(ip);
+            if (resolvedMapParent >= 0 && resolvedMapParent != hubKey
+                    && !isPlanetBinaryBarycentreMapKey(resolvedMapParent)) {
+                String branch = designationBranchLetter(body);
+                if (branch != null && branch.length() == 1) {
+                    int branchStar = findBodyIdByDesignationTailMatch(bodies, branch, true);
+                    if (resolvedMapParent == branchStar
+                            && companionStellarNullHasNonMatchingBranch(ip, branch, bodies)) {
+                        return resolvedMapParent;
+                    }
+                }
+            }
+            return hubKey;
+        }
+        return resolvedMapParent;
+    }
+
     private static int resolveOrbitParentBodyIdImpl(BodyInfo child, Map<Integer, BodyInfo> bodies, int mapBodyId) {
         if (child == null || bodies == null || bodies.isEmpty()) {
             return -1;

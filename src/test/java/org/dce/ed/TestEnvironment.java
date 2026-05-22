@@ -22,6 +22,13 @@ import org.dce.ed.cache.SystemCache;
  */
 public final class TestEnvironment {
 
+    static {
+        // Surefire sets this in pom.xml; IDE runners often omit it — keep tests quiet (no TTS / console).
+        if (System.getProperty("edo.test.disableSpeech") == null) {
+            System.setProperty("edo.test.disableSpeech", "true");
+        }
+    }
+
     private static volatile boolean initialized;
 
     /**
