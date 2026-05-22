@@ -13,6 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.SwingUtilities;
 
+import org.dce.ed.OverlayFrame;
+
 import com.sun.jna.Library;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
@@ -128,6 +130,10 @@ final class WindowsWindowIcons {
             if (hSm2 != null) {
                 User32.INSTANCE.DestroyIcon(hSm2);
             }
+        }
+        // WM_SETICON runs after initial pass-through setup; re-stamp so child HWNDs stay click-through.
+        if (window instanceof OverlayFrame overlay) {
+            overlay.reapplyNativeMousePassThroughIfEnabled();
         }
     }
 
