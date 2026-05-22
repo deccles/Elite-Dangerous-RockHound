@@ -101,7 +101,8 @@ public final class SystemMapPipeline {
         Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies);
         boolean includeBinaryBarycentreRing = !SystemOrbitGeometry.isHierarchicalWideBinary(bodies);
         List<OrbitPolylineWorldXY> polylines = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(bodies, positions,
-                DEFAULT_ORBIT_SEGMENTS, Double.NaN, a0, a1, includeBinaryBarycentreRing, resolvedParents, mode);
+                DEFAULT_ORBIT_SEGMENTS, Double.NaN, a0, a1, includeBinaryBarycentreRing, resolvedParents, mode,
+                false, null, 0, t);
         Map<Integer, Integer> childCounts = buildDirectChildCounts(resolvedParents);
         Set<Integer> hubIds = SystemMapRules.subsystemHubBodyIds(bodies, resolvedParents, classification);
         Set<Integer> revolutionCenters = SystemMapRules.orbitRevolutionCenterBodyIds(bodies, resolvedParents,
@@ -173,6 +174,23 @@ public final class SystemMapPipeline {
             Map<Integer, double[]> ringRadiusReferencePositions,
             MapScaleMode renderScaleMode,
             int viewTiltDegrees) {
+        return rebuildOrbitPolylines(base, positionsMetres, segments, scalePixelsPerMetre,
+                enforceSchematicMoonMinOrbitRadius, ringRadiusReferencePositions, renderScaleMode, viewTiltDegrees,
+                null);
+    }
+
+    /**
+     * @param strokeEpoch sim instant for Kepler stroke sampling during true-scale playback; null uses wall clock.
+     */
+    public static List<OrbitPolylineWorldXY> rebuildOrbitPolylines(SystemMapModel base,
+            Map<Integer, double[]> positionsMetres,
+            int segments,
+            double scalePixelsPerMetre,
+            boolean enforceSchematicMoonMinOrbitRadius,
+            Map<Integer, double[]> ringRadiusReferencePositions,
+            MapScaleMode renderScaleMode,
+            int viewTiltDegrees,
+            Instant strokeEpoch) {
         if (base == null || positionsMetres == null || base.bodies().isEmpty()) {
             return List.of();
         }
@@ -185,7 +203,7 @@ public final class SystemMapPipeline {
         return SystemOrbitGeometry.orbitPolylinesWorldMetresXY(base.bodies(), positionsMetres, segments,
                 scalePixelsPerMetre, base.projectionAxis0(), base.projectionAxis1(), includeBinaryBarycentreRing,
                 base.resolvedParentByBodyId(), mode, enforceSchematicMoonMinOrbitRadius,
-                ringRadiusReferencePositions, viewTiltDegrees);
+                ringRadiusReferencePositions, viewTiltDegrees, strokeEpoch);
     }
 
     private static SystemMapModel emptyModel(String systemName, MapScaleMode scaleMode) {
@@ -311,6 +329,7 @@ public final class SystemMapPipeline {
                     Instant t = epoch != null ? epoch : Instant.now();
                     SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
                             freezeBarycentreStars);
+                    SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
                 }
                 return positions;
             }

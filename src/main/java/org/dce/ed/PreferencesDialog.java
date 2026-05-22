@@ -188,6 +188,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabSystemVisibleCheckBox;
 	private JCheckBox overlayTabBiologyVisibleCheckBox;
 	private JCheckBox overlayTabMiningVisibleCheckBox;
+	private JCheckBox overlayTabMissionsVisibleCheckBox;
 	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
 
 	private JSpinner bioValuableThresholdMillionSpinner;
@@ -471,6 +472,12 @@ public class PreferencesDialog extends JDialog {
 		overlayTabMiningVisibleCheckBox.setOpaque(false);
 		overlayTabMiningVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabMiningVisible());
 		tabsPanel.add(overlayTabMiningVisibleCheckBox, tgc);
+
+		tgc.gridy++;
+		overlayTabMissionsVisibleCheckBox = new JCheckBox("Missions");
+		overlayTabMissionsVisibleCheckBox.setOpaque(false);
+		overlayTabMissionsVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabMissionsVisible());
+		tabsPanel.add(overlayTabMissionsVisibleCheckBox, tgc);
 
 		tgc.gridy++;
 		overlayTabFleetCarrierVisibleCheckBox = new JCheckBox("Fleet Carrier");
@@ -2047,14 +2054,16 @@ public class PreferencesDialog extends JDialog {
             boolean s = overlayTabSystemVisibleCheckBox != null && overlayTabSystemVisibleCheckBox.isSelected();
             boolean b = overlayTabBiologyVisibleCheckBox != null && overlayTabBiologyVisibleCheckBox.isSelected();
             boolean m = overlayTabMiningVisibleCheckBox != null && overlayTabMiningVisibleCheckBox.isSelected();
+            boolean ms = overlayTabMissionsVisibleCheckBox != null && overlayTabMissionsVisibleCheckBox.isSelected();
             boolean f = overlayTabFleetCarrierVisibleCheckBox != null && overlayTabFleetCarrierVisibleCheckBox.isSelected();
-            if (!r && !s && !b && !m && !f) {
-                r = s = b = m = f = true;
+            if (!r && !s && !b && !m && !ms && !f) {
+                r = s = b = m = ms = f = true;
             }
             OverlayPreferences.setOverlayTabRouteVisible(r);
             OverlayPreferences.setOverlayTabSystemVisible(s);
             OverlayPreferences.setOverlayTabBiologyVisible(b);
             OverlayPreferences.setOverlayTabMiningVisible(m);
+            OverlayPreferences.setOverlayTabMissionsVisible(ms);
             OverlayPreferences.setOverlayTabFleetCarrierVisible(f);
         }
 

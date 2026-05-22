@@ -230,4 +230,61 @@ public class CargoMonitor {
 
 		return 0;
 	}
+
+	/**
+	 * Sum cargo hold tons for a commodity matched by localized display name (case-insensitive).
+	 */
+	public static int countCommodityTons(JsonObject cargo, String commodityLocalised) {
+		if (cargo == null || commodityLocalised == null || commodityLocalised.isBlank()) {
+			return 0;
+		}
+		JsonArray inv = null;
+		if (cargo.has("Inventory") && cargo.get("Inventory").isJsonArray()) {
+			inv = cargo.getAsJsonArray("Inventory");
+		} else if (cargo.has("inventory") && cargo.get("inventory").isJsonArray()) {
+			inv = cargo.getAsJsonArray("inventory");
+		}
+		if (inv == null) {
+			return 0;
+		}
+		String want = commodityLocalised.trim().toLowerCase();
+		int total = 0;
+		for (JsonElement e : inv) {
+			if (e == null || !e.isJsonObject()) {
+				continue;
+			}
+			JsonObject o = e.getAsJsonObject();
+			String localized = stringField(o, "Name_Localised");
+			if (localized == null) {
+				localized = stringField(o, "Name");
+			}
+			if (localized == null || !localized.trim().toLowerCase().equals(want)) {
+				continue;
+			}
+			total += intField(o, "Count");
+		}
+		return total;
+	}
+
+	private static String stringField(JsonObject o, String key) {
+		if (o == null || !o.has(key) || o.get(key).isJsonNull()) {
+			return null;
+		}
+		try {
+			return o.get(key).getAsString();
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private static int intField(JsonObject o, String key) {
+		if (o == null || !o.has(key) || o.get(key).isJsonNull()) {
+			return 0;
+		}
+		try {
+			return (int) o.get(key).getAsLong();
+		} catch (Exception e) {
+			return 0;
+		}
+	}
 }

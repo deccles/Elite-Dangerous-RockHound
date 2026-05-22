@@ -116,7 +116,10 @@ import org.dce.ed.mining.MiningLeaderSnapshot;
 import org.dce.ed.mining.MiningScatterAsteroidModel;
 import org.dce.ed.mining.ProspectorLogRow;
 import org.dce.ed.mining.ProspectorWriteResult;
+import org.dce.ed.mission.MiningMissionTableRows;
+import org.dce.ed.mission.MissionTracker;
 import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.ui.DestinationCopySupport;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
@@ -155,6 +158,13 @@ public class MiningTabPanel extends JPanel {
 
 	private final JLabel headerLabel;
 	private final JLabel inventoryLabel;
+	private final JLabel missionsLabel;
+	private final JPanel missionsSectionPanel;
+	private final JTable missionsTable;
+	private final MiningMissionsTableModel missionsModel;
+	private final JScrollPane missionsScroller;
+	private volatile MissionTracker missionTracker;
+	private BooleanSupplier missionPassThroughSupplier;
 	private final JTable table;
 	private final MiningTableModel model;
 
@@ -298,6 +308,8 @@ private final JLayer<JTable> cargoLayer;
 	private JLabel prospectorLabel;
 
 	private static final int VISIBLE_ROWS = 10;
+	/** Mining missions table height under inventory (about two data rows). */
+	private static final int MISSION_VISIBLE_ROWS = 2;
 
 	/**
 	 * When set (tests), mining sheet status is sent here instead of {@link OverlayFrame#overlayFrame}.
@@ -693,9 +705,84 @@ private final JLayer<JTable> cargoLayer;
 
 		configureOverlayScroller(cargoScroller);
 		cargoScroller.setAlignmentX(Component.LEFT_ALIGNMENT);
+		cargoScroller.setAlignmentY(Component.TOP_ALIGNMENT);
 		inventoryLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		Dimension invPref = inventoryLabel.getPreferredSize();
 		inventoryLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, invPref.height));
+
+		missionsLabel = new JLabel("Missions");
+		missionsLabel.setForeground(EdoUi.User.MAIN_TEXT);
+		missionsLabel.setHorizontalAlignment(SwingConstants.LEFT);
+		missionsLabel.setOpaque(false);
+		missionsLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		missionsLabel.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize() + 4));
+		Dimension missionsLabelPref = missionsLabel.getPreferredSize();
+		missionsLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, missionsLabelPref.height));
+
+		missionsModel = new MiningMissionsTableModel();
+		missionsTable = new JTable(missionsModel);
+		missionsTable.setOpaque(false);
+		missionsTable.setBorder(null);
+		missionsTable.setFillsViewportHeight(false);
+		missionsTable.setShowGrid(false);
+		missionsTable.setShowHorizontalLines(false);
+		missionsTable.setShowVerticalLines(false);
+		missionsTable.setIntercellSpacing(new java.awt.Dimension(0, 0));
+		missionsTable.setGridColor(EdoUi.Internal.TRANSPARENT);
+		missionsTable.setForeground(EdoUi.User.MAIN_TEXT);
+		missionsTable.setBackground(EdoUi.Internal.TRANSPARENT);
+		missionsTable.setRowHeight(22);
+		missionsTable.setFocusable(false);
+		missionsTable.setRowSelectionAllowed(false);
+		missionsTable.setColumnSelectionAllowed(false);
+		missionsTable.setCellSelectionEnabled(false);
+		missionsTable.putClientProperty("JTable.autoStartsEdit", Boolean.FALSE);
+		missionsTable.setTableHeader(new org.dce.ed.ui.TransparentTableHeader(missionsTable.getColumnModel()));
+		JTableHeader missionsHeader = missionsTable.getTableHeader();
+		if (missionsHeader != null) {
+			missionsHeader.setUI(TransparentTableHeaderUI.createUI(missionsHeader));
+			missionsHeader.setOpaque(false);
+			missionsHeader.setForeground(EdoUi.User.MAIN_TEXT);
+			missionsHeader.setBackground(EdoUi.Internal.TRANSPARENT);
+			missionsHeader.setBorder(null);
+			missionsHeader.setReorderingAllowed(false);
+			missionsHeader.setFocusable(false);
+			missionsHeader.putClientProperty("JTableHeader.focusCellBackground", null);
+			missionsHeader.putClientProperty("JTableHeader.cellBorder", null);
+			missionsHeader.setDefaultRenderer(new HeaderRenderer());
+			missionsHeader.setPreferredSize(new Dimension(pref.width, missionsTable.getRowHeight()));
+		}
+		for (int c = 0; c < missionsTable.getColumnModel().getColumnCount(); c++) {
+			missionsTable.getColumnModel().getColumn(c).setCellRenderer(defaultRenderer);
+		}
+		missionsScroller = new JScrollPane(missionsTable);
+		missionsScroller.setOpaque(false);
+		missionsScroller.setBackground(EdoUi.Internal.TRANSPARENT);
+		missionsScroller.getViewport().setOpaque(false);
+		missionsScroller.getViewport().setBackground(EdoUi.Internal.TRANSPARENT);
+		missionsScroller.setBorder(null);
+		missionsScroller.setViewportBorder(null);
+		JViewport missionsHeaderViewport = missionsScroller.getColumnHeader();
+		if (missionsHeaderViewport != null) {
+			missionsHeaderViewport.setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
+			missionsHeaderViewport.setOpaque(false);
+			missionsHeaderViewport.setBackground(EdoUi.Internal.TRANSPARENT);
+			missionsHeaderViewport.setUI(org.dce.ed.ui.TransparentViewportUI.createUI(missionsHeaderViewport));
+			missionsHeaderViewport.setBorder(null);
+		}
+		configureOverlayScroller(missionsScroller);
+		missionsScroller.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		missionsSectionPanel = new JPanel();
+		missionsSectionPanel.setOpaque(false);
+		missionsSectionPanel.setLayout(new BoxLayout(missionsSectionPanel, BoxLayout.Y_AXIS));
+		missionsSectionPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		missionsSectionPanel.add(missionsLabel);
+		missionsSectionPanel.add(Box.createVerticalStrut(2));
+		missionsSectionPanel.add(missionsScroller);
+		missionsSectionPanel.setVisible(false);
+		missionsSectionPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		missionsSectionPanel.setAlignmentY(Component.TOP_ALIGNMENT);
 
 		// Spreadsheet (prospector log) panel
 		spreadsheetModel = new ProspectorLogTableModel();
@@ -929,7 +1016,16 @@ private final JLayer<JTable> cargoLayer;
 		invHeader.add(inventoryLabel);
 		invHeader.add(Box.createVerticalStrut(2));
 		inventoryPanel.add(invHeader, BorderLayout.NORTH);
-		inventoryPanel.add(cargoScroller, BorderLayout.CENTER);
+		JPanel invBody = new JPanel();
+		invBody.setOpaque(false);
+		invBody.setLayout(new BoxLayout(invBody, BoxLayout.Y_AXIS));
+		invBody.add(cargoScroller);
+		invBody.add(Box.createVerticalStrut(4));
+		invBody.add(missionsSectionPanel);
+		JPanel invBodyAnchor = new JPanel(new BorderLayout());
+		invBodyAnchor.setOpaque(false);
+		invBodyAnchor.add(invBody, BorderLayout.NORTH);
+		inventoryPanel.add(invBodyAnchor, BorderLayout.CENTER);
 
 		JPanel prospectorPanel = new JPanel(new BorderLayout());
 		prospectorPanel.setOpaque(false);
@@ -1111,6 +1207,26 @@ private final JLayer<JTable> cargoLayer;
 		cm.getColumn(4).setPreferredWidth(95);
 	}
 
+	private static void applyMiningMissionsColumnWidths(JTable tbl) {
+		if (tbl == null) {
+			return;
+		}
+		TableColumnModel cm = tbl.getColumnModel();
+		if (cm == null || cm.getColumnCount() < 5) {
+			return;
+		}
+		cm.getColumn(0).setMinWidth(90);
+		cm.getColumn(0).setPreferredWidth(120);
+		cm.getColumn(1).setMinWidth(70);
+		cm.getColumn(1).setPreferredWidth(85);
+		cm.getColumn(2).setMinWidth(55);
+		cm.getColumn(2).setPreferredWidth(70);
+		cm.getColumn(3).setMinWidth(75);
+		cm.getColumn(3).setPreferredWidth(95);
+		cm.getColumn(4).setMinWidth(140);
+		cm.getColumn(4).setPreferredWidth(220);
+	}
+
 	/** Hide Before Amount (6), After Amount (7); keep Body (12) visible narrow. Data still in model. */
 	private static void applyProspectorLogColumnVisibility(JTable tbl) {
 		if (tbl == null) return;
@@ -1243,6 +1359,9 @@ return EdoUi.User.MAIN_TEXT;
 		
 		prospectorLabel.setFont(headerFont);
 		inventoryLabel.setFont(headerFont);
+		if (missionsLabel != null) {
+			missionsLabel.setFont(headerFont);
+		}
 		spreadsheetLabel.setFont(headerFont);
 		prospectorLogSourceLabel.setFont(base.deriveFont(Font.PLAIN, Math.max(10, OverlayPreferences.getUiFontSize() - 1)));
 
@@ -1260,6 +1379,13 @@ return EdoUi.User.MAIN_TEXT;
 			cargoTable.getTableHeader().setFont(uiFont.deriveFont(Font.BOLD));
 		}
 
+		if (missionsTable != null) {
+			missionsTable.setFont(uiFont);
+			if (missionsTable.getTableHeader() != null) {
+				missionsTable.getTableHeader().setFont(uiFont.deriveFont(Font.BOLD));
+			}
+		}
+
 		spreadsheetTable.setFont(uiFont);
 		if (spreadsheetScatterPanel != null) {
 			spreadsheetScatterPanel.setFont(uiFont);
@@ -1269,6 +1395,9 @@ return EdoUi.User.MAIN_TEXT;
 
 		table.setRowHeight(rowH);
 		cargoTable.setRowHeight(rowH);
+		if (missionsTable != null) {
+			missionsTable.setRowHeight(rowH);
+		}
 
 		JTableHeader th = table.getTableHeader();
 		if (th != null) {
@@ -1283,6 +1412,9 @@ return EdoUi.User.MAIN_TEXT;
 		}
 		applyMiningColumnWidths(table);
 		applyMiningColumnWidths(cargoTable);
+		if (missionsTable != null) {
+			applyMiningMissionsColumnWidths(missionsTable);
+		}
 		applyProspectorLogColumnVisibility(spreadsheetTable);
 
 		updateScrollerHeights();
@@ -1298,7 +1430,8 @@ return EdoUi.User.MAIN_TEXT;
 
 	private void updateScrollerHeights() {
 		updateScrollerHeight(materialsScroller, table);
-		updateScrollerHeight(cargoScroller, cargoTable);
+		updateCargoScrollerHeight();
+		updateMissionsScrollerHeight();
 		updateScrollerHeight(spreadsheetScroller, spreadsheetTable);
 		syncScatterPanelSizeToSpreadsheetCard();
 		if (spreadsheetScatterPanel != null && spreadsheetScroller != null && spreadsheetCardPanel != null
@@ -1330,6 +1463,84 @@ return EdoUi.User.MAIN_TEXT;
 		scroller.revalidate();
 	}
 
+	private void updateCargoScrollerHeight() {
+		if (cargoScroller == null || cargoTable == null) {
+			return;
+		}
+		int headerH = 0;
+		JTableHeader th = cargoTable.getTableHeader();
+		if (th != null) {
+			headerH = th.getPreferredSize().height;
+		}
+		int rowH = cargoTable.getRowHeight();
+		int dataRows = cargoModel != null ? cargoModel.getRowCount() : 0;
+		int visibleRows = dataRows <= 0 ? 3 : Math.min(Math.max(dataRows, 3), VISIBLE_ROWS);
+		int h = headerH + rowH * visibleRows;
+		Dimension size = new Dimension(Integer.MAX_VALUE, h);
+		cargoScroller.setMinimumSize(new Dimension(0, headerH + rowH * 3));
+		cargoScroller.setPreferredSize(size);
+		cargoScroller.setMaximumSize(size);
+		cargoScroller.revalidate();
+	}
+
+	private void updateMissionsScrollerHeight() {
+		if (missionsScroller == null || missionsTable == null || missionsSectionPanel == null) {
+			return;
+		}
+		int rows = missionsModel != null ? missionsModel.getRowCount() : 0;
+		if (rows <= 0) {
+			missionsSectionPanel.setVisible(false);
+			missionsSectionPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 0));
+			return;
+		}
+		missionsSectionPanel.setVisible(true);
+		int headerH = 0;
+		JTableHeader th = missionsTable.getTableHeader();
+		if (th != null) {
+			headerH = th.getPreferredSize().height;
+		}
+		int rowH = missionsTable.getRowHeight();
+		int labelH = missionsLabel != null ? missionsLabel.getPreferredSize().height : 0;
+		int tableH = headerH + rowH * MISSION_VISIBLE_ROWS;
+		int sectionH = labelH + 2 + tableH;
+		Dimension scrollSize = new Dimension(Integer.MAX_VALUE, tableH);
+		missionsScroller.setMinimumSize(new Dimension(0, tableH));
+		missionsScroller.setPreferredSize(scrollSize);
+		missionsScroller.setMaximumSize(scrollSize);
+		missionsSectionPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, sectionH));
+		missionsSectionPanel.setPreferredSize(new Dimension(Integer.MAX_VALUE, sectionH));
+		missionsScroller.revalidate();
+		missionsSectionPanel.revalidate();
+	}
+
+	/**
+	 * Supplies active missions from the Missions tab tracker (set from {@link EliteOverlayTabbedPane}).
+	 */
+	public void setMissionTracker(MissionTracker tracker, BooleanSupplier passThroughEnabledSupplier) {
+		this.missionTracker = tracker;
+		this.missionPassThroughSupplier = passThroughEnabledSupplier;
+		DestinationCopySupport.install(
+				missionsTable,
+				-1,
+				MiningMissionsTableModel.COL_TURNIN,
+				row -> "",
+				row -> missionsModel.turnInCopyText(row),
+				passThroughEnabledSupplier != null ? passThroughEnabledSupplier : () -> false);
+		refreshMiningMissionsTable();
+	}
+
+	public void refreshMiningMissionsTable() {
+		if (missionsModel == null) {
+			return;
+		}
+		List<MiningMissionTableRows.Row> rows = MiningMissionTableRows.build(missionTracker);
+		missionsModel.setRows(rows);
+		updateMissionsScrollerHeight();
+		if (missionsSectionPanel != null) {
+			missionsSectionPanel.repaint();
+		}
+	}
+
 	private List<Row> withTotalRow(List<Row> rows) {
 		if (rows == null || rows.isEmpty()) {
 			return List.of();
@@ -1357,6 +1568,8 @@ return EdoUi.User.MAIN_TEXT;
 			if (snap == null || snap.getCargoJson() == null) {
 				cargoModel.setRows(List.of());
 				lastCargoTonsForLogging = new HashMap<>();
+				updateCargoScrollerHeight();
+				refreshMiningMissionsTable();
 				return;
 			}
 
@@ -1364,7 +1577,11 @@ return EdoUi.User.MAIN_TEXT;
 			List<Row> rows = buildRowsFromCargo(cargoObj);
 			Set<Integer> changedModelRows = computeChangedInventoryModelRows(rows);
 			cargoModel.setRows(withTotalRow(rows));
-			cargoScan.startInventoryScan(cargoLayer, changedModelRows);
+			updateCargoScrollerHeight();
+			if (!changedModelRows.isEmpty()) {
+				cargoScan.startInventoryScan(cargoLayer, changedModelRows);
+			}
+			refreshMiningMissionsTable();
 
 			// Also drive mining-log cargo tracking.
 			onCargoChanged(cargoObj);
@@ -3036,6 +3253,7 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 				.thenComparing(Row::getName, String.CASE_INSENSITIVE_ORDER));
 
 		model.setRows(rows);
+		cargoScan.stopAnimations();
 		prospectorScan.startProspectorScan(prospectorLayer);
 
 		String hdr = "Mining (" + (content == null ? "" : content) + ")";
@@ -3252,6 +3470,62 @@ String getName() {
 			 return isSummary;
 		 }
 	 }
+
+	private static final class MiningMissionsTableModel extends AbstractTableModel {
+		static final int COL_MATERIAL = 0;
+		static final int COL_QUANTITY = 1;
+		static final int COL_PERCENT = 2;
+		static final int COL_VALUE = 3;
+		static final int COL_TURNIN = 4;
+
+		private final String[] columns = {
+				"Material", "Quantity", "Percent Complete", "Value", "Turn-in Dest"
+		};
+		private List<MiningMissionTableRows.Row> rows = List.of();
+
+		void setRows(List<MiningMissionTableRows.Row> rows) {
+			this.rows = rows != null ? rows : List.of();
+			fireTableDataChanged();
+		}
+
+		String turnInCopyText(int modelRow) {
+			if (modelRow < 0 || modelRow >= rows.size()) {
+				return "";
+			}
+			return rows.get(modelRow).getTurnInCopy();
+		}
+
+		@Override
+		public int getRowCount() {
+			return rows.size();
+		}
+
+		@Override
+		public int getColumnCount() {
+			return columns.length;
+		}
+
+		@Override
+		public String getColumnName(int column) {
+			return columns[column];
+		}
+
+		@Override
+		public Object getValueAt(int rowIndex, int columnIndex) {
+			if (rowIndex < 0 || rowIndex >= rows.size()) {
+				return "";
+			}
+			MiningMissionTableRows.Row r = rows.get(rowIndex);
+			return switch (columnIndex) {
+				case COL_MATERIAL -> r.getMaterial();
+				case COL_QUANTITY -> r.getQuantityDisplay();
+				case COL_PERCENT -> r.getPercentDisplay();
+				case COL_VALUE -> r.getRewardDisplay();
+				case COL_TURNIN -> r.getTurnInDisplay();
+				default -> "";
+			};
+		}
+	}
 
 	 private static final class MiningTableModel extends AbstractTableModel {
 
@@ -3505,8 +3779,9 @@ String getName() {
 
 		private int scanY = Integer.MIN_VALUE;
 		private Timer scanTimer;
+		private Timer flareDecayTimer;
+		private JLayer<JTable> boundLayer;
 
-		private int lastRowCount = 0;
 		private int scanEndY = 0;
 
 		private TableScanState(JTable table) {
@@ -3529,15 +3804,41 @@ String getName() {
 			return scanY;
 		}
 
-		private void startProspectorScan(JLayer<JTable> layer) {
-			initRevealForAllRows(0.0f);
+		private void stopAnimations() {
+			stopScanTimer();
+			stopFlareDecay();
 			flareAlphaByModelRow.clear();
+		}
+
+		private void stopScanTimer() {
+			if (scanTimer != null && scanTimer.isRunning()) {
+				scanTimer.stop();
+			}
+		}
+
+		private void stopFlareDecay() {
+			if (flareDecayTimer != null && flareDecayTimer.isRunning()) {
+				flareDecayTimer.stop();
+			}
+		}
+
+		private void repaintScanTarget() {
+			if (boundLayer != null) {
+				boundLayer.repaint();
+			} else {
+				table.repaint();
+			}
+		}
+
+		private void startProspectorScan(JLayer<JTable> layer) {
+			stopAnimations();
+			initRevealForAllRows(0.0f);
 			startScan(layer, true, null);
 		}
 
 		private void startInventoryScan(JLayer<JTable> layer, Set<Integer> flareModelRows) {
+			stopAnimations();
 			initRevealForAllRows(1.0f);
-			flareAlphaByModelRow.clear();
 			startScan(layer, false, flareModelRows);
 		}
 
@@ -3554,17 +3855,19 @@ String getName() {
 		}
 
 		private void startScan(JLayer<JTable> layer, boolean revealOnCross, Set<Integer> flareOnlyModelRows) {
-			if (scanTimer != null && scanTimer.isRunning()) {
-				scanTimer.stop();
-			}
+			boundLayer = layer;
+			stopScanTimer();
+			stopFlareDecay();
+			flareAlphaByModelRow.clear();
 
 			scanY = 0;
 
-			int currentRowCount = table.getRowCount();
-			int maxRows = Math.max(lastRowCount, currentRowCount);
 			int rowHeight = table.getRowHeight();
-			scanEndY = maxRows * rowHeight;
-			lastRowCount = currentRowCount;
+			int actualHeight = 0;
+			for (int vr = 0; vr < table.getRowCount(); vr++) {
+				actualHeight += table.getRowHeight(vr);
+			}
+			scanEndY = Math.max(rowHeight, actualHeight);
 
 			final Set<Integer> flaredAlready = new HashSet<>();
 
@@ -3599,10 +3902,7 @@ String getName() {
 					y += h;
 				}
 
-				if (layer != null) {
-					layer.repaint();
-				}
-				table.repaint();
+				repaintScanTarget();
 
 				if (scanY > scanEndY + 10) {
 					if (revealOnCross) {
@@ -3611,10 +3911,7 @@ String getName() {
 						for (int mr = 0; mr < rc; mr++) {
 							revealAlphaByModelRow.put(mr, 1.0f);
 						}
-						table.repaint();
-						if (layer != null) {
-							layer.repaint();
-						}
+						repaintScanTarget();
 					}
 					((Timer)e.getSource()).stop();
 					return;
@@ -3626,21 +3923,31 @@ String getName() {
 
 		private void triggerFlare(int modelRow) {
 			flareAlphaByModelRow.put(modelRow, 1.0f);
+			ensureFlareDecayTimer();
+		}
 
-			Timer decay = new Timer(16, null);
-			decay.addActionListener(ev -> {
-				float v = flareAlphaByModelRow.getOrDefault(modelRow, 0.0f);
-				v -= 0.08f;
-				if (v <= 0.0f) {
-					flareAlphaByModelRow.remove(modelRow);
-					((Timer)ev.getSource()).stop();
-				} else {
-					flareAlphaByModelRow.put(modelRow, v);
+		private void ensureFlareDecayTimer() {
+			if (flareDecayTimer != null && flareDecayTimer.isRunning()) {
+				return;
+			}
+			flareDecayTimer = new Timer(16, e -> {
+				if (flareAlphaByModelRow.isEmpty()) {
+					((Timer) e.getSource()).stop();
+					return;
 				}
-				table.repaint();
+				List<Integer> keys = new ArrayList<>(flareAlphaByModelRow.keySet());
+				for (int mr : keys) {
+					float v = flareAlphaByModelRow.getOrDefault(mr, 0.0f) - 0.08f;
+					if (v <= 0.0f) {
+						flareAlphaByModelRow.remove(mr);
+					} else {
+						flareAlphaByModelRow.put(mr, v);
+					}
+				}
+				repaintScanTarget();
 			});
-
-			decay.start();
+			flareDecayTimer.setRepeats(true);
+			flareDecayTimer.start();
 		}
 	}
 

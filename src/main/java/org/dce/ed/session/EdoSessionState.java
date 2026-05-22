@@ -9,7 +9,7 @@ import java.util.Map;
 public final class EdoSessionState {
 
     /** DTO schema version (inside JSON). */
-    private int version = 2;
+    private int version = 3;
 
     // --- Route tab ---
     private String currentSystemName;
@@ -69,6 +69,9 @@ public final class EdoSessionState {
 
     // --- Fleet carrier tab ---
     private FleetCarrierSessionData fleetCarrier;
+
+    // --- Missions tab ---
+    private MissionSessionData missions;
 
     /** Restart-safe snapshot of transient mining runtime state. */
     public static final class MiningRuntimeState {
@@ -449,5 +452,13 @@ public final class EdoSessionState {
 
     public void setFleetCarrier(FleetCarrierSessionData fleetCarrier) {
         this.fleetCarrier = fleetCarrier;
+    }
+
+    public MissionSessionData getMissions() {
+        return missions;
+    }
+
+    public void setMissions(MissionSessionData missions) {
+        this.missions = missions;
     }
 }

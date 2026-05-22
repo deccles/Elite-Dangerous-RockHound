@@ -353,6 +353,9 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
         if (contentPanel != null) {
             contentPanel.rebuildTabbedPane();
         }
+        if (persistenceDelegate != null) {
+            persistenceDelegate.onTabbedPaneRebuilt();
+        }
 
         refreshMenuBarAccentColors();
         repaint();

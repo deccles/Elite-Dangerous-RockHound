@@ -580,6 +580,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 
         // Transparent content panel with tabbed pane
         this.contentPanel = contentPanel;
+        if (this.contentPanel != null) {
+            this.contentPanel.setOnTabbedPaneRebuilt(this::onTabbedPaneRebuilt);
+        }
         add(this.contentPanel, BorderLayout.CENTER);
 
         applyOverlayBackgroundFromPreferences(false);
@@ -639,7 +642,14 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getFleetCarrierTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getSystemTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getMiningTabPanel().setSessionStateChangeCallback(debouncedSave);
+        tabs.getMissionsTabPanel().setSessionStateChangeCallback(debouncedSave);
         restoreSessionState();
+        tabs.getMissionsTabPanel().hydrateTrackerFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
+    }
+
+    /** Rebind session + mission board after {@link OverlayContentPanel#rebuildTabbedPane()}. */
+    public void onTabbedPaneRebuilt() {
+        installSessionPersistence();
     }
 
     /**
@@ -667,6 +677,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getFleetCarrierTabPanel().fillSessionState(state);
         tabs.getSystemTabPanel().fillSessionState(state);
         tabs.getMiningTabPanel().fillSessionState(state);
+        tabs.getMissionsTabPanel().fillSessionState(state);
         state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
         state.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
         fillCarrierSessionState(state);
@@ -696,6 +707,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getFleetCarrierTabPanel().applySessionState(state);
         tabs.getSystemTabPanel().applySessionState(state);
         tabs.getMiningTabPanel().applySessionState(state);
+        tabs.getMissionsTabPanel().applySessionState(state);
         applyCarrierSessionState(state);
         if (state.getExobiologyCreditsTotalUnsold() != null) {
             exoCreditsTotal = state.getExobiologyCreditsTotalUnsold().longValue();
@@ -1491,7 +1503,6 @@ private void refreshPassThroughUnifiedStatus() {
 
         if (contentPanel != null) {
             contentPanel.rebuildTabbedPane();
-            installSessionPersistence();
         }
 
         reapplyNativeMousePassThroughIfEnabled();
@@ -1503,6 +1514,7 @@ private void refreshPassThroughUnifiedStatus() {
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         if (tabs != null) {
             tabs.getSystemTabPanel().refreshFromSavedOverlayPreferences();
+            tabs.getMissionsTabPanel().refreshFromSavedOverlayPreferences();
         }
     }
 

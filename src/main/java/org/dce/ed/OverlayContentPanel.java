@@ -11,6 +11,7 @@ import javax.swing.JPanel;
 public class OverlayContentPanel extends JPanel {
 
     private final BooleanSupplier passThroughEnabledSupplier;
+    private Runnable onTabbedPaneRebuilt;
     private EliteOverlayTabbedPane tabbedPane;
 
     public OverlayContentPanel(BooleanSupplier passThroughEnabledSupplier) {
@@ -41,12 +42,21 @@ public class OverlayContentPanel extends JPanel {
 
         revalidate();
         repaint();
+
+        Runnable rebuilt = onTabbedPaneRebuilt;
+        if (rebuilt != null) {
+            rebuilt.run();
+        }
     }
 
 
 
     public EliteOverlayTabbedPane getTabbedPane() {
         return tabbedPane;
+    }
+
+    public void setOnTabbedPaneRebuilt(Runnable onTabbedPaneRebuilt) {
+        this.onTabbedPaneRebuilt = onTabbedPaneRebuilt;
     }
 
     public void applyOverlayTransparency(boolean transparent) {

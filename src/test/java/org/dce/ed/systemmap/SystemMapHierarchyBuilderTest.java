@@ -635,6 +635,84 @@ class SystemMapHierarchyBuilderTest {
     }
 
     @Test
+    void coeus_trueScale_playback_null14HubOrbitsStarA_mutualRingStaysSmall() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        int idA = coeus.bodyIdByLabel("A");
+        int idA2 = coeus.bodyIdByLabel("A 2");
+        int null14Hub = SystemOrbitGeometry.planetBinaryBarycentreMapKey(14);
+        int scan14 = coeus.bodyIdByLabel("Null:14");
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+        Instant tYear = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(365));
+        Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, tYear, false);
+        double keplerHubFromA = Math.hypot(
+                SystemOrbitGeometry.worldAxisMetres(kepler.get(Integer.valueOf(null14Hub)), model.projectionAxis0())
+                        - SystemOrbitGeometry.worldAxisMetres(kepler.get(Integer.valueOf(idA)), model.projectionAxis0()),
+                SystemOrbitGeometry.worldAxisMetres(kepler.get(Integer.valueOf(null14Hub)), model.projectionAxis1())
+                        - SystemOrbitGeometry.worldAxisMetres(kepler.get(Integer.valueOf(idA)), model.projectionAxis1()))
+                / ls;
+        assertTrue(keplerHubFromA > 1200.0 && keplerHubFromA < 2100.0,
+                "kepler hub from A; was " + keplerHubFromA + " Ls");
+        Map<Integer, double[]> playback = SystemMapPipeline.refreshPositionsForPlayback(model, kepler, tYear, false);
+        double refreshHubFromA = Math.hypot(
+                SystemOrbitGeometry.worldAxisMetres(playback.get(Integer.valueOf(null14Hub)), model.projectionAxis0())
+                        - SystemOrbitGeometry.worldAxisMetres(playback.get(Integer.valueOf(idA)), model.projectionAxis0()),
+                SystemOrbitGeometry.worldAxisMetres(playback.get(Integer.valueOf(null14Hub)), model.projectionAxis1())
+                        - SystemOrbitGeometry.worldAxisMetres(playback.get(Integer.valueOf(idA)), model.projectionAxis1()))
+                / ls;
+        assertTrue(refreshHubFromA > 1200.0 && refreshHubFromA < 2100.0,
+                "after refresh hub from A; was " + refreshHubFromA + " Ls");
+        SystemMapModel playModel = SystemMapPipeline.playbackBase(bodies, model.projectionAxis0(),
+                model.projectionAxis1(), playback, model.wideBinaryFlattenFrame(), MapScaleMode.TRUE_SCALE);
+        double hubFromA = Math.hypot(playModel.mapPlaneX(null14Hub) - playModel.mapPlaneX(idA),
+                playModel.mapPlaneY(null14Hub) - playModel.mapPlaneY(idA)) / ls;
+        assertTrue(hubFromA > 1200.0 && hubFromA < 2100.0,
+                "Null:14 hub should stay on ~1570 Ls heliocentric path around A; was " + hubFromA + " Ls");
+        double a2FromA = Math.hypot(playModel.mapPlaneX(idA2) - playModel.mapPlaneX(idA),
+                playModel.mapPlaneY(idA2) - playModel.mapPlaneY(idA)) / ls;
+        assertTrue(a2FromA > 1200.0 && a2FromA < 2200.0,
+                "A 2 should stay near star A after playback refresh; was " + a2FromA + " Ls");
+        var polys = SystemMapPipeline.rebuildOrbitPolylines(playModel, playback, 96, Double.NaN, false, null,
+                MapScaleMode.TRUE_SCALE, 0, tYear);
+        int mutualId = SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - 14;
+        int outerId = SystemOrbitGeometry.PLANET_BINARY_OUTER_ORBIT_RING_ID_BASE - 14;
+        double mutualR = Double.NaN;
+        double outerR = Double.NaN;
+        for (var poly : polys) {
+            if (poly == null || poly.wx == null || poly.wy == null || poly.wx.length < 3) {
+                continue;
+            }
+            double sumX = 0.0;
+            double sumY = 0.0;
+            for (int i = 0; i < poly.wx.length; i++) {
+                sumX += poly.wx[i];
+                sumY += poly.wy[i];
+            }
+            double cx = sumX / poly.wx.length;
+            double cy = sumY / poly.wy.length;
+            double sumR = 0.0;
+            for (int i = 0; i < poly.wx.length; i++) {
+                sumR += Math.hypot(poly.wx[i] - cx, poly.wy[i] - cy);
+            }
+            double meanR = (sumR / poly.wx.length) / ls;
+            if (poly.bodyId == mutualId) {
+                mutualR = meanR;
+            } else if (poly.bodyId == outerId) {
+                outerR = meanR;
+            }
+        }
+        assertTrue(Double.isFinite(mutualR) && mutualR < 80.0,
+                "mutual A 2/A 3 guide ring must not inflate to thousands of Ls; was " + mutualR);
+        assertTrue(Double.isFinite(outerR) && outerR > 1200.0 && outerR < 2100.0,
+                "outer Null:14 ring around star A; was " + outerR + " Ls");
+        double hubOnOuter = Math.abs(hubFromA - outerR);
+        assertTrue(hubOnOuter < 120.0,
+                "hub should sit on outer ring around A; hubFromA=" + hubFromA + " outerR=" + outerR);
+    }
+
+    @Test
     void coeus_trueScale_a2a3NearStarA_notOnAbChord() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();

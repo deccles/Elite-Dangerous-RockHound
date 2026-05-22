@@ -74,6 +74,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.ScrollableTabBar;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -96,6 +97,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private static final String CARD_SYSTEM = "SYSTEM";
 	private static final String CARD_BIOLOGY = "BIOLOGY";
 	private static final String CARD_MINING = "MINING";
+	private static final String CARD_MISSIONS = "MISSIONS";
 	private static final String CARD_NEARBY = "NEARBY";
 	private static final String CARD_FLEET_CARRIER = "FLEET_CARRIER";
 
@@ -104,22 +106,27 @@ public class EliteOverlayTabbedPane extends JPanel {
 	/** Selected tab fill (~half the luminance of {@link EdoUi.Internal#GRAY_180}). */
 	private static final Color TAB_SELECTED_BG = new Color(92, 92, 92);
 
-	// Restores the original "bigger" tab look (padding inside the outline)
-	private static final Insets TAB_PADDING = new Insets(4, 10, 4, 10);
+	private static final Insets TAB_PADDING = new Insets(2, 6, 2, 6);
 
 	
 	private final BooleanSupplier hoverSwitchEnabled;
 	
 	private final CardLayout cardLayout;
 	private final JPanel cardPanel;
-	private final JPanel tabBar;
+	private final ScrollableTabBar scrollableTabBar;
 
 	private final RouteTabPanel routeTab;
 	private final SystemTabPanel systemTab;
 	private final BiologyTabPanel biologyTab;
 	private final MiningTabPanel miningTab;
+	private final MissionsTabPanel missionsTab;
 	private final NearbyTabPanel nearbyTab;
 	private final FleetCarrierTabPanel fleetCarrierTab;
+
+	private JButton missionsButton;
+
+	private volatile String lastKnownSystemName;
+	private volatile String lastKnownStationName;
 
 	/** Current card name (same values as {@code CARD_*}) for pass-through wheel routing. */
 	private volatile String visibleCardName = CARD_SYSTEM;
@@ -158,16 +165,16 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		setOpaque(opaque);
 
-		// ----- Tab bar (row of buttons) -----
-		tabBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-		tabBar.setOpaque(opaque);
-		tabBar.setBackground(EdoUi.User.BACKGROUND);
+		// ----- Tab bar (row of buttons, horizontal scroll when overflow) -----
+		scrollableTabBar = new ScrollableTabBar(hoverSwitchEnabled, opaque);
+		JPanel tabBar = scrollableTabBar.getTabStrip();
 		ButtonGroup group = new ButtonGroup();
 
 		routeButton = createTabButton("Route");
 		systemButton = createTabButton("System");
 		biologyButton = createTabButton("Biology");
 		miningButton = createTabButton("Mining");
+		missionsButton = createTabButton("Missions");
 		nearbyButton = null;
 		fleetCarrierButton = createTabButton("Fleet Carrier");
 
@@ -175,12 +182,14 @@ public class EliteOverlayTabbedPane extends JPanel {
 		group.add(systemButton);
 		group.add(biologyButton);
 		group.add(miningButton);
+		group.add(missionsButton);
 		group.add(fleetCarrierButton);
 
 		tabBar.add(routeButton);
 		tabBar.add(systemButton);
 		tabBar.add(biologyButton);
 		tabBar.add(miningButton);
+		tabBar.add(missionsButton);
 		tabBar.add(fleetCarrierButton);
 
 		// ----- Card area with the actual tab contents -----
@@ -248,12 +257,19 @@ public class EliteOverlayTabbedPane extends JPanel {
 			}
 		});
 		this.nearbyTab = new NearbyTabPanel(systemTab, hoverSwitchEnabled);
+		this.missionsTab = new MissionsTabPanel(
+				hoverSwitchEnabled,
+				this::isCurrentlyDocked,
+				() -> lastKnownSystemName,
+				() -> lastKnownStationName);
+		miningTab.setMissionTracker(missionsTab.getTracker(), hoverSwitchEnabled);
 		this.fleetCarrierTab = new FleetCarrierTabPanel(hoverSwitchEnabled);
 
 		cardPanel.add(routeTab, CARD_ROUTE);
 		cardPanel.add(systemTab, CARD_SYSTEM);
 		cardPanel.add(biologyTab, CARD_BIOLOGY);
 		cardPanel.add(miningTab, CARD_MINING);
+		cardPanel.add(missionsTab, CARD_MISSIONS);
 		cardPanel.add(nearbyTab, CARD_NEARBY);
 		cardPanel.add(fleetCarrierTab, CARD_FLEET_CARRIER);
 
@@ -261,6 +277,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(systemButton);
 		applyTabButtonStyle(biologyButton);
 		applyTabButtonStyle(miningButton);
+		applyTabButtonStyle(missionsButton);
 		applyTabButtonStyle(fleetCarrierButton);
 		// SystemTabPanel already refreshes cache in its constructor.
 		// Avoid triggering a second startup load path.
@@ -294,6 +311,13 @@ public class EliteOverlayTabbedPane extends JPanel {
 			}
 		});
 
+		missionsButton.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				selectTab(CARD_MISSIONS, missionsButton);
+			}
+		});
+
 		fleetCarrierButton.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
@@ -306,13 +330,14 @@ public class EliteOverlayTabbedPane extends JPanel {
 		installHoverSwitch(systemButton, TAB_HOVER_DELAY_MS, () -> systemButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(biologyButton, TAB_HOVER_DELAY_MS, () -> biologyButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(miningButton, TAB_HOVER_DELAY_MS, () -> miningButton.doClick(), hoverSwitchEnabled);
+		installHoverSwitch(missionsButton, TAB_HOVER_DELAY_MS, () -> missionsButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(fleetCarrierButton, TAB_HOVER_DELAY_MS, () -> fleetCarrierButton.doClick(), hoverSwitchEnabled);
 
 		applyOverlayTabBarVisibility();
 		selectFirstVisibleTab();
 		maybeSelectMiningTabFromStartupJournal();
 
-		add(tabBar, BorderLayout.NORTH);
+		add(scrollableTabBar, BorderLayout.NORTH);
 
 		// Journal events are delivered by a single app-level listener in OverlayFrame that
 		// calls processJournalEvent() on the current tabbed pane (avoids duplicate handling).
@@ -392,7 +417,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		};
 
 		this.setTransferHandler(fcDropHandler);
-		this.tabBar.setTransferHandler(fcDropHandler);
+		this.scrollableTabBar.setTransferHandler(fcDropHandler);
 		this.cardPanel.setTransferHandler(fcDropHandler);
 	}
 
@@ -431,9 +456,36 @@ public class EliteOverlayTabbedPane extends JPanel {
 			onFsdTargetTabFromStatus(flagEvent, null, null);
 		}
 
+		if (event instanceof LocationEvent le) {
+			lastKnownSystemName = le.getStarSystem();
+		}
+		if (event.getType() == EliteEventType.DOCKED) {
+			JsonObject raw = event.getRawJson();
+			if (raw != null) {
+				if (raw.has("StationName") && !raw.get("StationName").isJsonNull()) {
+					lastKnownStationName = raw.get("StationName").getAsString();
+				}
+				if (raw.has("StarSystem") && !raw.get("StarSystem").isJsonNull()) {
+					lastKnownSystemName = raw.get("StarSystem").getAsString();
+				}
+			}
+		} else if (event.getType() == EliteEventType.UNDOCKED) {
+			lastKnownStationName = null;
+		}
+
 		systemTab.handleLogEvent(event);
 		routeTab.handleLogEvent(event);
 		biologyTab.handleLogEvent(event);
+		missionsTab.handleLogEvent(event);
+		if (event instanceof org.dce.ed.logreader.event.MissionAcceptedEvent
+				|| event instanceof org.dce.ed.logreader.event.MissionCompletedEvent
+				|| event instanceof org.dce.ed.logreader.event.MissionFailedEvent
+				|| event instanceof org.dce.ed.logreader.event.MissionAbandonedEvent
+				|| event instanceof org.dce.ed.logreader.event.MissionRedirectedEvent
+				|| event instanceof org.dce.ed.logreader.event.CargoDepotEvent
+				|| event instanceof org.dce.ed.logreader.event.MissionsEvent) {
+			miningTab.refreshMiningMissionsTable();
+		}
 		fleetCarrierTab.handleLogEvent(event);
 
 		// Nearby panel is no longer user-facing; avoid background sphere scans on every jump.
@@ -454,6 +506,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	public MiningTabPanel getMiningTabPanel() {
 		return miningTab;
+	}
+
+	public MissionsTabPanel getMissionsTabPanel() {
+		return missionsTab;
 	}
 	static LoadoutEvent loadoutEventx = null;
 
@@ -726,121 +782,11 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * Attach a generic hover handler to a button; when the mouse rests over
 	 * the button for the given delay, the action is invoked on the EDT.
 	 */
-	private static void installHoverSwitch(JButton button, int delayMs, Runnable action, BooleanSupplier enabled) {
-		TabHoverPoller.register(button, delayMs, action, enabled);
-	}
-
 	/**
-	 * Global tab hover poller: periodically polls the global mouse position and,
-	 * if it is resting on any registered tab button longer than the configured
-	 * delay, invokes that tab's action (typically button.doClick()).
-	 *
-	 * This works even when the overlay is in OS pass-through mode because it
-	 * does not depend on Swing mouse events.
+	 * Uses {@link org.dce.ed.ui.HoverClickPoller} so hover works in mouse pass-through mode.
 	 */
-	private static class TabHoverPoller implements ActionListener {
-
-		private static final int POLL_INTERVAL_MS = 40;
-
-		private static final List<Entry> entries = new ArrayList<>();
-		private static final Timer pollTimer;
-
-		static {
-			TabHoverPoller listener = new TabHoverPoller();
-			pollTimer = new Timer(POLL_INTERVAL_MS, listener);
-			pollTimer.start();
-		}
-
-		private static class Entry {
-			final JButton button;
-			final int delayMs;
-			final Runnable action;
-			final BooleanSupplier enabled;
-
-			long hoverStartMs = -1L;
-			boolean firedForCurrentHover = false;
-
-			Entry(JButton button, int delayMs, Runnable action, BooleanSupplier enabled) {
-				this.button = button;
-				this.delayMs = delayMs;
-				this.action = action;
-				this.enabled = enabled;
-			}
-		}
-
-		static void register(JButton button, int delayMs, Runnable action, BooleanSupplier enabled) {
-			entries.add(new Entry(button, delayMs, action, enabled));
-		}
-
-
-		@Override
-		public void actionPerformed(ActionEvent e) {
-			if (entries.isEmpty()) {
-				return;
-			}
-
-			PointerInfo pointerInfo = MouseInfo.getPointerInfo();
-			if (pointerInfo == null) {
-				resetAll();
-				return;
-			}
-
-			Point mouseOnScreen = pointerInfo.getLocation();
-			long now = System.currentTimeMillis();
-
-			for (Entry entry : entries) {
-				if (entry.enabled != null && !entry.enabled.getAsBoolean()) {
-					entry.hoverStartMs = -1L;
-					entry.firedForCurrentHover = false;
-					continue;
-				}
-
-				JButton button = entry.button;
-				if (button == null || !button.isShowing()) {
-					entry.hoverStartMs = -1L;
-					entry.firedForCurrentHover = false;
-					continue;
-				}
-
-				Point buttonLoc;
-				try {
-					buttonLoc = button.getLocationOnScreen();
-				} catch (IllegalStateException ex) {
-					entry.hoverStartMs = -1L;
-					entry.firedForCurrentHover = false;
-					continue;
-				}
-
-				Rectangle bounds = new Rectangle(
-						buttonLoc.x,
-						buttonLoc.y,
-						button.getWidth(),
-						button.getHeight()
-						);
-
-				if (bounds.contains(mouseOnScreen)) {
-					if (entry.hoverStartMs < 0L) {
-						entry.hoverStartMs = now;
-						entry.firedForCurrentHover = false;
-					} else if (!entry.firedForCurrentHover && now - entry.hoverStartMs >= entry.delayMs) {
-						if (entry.action != null) {
-							SwingUtilities.invokeLater(entry.action);
-						}
-						entry.firedForCurrentHover = true;
-					}
-				} else {
-					entry.hoverStartMs = -1L;
-					entry.firedForCurrentHover = false;
-				}
-			}
-		}
-
-		private static void resetAll() {
-			for (Entry entry : entries) {
-				entry.hoverStartMs = -1L;
-				entry.firedForCurrentHover = false;
-			}
-		}
+	private static void installHoverSwitch(JButton button, int delayMs, Runnable action, BooleanSupplier enabled) {
+		org.dce.ed.ui.HoverClickPoller.register(button, delayMs, action, enabled);
 	}
 
 	private JButton createTabButton(String text) {
@@ -848,7 +794,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		button.setUI(TabButtonUI.INSTANCE);
 		button.setFocusable(false);
 		button.setFocusPainted(false);
-		button.setFont(button.getFont().deriveFont(Font.BOLD, 11f));
+		button.setFont(button.getFont().deriveFont(Font.BOLD, 10f));
 		button.setContentAreaFilled(false);
 
 		// Default: slightly translucent dark background when overlay is transparent.
@@ -910,9 +856,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonLayoutSize(systemButton);
 		applyTabButtonLayoutSize(biologyButton);
 		applyTabButtonLayoutSize(miningButton);
+		applyTabButtonLayoutSize(missionsButton);
 		applyTabButtonLayoutSize(fleetCarrierButton);
-		if (tabBar != null) {
-			tabBar.revalidate();
+		if (scrollableTabBar != null) {
+			scrollableTabBar.refreshLayout();
 		}
 	}
 
@@ -933,9 +880,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 		boolean s = OverlayPreferences.isOverlayTabSystemVisible();
 		boolean b = OverlayPreferences.isOverlayTabBiologyVisible();
 		boolean m = OverlayPreferences.isOverlayTabMiningVisible();
+		boolean ms = OverlayPreferences.isOverlayTabMissionsVisible();
 		boolean f = OverlayPreferences.isOverlayTabFleetCarrierVisible();
-		if (!r && !s && !b && !m && !f) {
-			r = s = b = m = f = true;
+		if (!r && !s && !b && !m && !ms && !f) {
+			r = s = b = m = ms = f = true;
 		}
 		if (routeButton != null) {
 			routeButton.setVisible(r);
@@ -949,6 +897,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (miningButton != null) {
 			miningButton.setVisible(m);
 		}
+		if (missionsButton != null) {
+			missionsButton.setVisible(ms);
+		}
 		if (fleetCarrierButton != null) {
 			fleetCarrierButton.setVisible(f);
 		}
@@ -959,8 +910,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * Selects the first tab that is visible in the bar (order: Route … Fleet Carrier).
 	 */
 	private void selectFirstVisibleTab() {
-		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, fleetCarrierButton };
-		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_FLEET_CARRIER };
+		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton, fleetCarrierButton };
+		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_MISSIONS, CARD_FLEET_CARRIER };
 		for (int i = 0; i < buttons.length; i++) {
 			JButton b = buttons[i];
 			if (b != null && b.isVisible()) {
@@ -989,6 +940,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (miningButton != null) {
 			miningButton.setSelected(selectedButton == miningButton);
 		}
+		if (missionsButton != null) {
+			missionsButton.setSelected(selectedButton == missionsButton);
+		}
 		if (nearbyButton != null) {
 			nearbyButton.setSelected(selectedButton == nearbyButton);
 		}
@@ -1000,6 +954,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(systemButton);
 		applyTabButtonStyle(biologyButton);
 		applyTabButtonStyle(miningButton);
+		applyTabButtonStyle(missionsButton);
 		applyTabButtonStyle(fleetCarrierButton);
 
 		cardLayout.show(cardPanel, cardName);
@@ -1255,8 +1210,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * Order: Route → System → Biology → Mining → Fleet Carrier.
 	 */
 	public void selectNextVisibleTab() {
-		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, fleetCarrierButton };
-		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_FLEET_CARRIER };
+		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton, fleetCarrierButton };
+		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_MISSIONS, CARD_FLEET_CARRIER };
 
 		int selected = -1;
 		for (int i = 0; i < buttons.length; i++) {
@@ -1341,8 +1296,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		setOpaque(opaque);
 		setBackground(bgWithAlpha);
 
-		tabBar.setOpaque(opaque);
-		tabBar.setBackground(bgWithAlpha);
+		scrollableTabBar.applyOverlayChrome(bgWithAlpha, treatAsTransparent);
 
 		cardPanel.setOpaque(opaque);
 		cardPanel.setBackground(bgWithAlpha);
@@ -1352,6 +1306,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(systemButton);
 		applyTabButtonStyle(biologyButton);
 		applyTabButtonStyle(miningButton);
+		applyTabButtonStyle(missionsButton);
 		applyTabButtonStyle(fleetCarrierButton);
 
 		if (routeTab != null) {
@@ -1577,6 +1532,7 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 		fleetCarrierTab.applyUiFontPreferences();
 		biologyTab.applyUiFontPreferences();
 		miningTab.applyUiFontPreferences();
+		missionsTab.refreshFromSavedOverlayPreferences();
 		nearbyTab.applyUiFontPreferences();
 		revalidate();
 		repaint();
@@ -1588,6 +1544,7 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 		fleetCarrierTab.applyUiFont(font);
 		biologyTab.applyUiFont(font);
 		miningTab.applyUiFont(font);
+		missionsTab.refreshFromSavedOverlayPreferences();
 		nearbyTab.applyUiFont(font);
 		revalidate();
 		repaint();

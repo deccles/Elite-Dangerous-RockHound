@@ -26,8 +26,15 @@ import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.FssAllBodiesFoundEvent;
 import org.dce.ed.logreader.event.FssBodySignalsEvent;
 import org.dce.ed.logreader.event.FssDiscoveryScanEvent;
+import org.dce.ed.logreader.event.CargoDepotEvent;
 import org.dce.ed.logreader.event.LeaveBodyEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
+import org.dce.ed.logreader.event.MissionAbandonedEvent;
+import org.dce.ed.logreader.event.MissionAcceptedEvent;
+import org.dce.ed.logreader.event.MissionCompletedEvent;
+import org.dce.ed.logreader.event.MissionFailedEvent;
+import org.dce.ed.logreader.event.MissionRedirectedEvent;
+import org.dce.ed.logreader.event.MissionsEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
@@ -154,7 +161,21 @@ public class EliteLogParser {
 
             case PROSPECTED_ASTEROID:
                 return parseProspectedAsteroid(ts, obj);
-default:
+            case MISSIONS:
+                return new MissionsEvent(ts, obj);
+            case MISSION_ACCEPTED:
+                return new MissionAcceptedEvent(ts, obj);
+            case MISSION_COMPLETED:
+                return new MissionCompletedEvent(ts, obj);
+            case MISSION_FAILED:
+                return new MissionFailedEvent(ts, obj);
+            case MISSION_ABANDONED:
+                return new MissionAbandonedEvent(ts, obj);
+            case MISSION_REDIRECTED:
+                return new MissionRedirectedEvent(ts, obj);
+            case CARGO_DEPOT:
+                return new CargoDepotEvent(ts, obj);
+            default:
                 // For everything else, fall back to generic event.
                 return new GenericEvent(ts, type, obj);
         }

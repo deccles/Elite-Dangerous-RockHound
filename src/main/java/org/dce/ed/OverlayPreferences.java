@@ -78,6 +78,7 @@ public final class OverlayPreferences {
     private static final String KEY_OVERLAY_TAB_SYSTEM_VISIBLE = "overlay.tab.system.visible";
     private static final String KEY_OVERLAY_TAB_BIOLOGY_VISIBLE = "overlay.tab.biology.visible";
     private static final String KEY_OVERLAY_TAB_MINING_VISIBLE = "overlay.tab.mining.visible";
+    private static final String KEY_OVERLAY_TAB_MISSIONS_VISIBLE = "overlay.tab.missions.visible";
     private static final String KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE = "overlay.tab.fleetCarrier.visible";
 
     // --- Auto-switching / tab behavior ---
@@ -308,6 +309,14 @@ public final class OverlayPreferences {
 
     public static void setOverlayTabMiningVisible(boolean visible) {
         PREFS.putBoolean(KEY_OVERLAY_TAB_MINING_VISIBLE, visible);
+    }
+
+    public static boolean isOverlayTabMissionsVisible() {
+        return PREFS.getBoolean(KEY_OVERLAY_TAB_MISSIONS_VISIBLE, true);
+    }
+
+    public static void setOverlayTabMissionsVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_MISSIONS_VISIBLE, visible);
     }
 
     public static boolean isOverlayTabFleetCarrierVisible() {

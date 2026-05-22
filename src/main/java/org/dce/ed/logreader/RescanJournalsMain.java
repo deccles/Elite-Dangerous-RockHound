@@ -15,8 +15,16 @@ import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.LocationEvent;
+import org.dce.ed.logreader.event.CargoDepotEvent;
+import org.dce.ed.logreader.event.MissionAbandonedEvent;
+import org.dce.ed.logreader.event.MissionAcceptedEvent;
+import org.dce.ed.logreader.event.MissionCompletedEvent;
+import org.dce.ed.logreader.event.MissionFailedEvent;
+import org.dce.ed.logreader.event.MissionRedirectedEvent;
+import org.dce.ed.logreader.event.MissionsEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
+import org.dce.ed.mission.MissionTracker;
 import org.dce.ed.session.EdoSessionPersistence;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.state.BodyInfo;
@@ -232,6 +240,10 @@ public class RescanJournalsMain {
 		CarrierJumpRequestEvent openCarrierJumpRequest = null;
 		Instant carrierJumpCompletionTime = null;
 
+		MissionTracker missionReplayTracker = new MissionTracker();
+		EdoSessionState missionReplaySeed = EdoSessionPersistence.load();
+		missionReplayTracker.applySessionState(missionReplaySeed);
+
 		String prevBulkCacheWrite = System.getProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY);
 		final int eventCount = events.size();
 		int[] lastReportedPercent = { -1 };
@@ -312,6 +324,16 @@ public class RescanJournalsMain {
 			}
 
 			processor.handleEvent(event);
+
+			if (event instanceof MissionAcceptedEvent
+					|| event instanceof MissionCompletedEvent
+					|| event instanceof MissionFailedEvent
+					|| event instanceof MissionAbandonedEvent
+					|| event instanceof MissionRedirectedEvent
+					|| event instanceof CargoDepotEvent
+					|| event instanceof MissionsEvent) {
+				missionReplayTracker.applyEvent(event);
+			}
 
 			// Exobiology running total (Analyse == 3rd scan completion)
 			if (event.getType() == EliteEventType.SELL_ORGANIC_DATA) {
@@ -394,6 +416,7 @@ public class RescanJournalsMain {
 
 		// Persist exobiology total + carrier countdown into the same SQLite session blob as the overlay.
 		EdoSessionState sessionState = EdoSessionPersistence.load();
+		missionReplayTracker.fillSessionState(sessionState);
 		sessionState.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
 		Integer replayParkedBody = state.getCarrierParkedBodyId();
 		long replayParkedSys = state.getCarrierParkedSystemAddress();

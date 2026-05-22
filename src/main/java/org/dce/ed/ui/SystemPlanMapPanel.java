@@ -1607,9 +1607,10 @@ public final class SystemPlanMapPanel extends JPanel {
         double scalePxPerM = screenOrbitScale ? computeScalePixelsPerWorldMetre() : Double.NaN;
         int legacySeg = orbitSegmentsForZoom(zoomFactor);
         int tiltForRebuild = mapScaleMode.trueScale() ? viewTiltDegrees : 0;
+        Instant strokeEpoch = orbitSchematicPlaybackActive && mapScaleMode.trueScale() ? orbitPlaybackEpoch : null;
         orbitLines = mapModel != null
                 ? SystemMapPipeline.rebuildOrbitPolylines(mapModel, orbitGeomPositions, legacySeg, scalePxPerM,
-                        false, ringRadiusReferencePositions, mapScaleMode, tiltForRebuild)
+                        false, ringRadiusReferencePositions, mapScaleMode, tiltForRebuild, strokeEpoch)
                 : Collections.emptyList();
         logOrbitLinesIfBodySetChanged(orbitLines);
     }
