@@ -1191,6 +1191,11 @@ public class SystemTabPanel extends JPanel {
         if (event instanceof BioScanPredictionEvent) {
             BioScanPredictionEvent e = (BioScanPredictionEvent) event;
 
+            // Journal full rescan replays FSS/SAA history; do not announce every rediscovered body.
+            if (SystemCache.isBulkSystemWrite()) {
+                return;
+            }
+
             List<BioCandidate> candidates = e.getCandidates();
             if (candidates != null && !candidates.isEmpty()) {
                 BodyInfo bodyForBio = null;

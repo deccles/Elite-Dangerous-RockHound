@@ -1057,7 +1057,8 @@ public final class SystemCache implements SystemStore {
         }
     }
 
-    private static boolean isBulkSystemWrite() {
+    /** True while {@link org.dce.ed.logreader.RescanJournalsMain} replays journals (suppress live UI side effects). */
+    public static boolean isBulkSystemWrite() {
         return Boolean.parseBoolean(System.getProperty(CACHE_BULK_SYSTEM_WRITE_PROPERTY, "false"));
     }
 

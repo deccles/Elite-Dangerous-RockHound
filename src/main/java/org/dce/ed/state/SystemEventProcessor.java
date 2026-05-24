@@ -868,7 +868,7 @@ public class SystemEventProcessor {
                         filtered,
                         BioScanPredictionEvent.PredictionKind.UPDATE);
 
-                LiveJournalMonitor.getInstance(EliteDangerousOverlay.clientKey).dispatch(bioScanPredictionEvent);
+                dispatchBioScanPredictionIfLive(bioScanPredictionEvent);
                 return;
             }
         }
@@ -894,7 +894,18 @@ public class SystemEventProcessor {
                 candidates,
                 BioScanPredictionEvent.PredictionKind.INITIAL);
 
-        LiveJournalMonitor.getInstance(EliteDangerousOverlay.clientKey).dispatch(bioScanPredictionEvent);
+        dispatchBioScanPredictionIfLive(bioScanPredictionEvent);
+    }
+
+    /**
+     * During bulk journal rescan the overlay replays history into SQLite; synthetic prediction events must not
+     * reach {@link LiveJournalMonitor} listeners (exobiology TTS, table rebuilds, etc.).
+     */
+    private static void dispatchBioScanPredictionIfLive(BioScanPredictionEvent event) {
+        if (SystemCache.isBulkSystemWrite()) {
+            return;
+        }
+        LiveJournalMonitor.getInstance(EliteDangerousOverlay.clientKey).dispatch(event);
     }
 
     private static String normalizeGenus(String s) {
