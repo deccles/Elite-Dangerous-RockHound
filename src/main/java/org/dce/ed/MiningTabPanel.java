@@ -767,11 +767,14 @@ private final JLayer<JTable> cargoLayer;
 				int modelRow = tbl.convertRowIndexToModel(row);
 				int modelCol = tbl.convertColumnIndexToModel(column);
 				MiningMissionTableRows.Row r = missionsModel.rowAt(modelRow);
+				MiningMissionTableRows.Display alloc = missionsModel.displayAt(modelRow);
 				if (r != null) {
 					display = switch (modelCol) {
 						case MiningMissionsTableModel.COL_MATERIAL -> r.getMaterial();
-						case MiningMissionsTableModel.COL_QUANTITY -> r.getQuantityDisplay();
-						case MiningMissionsTableModel.COL_PERCENT -> r.getPercentDisplay();
+						case MiningMissionsTableModel.COL_QUANTITY -> alloc != null
+								? alloc.getQuantityDisplay() : "";
+						case MiningMissionsTableModel.COL_PERCENT -> alloc != null
+								? alloc.getPercentDisplay() : "";
 						case MiningMissionsTableModel.COL_VALUE -> r.getRewardDisplay();
 						case MiningMissionsTableModel.COL_TURNIN -> r.getTurnInDisplay();
 						default -> value;
@@ -804,6 +807,10 @@ private final JLayer<JTable> cargoLayer;
 		missionsRowSorter.setComparator(MiningMissionsTableModel.COL_TURNIN, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
 		missionsTable.setAutoCreateRowSorter(false);
 		missionsTable.setRowSorter(missionsRowSorter);
+		missionsRowSorter.addRowSorterListener(e -> {
+			missionsModel.refreshAllocationDisplay(missionsTable);
+			missionsTable.repaint();
+		});
 		TableHeaderSortSupport.install(
 				missionsTable,
 				() -> missionPassThroughSupplier != null && missionPassThroughSupplier.getAsBoolean(),
@@ -1640,6 +1647,7 @@ return EdoUi.User.MAIN_TEXT;
 		}
 		List<MiningMissionTableRows.Row> rows = MiningMissionTableRows.build(missionTracker);
 		missionsModel.setRows(rows);
+		missionsModel.refreshAllocationDisplay(missionsTable);
 		updateMissionsScrollerHeight();
 		if (missionsSectionPanel != null) {
 			missionsSectionPanel.repaint();
@@ -3587,10 +3595,36 @@ String getName() {
 				"Material", "Quantity", "Percent Complete", "Value", "Turn-in Dest"
 		};
 		private List<MiningMissionTableRows.Row> rows = List.of();
+		private Map<Integer, MiningMissionTableRows.Display> displayByModelRow = Map.of();
 
 		void setRows(List<MiningMissionTableRows.Row> rows) {
 			this.rows = rows != null ? rows : List.of();
+			displayByModelRow = Map.of();
 			fireTableDataChanged();
+		}
+
+		void refreshAllocationDisplay(JTable table) {
+			int n = rows.size();
+			if (n == 0) {
+				displayByModelRow = Map.of();
+				return;
+			}
+			List<Integer> modelOrder = new ArrayList<>(n);
+			if (table != null && table.getRowSorter() != null) {
+				for (int viewRow = 0; viewRow < n; viewRow++) {
+					modelOrder.add(table.convertRowIndexToModel(viewRow));
+				}
+			} else {
+				for (int i = 0; i < n; i++) {
+					modelOrder.add(i);
+				}
+			}
+			displayByModelRow = MiningMissionTableRows.allocateDisplayForModelOrder(
+					rows, modelOrder, MissionTracker::commodityInHold);
+		}
+
+		MiningMissionTableRows.Display displayAt(int modelRow) {
+			return displayByModelRow.get(modelRow);
 		}
 
 		MiningMissionTableRows.Row rowAt(int modelRow) {
@@ -3639,10 +3673,16 @@ String getName() {
 				return null;
 			}
 			MiningMissionTableRows.Row r = rows.get(rowIndex);
+			MiningMissionTableRows.Display alloc = displayByModelRow.get(rowIndex);
 			return switch (columnIndex) {
 				case COL_MATERIAL -> r.getMaterial();
-				case COL_QUANTITY -> (long) r.getRemainingTons() * 1_000_000L + r.getInHoldTons();
-				case COL_PERCENT -> r.getPercentComplete();
+				case COL_QUANTITY -> {
+					if (alloc == null) {
+						yield (long) r.getRemainingTons() * 1_000_000L;
+					}
+					yield (long) r.getRemainingTons() * 1_000_000L + alloc.getInHoldTons();
+				}
+				case COL_PERCENT -> alloc != null ? alloc.getPercentComplete() : 0.0;
 				case COL_VALUE -> r.getRewardCredits();
 				case COL_TURNIN -> r.getTurnInDisplay();
 				default -> null;

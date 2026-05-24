@@ -33,28 +33,52 @@ class MiningMissionTableRowsTest {
         assertEquals(1, rows.size());
         assertEquals("Osmium", rows.get(0).getMaterial());
         assertEquals(48, rows.get(0).getRemainingTons());
-        int inHold = rows.get(0).getInHoldTons();
-        assertEquals(inHold + "/48 t", rows.get(0).getQuantityDisplay());
-        assertTrue(inHold >= 0 && inHold <= 48);
+        var display = MiningMissionTableRows.allocateDisplayForModelOrder(rows, List.of(0), commodity -> 0);
+        assertEquals("0/48 t", display.get(0).getQuantityDisplay());
         assertEquals(1_500_000L, rows.get(0).getRewardCredits());
         assertTrue(rows.get(0).getTurnInDisplay().contains("Coeus"));
     }
 
     @Test
-    void allocateInHoldAcrossMaterialRows_fillsFirstRowBeforeSecond() {
+    void allocateDisplayForModelOrder_fillsFirstRowBeforeSecond() {
         MissionDestination stationA = new MissionDestination("Alpha", "Port A", null);
         MissionDestination stationB = new MissionDestination("Beta", "Port B", null);
-        var pending = List.of(
-                new MiningMissionTableRows.PendingRow("Osmium", 100, 20, 80, 1L, stationA),
-                new MiningMissionTableRows.PendingRow("Osmium", 50, 0, 50, 2L, stationB));
-        var rows = MiningMissionTableRows.allocateInHoldAcrossMaterialRows(pending, commodity -> 30);
-        assertEquals(2, rows.size());
-        assertEquals(30, rows.get(0).getInHoldTons());
-        assertEquals(50.0, rows.get(0).getPercentComplete(), 0.01);
-        assertEquals(0, rows.get(1).getInHoldTons());
-        assertEquals(0.0, rows.get(1).getPercentComplete(), 0.01);
-        assertEquals("30/80 t", rows.get(0).getQuantityDisplay());
-        assertEquals("0/50 t", rows.get(1).getQuantityDisplay());
+        var rows = List.of(
+                new MiningMissionTableRows.Row("Osmium", 20, 80, 100, 1L, stationA),
+                new MiningMissionTableRows.Row("Osmium", 0, 50, 50, 2L, stationB));
+        var display = MiningMissionTableRows.allocateDisplayForModelOrder(rows, List.of(0, 1), commodity -> 30);
+        assertEquals(30, display.get(0).getInHoldTons());
+        assertEquals(50.0, display.get(0).getPercentComplete(), 0.01);
+        assertEquals(0, display.get(1).getInHoldTons());
+        assertEquals(0.0, display.get(1).getPercentComplete(), 0.01);
+        assertEquals("30/80 t", display.get(0).getQuantityDisplay());
+        assertEquals("0/50 t", display.get(1).getQuantityDisplay());
+    }
+
+    @Test
+    void allocateDisplayForModelOrder_secondRowZeroPercentUntilFirstComplete() {
+        MissionDestination oxley = new MissionDestination("Coeus", "Oxley Orbital", null);
+        MissionDestination foster = new MissionDestination("Coeus", "Foster Terminal", null);
+        var rows = List.of(
+                new MiningMissionTableRows.Row("Osmium", 0, 137, 137, 1L, oxley),
+                new MiningMissionTableRows.Row("Osmium", 15, 85, 100, 2L, foster));
+        var display = MiningMissionTableRows.allocateDisplayForModelOrder(rows, List.of(0, 1), commodity -> 78);
+        assertEquals(78, display.get(0).getInHoldTons());
+        assertEquals(57.0, display.get(0).getPercentComplete(), 0.5);
+        assertEquals(0, display.get(1).getInHoldTons());
+        assertEquals(0.0, display.get(1).getPercentComplete(), 0.01);
+    }
+
+    @Test
+    void allocateDisplayForModelOrder_respectsViewOrderWhenReversed() {
+        MissionDestination stationA = new MissionDestination("Alpha", "Port A", null);
+        MissionDestination stationB = new MissionDestination("Beta", "Port B", null);
+        var rows = List.of(
+                new MiningMissionTableRows.Row("Osmium", 20, 80, 100, 1L, stationA),
+                new MiningMissionTableRows.Row("Osmium", 0, 50, 50, 2L, stationB));
+        var display = MiningMissionTableRows.allocateDisplayForModelOrder(rows, List.of(1, 0), commodity -> 30);
+        assertEquals(0, display.get(0).getInHoldTons());
+        assertEquals(30, display.get(1).getInHoldTons());
     }
 
     @Test

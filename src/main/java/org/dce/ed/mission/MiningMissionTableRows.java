@@ -2,6 +2,7 @@ package org.dce.ed.mission;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,53 +15,20 @@ import org.dce.ed.util.ValuableBodyExplorationEstimate;
  */
 public final class MiningMissionTableRows {
 
-    public static final class Row {
-        private final String material;
+    /** Cargo/percent shown for a row after in-hold is split across rows of the same material. */
+    public static final class Display {
         private final int inHoldTons;
         private final int remainingTons;
-        private final int totalRequiredTons;
         private final double percentComplete;
-        private final long rewardCredits;
-        private final String rewardDisplay;
-        private final MissionDestination turnIn;
-        private final String turnInDisplay;
-        private final String turnInCopy;
 
-        Row(String material,
-                int inHoldTons,
-                int remainingTons,
-                int totalRequiredTons,
-                double percentComplete,
-                long rewardCredits,
-                MissionDestination turnIn) {
-            this.material = material;
+        Display(int inHoldTons, int remainingTons, double percentComplete) {
             this.inHoldTons = inHoldTons;
             this.remainingTons = remainingTons;
-            this.totalRequiredTons = totalRequiredTons;
             this.percentComplete = percentComplete;
-            this.rewardCredits = rewardCredits;
-            this.rewardDisplay = rewardCredits > 0
-                    ? ValuableBodyExplorationEstimate.formatCredits(rewardCredits)
-                    : "—";
-            this.turnIn = turnIn;
-            this.turnInDisplay = turnIn != null ? turnIn.displayLine() : "—";
-            this.turnInCopy = turnIn != null ? turnIn.copyLine() : "";
-        }
-
-        public String getMaterial() {
-            return material;
         }
 
         public int getInHoldTons() {
             return inHoldTons;
-        }
-
-        public int getRemainingTons() {
-            return remainingTons;
-        }
-
-        public int getTotalRequiredTons() {
-            return totalRequiredTons;
         }
 
         public double getPercentComplete() {
@@ -76,6 +44,53 @@ public final class MiningMissionTableRows {
                 return "100%";
             }
             return String.format("%.0f%%", Math.min(100.0, Math.max(0.0, percentComplete)));
+        }
+    }
+
+    public static final class Row {
+        private final String material;
+        private final int totalDelivered;
+        private final int remainingTons;
+        private final int totalRequiredTons;
+        private final long rewardCredits;
+        private final String rewardDisplay;
+        private final MissionDestination turnIn;
+        private final String turnInDisplay;
+        private final String turnInCopy;
+
+        Row(String material,
+                int totalDelivered,
+                int remainingTons,
+                int totalRequiredTons,
+                long rewardCredits,
+                MissionDestination turnIn) {
+            this.material = material;
+            this.totalDelivered = totalDelivered;
+            this.remainingTons = remainingTons;
+            this.totalRequiredTons = totalRequiredTons;
+            this.rewardCredits = rewardCredits;
+            this.rewardDisplay = rewardCredits > 0
+                    ? ValuableBodyExplorationEstimate.formatCredits(rewardCredits)
+                    : "—";
+            this.turnIn = turnIn;
+            this.turnInDisplay = turnIn != null ? turnIn.displayLine() : "—";
+            this.turnInCopy = turnIn != null ? turnIn.copyLine() : "";
+        }
+
+        public String getMaterial() {
+            return material;
+        }
+
+        public int getTotalDelivered() {
+            return totalDelivered;
+        }
+
+        public int getRemainingTons() {
+            return remainingTons;
+        }
+
+        public int getTotalRequiredTons() {
+            return totalRequiredTons;
         }
 
         public String getRewardDisplay() {
@@ -148,6 +163,7 @@ public final class MiningMissionTableRows {
                 agg.totalReward += r.getReward();
             }
         }
+        List<Row> rows = new ArrayList<>();
         List<PendingRow> pending = new ArrayList<>();
         for (Aggregator agg : groups.values()) {
             if (agg.totalRequired <= 0 && agg.totalDelivered <= 0) {
@@ -164,42 +180,68 @@ public final class MiningMissionTableRows {
         }
         pending.sort(Comparator.comparing((PendingRow p) -> p.commodity, String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(p -> p.turnInDisplay, String.CASE_INSENSITIVE_ORDER));
-        return allocateInHoldAcrossMaterialRows(pending, MissionTracker::commodityInHold);
-    }
-
-    /**
-     * For one material, cargo in hold fills the first row (by sort order), then the next, etc.
-     */
-    static List<Row> allocateInHoldAcrossMaterialRows(
-            List<PendingRow> pending,
-            ToIntFunction<String> inHoldForCommodity) {
-        if (pending == null || pending.isEmpty()) {
-            return List.of();
-        }
-        List<Row> rows = new ArrayList<>(pending.size());
-        String lastMaterialKey = null;
-        int holdLeft = 0;
         for (PendingRow p : pending) {
-            String materialKey = normalizeCommodity(p.commodity);
-            if (!materialKey.equals(lastMaterialKey)) {
-                holdLeft = Math.max(0, inHoldForCommodity.applyAsInt(p.commodity));
-                lastMaterialKey = materialKey;
-            }
-            int fillFromHold = Math.min(holdLeft, p.remaining);
-            holdLeft -= fillFromHold;
-            double pct = p.totalRequired > 0
-                    ? 100.0 * (p.totalDelivered + fillFromHold) / (double) p.totalRequired
-                    : 0.0;
             rows.add(new Row(
                     p.commodity,
-                    fillFromHold,
+                    p.totalDelivered,
                     p.remaining,
                     p.totalRequired,
-                    pct,
                     p.totalReward,
                     p.turnIn));
         }
         return rows;
+    }
+
+    /**
+     * For one material, rows in {@code modelIndicesInPriorityOrder} (e.g. current table view) are filled in order.
+     * Cargo in hold and percent credit apply only while prior rows for that material are incomplete; later rows stay
+     * at 0% until the first row reaches 100%.
+     */
+    public static Map<Integer, Display> allocateDisplayForModelOrder(
+            List<Row> rows,
+            List<Integer> modelIndicesInPriorityOrder,
+            ToIntFunction<String> inHoldForCommodity) {
+        if (rows == null || rows.isEmpty() || modelIndicesInPriorityOrder == null || modelIndicesInPriorityOrder.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<Integer>> indicesByMaterial = new LinkedHashMap<>();
+        for (int modelIndex : modelIndicesInPriorityOrder) {
+            if (modelIndex < 0 || modelIndex >= rows.size()) {
+                continue;
+            }
+            Row row = rows.get(modelIndex);
+            indicesByMaterial
+                    .computeIfAbsent(normalizeCommodity(row.getMaterial()), k -> new ArrayList<>())
+                    .add(modelIndex);
+        }
+        Map<Integer, Display> displayByModelRow = new HashMap<>();
+        for (List<Integer> modelIndices : indicesByMaterial.values()) {
+            if (modelIndices.isEmpty()) {
+                continue;
+            }
+            Row first = rows.get(modelIndices.get(0));
+            int holdLeft = Math.max(0, inHoldForCommodity.applyAsInt(first.getMaterial()));
+            boolean priorRowsIncomplete = false;
+            for (int modelIndex : modelIndices) {
+                Row row = rows.get(modelIndex);
+                if (priorRowsIncomplete) {
+                    displayByModelRow.put(modelIndex, new Display(0, row.getRemainingTons(), 0.0));
+                    continue;
+                }
+                int fillFromHold = Math.min(holdLeft, Math.max(0, row.getRemainingTons()));
+                holdLeft -= fillFromHold;
+                double pct = row.getTotalRequiredTons() > 0
+                        ? 100.0 * (row.getTotalDelivered() + fillFromHold) / (double) row.getTotalRequiredTons()
+                        : 0.0;
+                displayByModelRow.put(modelIndex, new Display(fillFromHold, row.getRemainingTons(), pct));
+                boolean rowComplete = row.getRemainingTons() <= 0
+                        || row.getTotalDelivered() + fillFromHold >= row.getTotalRequiredTons();
+                if (!rowComplete) {
+                    priorRowsIncomplete = true;
+                }
+            }
+        }
+        return displayByModelRow;
     }
 
     private static boolean isMiningCommodityMission(MissionRecord r) {
