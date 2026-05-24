@@ -4762,7 +4762,7 @@ String getName() {
 			hoverPollTimer.setRepeats(true);
 			hoverPollTimer.start();
 			asteroidSpinTimer = new javax.swing.Timer(45, e -> {
-				if (!isVisible()) {
+				if (!isDisplayable()) {
 					return;
 				}
 				refreshAnimationScaleCache();
@@ -4802,24 +4802,68 @@ String getName() {
 				+ Objects.toString(r.getMaterial(), "") + "|" + r.getPercent() + "|" + r.getDifference();
 		}
 
-		/** Rows on the commander's current asteroid (active run) that should spin when all-point asteroid icons are on. */
+		/**
+		 * Plot rows that represent the commander's current asteroid (leaders / prospector rocks) and should spin
+		 * when {@link OverlayPreferences#isMiningScatterAsteroidIconsAllPoints()} is on.
+		 */
 		private Set<String> currentAsteroidSpinRowKeys(List<ProspectorLogRow> toPlot) {
-			if (sessionActiveRun <= 0 || toPlot == null || toPlot.isEmpty()
-					|| prospectorMaterialKeysForMarkers == null || prospectorMaterialKeysForMarkers.isEmpty()) {
-				return Set.of();
-			}
-			List<ProspectorLogRow> inSession = toPlot.stream()
-				.filter(r -> r.getRun() == sessionActiveRun)
-				.toList();
-			if (inSession.isEmpty()) {
+			if (toPlot == null || toPlot.isEmpty()) {
 				return Set.of();
 			}
 			Set<String> keys = new HashSet<>();
-			for (ProspectorLogRow r : MiningScatterAsteroidModel.computeRockMarkerRows(
-					inSession, prospectorMaterialKeysForMarkers)) {
-				keys.add(rowKeyForAnim(r));
+			List<ProspectorLogRow> sessionRows = sessionActiveRun > 0
+					? toPlot.stream().filter(r -> r.getRun() == sessionActiveRun).toList()
+					: List.of();
+			if (!sessionRows.isEmpty()
+					&& prospectorMaterialKeysForMarkers != null
+					&& !prospectorMaterialKeysForMarkers.isEmpty()) {
+				for (ProspectorLogRow rock : MiningScatterAsteroidModel.computeRockMarkerRows(
+						sessionRows, prospectorMaterialKeysForMarkers)) {
+					addSpinKeyForRowInPlot(toPlot, rock, keys);
+				}
+			}
+			List<ProspectorLogRow> leaderScope = !sessionRows.isEmpty() ? sessionRows : toPlot;
+			for (MiningLeaderSnapshot snap : MiningScatterAsteroidModel.computeLeaderSnapshots(leaderScope).values()) {
+				for (ProspectorLogRow r : toPlot) {
+					if (matchesLeaderSnapshot(r, snap)) {
+						keys.add(rowKeyForAnim(r));
+						break;
+					}
+				}
 			}
 			return keys;
+		}
+
+		private static void addSpinKeyForRowInPlot(List<ProspectorLogRow> toPlot, ProspectorLogRow target, Set<String> keys) {
+			String want = rowKeyForAnim(target);
+			for (ProspectorLogRow r : toPlot) {
+				if (rowKeyForAnim(r).equals(want)) {
+					keys.add(want);
+					return;
+				}
+			}
+		}
+
+		private static boolean matchesLeaderSnapshot(ProspectorLogRow r, MiningLeaderSnapshot snap) {
+			if (r == null || snap == null) {
+				return false;
+			}
+			if (r.getRun() != snap.run()) {
+				return false;
+			}
+			String aid = r.getAsteroidId() != null ? r.getAsteroidId() : "";
+			if (!aid.equals(snap.asteroidId())) {
+				return false;
+			}
+			if (!Objects.equals(r.getTimestamp(), snap.instant())) {
+				return false;
+			}
+			String mat = r.getMaterial() != null ? r.getMaterial() : "";
+			if (!mat.equals(snap.material() != null ? snap.material() : "")) {
+				return false;
+			}
+			return Math.abs(r.getPercent() - snap.pct()) < 1e-6
+					&& Math.abs(r.getDifference() - snap.tons()) < 1e-6;
 		}
 
 		/** Squared distance <= radius^2 (integer px; avoids sqrt). */
@@ -5300,7 +5344,9 @@ String getName() {
 				Map<String, Color> commanderColor,
 				boolean spinCurrent) {
 			ProspectorLogRow r = pi.row;
-			Color pointColor = scatterPointColor(r, commanderOrder, commanderColor);
+			Color pointColor = spinCurrent
+					? Color.WHITE
+					: scatterPointColor(r, commanderOrder, commanderColor);
 			String cmdr = r.getCommanderName() != null ? r.getCommanderName() : "";
 			String mat = r.getMaterial() != null ? r.getMaterial() : "";
 			double phase = ((cmdr.hashCode() & 0xFFFF) ^ (mat.hashCode() & 0xFFFF)) * 0.001;
@@ -5704,8 +5750,11 @@ String getName() {
 				}
 			}
 
-			// Current-asteroid markers on top of static icons (and trend/legend).
-			if (animScatterAsteroidIconsAllPointsCached) {
+			// Current-asteroid markers on top of static icons (and trend/legend); animated via asteroidSpinTimer.
+			if (animScatterAsteroidIconsAllPointsCached && !spinRowKeys.isEmpty()) {
+				if (asteroidSpinTimer != null && !asteroidSpinTimer.isRunning()) {
+					asteroidSpinTimer.start();
+				}
 				for (PointInfo pi : pointInfos) {
 					if (!spinRowKeys.contains(rowKeyForAnim(pi.row))) {
 						continue;
