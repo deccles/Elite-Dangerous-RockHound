@@ -156,6 +156,11 @@ public final class OverlayPreferences {
     private static final String KEY_MINING_ANIM_SHOW_LASER = "mining.animation.showLaser";
     /** Mining scatter: rotating asteroid line-art markers (default on); off leaves plot dots only. */
     private static final String KEY_MINING_ANIM_SHOW_ASTEROID = "mining.animation.showAsteroid";
+    /**
+     * Mining scatter: draw every plot point as a line-art asteroid; only the current-asteroid leader row(s)
+     * spin (default off — plain dots, with optional gather rocks when {@link #KEY_MINING_ANIM_SHOW_ASTEROID}).
+     */
+    private static final String KEY_MINING_SCATTER_ASTEROID_ICONS_ALL_POINTS = "mining.scatter.asteroidIconsAllPoints";
 
     /**
      * Mining preferences ▸ Exobiology: minimum valuable exobiology threshold (million credits) — money bag, bio TTS,
@@ -1428,6 +1433,14 @@ public static Engine getSpeechEngine() {
 
     public static void setMiningAnimationShowAsteroid(boolean show) {
         PREFS.putBoolean(KEY_MINING_ANIM_SHOW_ASTEROID, show);
+    }
+
+    public static boolean isMiningScatterAsteroidIconsAllPoints() {
+        return PREFS.getBoolean(KEY_MINING_SCATTER_ASTEROID_ICONS_ALL_POINTS, true);
+    }
+
+    public static void setMiningScatterAsteroidIconsAllPoints(boolean enabled) {
+        PREFS.putBoolean(KEY_MINING_SCATTER_ASTEROID_ICONS_ALL_POINTS, enabled);
     }
 
     private static double getDoubleClamped(String key, double def, double min, double max) {

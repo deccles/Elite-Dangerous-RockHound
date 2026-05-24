@@ -4505,12 +4505,14 @@ String getName() {
 		private double animAsteroidScaleCached = 1.0;
 		private boolean animShowLaserCached = true;
 		private boolean animShowAsteroidCached = true;
+		private boolean animScatterAsteroidIconsAllPointsCached = false;
 
 		private void refreshAnimationScaleCache() {
 			animGunScaleCached = OverlayPreferences.getMiningAnimationGunSizePercent() / 100.0;
 			animAsteroidScaleCached = OverlayPreferences.getMiningAnimationAsteroidSizePercent() / 100.0;
 			animShowLaserCached = OverlayPreferences.isMiningAnimationShowLaser();
 			animShowAsteroidCached = OverlayPreferences.isMiningAnimationShowAsteroid();
+			animScatterAsteroidIconsAllPointsCached = OverlayPreferences.isMiningScatterAsteroidIconsAllPoints();
 		}
 
 		private double gunDrawScale() {
@@ -4764,7 +4766,7 @@ String getName() {
 					return;
 				}
 				refreshAnimationScaleCache();
-				if (!animShowAsteroidCached) {
+				if (!animShowAsteroidCached && !animScatterAsteroidIconsAllPointsCached) {
 					return;
 				}
 				asteroidSpinAngle += 0.12;
@@ -4798,6 +4800,26 @@ String getName() {
 		private static String rowKeyForAnim(ProspectorLogRow r) {
 			return r.getRun() + "|" + Objects.toString(r.getAsteroidId(), "") + "|" + Objects.toString(r.getTimestamp(), "") + "|"
 				+ Objects.toString(r.getMaterial(), "") + "|" + r.getPercent() + "|" + r.getDifference();
+		}
+
+		/** Rows on the commander's current asteroid (active run) that should spin when all-point asteroid icons are on. */
+		private Set<String> currentAsteroidSpinRowKeys(List<ProspectorLogRow> toPlot) {
+			if (sessionActiveRun <= 0 || toPlot == null || toPlot.isEmpty()
+					|| prospectorMaterialKeysForMarkers == null || prospectorMaterialKeysForMarkers.isEmpty()) {
+				return Set.of();
+			}
+			List<ProspectorLogRow> inSession = toPlot.stream()
+				.filter(r -> r.getRun() == sessionActiveRun)
+				.toList();
+			if (inSession.isEmpty()) {
+				return Set.of();
+			}
+			Set<String> keys = new HashSet<>();
+			for (ProspectorLogRow r : MiningScatterAsteroidModel.computeRockMarkerRows(
+					inSession, prospectorMaterialKeysForMarkers)) {
+				keys.add(rowKeyForAnim(r));
+			}
+			return keys;
 		}
 
 		/** Squared distance <= radius^2 (integer px; avoids sqrt). */
@@ -5264,6 +5286,28 @@ String getName() {
 			g2.setComposite(AlphaComposite.SrcOver);
 		}
 
+		private Color scatterPointColor(ProspectorLogRow r, List<String> commanderOrder, Map<String, Color> commanderColor) {
+			if (filterMode == FilterMode.ALL && commanderOrder != null && !commanderOrder.isEmpty()) {
+				return commanderColor.getOrDefault(normalizeCommanderKey(r.getCommanderName()), EdoUi.User.VALUABLE);
+			}
+			return EdoUi.User.VALUABLE;
+		}
+
+		private void drawScatterAsteroidForRow(
+				Graphics2D g2,
+				PointInfo pi,
+				List<String> commanderOrder,
+				Map<String, Color> commanderColor,
+				boolean spinCurrent) {
+			ProspectorLogRow r = pi.row;
+			Color pointColor = scatterPointColor(r, commanderOrder, commanderColor);
+			String cmdr = r.getCommanderName() != null ? r.getCommanderName() : "";
+			String mat = r.getMaterial() != null ? r.getMaterial() : "";
+			double phase = ((cmdr.hashCode() & 0xFFFF) ^ (mat.hashCode() & 0xFFFF)) * 0.001;
+			double spin = spinCurrent ? asteroidSpinAngle : 0.0;
+			drawLineArtAsteroid(g2, pi.x, pi.y, pointColor, spin, phase);
+		}
+
 		/** Filled black body, commander-colored rim; rotated in place. */
 		private void drawLineArtAsteroid(Graphics2D g2, int cx, int cy, Color color, double spinRadians, double phaseOffset) {
 			double a = asteroidDrawScale();
@@ -5519,19 +5563,32 @@ String getName() {
 				g2.setFont(getFont());
 				g2.setColor(EdoUi.User.MAIN_TEXT);
 			}
+			Set<String> spinRowKeys = animScatterAsteroidIconsAllPointsCached
+					? currentAsteroidSpinRowKeys(toPlot)
+					: Set.of();
 			for (ProspectorLogRow r : toPlot) {
-				Color pointColor = filterMode == FilterMode.ALL && !commanderOrder.isEmpty()
-					? commanderColor.getOrDefault(normalizeCommanderKey(r.getCommanderName()), EdoUi.User.VALUABLE)
-					: EdoUi.User.VALUABLE;
-				g2.setColor(pointColor);
 				double p = r.getPercent();
 				double a = r.getDifference();
 				double nx = (maxPct > minPct) ? (p - minPct) / (maxPct - minPct) : 0.5;
 				double ny = (maxAct > minAct) ? 1.0 - (a - minAct) / (maxAct - minAct) : 0.5;
 				int x = plotX + (int) (nx * plotW);
 				int y = plotY + (int) (ny * plotH);
-				g2.fillOval((int) (x - POINT_RADIUS), (int) (y - POINT_RADIUS), (int) (2 * POINT_RADIUS), (int) (2 * POINT_RADIUS));
 				pointInfos.add(new PointInfo(x, y, r));
+			}
+			if (animScatterAsteroidIconsAllPointsCached) {
+				for (PointInfo pi : pointInfos) {
+					if (spinRowKeys.contains(rowKeyForAnim(pi.row))) {
+						continue;
+					}
+					drawScatterAsteroidForRow(g2, pi, commanderOrder, commanderColor, false);
+				}
+			} else {
+				for (PointInfo pi : pointInfos) {
+					Color pointColor = scatterPointColor(pi.row, commanderOrder, commanderColor);
+					g2.setColor(pointColor);
+					g2.fillOval((int) (pi.x - POINT_RADIUS), (int) (pi.y - POINT_RADIUS),
+							(int) (2 * POINT_RADIUS), (int) (2 * POINT_RADIUS));
+				}
 			}
 
 			// Trend lines by commander (best-fit line of Percentage vs Actual); X span is each series’ % range only.
@@ -5608,7 +5665,8 @@ String getName() {
 
 			// Line-art asteroids: {@link MiningScatterAsteroidModel#computeRockMarkerRows} — one rock per material
 			// on the commander's current asteroid (latest row anchor), no duplicate rows for the same material.
-			if (animShowAsteroidCached && !pointInfos.isEmpty() && sessionActiveRun > 0) {
+			if (!animScatterAsteroidIconsAllPointsCached
+					&& animShowAsteroidCached && !pointInfos.isEmpty() && sessionActiveRun > 0) {
 				List<ProspectorLogRow> inSession = toPlot.stream()
 					.filter(r -> r.getRun() == sessionActiveRun)
 					.toList();
@@ -5643,6 +5701,19 @@ String getName() {
 							}
 						}
 					}
+				}
+			}
+
+			// Current-asteroid markers on top of static icons (and trend/legend).
+			if (animScatterAsteroidIconsAllPointsCached) {
+				for (PointInfo pi : pointInfos) {
+					if (!spinRowKeys.contains(rowKeyForAnim(pi.row))) {
+						continue;
+					}
+					if (gatherSuppressStaticAsteroidAtPlotPixel(pi.x, pi.y)) {
+						continue;
+					}
+					drawScatterAsteroidForRow(g2, pi, commanderOrder, commanderColor, true);
 				}
 			}
 

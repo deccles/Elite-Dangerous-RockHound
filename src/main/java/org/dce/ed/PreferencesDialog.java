@@ -183,6 +183,7 @@ public class PreferencesDialog extends JDialog {
 	private JSpinner miningAnimAsteroidSizeSpinner;
 	private JCheckBox miningAnimShowLaserCheckBox;
 	private JCheckBox miningAnimShowAsteroidCheckBox;
+	private JCheckBox miningScatterAsteroidIconsAllPointsCheckBox;
 
 	private JCheckBox overlayTabRouteVisibleCheckBox;
 	private JCheckBox overlayTabSystemVisibleCheckBox;
@@ -1315,6 +1316,14 @@ public class PreferencesDialog extends JDialog {
 		miningAnimShowAsteroidCheckBox.setToolTipText(
 				"When off, scatter markers use data points only (no rotating asteroid line-art), including during gather.");
 		animBox.add(miningAnimShowAsteroidCheckBox, abc);
+		abc.gridy++;
+		miningScatterAsteroidIconsAllPointsCheckBox = new JCheckBox("Asteroid icons on all scatter points");
+		miningScatterAsteroidIconsAllPointsCheckBox.setOpaque(false);
+		miningScatterAsteroidIconsAllPointsCheckBox.setSelected(OverlayPreferences.isMiningScatterAsteroidIconsAllPoints());
+		miningScatterAsteroidIconsAllPointsCheckBox.setToolTipText(
+				"Draw every prospector log point as a line-art asteroid. Only the current asteroid position(s) "
+						+ "for the active run spin; older points stay static. Off by default (plain dots).");
+		animBox.add(miningScatterAsteroidIconsAllPointsCheckBox, abc);
 		outer.add(animBox);
 
 		panel.add(outer, BorderLayout.NORTH);
@@ -2288,6 +2297,9 @@ public class PreferencesDialog extends JDialog {
         }
         if (miningAnimShowAsteroidCheckBox != null) {
             OverlayPreferences.setMiningAnimationShowAsteroid(miningAnimShowAsteroidCheckBox.isSelected());
+        }
+        if (miningScatterAsteroidIconsAllPointsCheckBox != null) {
+            OverlayPreferences.setMiningScatterAsteroidIconsAllPoints(miningScatterAsteroidIconsAllPointsCheckBox.isSelected());
         }
 
         if (bioValuableThresholdMillionSpinner != null) {
