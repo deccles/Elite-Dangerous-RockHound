@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.ToIntFunction;
 
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
 
@@ -17,6 +18,7 @@ public final class MiningMissionTableRows {
         private final String material;
         private final int inHoldTons;
         private final int remainingTons;
+        private final int totalRequiredTons;
         private final double percentComplete;
         private final long rewardCredits;
         private final String rewardDisplay;
@@ -27,12 +29,14 @@ public final class MiningMissionTableRows {
         Row(String material,
                 int inHoldTons,
                 int remainingTons,
+                int totalRequiredTons,
                 double percentComplete,
                 long rewardCredits,
                 MissionDestination turnIn) {
             this.material = material;
             this.inHoldTons = inHoldTons;
             this.remainingTons = remainingTons;
+            this.totalRequiredTons = totalRequiredTons;
             this.percentComplete = percentComplete;
             this.rewardCredits = rewardCredits;
             this.rewardDisplay = rewardCredits > 0
@@ -53,6 +57,14 @@ public final class MiningMissionTableRows {
 
         public int getRemainingTons() {
             return remainingTons;
+        }
+
+        public int getTotalRequiredTons() {
+            return totalRequiredTons;
+        }
+
+        public double getPercentComplete() {
+            return percentComplete;
         }
 
         public String getQuantityDisplay() {
@@ -80,6 +92,31 @@ public final class MiningMissionTableRows {
 
         public String getTurnInCopy() {
             return turnInCopy;
+        }
+    }
+
+    static final class PendingRow {
+        final String commodity;
+        final int totalRequired;
+        final int totalDelivered;
+        final int remaining;
+        final long totalReward;
+        final MissionDestination turnIn;
+        final String turnInDisplay;
+
+        PendingRow(String commodity,
+                int totalRequired,
+                int totalDelivered,
+                int remaining,
+                long totalReward,
+                MissionDestination turnIn) {
+            this.commodity = commodity;
+            this.totalRequired = totalRequired;
+            this.totalDelivered = totalDelivered;
+            this.remaining = remaining;
+            this.totalReward = totalReward;
+            this.turnIn = turnIn;
+            this.turnInDisplay = turnIn != null ? turnIn.displayLine() : "—";
         }
     }
 
@@ -111,21 +148,57 @@ public final class MiningMissionTableRows {
                 agg.totalReward += r.getReward();
             }
         }
-        List<Row> rows = new ArrayList<>();
+        List<PendingRow> pending = new ArrayList<>();
         for (Aggregator agg : groups.values()) {
             if (agg.totalRequired <= 0 && agg.totalDelivered <= 0) {
                 continue;
             }
             int remaining = Math.max(0, agg.totalRequired - agg.totalDelivered);
-            int inHold = MissionTracker.commodityInHold(agg.commodity);
-            int progressed = agg.totalDelivered + Math.min(inHold, remaining);
-            double pct = agg.totalRequired > 0
-                    ? 100.0 * progressed / (double) agg.totalRequired
-                    : 0.0;
-            rows.add(new Row(agg.commodity, inHold, remaining, pct, agg.totalReward, agg.turnIn));
+            pending.add(new PendingRow(
+                    agg.commodity,
+                    agg.totalRequired,
+                    agg.totalDelivered,
+                    remaining,
+                    agg.totalReward,
+                    agg.turnIn));
         }
-        rows.sort(Comparator.comparing(Row::getMaterial, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(Row::getTurnInDisplay, String.CASE_INSENSITIVE_ORDER));
+        pending.sort(Comparator.comparing((PendingRow p) -> p.commodity, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(p -> p.turnInDisplay, String.CASE_INSENSITIVE_ORDER));
+        return allocateInHoldAcrossMaterialRows(pending, MissionTracker::commodityInHold);
+    }
+
+    /**
+     * For one material, cargo in hold fills the first row (by sort order), then the next, etc.
+     */
+    static List<Row> allocateInHoldAcrossMaterialRows(
+            List<PendingRow> pending,
+            ToIntFunction<String> inHoldForCommodity) {
+        if (pending == null || pending.isEmpty()) {
+            return List.of();
+        }
+        List<Row> rows = new ArrayList<>(pending.size());
+        String lastMaterialKey = null;
+        int holdLeft = 0;
+        for (PendingRow p : pending) {
+            String materialKey = normalizeCommodity(p.commodity);
+            if (!materialKey.equals(lastMaterialKey)) {
+                holdLeft = Math.max(0, inHoldForCommodity.applyAsInt(p.commodity));
+                lastMaterialKey = materialKey;
+            }
+            int fillFromHold = Math.min(holdLeft, p.remaining);
+            holdLeft -= fillFromHold;
+            double pct = p.totalRequired > 0
+                    ? 100.0 * (p.totalDelivered + fillFromHold) / (double) p.totalRequired
+                    : 0.0;
+            rows.add(new Row(
+                    p.commodity,
+                    fillFromHold,
+                    p.remaining,
+                    p.totalRequired,
+                    pct,
+                    p.totalReward,
+                    p.turnIn));
+        }
         return rows;
     }
 

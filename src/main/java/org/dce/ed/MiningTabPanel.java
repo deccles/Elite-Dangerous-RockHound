@@ -126,6 +126,7 @@ import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.SubtleScrollBarUI;
+import org.dce.ed.ui.TableHeaderSortSupport;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
 import org.dce.ed.ui.TransparentTableHeaderUI;
 
@@ -308,6 +309,7 @@ private final JLayer<JTable> cargoLayer;
 	private JLabel prospectorLabel;
 
 	private static final int VISIBLE_ROWS = 10;
+	private static final int MISSIONS_HEADER_SORT_HOVER_MS = 500;
 
 	/**
 	 * When set (tests), mining sheet status is sent here instead of {@link OverlayFrame#overlayFrame}.
@@ -750,9 +752,62 @@ private final JLayer<JTable> cargoLayer;
 			missionsHeader.setDefaultRenderer(new HeaderRenderer());
 			missionsHeader.setPreferredSize(new Dimension(pref.width, missionsTable.getRowHeight()));
 		}
+		DefaultTableCellRenderer missionsRenderer = new DefaultTableCellRenderer() {
+			private static final long serialVersionUID = 1L;
+
+			{
+				setOpaque(false);
+				setForeground(EdoUi.User.MAIN_TEXT);
+			}
+
+			@Override
+			public Component getTableCellRendererComponent(JTable tbl, Object value, boolean isSelected,
+					boolean hasFocus, int row, int column) {
+				Object display = value;
+				int modelRow = tbl.convertRowIndexToModel(row);
+				int modelCol = tbl.convertColumnIndexToModel(column);
+				MiningMissionTableRows.Row r = missionsModel.rowAt(modelRow);
+				if (r != null) {
+					display = switch (modelCol) {
+						case MiningMissionsTableModel.COL_MATERIAL -> r.getMaterial();
+						case MiningMissionsTableModel.COL_QUANTITY -> r.getQuantityDisplay();
+						case MiningMissionsTableModel.COL_PERCENT -> r.getPercentDisplay();
+						case MiningMissionsTableModel.COL_VALUE -> r.getRewardDisplay();
+						case MiningMissionsTableModel.COL_TURNIN -> r.getTurnInDisplay();
+						default -> value;
+					};
+				}
+				Component c = super.getTableCellRendererComponent(tbl, display, false, false, row, column);
+				if (c instanceof JLabel l) {
+					l.setFont(tbl.getFont());
+					l.setHorizontalAlignment(modelCol == MiningMissionsTableModel.COL_MATERIAL
+							? SwingConstants.LEFT : SwingConstants.RIGHT);
+					l.setBorder(new EmptyBorder(3, 4, 3, 4));
+					l.setOpaque(false);
+					l.setBackground(EdoUi.Internal.TRANSPARENT);
+				}
+				if (c instanceof JComponent jc) {
+					jc.setOpaque(false);
+				}
+				c.setBackground(EdoUi.Internal.TRANSPARENT);
+				return c;
+			}
+		};
 		for (int c = 0; c < missionsTable.getColumnModel().getColumnCount(); c++) {
-			missionsTable.getColumnModel().getColumn(c).setCellRenderer(defaultRenderer);
+			missionsTable.getColumnModel().getColumn(c).setCellRenderer(missionsRenderer);
 		}
+		TableRowSorter<MiningMissionsTableModel> missionsRowSorter = new TableRowSorter<>(missionsModel);
+		missionsRowSorter.setComparator(MiningMissionsTableModel.COL_MATERIAL, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+		missionsRowSorter.setComparator(MiningMissionsTableModel.COL_QUANTITY, Comparator.nullsLast(Comparator.naturalOrder()));
+		missionsRowSorter.setComparator(MiningMissionsTableModel.COL_PERCENT, Comparator.nullsLast(Comparator.naturalOrder()));
+		missionsRowSorter.setComparator(MiningMissionsTableModel.COL_VALUE, Comparator.nullsLast(Comparator.naturalOrder()));
+		missionsRowSorter.setComparator(MiningMissionsTableModel.COL_TURNIN, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+		missionsTable.setAutoCreateRowSorter(false);
+		missionsTable.setRowSorter(missionsRowSorter);
+		TableHeaderSortSupport.install(
+				missionsTable,
+				() -> missionPassThroughSupplier != null && missionPassThroughSupplier.getAsBoolean(),
+				MISSIONS_HEADER_SORT_HOVER_MS);
 		missionsScroller = new JScrollPane(missionsTable);
 		missionsScroller.setOpaque(false);
 		missionsScroller.setBackground(EdoUi.Internal.TRANSPARENT);
@@ -3538,6 +3593,13 @@ String getName() {
 			fireTableDataChanged();
 		}
 
+		MiningMissionTableRows.Row rowAt(int modelRow) {
+			if (modelRow < 0 || modelRow >= rows.size()) {
+				return null;
+			}
+			return rows.get(modelRow);
+		}
+
 		String turnInCopyText(int modelRow) {
 			if (modelRow < 0 || modelRow >= rows.size()) {
 				return "";
@@ -3561,18 +3623,29 @@ String getName() {
 		}
 
 		@Override
+		public Class<?> getColumnClass(int columnIndex) {
+			return switch (columnIndex) {
+				case COL_MATERIAL, COL_TURNIN -> String.class;
+				case COL_QUANTITY -> Long.class;
+				case COL_PERCENT -> Double.class;
+				case COL_VALUE -> Long.class;
+				default -> Object.class;
+			};
+		}
+
+		@Override
 		public Object getValueAt(int rowIndex, int columnIndex) {
 			if (rowIndex < 0 || rowIndex >= rows.size()) {
-				return "";
+				return null;
 			}
 			MiningMissionTableRows.Row r = rows.get(rowIndex);
 			return switch (columnIndex) {
 				case COL_MATERIAL -> r.getMaterial();
-				case COL_QUANTITY -> r.getQuantityDisplay();
-				case COL_PERCENT -> r.getPercentDisplay();
-				case COL_VALUE -> r.getRewardDisplay();
+				case COL_QUANTITY -> (long) r.getRemainingTons() * 1_000_000L + r.getInHoldTons();
+				case COL_PERCENT -> r.getPercentComplete();
+				case COL_VALUE -> r.getRewardCredits();
 				case COL_TURNIN -> r.getTurnInDisplay();
-				default -> "";
+				default -> null;
 			};
 		}
 	}
