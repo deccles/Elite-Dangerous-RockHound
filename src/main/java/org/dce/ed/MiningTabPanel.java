@@ -308,8 +308,6 @@ private final JLayer<JTable> cargoLayer;
 	private JLabel prospectorLabel;
 
 	private static final int VISIBLE_ROWS = 10;
-	/** Mining missions table height under inventory (about two data rows). */
-	private static final int MISSION_VISIBLE_ROWS = 2;
 
 	/**
 	 * When set (tests), mining sheet status is sent here instead of {@link OverlayFrame#overlayFrame}.
@@ -771,6 +769,9 @@ private final JLayer<JTable> cargoLayer;
 			missionsHeaderViewport.setBorder(null);
 		}
 		configureOverlayScroller(missionsScroller);
+		installSubtleOverlayScrollBars(missionsScroller);
+		missionsScroller.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		missionsScroller.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_NEVER);
 		missionsScroller.setAlignmentX(Component.LEFT_ALIGNMENT);
 
 		missionsSectionPanel = new JPanel();
@@ -905,7 +906,7 @@ private final JLayer<JTable> cargoLayer;
 			spreadHeaderViewport.setBorder(null);
 		}
 		configureOverlayScroller(spreadsheetScroller);
-		installSubtleScrollBarsOnProspectorLog(spreadsheetScroller);
+		installSubtleOverlayScrollBars(spreadsheetScroller);
 		// Install system-name copy behavior on the System column (model index 11).
 		miningSystemCopyManager = new SystemTableHoverCopyManager(spreadsheetTable, 11, isDockedSupplier);
 		miningSystemCopyManager.start();
@@ -1073,9 +1074,16 @@ private final JLayer<JTable> cargoLayer;
 				return;
 			}
 			saveMiningSplitRatios();
+			updateMissionsScrollerHeight();
 		};
 		miningOuterSplit.addPropertyChangeListener(miningSplitPersistence);
 		miningInnerSplit.addPropertyChangeListener(miningSplitPersistence);
+		miningOuterSplit.addComponentListener(new ComponentAdapter() {
+			@Override
+			public void componentResized(ComponentEvent e) {
+				updateMissionsScrollerHeight();
+			}
+		});
 
 		spreadsheetCardPanel.addComponentListener(new ComponentAdapter() {
 			@Override
@@ -1483,6 +1491,43 @@ return EdoUi.User.MAIN_TEXT;
 		cargoScroller.revalidate();
 	}
 
+	/** Pixels available to cargo + missions under the Ship Inventory header (outer split top). */
+	private int resolveInventoryTopBodyBudgetPixels() {
+		if (miningOuterSplit == null) {
+			return 0;
+		}
+		if (miningOuterSplit.getHeight() <= 0) {
+			return 0;
+		}
+		int inventoryPanelH = miningOuterSplit.getDividerLocation();
+		int invLabelH = inventoryLabel != null ? inventoryLabel.getPreferredSize().height + 2 : 0;
+		return Math.max(0, inventoryPanelH - invLabelH);
+	}
+
+	/** Max mission data rows before the table must scroll (prospector split boundary). */
+	private int computeMaxMissionTableRows() {
+		if (missionsTable == null) {
+			return VISIBLE_ROWS;
+		}
+		int headerH = 0;
+		JTableHeader th = missionsTable.getTableHeader();
+		if (th != null) {
+			headerH = th.getPreferredSize().height;
+		}
+		int rowH = Math.max(1, missionsTable.getRowHeight());
+		int budget = resolveInventoryTopBodyBudgetPixels();
+		if (budget <= 0) {
+			return VISIBLE_ROWS;
+		}
+		int cargoH = cargoScroller != null ? cargoScroller.getPreferredSize().height : 0;
+		int labelH = missionsLabel != null ? missionsLabel.getPreferredSize().height : 0;
+		int tableBudget = budget - cargoH - 4 - labelH - 2;
+		if (tableBudget < headerH + rowH) {
+			return 1;
+		}
+		return Math.max(1, (tableBudget - headerH) / rowH);
+	}
+
 	private void updateMissionsScrollerHeight() {
 		if (missionsScroller == null || missionsTable == null || missionsSectionPanel == null) {
 			return;
@@ -1501,12 +1546,17 @@ return EdoUi.User.MAIN_TEXT;
 		}
 		int rowH = missionsTable.getRowHeight();
 		int labelH = missionsLabel != null ? missionsLabel.getPreferredSize().height : 0;
-		int tableH = headerH + rowH * MISSION_VISIBLE_ROWS;
+		int maxRows = computeMaxMissionTableRows();
+		int visibleRows = Math.min(rows, maxRows);
+		boolean needsScroll = rows > visibleRows;
+		int tableH = headerH + rowH * visibleRows;
 		int sectionH = labelH + 2 + tableH;
 		Dimension scrollSize = new Dimension(Integer.MAX_VALUE, tableH);
-		missionsScroller.setMinimumSize(new Dimension(0, tableH));
+		missionsScroller.setMinimumSize(new Dimension(0, headerH + rowH));
 		missionsScroller.setPreferredSize(scrollSize);
 		missionsScroller.setMaximumSize(scrollSize);
+		missionsScroller.setVerticalScrollBarPolicy(
+				needsScroll ? JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED : JScrollPane.VERTICAL_SCROLLBAR_NEVER);
 		missionsSectionPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, sectionH));
 		missionsSectionPanel.setPreferredSize(new Dimension(Integer.MAX_VALUE, sectionH));
 		missionsScroller.revalidate();
@@ -3686,8 +3736,8 @@ String getName() {
 	}
 
 
-	/** Match Route/System tabs: subtle scrollbar UI on the prospector log table only. */
-	private static void installSubtleScrollBarsOnProspectorLog(JScrollPane sp) {
+	/** Match Route/System tabs: subtle scrollbar UI on overlay tables. */
+	private static void installSubtleOverlayScrollBars(JScrollPane sp) {
 		if (sp == null) {
 			return;
 		}
