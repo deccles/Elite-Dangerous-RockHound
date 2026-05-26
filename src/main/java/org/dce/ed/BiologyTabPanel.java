@@ -76,6 +76,8 @@ public class BiologyTabPanel extends JPanel {
     private static final Color BIO_MAP_ACTIVE_SAMPLE = new Color(0x40, 0xE0, 0x70);
     /** Biology map: parked pins from a species left incomplete after switching genus (in-game purple cue). */
     private static final Color BIO_MAP_ABANDONED_SAMPLE = new Color(0xB8, 0x70, 0xE8);
+    /** Parked pins for the genus currently being sampled again: useful history, but not current progress. */
+    private static final Color BIO_MAP_RESUMED_GENUS_HISTORY = EdoUi.Internal.GRAY_180;
 
     /** After a Sample scan, skip "Entering clonal colony" (new sample point lands at your feet). */
     private static final long SUPPRESS_ENTER_AFTER_SAMPLE_MS = 5_000L;
@@ -1376,15 +1378,12 @@ private final class BioMapPanel extends JPanel {
             g2.setColor(Color.BLACK);
             g2.draw(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
 
-            // Sample pins: abandoned (purple) from prior incomplete genus, then active incomplete (green).
+            // Sample pins: parked history first, then active incomplete scans.
             java.util.List<BioRow> rows = model.getRowsSnapshot();
             boolean haveAbandonedPins = false;
             if (showParkedPins && abandonedByKey != null) {
                 for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
                     if (e.getValue() == null || e.getValue().isEmpty()) {
-                        continue;
-                    }
-                    if (activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())) {
                         continue;
                     }
                     haveAbandonedPins = true;
@@ -1413,9 +1412,6 @@ private final class BioMapPanel extends JPanel {
                 if (showParkedPins && abandonedByKey != null) {
                     for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
                         if (e.getValue() == null || e.getValue().isEmpty()) {
-                            continue;
-                        }
-                        if (activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())) {
                             continue;
                         }
                         for (BodyInfo.BioSamplePoint p : e.getValue()) {
@@ -1453,12 +1449,12 @@ private final class BioMapPanel extends JPanel {
                         if (e.getValue() == null || e.getValue().isEmpty()) {
                             continue;
                         }
-                        if (activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())) {
-                            continue;
-                        }
                         String hint = BiologyTabPanel.mapPinSpeciesHint(e.getKey());
+                        Color parkedColor = activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())
+                                ? BIO_MAP_RESUMED_GENUS_HISTORY
+                                : BIO_MAP_ABANDONED_SAMPLE;
                         for (BodyInfo.BioSamplePoint p : e.getValue()) {
-                            drawBioSampleRay(g2, cx, cy, scale, BIO_MAP_ABANDONED_SAMPLE, BIO_MAP_ABANDONED_SAMPLE, p, hint);
+                            drawBioSampleRay(g2, cx, cy, scale, parkedColor, parkedColor, p, hint);
                         }
                     }
                 }
