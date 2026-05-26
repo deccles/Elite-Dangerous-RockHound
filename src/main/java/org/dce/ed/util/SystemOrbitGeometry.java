@@ -73,7 +73,7 @@ public final class SystemOrbitGeometry {
 
     /**
      * Same as {@link #bodyPositionsMetres(Map)} but mean anomaly is evolved to {@code now} using journal period/epoch
-     * when present, otherwise a schematic period from semi-major axis (or arrival distance) and a fixed reference epoch.
+     * when present.
      */
     public static Map<Integer, double[]> bodyPositionsMetres(Map<Integer, BodyInfo> bodies, Instant now) {
         return bodyPositionsMetres(bodies, now, false);
@@ -90,12 +90,11 @@ public final class SystemOrbitGeometry {
         if (bodies == null || bodies.isEmpty()) {
             return memo;
         }
-        boolean loneStarSchematic = shouldApplyLoneStarSchematicLayout(bodies);
         int maxDepth = bodies.size() + 32;
         Instant t = now != null ? now : Instant.now();
         for (Integer id : bodies.keySet()) {
             if (id != null) {
-                positionRecursive(id.intValue(), bodies, memo, visiting, t, freezeBarycentreStars, loneStarSchematic,
+                positionRecursive(id.intValue(), bodies, memo, visiting, t, freezeBarycentreStars, false,
                         0, maxDepth);
             }
         }
@@ -6021,23 +6020,6 @@ public final class SystemOrbitGeometry {
     static double[] orbitalDisplacementMetres(BodyInfo b, int mapBodyId, Instant now,
             Map<Integer, BodyInfo> bodies, boolean freezeBarycentreStars) {
         int pId = bodies != null ? resolveOrbitParentBodyId(b, bodies, mapBodyId) : -1;
-        /*
-         * Schematic map motion: planets/moons orbit in the X/Y plane at journal distance. Journal Kepler elements are
-         * often barycentric or high-inclination — 3D Kepler barely moves in the 2D projection (looks frozen) while a
-         * mis-tagged gas giant can still get a spiky Kepler stroke.
-         */
-        if (bodies != null && shouldApplyLoneStarSchematicLayout(bodies) && !isMapStellarBody(b)) {
-            int central = schematicCentralStarMapKey(bodies);
-            if (central >= 0 && pId == central) {
-                return pseudoOffsetMetresAtTime(b, mapBodyId, bodies, central, now, freezeBarycentreStars);
-            }
-            if (isPlanetBinaryBarycentreMapKey(pId)) {
-                int nullId = journalNullIdFromPlanetBinaryBarycentreMapKey(pId);
-                double[] starPos = central >= 0 ? new double[] { 0.0, 0.0, 0.0 } : null;
-                return planetBinaryOffsetFromBarycentreMetres(b, mapBodyId, bodies, nullId, now, 0, 1,
-                        freezeBarycentreStars, starPos, null);
-            }
-        }
         Double aObj = b.getSemiMajorAxisM();
         if (aObj != null && aObj.doubleValue() > 0 && !Double.isNaN(aObj.doubleValue())) {
             double M = freezeBarycentreStars && isBarycentreOrbitingStar(b, bodies, mapBodyId)

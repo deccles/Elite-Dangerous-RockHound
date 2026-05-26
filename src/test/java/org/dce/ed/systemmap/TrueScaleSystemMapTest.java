@@ -8,6 +8,7 @@ import static org.dce.ed.testutil.OrbitGeometryTestSupport.assertCompanionCluste
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -164,6 +165,19 @@ class TrueScaleSystemMapTest {
                 "true-scale single star should include per-body and/or star concentric rings");
     }
 
+    @Test
+    @DisplayName("True scale single-star: Kepler planet dot sits on its Kepler orbit stroke")
+    void singleStar_trueScale_keplerPlanetDotSitsOnOrbitStroke() {
+        Map<Integer, BodyInfo> singleBodies = singleStarWithKeplerPlanet();
+        SystemMapModel model = SystemMapPipeline.build("Test Single Star", singleBodies, Instant.EPOCH, false,
+                MapScaleMode.TRUE_SCALE);
+        OrbitPolylineWorldXY orbit = findOrbitPolyline(model.orbitPolylines(), 1);
+        assertNotNull(orbit, "true-scale single-star planet should get a per-body orbit stroke");
+
+        double missLs = minDistanceToPolylineLs(model.mapPlaneX(1), model.mapPlaneY(1), orbit);
+        assertTrue(missLs < 1.0, "planet dot should sit on its true-scale orbit stroke; miss=" + missLs + " Ls");
+    }
+
     private static boolean hasOrbitStrokeForBody(SystemMapModel model, int bodyId) {
         for (OrbitPolylineWorldXY poly : model.orbitPolylines()) {
             if (poly != null && poly.bodyId == bodyId && poly.wx != null && poly.wx.length >= 3) {
@@ -194,6 +208,59 @@ class TrueScaleSystemMapTest {
             }
         }
         return false;
+    }
+
+    private static Map<Integer, BodyInfo> singleStarWithKeplerPlanet() {
+        Map<Integer, BodyInfo> out = new LinkedHashMap<>();
+        BodyInfo star = new BodyInfo();
+        star.setBodyId(0);
+        star.setBodyName("Test Single Star");
+        star.setBodyShortName("Test Single Star");
+        star.setDistanceLs(0.0);
+        star.setStarType("M");
+        out.put(Integer.valueOf(0), star);
+
+        BodyInfo planet = new BodyInfo();
+        planet.setBodyId(1);
+        planet.setBodyName("Test Single Star 1");
+        planet.setBodyShortName("1");
+        planet.setPlanetClass("Icy body");
+        planet.setImmediateParentBodyId(0);
+        planet.setDistanceLs(500.0);
+        planet.setSemiMajorAxisM(120_000_000_000.0);
+        planet.setEccentricity(0.25);
+        planet.setOrbitalInclination(12.0);
+        planet.setAscendingNode(33.0);
+        planet.setPeriapsis(140.0);
+        planet.setMeanAnomaly(82.0);
+        planet.setOrbitalPeriod(50_000_000.0);
+        out.put(Integer.valueOf(1), planet);
+        return out;
+    }
+
+    private static double minDistanceToPolylineLs(double x, double y, OrbitPolylineWorldXY poly) {
+        if (poly == null || poly.wx == null || poly.wy == null || poly.wx.length < 2) {
+            return Double.POSITIVE_INFINITY;
+        }
+        double best = Double.POSITIVE_INFINITY;
+        for (int i = 0; i < poly.wx.length; i++) {
+            int j = (i + 1) % poly.wx.length;
+            best = Math.min(best, pointSegmentDistance(x, y, poly.wx[i], poly.wy[i], poly.wx[j], poly.wy[j]));
+        }
+        return best / LS;
+    }
+
+    private static double pointSegmentDistance(double px, double py, double ax, double ay, double bx, double by) {
+        double vx = bx - ax;
+        double vy = by - ay;
+        double wx = px - ax;
+        double wy = py - ay;
+        double len2 = vx * vx + vy * vy;
+        if (!(len2 > 0.0)) {
+            return Math.hypot(px - ax, py - ay);
+        }
+        double t = Math.max(0.0, Math.min(1.0, (wx * vx + wy * vy) / len2));
+        return Math.hypot(px - (ax + t * vx), py - (ay + t * vy));
     }
 
     @Test
