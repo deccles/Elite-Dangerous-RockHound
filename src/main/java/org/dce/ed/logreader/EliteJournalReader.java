@@ -30,6 +30,9 @@ import org.dce.ed.logreader.event.SupercruiseExitEvent;
  */
 public class EliteJournalReader {
 
+    private static final int STATUS_JSON_READ_ATTEMPTS = 3;
+    private static final long STATUS_JSON_RETRY_DELAY_MS = 75L;
+
     private final EliteLogParser parser = new EliteLogParser();
     private final Path journalDirectory;
 
@@ -70,9 +73,10 @@ public class EliteJournalReader {
         // Optionally also pull in Status.json as a single StatusEvent "snapshot"
         Path status = EliteLogFileLocator.findStatusFile(journalDirectory);
         if (status != null) {
-            String json = Files.readString(status, StandardCharsets.UTF_8);
-            EliteLogEvent statusEvent = parser.parseRecord(json);
-            events.add(statusEvent);
+            EliteLogEvent statusEvent = readStatusSnapshotWithRetry(status);
+            if (statusEvent != null) {
+                events.add(statusEvent);
+            }
         }
 
         events.sort(Comparator.comparing(EliteLogEvent::getTimestamp));
@@ -224,21 +228,41 @@ public class EliteJournalReader {
         // Also consider Status.json if its timestamp matches the given date.
         Path status = EliteLogFileLocator.findStatusFile(journalDirectory);
         if (status != null) {
-            try {
-                String json = Files.readString(status, StandardCharsets.UTF_8);
-                EliteLogEvent statusEvent = parser.parseRecord(json);
+            EliteLogEvent statusEvent = readStatusSnapshotWithRetry(status);
+            if (statusEvent != null) {
                 Instant ts = statusEvent.getTimestamp();
 //                LocalDate statusDate = ts.atZone(zone).toLocalDate();
 //                if (statusDate.equals(date)) {
                     events.add(statusEvent);
                     events.sort(Comparator.comparing(EliteLogEvent::getTimestamp));
 //                }
-            } catch (Exception ex) {
-                // ignore status parsing errors for this filtered view
             }
         }
 
         return events;
+    }
+
+    private EliteLogEvent readStatusSnapshotWithRetry(Path status) {
+        for (int attempt = 1; attempt <= STATUS_JSON_READ_ATTEMPTS; attempt++) {
+            try {
+                String json = Files.readString(status, StandardCharsets.UTF_8);
+                if (json == null || json.isBlank()) {
+                    throw new IllegalStateException("Status.json was empty");
+                }
+                return parser.parseRecord(json);
+            } catch (Exception ex) {
+                if (attempt >= STATUS_JSON_READ_ATTEMPTS) {
+                    return null;
+                }
+                try {
+                    Thread.sleep(STATUS_JSON_RETRY_DELAY_MS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     /**

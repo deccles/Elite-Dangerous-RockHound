@@ -80,6 +80,18 @@ class EliteJournalReaderTest {
         assertEquals(222L, jump.getSystemAddress());
     }
 
+    @Test
+    void readAllEvents_skipsTransientInvalidStatusJsonAfterRetry() throws Exception {
+        writeJournal(1, eventLine("ReceiveText", "2026-03-27T12:01:00Z", "\"Message\":\"journal event\""));
+        Files.writeString(tempDir.resolve("Status.json"), "null", StandardCharsets.UTF_8);
+
+        EliteJournalReader reader = new EliteJournalReader(tempDir);
+        List<EliteLogEvent> events = reader.readAllEvents();
+
+        assertEquals(1, events.size());
+        assertEquals(EliteEventType.RECEIVE_TEXT, events.get(0).getType());
+    }
+
     private void writeJournal(int seq, String... lines) throws IOException {
         String filename = String.format("Journal.2026-03-27T1200%02d.01.log", Integer.valueOf(seq));
         Path file = tempDir.resolve(filename);
