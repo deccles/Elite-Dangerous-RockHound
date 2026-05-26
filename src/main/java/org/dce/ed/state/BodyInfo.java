@@ -54,6 +54,24 @@ public class BodyInfo {
 		return s;
 	}
 
+	private static String canonBioGenusKey(String raw) {
+		String key = canonBioName(raw);
+		if (key.isEmpty()) {
+			return key;
+		}
+		int idx = key.indexOf(' ');
+		return (idx < 0 ? key : key.substring(0, idx)).toLowerCase(Locale.ROOT);
+	}
+
+	private void removeAbandonedBioSamplePointsForGenus(String displayName) {
+		String genus = canonBioGenusKey(displayName);
+		if (genus.isEmpty() || abandonedBioSamplePointsByDisplayName.isEmpty()) {
+			return;
+		}
+		abandonedBioSamplePointsByDisplayName.entrySet()
+				.removeIf(e -> e.getKey() != null && genus.equals(canonBioGenusKey(e.getKey())));
+	}
+
 	/**
 	 * When the journal sends a genus-only display name (e.g. "Osseus" with no species),
 	 * resolve to an existing incomplete same-genus key if one exists, so we add the
@@ -661,7 +679,12 @@ public class BodyInfo {
 	        String st = scanType.trim().toLowerCase(Locale.ROOT);
 	        if (st.equals("analyse") || st.equals("analyze")) {
 	            bioSampleCountsByDisplayName.put(key, Integer.valueOf(3));
-	            observedBioDisplayNames.add(displayName);
+	            addObservedBioDisplayName(displayName);
+	            if (activeIncompleteBioKey != null
+	            		&& canonBioGenusKey(activeIncompleteBioKey).equals(canonBioGenusKey(key))) {
+	            	activeIncompleteBioKey = null;
+	            }
+	            removeAbandonedBioSamplePointsForGenus(key);
 	            return;
 	        }
 	    }
@@ -815,7 +838,7 @@ public class BodyInfo {
 		if ("analyse".equals(st) || "analyze".equals(st)) {
 			// When analyzed, the sample is complete; keep whatever points we already captured.
 			activeIncompleteBioKey = null;
-			abandonedBioSamplePointsByDisplayName.remove(key);
+			removeAbandonedBioSamplePointsForGenus(key);
 			return;
 		}
 

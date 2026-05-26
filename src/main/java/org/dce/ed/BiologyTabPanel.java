@@ -264,13 +264,11 @@ if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
                 break;
             }
         }
-        if (!anyPartialScan) {
-            body.clearParkedBioSampleStateWhenIdle();
-        }
         model.setRows(rows);
-        mapPanel.setAbandonedSamplePins(body.getAbandonedBioSamplePointsSnapshot());
+        Map<String, List<BodyInfo.BioSamplePoint>> abandonedPins = body.getAbandonedBioSamplePointsSnapshot();
+        mapPanel.setAbandonedSamplePins(abandonedPins);
         mapPanel.setActiveIncompleteBioKey(body.getActiveIncompleteBioKey());
-        mapPanel.setShowParkedPins(anyPartialScan);
+        mapPanel.setShowParkedPins(anyPartialScan || !abandonedPins.isEmpty());
 
         center.updateFixedTableHeight(table, model);
         if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
@@ -1291,7 +1289,7 @@ private final class BioMapPanel extends JPanel {
     /** Parked sample locations (canonical display-name key → points). */
     private Map<String, List<BodyInfo.BioSamplePoint>> abandonedByKey = Collections.emptyMap();
     private String activeIncompleteBioKey;
-    /** Purple “parked” pins only while some species is 1/3 or 2/3 (another genus may have been left behind). */
+    /** Purple “parked” pins from incomplete genera left behind when switching scans. */
     private boolean showParkedPins;
 
     private BioMapPanel() {
