@@ -341,6 +341,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		}
 		// Only update on carrier events; ignore everything else so ship jumps / NavRoute don't affect this tab.
 		if (event instanceof CarrierJumpRequestEvent req) {
+			applyScheduledJumpDestinationIfNeeded(req);
 			startPendingJumpBlink(req.getSystemName(), req.getSystemAddress(), req.getDepartureTime());
 			return;
 		}
@@ -364,6 +365,49 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 				super.handleLogEvent(event);
 				SwingUtilities.invokeLater(() -> copyNextSystemFromBaseRoute(loc.getSystemAddress()));
 			}
+		}
+	}
+
+	void applyScheduledJumpDestinationIfNeeded(CarrierJumpRequestEvent req) {
+		if (req == null || spanshRouteLoaded || destinationField == null) {
+			return;
+		}
+		String current = destinationField.getText();
+		if (current != null && !current.isBlank()) {
+			return;
+		}
+		String requestedDestination = req.getSystemName();
+		if (requestedDestination == null || requestedDestination.isBlank()) {
+			return;
+		}
+
+		Runnable update = () -> {
+			if (spanshRouteLoaded) {
+				return;
+			}
+			String latest = destinationField.getText();
+			if (latest != null && !latest.isBlank()) {
+				return;
+			}
+			destinationField.setText(requestedDestination.trim());
+			statusLabel.setText("Destination set from scheduled carrier jump.");
+			fireSessionStateChanged();
+		};
+
+		if (SwingUtilities.isEventDispatchThread()) {
+			update.run();
+		} else {
+			SwingUtilities.invokeLater(update);
+		}
+	}
+
+	String destinationQueryForTests() {
+		return destinationField != null ? destinationField.getText() : null;
+	}
+
+	void setDestinationQueryForTests(String destination) {
+		if (destinationField != null) {
+			destinationField.setText(destination != null ? destination : "");
 		}
 	}
 
