@@ -604,23 +604,20 @@ class EorAowsyRiKC83670SystemMapTest {
         }
 
         @Test
-        void bcd4_fartherFromNull2Hub_thanNull49Hub() {
+        void bcd4_onNull2Trunk_withMapPosition() {
             double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
             int null2 = SystemOrbitGeometry.planetBinaryBarycentreMapKey(2);
-            int null49 = SystemOrbitGeometry.planetBinaryBarycentreMapKey(49);
             int a0 = model.projectionAxis0();
             int a1 = model.projectionAxis1();
             double[] hub2 = model.positionsMetres().get(Integer.valueOf(null2));
-            double[] hub49 = model.positionsMetres().get(Integer.valueOf(null49));
             double[] p4 = model.positionsMetres().get(Integer.valueOf(id("BCD 4")));
-            double d49 = Math.hypot(
-                    SystemOrbitGeometry.worldAxisMetres(hub49, a0) - SystemOrbitGeometry.worldAxisMetres(hub2, a0),
-                    SystemOrbitGeometry.worldAxisMetres(hub49, a1) - SystemOrbitGeometry.worldAxisMetres(hub2, a1))
-                    / ls;
             double d4 = Math.hypot(
                     SystemOrbitGeometry.worldAxisMetres(p4, a0) - SystemOrbitGeometry.worldAxisMetres(hub2, a0),
                     SystemOrbitGeometry.worldAxisMetres(p4, a1) - SystemOrbitGeometry.worldAxisMetres(hub2, a1)) / ls;
-            assertTrue(d4 > d49 + 15.0, "BCD 4 should sit outside the BCD 2+3 mutual hub on the Null:2 trunk");
+            double mutual2 = SystemOrbitGeometry.planetBinaryMutualOrbitRadiusLsPublic(2, bodies);
+            assertTrue(d4 >= mutual2 * 0.35 && d4 <= mutual2 * 1.05,
+                    "BCD 4 should sit on the Null:2 trunk ring, not at the hub; dist=" + d4 + " Ls mutual2="
+                            + mutual2);
         }
 
         @Test

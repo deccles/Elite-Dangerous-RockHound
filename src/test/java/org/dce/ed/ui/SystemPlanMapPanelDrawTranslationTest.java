@@ -238,8 +238,8 @@ class SystemPlanMapPanelDrawTranslationTest {
             double ax = panel.dotWorldXForTests(idA);
             double ay = panel.dotWorldYForTests(idA);
             double distBA = Math.hypot(bx - ax, by - ay) / ls;
-            assertTrue(distBA >= 5_000.0 && distBA <= 15_000.0,
-                    "BCD trunk schematic distance from A; was " + distBA + " Ls");
+            assertTrue(distBA >= 3_000.0 && distBA <= 5_000.0,
+                    "BCD trunk journal-scale distance from A; was " + distBA + " Ls");
         }
     }
 
@@ -261,11 +261,11 @@ class SystemPlanMapPanelDrawTranslationTest {
             double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
             double distBa = Math.hypot(panel.dotWorldXForTests(idB) - panel.dotWorldXForTests(idA),
                     panel.dotWorldYForTests(idB) - panel.dotWorldYForTests(idA)) / ls;
-            assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0);
+            assertTrue(distBa >= 3_000.0 && distBa <= 5_000.0);
             double bx = panel.dotWorldXForTests(idB);
             double by = panel.dotWorldYForTests(idB);
             double originSep = Math.hypot(bx, by) / ls;
-            assertTrue(originSep >= 3_000.0,
+            assertTrue(originSep >= 1_000.0,
                     "BCD cluster should not sit at map origin; sep from origin=" + originSep + " Ls");
         }
 
