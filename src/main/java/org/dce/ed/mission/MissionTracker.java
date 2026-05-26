@@ -198,26 +198,41 @@ public final class MissionTracker {
         return changed || !activeIds.isEmpty();
     }
 
+    public boolean hasDetailsPending() {
+        for (MissionRecord r : activeById.values()) {
+            if (r.isDetailsPending() || (r.isCommodityMission() && r.getCommodityLocalised() == null)) {
+                return true;
+            }
+            if (r.getCategory() == MissionCategory.COMMODITY
+                    && (r.getCommodityLocalised() == null || r.getCommodityLocalised().isBlank())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
-     * Replays mission-related journal lines from the current session file when the tracker is empty
-     * (e.g. after {@link org.dce.ed.OverlayContentPanel#rebuildTabbedPane()}).
+     * Replays mission-related journal lines. Use full history when active missions only came from
+     * {@code Missions} snapshots, since those snapshots omit commodity, count, destination, and reward.
      */
-    public boolean replayMissionEventsFromCurrentJournalFile(String clientKey) {
+    public boolean replayMissionEventsFromJournals(String clientKey, boolean fullHistory) {
         Path dir = OverlayPreferences.resolveJournalDirectory(clientKey);
         if (dir == null) {
             return false;
         }
         try {
             EliteJournalReader reader = new EliteJournalReader(dir);
-            List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(1);
+            List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(fullHistory ? Integer.MAX_VALUE : 1);
             if (events.isEmpty()) {
                 return false;
             }
             int start = 0;
-            for (int i = events.size() - 1; i >= 0; i--) {
-                if (events.get(i).getType() == EliteEventType.LOAD_GAME) {
-                    start = i;
-                    break;
+            if (!fullHistory) {
+                for (int i = events.size() - 1; i >= 0; i--) {
+                    if (events.get(i).getType() == EliteEventType.LOAD_GAME) {
+                        start = i;
+                        break;
+                    }
                 }
             }
             Runnable savedCallback = changeCallback;
@@ -249,6 +264,14 @@ public final class MissionTracker {
         } catch (IOException ex) {
             return false;
         }
+    }
+
+    /**
+     * Replays mission-related journal lines from the current session file when the tracker is empty
+     * (e.g. after {@link org.dce.ed.OverlayContentPanel#rebuildTabbedPane()}).
+     */
+    public boolean replayMissionEventsFromCurrentJournalFile(String clientKey) {
+        return replayMissionEventsFromJournals(clientKey, false);
     }
 
     private boolean removeMission(long missionId) {

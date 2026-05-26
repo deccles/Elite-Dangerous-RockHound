@@ -254,12 +254,8 @@ public class SystemTabPanel extends JPanel {
     private JButton orbitAnimStopButton;
     /** Avoid pause handler when Stop programmatically deselects Play. */
     private boolean orbitAnimSuppressPlayToggleHandler;
-    private JButton mapSchematicButton;
-    private JButton mapTrueScaleButton;
     private JSlider mapViewTiltSlider;
     private JLabel mapViewTiltValueLabel;
-    private boolean mapSchematicHovered;
-    private boolean mapTrueScaleHovered;
     private JButton orbitAnimSpeedDownButton;
     private JButton orbitAnimSpeedUpButton;
     private JLabel orbitAnimSpeedValueLabel;
@@ -803,51 +799,9 @@ public class SystemTabPanel extends JPanel {
         JPanel mapToolbar = new JPanel(new FlowLayout(FlowLayout.TRAILING, 8, 2));
         mapToolbar.setOpaque(true);
         mapToolbar.setBackground(EdoUi.User.PANEL_BG);
-        JLabel mapScaleLabel = new JLabel("Map:");
-        mapScaleLabel.setForeground(EdoUi.User.MAIN_TEXT);
-        mapSchematicButton = new JButton("Schematic");
-        mapTrueScaleButton = new JButton("True scale");
-        configureMapScaleToggleButton(mapSchematicButton,
-                "Compressed layout; concentric rings at the star for outer planets.");
-        configureMapScaleToggleButton(mapTrueScaleButton,
-                "Journal distances in metres (Ls on ruler). Wide binaries need heavy zoom.");
-        alignMapScaleToggleButtonWidths(mapSchematicButton, mapTrueScaleButton);
-        mapSchematicButton.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                mapSchematicHovered = true;
-                updateMapScaleToggleAppearance();
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                mapSchematicHovered = false;
-                updateMapScaleToggleAppearance();
-            }
-        });
-        mapTrueScaleButton.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                mapTrueScaleHovered = true;
-                updateMapScaleToggleAppearance();
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                mapTrueScaleHovered = false;
-                updateMapScaleToggleAppearance();
-            }
-        });
-        mapSchematicButton.addActionListener(e -> applyMapScaleMode(org.dce.ed.systemmap.MapScaleMode.SCHEMATIC));
-        mapTrueScaleButton.addActionListener(e -> applyMapScaleMode(org.dce.ed.systemmap.MapScaleMode.TRUE_SCALE));
-        org.dce.ed.systemmap.MapScaleMode savedMapScale = OverlayPreferences.getSystemPlanMapScaleMode();
-        systemPlanMapPanel.setMapScaleMode(savedMapScale);
+        systemPlanMapPanel.setMapScaleMode(org.dce.ed.systemmap.MapScaleMode.TRUE_SCALE);
         int savedViewTilt = OverlayPreferences.getSystemPlanMapViewTiltDegrees();
         systemPlanMapPanel.setViewTiltDegrees(savedViewTilt, false);
-        updateMapScaleToggleAppearance();
-        mapToolbar.add(mapScaleLabel);
-        mapToolbar.add(mapSchematicButton);
-        mapToolbar.add(mapTrueScaleButton);
         JLabel mapViewTiltLabel = new JLabel("View:");
         mapViewTiltLabel.setForeground(EdoUi.User.MAIN_TEXT);
         mapViewTiltSlider = new JSlider(0, 90, savedViewTilt);
@@ -856,14 +810,13 @@ public class SystemTabPanel extends JPanel {
         mapViewTiltSlider.setMajorTickSpacing(45);
         mapViewTiltSlider.setPaintTicks(true);
         mapViewTiltSlider.setToolTipText(
-                "True scale only: tilt the 3D view from top-down (0°) toward edge-on (90°) to open squashed orbits.");
+                "Tilt the 3D view from top-down (0°) toward edge-on (90°) to open squashed orbits.");
         mapViewTiltValueLabel = new JLabel(savedViewTilt + "°");
         mapViewTiltValueLabel.setForeground(EdoUi.User.MAIN_TEXT);
         mapViewTiltSlider.addChangeListener(e -> onMapViewTiltSliderChanged());
         mapToolbar.add(mapViewTiltLabel);
         mapToolbar.add(mapViewTiltSlider);
         mapToolbar.add(mapViewTiltValueLabel);
-        updateMapViewTiltControlsEnabled();
         orbitAnimPlayButton = new JToggleButton();
         orbitAnimPlayButton.setText(null);
         orbitAnimPlayButton.setForeground(EdoUi.User.MAIN_TEXT);
@@ -873,7 +826,7 @@ public class SystemTabPanel extends JPanel {
         orbitAnimPlayButton.setFocusable(false);
         orbitAnimPlayButton.setFocusPainted(false);
         orbitAnimPlayButton.setToolTipText(
-                "Fast-forward schematic orbits (approximate journal elements; not real flight time). "
+                "Fast-forward true-scale orbits (approximate journal elements; not real flight time). "
                         + "Use the chevron buttons to change how fast model time runs.");
         orbitAnimPlayButton.addItemListener(ev -> {
             if (orbitAnimSuppressPlayToggleHandler) {
@@ -4339,13 +4292,6 @@ static class Row {
             return false;
         }
     }
-    private void applyMapScaleMode(org.dce.ed.systemmap.MapScaleMode mode) {
-        systemPlanMapPanel.setMapScaleMode(mode);
-        updateMapScaleToggleAppearance();
-        updateMapViewTiltControlsEnabled();
-        refreshPlanMap();
-    }
-
     private void onMapViewTiltSliderChanged() {
         if (mapViewTiltSlider == null || mapViewTiltValueLabel == null) {
             return;
@@ -4357,70 +4303,6 @@ static class Row {
         }
         boolean persist = !mapViewTiltSlider.getValueIsAdjusting();
         systemPlanMapPanel.setViewTiltDegrees(deg, persist);
-    }
-
-    private void updateMapViewTiltControlsEnabled() {
-        if (mapViewTiltSlider == null) {
-            return;
-        }
-        boolean trueScale = systemPlanMapPanel != null
-                && systemPlanMapPanel.mapScaleMode() == org.dce.ed.systemmap.MapScaleMode.TRUE_SCALE;
-        mapViewTiltSlider.setEnabled(trueScale);
-    }
-
-    private void configureMapScaleToggleButton(JButton b, String tooltip) {
-        configureDistModeToggleButton(b, tooltip);
-        b.setOpaque(true);
-        b.setBackground(EdoUi.User.PANEL_BG);
-    }
-
-    /** Equal widths so FlowLayout never stacks the two labels on top of each other. */
-    private static void alignMapScaleToggleButtonWidths(JButton schematic, JButton trueScale) {
-        int w = Math.max(schematic.getPreferredSize().width, trueScale.getPreferredSize().width);
-        int h = Math.max(schematic.getPreferredSize().height, trueScale.getPreferredSize().height);
-        Dimension size = new Dimension(w, h);
-        for (JButton b : new JButton[] { schematic, trueScale }) {
-            b.setPreferredSize(size);
-            b.setMinimumSize(size);
-        }
-    }
-
-    private void updateMapScaleToggleAppearance() {
-        if (mapSchematicButton == null || mapTrueScaleButton == null) {
-            return;
-        }
-        boolean trueScale = systemPlanMapPanel.mapScaleMode().trueScale();
-        applyMapScaleToggleButtonChrome(mapSchematicButton, !trueScale, mapSchematicHovered);
-        applyMapScaleToggleButtonChrome(mapTrueScaleButton, trueScale, mapTrueScaleHovered);
-        mapSchematicButton.repaint();
-        mapTrueScaleButton.repaint();
-        updateMapViewTiltControlsEnabled();
-    }
-
-    /**
-     * Map scale toggles stay fully opaque so the adjacent button label and map below cannot show through
-     * (transparent {@link JButton}s in a transparent toolbar caused ghosted text).
-     */
-    private void applyMapScaleToggleButtonChrome(JButton b, boolean selected, boolean hovered) {
-        Color ink = EdoUi.User.MAIN_TEXT;
-        Color hoverLine = EdoUi.Internal.MAIN_TEXT_ALPHA_200;
-        Color hoverFill = EdoUi.Internal.MAIN_TEXT_ALPHA_40;
-        b.setOpaque(true);
-        if (selected) {
-            b.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(ink, hovered ? 2 : 1),
-                    new EmptyBorder(hovered ? 1 : 2, 3, hovered ? 1 : 2, 3)));
-            b.setBackground(hovered ? hoverFill : EdoUi.User.PANEL_BG);
-        } else if (hovered) {
-            b.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(hoverLine, 1),
-                    new EmptyBorder(2, 4, 2, 4)));
-            b.setBackground(hoverFill);
-        } else {
-            b.setBorder(new EmptyBorder(3, 5, 3, 5));
-            b.setBackground(EdoUi.User.PANEL_BG);
-        }
-        b.setCursor(Cursor.getPredefinedCursor(hovered ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
     }
 
     private void configureDistModeToggleButton(JButton b, String tooltip) {

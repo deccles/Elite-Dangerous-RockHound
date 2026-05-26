@@ -277,13 +277,22 @@ public class MissionsTabPanel extends JPanel {
     }
 
     /**
-     * After tab rebuild or empty persisted state, rebuild the board from the current journal session file.
+     * After tab rebuild or sparse persisted state, rebuild the board from journals.
      */
     public void hydrateTrackerFromJournalIfNeeded(String clientKey) {
-        if (clientKey == null || clientKey.isBlank() || !tracker.getActive().isEmpty()) {
+        if (clientKey == null || clientKey.isBlank()) {
             return;
         }
-        if (tracker.replayMissionEventsFromCurrentJournalFile(clientKey)) {
+        boolean changed = false;
+        if (tracker.hasDetailsPending()) {
+            changed = tracker.replayMissionEventsFromJournals(clientKey, true);
+        } else {
+            changed = tracker.replayMissionEventsFromJournals(clientKey, false);
+            if (tracker.hasDetailsPending()) {
+                changed = tracker.replayMissionEventsFromJournals(clientKey, true) || changed;
+            }
+        }
+        if (changed) {
             scheduleRefresh();
         }
     }

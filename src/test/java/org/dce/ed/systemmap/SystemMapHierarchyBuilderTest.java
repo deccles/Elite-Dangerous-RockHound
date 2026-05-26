@@ -713,6 +713,31 @@ class SystemMapHierarchyBuilderTest {
     }
 
     @Test
+    void coeus_schematicPlayback_missingOrbitalPeriodsStayStable() throws IOException {
+        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
+        Map<Integer, BodyInfo> bodies = coeus.toBodies();
+        int idA4 = coeus.bodyIdByLabel("A 4");
+        int idA5 = coeus.bodyIdByLabel("A 5");
+        bodies.get(Integer.valueOf(idA4)).setOrbitalPeriod(null);
+        bodies.get(Integer.valueOf(idA5)).setOrbitalPeriod(null);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, true,
+                MapScaleMode.SCHEMATIC);
+        Instant tLater = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(365));
+        Map<Integer, double[]> pos0 = SystemMapPipeline.refreshPositionsForPlayback(model,
+                SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, true), Instant.EPOCH, true);
+        Map<Integer, double[]> pos1 = SystemMapPipeline.refreshPositionsForPlayback(model,
+                SystemOrbitGeometry.bodyPositionsMetres(bodies, tLater, true), tLater, true);
+        double a4MovedLs = mapPlaneSeparationLsBetweenSameBody(pos0, pos1, idA4, model.projectionAxis0(),
+                model.projectionAxis1());
+        double a5MovedLs = mapPlaneSeparationLsBetweenSameBody(pos0, pos1, idA5, model.projectionAxis0(),
+                model.projectionAxis1());
+        assertTrue(a4MovedLs < 0.001, "A 4 without orbital period should not jump during playback; moved "
+                + a4MovedLs + " Ls");
+        assertTrue(a5MovedLs < 0.001, "A 5 without orbital period should not jump during playback; moved "
+                + a5MovedLs + " Ls");
+    }
+
+    @Test
     void coeus_trueScale_a2a3NearStarA_notOnAbChord() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
@@ -886,6 +911,16 @@ class SystemMapHierarchyBuilderTest {
     private static double mapPlaneSeparationLs(Map<Integer, double[]> positions, int idA, int idB, int a0, int a1) {
         double dx = mapPlaneCoord(positions, idB, a0) - mapPlaneCoord(positions, idA, a0);
         double dy = mapPlaneCoord(positions, idB, a1) - mapPlaneCoord(positions, idA, a1);
+        return Math.hypot(dx, dy) / SystemOrbitGeometry.LIGHT_SECOND_METRES;
+    }
+
+    private static double mapPlaneSeparationLsBetweenSameBody(Map<Integer, double[]> from,
+            Map<Integer, double[]> to,
+            int bodyId,
+            int a0,
+            int a1) {
+        double dx = mapPlaneCoord(to, bodyId, a0) - mapPlaneCoord(from, bodyId, a0);
+        double dy = mapPlaneCoord(to, bodyId, a1) - mapPlaneCoord(from, bodyId, a1);
         return Math.hypot(dx, dy) / SystemOrbitGeometry.LIGHT_SECOND_METRES;
     }
 }

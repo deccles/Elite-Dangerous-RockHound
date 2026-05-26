@@ -30,10 +30,7 @@ public final class SystemOrbitGeometry {
     /** Elite "Ls" length in metres (one light-second). */
     public static final double LIGHT_SECOND_METRES = 299792458.0;
 
-    /** Standard gravitational parameter (m³/s²) for schematic period from semi-major axis. */
-    private static final double STANDARD_GRAVITATIONAL_PARAMETER_SUN_M3_S2 = 1.32712440018e20;
-
-    /** Reference epoch when journal {@code OrbitalEpoch} is absent — sim/wall {@code now} advances mean anomaly. */
+    /** Reference epoch when journal {@code OrbitalEpoch} is absent for bodies with explicit orbital periods. */
     private static final long SCHEMATIC_ORBIT_EPOCH_MILLIS = 946684800000L;
 
     private SystemOrbitGeometry() {
@@ -4368,6 +4365,9 @@ public final class SystemOrbitGeometry {
         Instant t = now != null ? now : Instant.now();
         double M0 = angleRad(child.getMeanAnomaly());
         double pSec = orbitalPeriodSecondsForEvolution(child);
+        if (!(pSec > 1e-6) || !Double.isFinite(pSec)) {
+            return wrapToTwoPi(M0 + (planetBinarySiblingOrderIndex(journalNullId, mapBodyId, bodies) & 1) * Math.PI);
+        }
         long epochMs = orbitalEpochMillisForEvolution(child);
         double dtSec = (t.toEpochMilli() - epochMs) / 1000.0;
         double n = (Math.PI * 2.0) / pSec;
@@ -6107,9 +6107,8 @@ public final class SystemOrbitGeometry {
     }
 
     /**
-     * Mean anomaly at {@code now}: {@code M = M0 + n Δt} with {@code n = 2π/P}. Uses journal period/epoch when
-     * present; otherwise estimates {@code P} from semi-major axis (Kepler) and a schematic epoch so schematic
-     * playback still advances bodies that only have EDSM/cache elements.
+     * Mean anomaly at {@code now}: {@code M = M0 + n Δt} with {@code n = 2π/P}. Advance only when the cache has an
+     * explicit orbital period; deriving one from radius/SMA makes sparse bodies race around the schematic map.
      */
     static double evolvedMeanAnomalyRadians(BodyInfo b, Instant now) {
         double M0 = angleRad(b.getMeanAnomaly());
@@ -6129,19 +6128,7 @@ public final class SystemOrbitGeometry {
         if (p != null && Double.isFinite(p.doubleValue()) && p.doubleValue() > 1e-6) {
             return p.doubleValue();
         }
-        Double a = b.getSemiMajorAxisM();
-        if (a != null && a.doubleValue() > 0.0 && Double.isFinite(a.doubleValue())) {
-            return keplerOrbitalPeriodSecondsFromSemiMajorAxis(a.doubleValue());
-        }
-        double distLs = b.getDistanceLs();
-        if (distLs > 0.0 && Double.isFinite(distLs)) {
-            return keplerOrbitalPeriodSecondsFromSemiMajorAxis(distLs * LIGHT_SECOND_METRES);
-        }
-        return 86400.0;
-    }
-
-    private static double keplerOrbitalPeriodSecondsFromSemiMajorAxis(double aM) {
-        return (Math.PI * 2.0) * Math.sqrt((aM * aM * aM) / STANDARD_GRAVITATIONAL_PARAMETER_SUN_M3_S2);
+        return Double.NaN;
     }
 
     private static long orbitalEpochMillisForEvolution(BodyInfo b) {

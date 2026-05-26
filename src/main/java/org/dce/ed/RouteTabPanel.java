@@ -1456,17 +1456,6 @@ public class RouteTabPanel extends JPanel {
 				}
 			}
 		}
-		// Past / current hops along the plotted route count as "visited" for icon variants even if
-		// SystemCache has not caught up yet (common right after a carrier jump).
-		if (curRow >= 0) {
-			for (int i = 0; i <= curRow && i < entries.size(); i++) {
-				RouteEntry e = entries.get(i);
-				if (e == null || e.isBodyRow) {
-					continue;
-				}
-				e.status = promoteNotVisitedToVisitedForRouteProgress(e.status);
-			}
-		}
 	}
 
 	private static RouteScanStatus promoteNotVisitedToVisitedForRouteProgress(RouteScanStatus s) {
@@ -1602,8 +1591,7 @@ public class RouteTabPanel extends JPanel {
 			tableModel.fireRowChanged(row);
 			return;
 		}
-		int curRow = tableModel.getCurrentSystemRowIndex();
-		boolean v = isVisited(live) || (curRow >= 0 && row <= curRow);
+		boolean v = isVisited(live);
 		RouteScanStatus newStatus = RouteScanStatus.UNKNOWN;
 		if (bodies != null && bodies.bodies != null) {
 			int returnedBodies = bodies.bodies.size();
@@ -1626,13 +1614,12 @@ public class RouteTabPanel extends JPanel {
 			}
 		}
 		if (newStatus != RouteScanStatus.UNKNOWN) {
-			newStatus = promoteNotVisitedToVisitedForRouteProgress(newStatus);
 			live.status = newStatus;
 			rememberScanStatus(live, newStatus);
 			tableModel.fireRowChanged(row);
 		} else if (live.status == null || live.status == RouteScanStatus.UNKNOWN) {
-			// Reached this hop per route progress but EDSM gave nothing useful — still show a visited-incomplete glyph.
-			if (curRow >= 0 && row <= curRow) {
+			// EDSM gave nothing useful. Only show a visited-incomplete glyph when local journals/cache say visited.
+			if (v) {
 				live.status = RouteScanStatus.DISCOVERY_MISSING_VISITED;
 				rememberScanStatus(live, RouteScanStatus.DISCOVERY_MISSING_VISITED);
 			} else {
@@ -1656,15 +1643,21 @@ public class RouteTabPanel extends JPanel {
 		}
 		Integer totalBodies = summary.totalBodies;
 		int knownBodies = summary.cachedBodyCount;
+		Double progress = summary.fssProgress;
+		if (progress != null && progress.doubleValue() > 0.0 && progress.doubleValue() < 1.0) {
+			return RouteScanStatus.DISCOVERY_MISSING_VISITED;
+		}
 		// If we know the system body count and we don't have them all locally -> X
 		if (totalBodies != null && totalBodies > 0 && knownBodies > 0 && knownBodies < totalBodies) {
 			return RouteScanStatus.DISCOVERY_MISSING_VISITED;
 		}
 		// If we know counts match and FSS progress says complete -> checkmark
-		Double progress = summary.fssProgress;
 		if (totalBodies != null && totalBodies > 0 && knownBodies >= totalBodies
 				&& progress != null && progress >= 1.0) {
 			return RouteScanStatus.FULLY_DISCOVERED_VISITED;
+		}
+		if (knownBodies > 0 && (totalBodies == null || totalBodies <= 0)) {
+			return RouteScanStatus.DISCOVERY_MISSING_VISITED;
 		}
 		return RouteScanStatus.UNKNOWN;
 	}
@@ -1733,7 +1726,25 @@ public class RouteTabPanel extends JPanel {
 			return false;
 		}
 		SystemCache cache = SystemCache.getInstance();
-		return cache.getSummary(entry.systemAddress, entry.systemName) != null;
+		CachedSystemSummary summary = cache.getSummary(entry.systemAddress, entry.systemName);
+		return hasLocalJournalEvidence(summary);
+	}
+
+	private static boolean hasLocalJournalEvidence(CachedSystemSummary summary) {
+		if (summary == null) {
+			return false;
+		}
+		if (summary.cachedBodyCount > 0) {
+			return true;
+		}
+		if (Boolean.TRUE.equals(summary.allBodiesFound)) {
+			return true;
+		}
+		Double progress = summary.fssProgress;
+		if (progress != null && progress.doubleValue() > 0.0) {
+			return true;
+		}
+		return false;
 	}
 
 	private String getCurrentSystemName() {
@@ -2140,17 +2151,15 @@ public class RouteTabPanel extends JPanel {
 			Integer totalBodies = tmp.getTotalBodies();
 			int knownBodies = tmp.getBodies().size();
 			Boolean all = tmp.getAllBodiesFound();
+			Double progress = tmp.getFssProgress();
 			if (Boolean.TRUE.equals(all)) {
 				journalStatus = "Complete";
+			} else if (progress != null && progress.doubleValue() > 0.0 && progress.doubleValue() < 1.0) {
+				journalStatus = "In progress";
 			} else if (knownBodies > 0) {
 				journalStatus = "In progress";
 			}
-			if (totalBodies != null && totalBodies.intValue() > 0) {
-				// Prefer observed/expected so users can see progress and target totals.
-				journalBodies = knownBodies + " / " + totalBodies.intValue();
-			} else {
-				journalBodies = Integer.toString(knownBodies);
-			}
+			journalBodies = formatJournalBodyProgress(knownBodies, totalBodies, progress);
 		}
 
 		// EDSM summary (only based on cached results from previous EDSM calls)
@@ -2193,6 +2202,24 @@ public class RouteTabPanel extends JPanel {
 				+ "Status: " + escapeHtml(edsmStatus) + "<br>"
 				+ "Body count: " + escapeHtml(edsmBodies)
 				+ "</html>";
+	}
+
+	private static String formatJournalBodyProgress(int knownBodies, Integer totalBodies, Double progress) {
+		if (totalBodies != null && totalBodies.intValue() > 0) {
+			int total = totalBodies.intValue();
+			if (progress != null && progress.doubleValue() > 0.0 && progress.doubleValue() < 1.0) {
+				int progressBodies = (int) Math.floor(progress.doubleValue() * total + 0.000001);
+				progressBodies = Math.max(0, Math.min(total, progressBodies));
+				int pct = (int) Math.round(progress.doubleValue() * 100.0);
+				return progressBodies + " / " + total + " (" + pct + "%)";
+			}
+			return knownBodies + " / " + total;
+		}
+		if (progress != null && progress.doubleValue() > 0.0 && progress.doubleValue() < 1.0) {
+			int pct = (int) Math.round(progress.doubleValue() * 100.0);
+			return Integer.toString(knownBodies) + " (" + pct + "%)";
+		}
+		return Integer.toString(knownBodies);
 	}
 
 	private static String escapeHtml(String s) {
