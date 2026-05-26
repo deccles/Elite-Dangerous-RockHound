@@ -135,6 +135,7 @@ public class PreferencesDialog extends JDialog {
 
 	// Speech-tab fields so OK can read them
 	private JCheckBox speechEnabledCheckBox;
+	private JCheckBox firstDiscoveredSystemAnnouncementCheckBox;
 	private JCheckBox speechUseAwsCheckBox;
 	private JComboBox<String> speechEngineCombo;
 	private JComboBox<String> speechVoiceCombo;
@@ -222,6 +223,7 @@ public class PreferencesDialog extends JDialog {
 		PREFERENCE_SPEECH_TEST_CLIPS = new PreferenceSpeechTestClip[] {
 				new PreferenceSpeechTestClip("Welcome commander"),
 				new PreferenceSpeechTestClip("Did you forget your limpets again commander?"),
+				new PreferenceSpeechTestClip("First Discovered System"),
 				new PreferenceSpeechTestClip("Jump complete"),
 				new PreferenceSpeechTestClip("Cooldown complete"),
 				// Prospector {n}: digits, teens, compound tens+ones, max-ish
@@ -1486,6 +1488,17 @@ public class PreferencesDialog extends JDialog {
 		gbc.gridx = 1;
 		content.add(speechEnabledCheckBox, gbc);
 
+		gbc.gridx = 0;
+		gbc.gridy++;
+		JLabel firstDiscoveredSystemAnnouncementLabel = new JLabel("First discovered system announcement:");
+		content.add(firstDiscoveredSystemAnnouncementLabel, gbc);
+		gbc.gridx = 1;
+		firstDiscoveredSystemAnnouncementCheckBox = new JCheckBox();
+		firstDiscoveredSystemAnnouncementCheckBox.setOpaque(false);
+		firstDiscoveredSystemAnnouncementCheckBox.setSelected(
+				OverlayPreferences.isFirstDiscoveredSystemAnnouncementEnabled());
+		content.add(firstDiscoveredSystemAnnouncementCheckBox, gbc);
+
 		// Voice (keep list small and “safe”) — used for Polly and for offline voice packs
 		gbc.gridx = 0;
 		gbc.gridy++;
@@ -1694,6 +1707,8 @@ public class PreferencesDialog extends JDialog {
 
 			voiceLabel.setEnabled(speechOn);
 			speechVoiceCombo.setEnabled(speechOn);
+			firstDiscoveredSystemAnnouncementLabel.setEnabled(speechOn);
+			firstDiscoveredSystemAnnouncementCheckBox.setEnabled(speechOn);
 			cacheDirLabel.setEnabled(speechOn);
 			speechCacheDirField.setEnabled(speechOn);
 			browseCacheButton.setEnabled(speechOn);
@@ -2119,6 +2134,11 @@ public class PreferencesDialog extends JDialog {
         // Speech tab
         if (speechEnabledCheckBox != null) {
             OverlayPreferences.setSpeechEnabled(speechEnabledCheckBox.isSelected());
+        }
+
+        if (firstDiscoveredSystemAnnouncementCheckBox != null) {
+            OverlayPreferences.setFirstDiscoveredSystemAnnouncementEnabled(
+                    firstDiscoveredSystemAnnouncementCheckBox.isSelected());
         }
 
         if (speechUseAwsCheckBox != null) {

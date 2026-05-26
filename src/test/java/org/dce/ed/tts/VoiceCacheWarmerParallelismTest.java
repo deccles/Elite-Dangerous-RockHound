@@ -37,4 +37,9 @@ class VoiceCacheWarmerParallelismTest {
             }
         }
     }
+
+    @Test
+    void requiredWarmupTemplatesIncludeFirstDiscoveredSystem() {
+        assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests().contains("First Discovered System"));
+    }
 }

@@ -66,6 +66,8 @@ public final class OverlayPreferences {
     private static final String KEY_SPEECH_AWS_PROFILE = "speech.awsProfile"; // optional, blank means default chain
     private static final String KEY_SPEECH_CACHE_DIR = "speech.cacheDir";
     private static final String KEY_SPEECH_SAMPLE_RATE = "speech.sampleRate"; // PCM sample rate in Hz (as string)
+    private static final String KEY_SPEECH_FIRST_DISCOVERED_SYSTEM_ENABLED =
+            "speech.announcement.firstDiscoveredSystem.enabled";
     /** Last {@link org.dce.ed.tts.VoicePackManager#SPEECH_PACK_REVISION} successfully installed while AWS synthesis was off. */
     private static final String KEY_SPEECH_PACK_INSTALLED_REVISION = "speech.packInstalledRevision";
     /** Voice id matching the last successful GitHub pack install (see {@link #KEY_SPEECH_PACK_INSTALLED_REVISION}). */
@@ -681,6 +683,14 @@ public final class OverlayPreferences {
 
     public static void setSpeechEnabled(boolean enabled) {
         PREFS.putBoolean(KEY_SPEECH_ENABLED, enabled);
+    }
+
+    public static boolean isFirstDiscoveredSystemAnnouncementEnabled() {
+        return PREFS.getBoolean(KEY_SPEECH_FIRST_DISCOVERED_SYSTEM_ENABLED, true);
+    }
+
+    public static void setFirstDiscoveredSystemAnnouncementEnabled(boolean enabled) {
+        PREFS.putBoolean(KEY_SPEECH_FIRST_DISCOVERED_SYSTEM_ENABLED, enabled);
     }
 
     

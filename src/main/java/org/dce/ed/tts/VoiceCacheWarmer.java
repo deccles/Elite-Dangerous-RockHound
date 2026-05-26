@@ -64,6 +64,8 @@ public final class VoiceCacheWarmer {
             Pattern.MULTILINE);
     private static final Pattern SPEAK_LITERAL = Pattern.compile("\\.speak(?:Blocking)?\\s*\\(\\s*\"((?:\\\\.|[^\"\\\\])*)\"", Pattern.MULTILINE);
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{([a-zA-Z0-9_]+)\\}");
+    private static final Set<String> REQUIRED_WARMUP_TEMPLATES = Set.of(
+            "First Discovered System");
 
     @FunctionalInterface
     private interface ItemWarm<T> {
@@ -83,6 +85,10 @@ public final class VoiceCacheWarmer {
     }
 
     static final String VOICE_WARM_PARALLELISM_PROPERTY = "edo.voiceWarmParallelism";
+
+    static Set<String> requiredWarmupTemplatesForTests() {
+        return REQUIRED_WARMUP_TEMPLATES;
+    }
 
     /** Same repo as {@link VoicePackManager} voice-pack downloads; used by {@code -deploy}. */
     private static final String VOICE_PACK_GITHUB_REPO = "deccles/Elite-Dangerous-RockHound";
@@ -654,6 +660,7 @@ public final class VoiceCacheWarmer {
 
     private static List<String> findAllSpeakTemplatesFromSourceTree() {
         Set<String> out = new LinkedHashSet<>();
+        out.addAll(REQUIRED_WARMUP_TEMPLATES);
         for (Path root : findJavaSourceRoots()) {
             try {
                 Files.walk(root)

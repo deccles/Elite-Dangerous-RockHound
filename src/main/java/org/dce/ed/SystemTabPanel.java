@@ -166,6 +166,8 @@ public class SystemTabPanel extends JPanel {
     private final SystemEventProcessor processor = new SystemEventProcessor(EliteDangerousOverlay.clientKey, state, new EdsmClient());
 
     private final EdsmClient edsmClient = new EdsmClient();
+    private final TtsSprintf firstDiscoveredSystemTts = new TtsSprintf(new PollyTtsCached());
+    private final Set<String> announcedFirstDiscoveredSystemKeys = Collections.synchronizedSet(new HashSet<>());
 
     // When we receive Status.json indicating we're near/on a body, we highlight that body and its bio rows.
     // Stored as bodyId so it remains stable even if the display name changes slightly.
@@ -1097,6 +1099,25 @@ public class SystemTabPanel extends JPanel {
         return BioTableBuilder.computeBioHeaderSummary(b);
     }
 
+    static boolean isFirstDiscoveredPrimaryStarScan(ScanEvent e) {
+        if (e == null || !Boolean.FALSE.equals(e.getWasDiscovered()) || isBlank(e.getStarType())) {
+            return false;
+        }
+
+        String bodyName = e.getBodyName();
+        String starSystem = e.getStarSystem();
+        if (!isBlank(bodyName) && !isBlank(starSystem) && bodyName.trim().equalsIgnoreCase(starSystem.trim())) {
+            return true;
+        }
+
+        if (e.getBodyId() == 0) {
+            return true;
+        }
+
+        double distanceLs = e.getDistanceFromArrivalLs();
+        return Double.isFinite(distanceLs) && Math.abs(distanceLs) <= 1.0;
+    }
+
     // ---------------------------------------------------------------------
     // Event forwarding
     // ---------------------------------------------------------------------
@@ -1123,7 +1144,9 @@ public class SystemTabPanel extends JPanel {
         }
 
         if (event instanceof ScanEvent) {
-            handleDetailedSurfaceScanProximity((ScanEvent) event);
+            ScanEvent scan = (ScanEvent) event;
+            handleDetailedSurfaceScanProximity(scan);
+            handleFirstDiscoveredSystemAnnouncement(scan);
         }
 
         if (shouldRefreshFleetCarrierProximity(event)) {
@@ -1271,6 +1294,44 @@ public class SystemTabPanel extends JPanel {
         // 3) Normal events: just refresh UI on EDT
             requestRebuild();
             persistIfPossible();
+    }
+
+    private void handleFirstDiscoveredSystemAnnouncement(ScanEvent e) {
+        if (SystemCache.isBulkSystemWrite()
+                || !OverlayPreferences.isFirstDiscoveredSystemAnnouncementEnabled()
+                || !isFirstDiscoveredPrimaryStarScan(e)) {
+            return;
+        }
+
+        String key = firstDiscoveredSystemAnnouncementKey(e);
+        if (key == null || !announcedFirstDiscoveredSystemKeys.add(key)) {
+            return;
+        }
+
+        firstDiscoveredSystemTts.speakf("First Discovered System");
+    }
+
+    private static String firstDiscoveredSystemAnnouncementKey(ScanEvent e) {
+        if (e == null) {
+            return null;
+        }
+        long address = e.getSystemAddress();
+        if (address != 0L) {
+            return Long.toString(address);
+        }
+        String system = e.getStarSystem();
+        if (!isBlank(system)) {
+            return system.trim().toLowerCase(Locale.ROOT);
+        }
+        String body = e.getBodyName();
+        if (!isBlank(body)) {
+            return body.trim().toLowerCase(Locale.ROOT);
+        }
+        return null;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     // ---------------------------------------------------------------------
@@ -2100,7 +2161,7 @@ public class SystemTabPanel extends JPanel {
             }
         }
 
-        List<Row> rows = BioTableBuilder.buildRows(bodies, false,
+        List<Row> rows = BioTableBuilder.buildRows(systemTableBodiesExcludingBarycentres(bodies), false,
                 hiddenBioDetails.isEmpty() ? null : hiddenBioDetails,
                 shipDistMode,
                 shipCentric,
@@ -2118,6 +2179,21 @@ public class SystemTabPanel extends JPanel {
 
         // Debug only:
         // debugDumpBioRowsToConsole();
+    }
+
+    static Map<Integer, BodyInfo> systemTableBodiesExcludingBarycentres(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || bodies.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<Integer, BodyInfo> tableBodies = new LinkedHashMap<>(bodies.size());
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            BodyInfo body = e.getValue();
+            if (body == null || body.isScanBarycentreRow()) {
+                continue;
+            }
+            tableBodies.put(e.getKey(), body);
+        }
+        return tableBodies;
     }
 
     /** Updates the orbital plan map (journal-derived X/Y projection). */
