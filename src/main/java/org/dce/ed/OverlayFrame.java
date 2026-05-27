@@ -17,6 +17,8 @@ import java.awt.Point;
 import java.awt.PointerInfo;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.geom.Line2D;
+import java.awt.geom.Point2D;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.event.ComponentAdapter;
@@ -146,6 +148,14 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     // Crosshair overlay and timer to show mouse position in pass-through mode
     private final CrosshairOverlay crosshairOverlay = new CrosshairOverlay();
     private final Timer crosshairTimer;
+    /** Smoothed glass-pane position (reduces jitter from coarse MouseInfo polling). */
+    private double crosshairSmoothX = Double.NaN;
+    private double crosshairSmoothY = Double.NaN;
+    private static final int CROSSHAIR_POLL_MS = 16;
+    /** Lerp toward the polled cursor each tick (lower = smoother, higher = snappier). */
+    private static final double CROSSHAIR_SMOOTH_ALPHA = 0.38;
+    /** Snap instead of lerp when the cursor jumps farther than this (px). */
+    private static final double CROSSHAIR_SNAP_DISTANCE_PX = 72.0;
     private static final long PASS_THROUGH_CLOSE_DWELL_MS = 900L;
     private static final long PASS_THROUGH_TOGGLE_DWELL_MS = 700L;
     private static final long PASS_THROUGH_MENU_DWELL_MS = 900L;
@@ -490,8 +500,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         setGlassPane(crosshairOverlay);
         crosshairOverlay.setVisible(false); // off until we detect pass-through + hover
 
-        // Poll global mouse position and update crosshair
-        crosshairTimer = new Timer(40, e -> updateCrosshair());
+        // Poll global mouse position and update crosshair (~60 Hz + smoothing)
+        crosshairTimer = new Timer(CROSSHAIR_POLL_MS, e -> updateCrosshair());
         crosshairTimer.start();
 
         // Transparent window background
@@ -2038,6 +2048,8 @@ private void refreshPassThroughUnifiedStatus() {
     private void updateCrosshair() {
         // If window isn't showing, don't bother
         if (!isShowing()) {
+            crosshairSmoothX = Double.NaN;
+            crosshairSmoothY = Double.NaN;
             crosshairOverlay.setVisible(false);
             resetPassThroughCloseHoverState();
             return;
@@ -2051,6 +2063,8 @@ private void refreshPassThroughUnifiedStatus() {
 
         PointerInfo pi = MouseInfo.getPointerInfo();
         if (pi == null) {
+            crosshairSmoothX = Double.NaN;
+            crosshairSmoothY = Double.NaN;
             crosshairOverlay.setVisible(false);
             resetPassThroughCloseHoverState();
             return;
@@ -2061,6 +2075,8 @@ private void refreshPassThroughUnifiedStatus() {
         try {
             frameOnScreen = getLocationOnScreen();
         } catch (IllegalComponentStateException ex) {
+            crosshairSmoothX = Double.NaN;
+            crosshairSmoothY = Double.NaN;
             crosshairOverlay.setVisible(false);
             resetPassThroughCloseHoverState();
             return;
@@ -2071,17 +2087,44 @@ private void refreshPassThroughUnifiedStatus() {
 
         // Inside the overlay bounds?
         if (relX >= 0 && relY >= 0 && relX < getWidth() && relY < getHeight()) {
-            crosshairOverlay.setCrosshairPoint(new Point(relX, relY));
+            Point2D.Double smoothed = smoothCrosshairPoint(relX, relY);
+            crosshairOverlay.setCrosshairPoint(smoothed);
             if (!crosshairOverlay.isVisible()) {
                 crosshairOverlay.setVisible(true);
             }
             updatePassThroughHoverClose(mouseOnScreen);
         } else {
+            crosshairSmoothX = Double.NaN;
+            crosshairSmoothY = Double.NaN;
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             resetPassThroughCloseHoverState();
         }
 
+    }
+
+    /**
+     * Exponential smoothing of polled cursor position so the glass-pane crosshair does not jitter on every
+     * {@link MouseInfo} sample. Large jumps snap immediately so fast mouse movement stays responsive.
+     */
+    private Point2D.Double smoothCrosshairPoint(int targetX, int targetY) {
+        double tx = targetX;
+        double ty = targetY;
+        if (!Double.isFinite(crosshairSmoothX) || !Double.isFinite(crosshairSmoothY)) {
+            crosshairSmoothX = tx;
+            crosshairSmoothY = ty;
+        } else {
+            double dx = tx - crosshairSmoothX;
+            double dy = ty - crosshairSmoothY;
+            if (dx * dx + dy * dy > CROSSHAIR_SNAP_DISTANCE_PX * CROSSHAIR_SNAP_DISTANCE_PX) {
+                crosshairSmoothX = tx;
+                crosshairSmoothY = ty;
+            } else {
+                crosshairSmoothX += dx * CROSSHAIR_SMOOTH_ALPHA;
+                crosshairSmoothY += dy * CROSSHAIR_SMOOTH_ALPHA;
+            }
+        }
+        return new Point2D.Double(crosshairSmoothX, crosshairSmoothY);
     }
 
     private void updatePassThroughHoverClose(Point mouseOnScreen) {
@@ -2174,13 +2217,16 @@ private void refreshPassThroughUnifiedStatus() {
 
     private static class CrosshairOverlay extends JComponent {
 
-        private Point crosshairPoint;
+        private static final Color CROSSHAIR_OUTLINE = new Color(0, 0, 0, 200);
+        private static final Color CROSSHAIR_FILL = new Color(255, 255, 255, 245);
+
+        private Point2D.Double crosshairPoint;
 
         CrosshairOverlay() {
             setOpaque(false);
         }
 
-        void setCrosshairPoint(Point p) {
+        void setCrosshairPoint(Point2D.Double p) {
             this.crosshairPoint = p;
             repaint();
         }
@@ -2197,22 +2243,20 @@ private void refreshPassThroughUnifiedStatus() {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
 
-                int x = crosshairPoint.x;
-                int y = crosshairPoint.y;
+                double x = crosshairPoint.x;
+                double y = crosshairPoint.y;
+                double arm = 11.0;
 
-                int arm = 10;
+                // Dark outline so the crosshair stays visible on bright game UI and stars
+                g2.setStroke(new BasicStroke(3.25f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setColor(CROSSHAIR_OUTLINE);
+                g2.draw(new Line2D.Double(x - arm, y, x + arm, y));
+                g2.draw(new Line2D.Double(x, y - arm, x, y + arm));
 
-                // Grey shadow (slightly thicker stroke behind the main crosshair)
-                g2.setStroke(new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g2.setColor(EdoUi.withAlpha(new Color(200, 200, 200), 220));
-                g2.drawLine(x - arm, y, x + arm, y);
-                g2.drawLine(x, y - arm, x, y + arm);
-
-                // ED-style orange with some transparency
-                g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g2.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_200);
-                g2.drawLine(x - arm, y, x + arm, y);
-                g2.drawLine(x, y - arm, x, y + arm);
+                g2.setStroke(new BasicStroke(1.75f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setColor(CROSSHAIR_FILL);
+                g2.draw(new Line2D.Double(x - arm, y, x + arm, y));
+                g2.draw(new Line2D.Double(x, y - arm, x, y + arm));
 
             } finally {
                 g2.dispose();
