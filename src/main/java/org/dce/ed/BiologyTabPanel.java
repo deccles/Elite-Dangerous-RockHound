@@ -11,6 +11,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.RenderingHints;
+import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
@@ -78,6 +79,12 @@ public class BiologyTabPanel extends JPanel {
     private static final Color BIO_MAP_ABANDONED_SAMPLE = new Color(0xB8, 0x70, 0xE8);
     /** Parked pins for the genus currently being sampled again: useful history, but not current progress. */
     private static final Color BIO_MAP_RESUMED_GENUS_HISTORY = EdoUi.Internal.GRAY_180;
+    /** Biology map: commander ship cue (heading-relative radar, points up). */
+    private static final Color BIO_MAP_SHIP_FILL = new Color(220, 35, 35);
+    private static final Color BIO_MAP_SHIP_DETAIL = new Color(255, 100, 100);
+    private static final Color BIO_MAP_SHIP_OUTLINE = new Color(0, 0, 0, 200);
+    /** Biology map: commander on foot / in SRV (offset from parked ship). */
+    private static final Color BIO_MAP_COMMANDER_FILL = new Color(230, 230, 230);
 
     /** After a Sample scan, skip "Entering clonal colony" (new sample point lands at your feet). */
     private static final long SUPPRESS_ENTER_AFTER_SAMPLE_MS = 5_000L;
@@ -112,6 +119,13 @@ private Double movementHeadingDeg; // 0=N, clockwise. null until we have enough 
     private Double currentLon;
     private Double currentPlanetRadius;
     private String currentBodyName;
+
+    /** Last surface fix while in the main ship (not on foot / SRV); map anchor when away from ship. */
+    private Double parkedShipLat;
+    private Double parkedShipLon;
+    private Double parkedShipRadiusM;
+    /** Ship nose heading (degrees, 0=N clockwise) when parked; Status {@code Heading} is radians. */
+    private Double parkedShipHeadingDeg;
 
     private final Map<String, Boolean> insideStateByBioKey = new HashMap<>();
     /** Previous great-circle distance (m) to the active row's last sample — for sudden-collapse detection. */
@@ -167,6 +181,34 @@ setPreferredSize(new Dimension(560, 320));
         this.systemTab = systemTab;
     }
 
+    /**
+     * Parked ship fix updates only while commanding the main ship on a body surface.
+     * On foot or in an SRV, Status lat/lon is the commander — not the ship.
+     */
+    private static boolean shouldUpdateParkedShipPosition(StatusEvent e) {
+        if (e == null || e.getDecodedFlags() == null || !e.getDecodedFlags().hasLatLong) {
+            return false;
+        }
+        return e.getDecodedFlags().inMainShip && !e.isOnFoot() && !e.isInSrv();
+    }
+
+    /** Status lat/lon tracks the commander, not the parked ship. */
+    private static boolean isCommanderAwayFromShip(StatusEvent e) {
+        return e != null && (e.isOnFoot() || e.isInSrv());
+    }
+
+    /** Status.json {@code Heading} is radians, 0=north, clockwise. */
+    private static Double statusHeadingToDegrees(Double headingRad) {
+        if (headingRad == null) {
+            return null;
+        }
+        double deg = Math.toDegrees(headingRad.doubleValue()) % 360.0;
+        if (deg < 0.0) {
+            deg += 360.0;
+        }
+        return Double.valueOf(deg);
+    }
+
     public void handleLogEvent(EliteLogEvent event) {
         if (event == null) {
             return;
@@ -187,15 +229,63 @@ setPreferredSize(new Dimension(560, 320));
             currentPlanetRadius = newRadius;
             currentBodyName = newBodyName;
 
+            if (bodyChanged) {
+                parkedShipLat = null;
+                parkedShipLon = null;
+                parkedShipRadiusM = null;
+                parkedShipHeadingDeg = null;
+            }
 
-if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
-    recordMovementSample(e.getTimestamp(), currentLat.doubleValue(), currentLon.doubleValue(), currentPlanetRadius.doubleValue());
+            if (shouldUpdateParkedShipPosition(e)
+                    && newLat != null && newLon != null && newRadius != null) {
+                parkedShipLat = newLat;
+                parkedShipLon = newLon;
+                parkedShipRadiusM = newRadius;
+                Double hdg = statusHeadingToDegrees(e.getHeading());
+                if (hdg != null) {
+                    parkedShipHeadingDeg = hdg;
+                }
+            }
 
-    double hdg = movementHeadingDeg == null ? 0.0 : movementHeadingDeg.doubleValue();
-    mapPanel.setShipHeadingDeg(hdg);
-    mapPanel.setShipLatLon(currentLat.doubleValue(), currentLon.doubleValue(), currentPlanetRadius.doubleValue());
-}
+            Double shipGlyphHeadingDeg = null;
+            if (isCommanderAwayFromShip(e)) {
+                shipGlyphHeadingDeg = parkedShipHeadingDeg;
+            } else {
+                shipGlyphHeadingDeg = statusHeadingToDegrees(e.getHeading());
+                if (shipGlyphHeadingDeg == null) {
+                    shipGlyphHeadingDeg = parkedShipHeadingDeg;
+                }
+            }
+            mapPanel.setShipGlyphHeadingDeg(shipGlyphHeadingDeg);
 
+            if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
+                recordMovementSample(
+                        e.getTimestamp(),
+                        currentLat.doubleValue(),
+                        currentLon.doubleValue(),
+                        currentPlanetRadius.doubleValue());
+
+                double hdg = movementHeadingDeg == null ? 0.0 : movementHeadingDeg.doubleValue();
+                mapPanel.setShipHeadingDeg(hdg);
+            }
+
+            if (parkedShipLat != null && parkedShipLon != null && parkedShipRadiusM != null) {
+                mapPanel.setShipLatLon(
+                        parkedShipLat.doubleValue(),
+                        parkedShipLon.doubleValue(),
+                        parkedShipRadiusM.doubleValue());
+            } else {
+                mapPanel.clearShipPosition();
+            }
+
+            if (isCommanderAwayFromShip(e) && currentLat != null && currentLon != null) {
+                mapPanel.setCommanderCentered(
+                        true,
+                        currentLat.doubleValue(),
+                        currentLon.doubleValue());
+            } else {
+                mapPanel.clearCommanderCentered();
+            }
 
             // Only rebuild rows when the body changes; otherwise just update distances/heading/map.
             if (bodyChanged) {
@@ -1287,6 +1377,13 @@ private final class BioMapPanel extends JPanel {
     private boolean haveShip;
 
     private double shipHeadingDeg; // 0=N, clockwise. "Up" on map.
+    /** Ship nose heading (degrees); from Status while in ship, frozen when parked. */
+    private Double shipGlyphHeadingDeg;
+
+    /** When true, map center follows the commander; parked ship is drawn at an offset. */
+    private boolean commanderCentered;
+    private double commanderLat;
+    private double commanderLon;
 
     /** Parked sample locations (canonical display-name key → points). */
     private Map<String, List<BodyInfo.BioSamplePoint>> abandonedByKey = Collections.emptyMap();
@@ -1332,9 +1429,68 @@ private final class BioMapPanel extends JPanel {
         repaint();
     }
 
+    private void clearShipPosition() {
+        this.haveShip = false;
+        repaint();
+    }
+
     private void setShipHeadingDeg(double headingDeg) {
         this.shipHeadingDeg = headingDeg;
         repaint();
+    }
+
+    private void setShipGlyphHeadingDeg(Double headingDeg) {
+        this.shipGlyphHeadingDeg = headingDeg;
+        repaint();
+    }
+
+    /** Degrees to rotate ship glyph so nose matches true heading on the heading-up map. */
+    private double shipGlyphRotationDeg() {
+        if (shipGlyphHeadingDeg == null) {
+            return 0.0;
+        }
+        double rot = shipGlyphHeadingDeg.doubleValue() - shipHeadingDeg;
+        rot %= 360.0;
+        if (rot < 0.0) {
+            rot += 360.0;
+        }
+        return rot;
+    }
+
+    private void setCommanderCentered(boolean centered, double lat, double lon) {
+        this.commanderCentered = centered;
+        this.commanderLat = lat;
+        this.commanderLon = lon;
+        repaint();
+    }
+
+    private void clearCommanderCentered() {
+        this.commanderCentered = false;
+        repaint();
+    }
+
+    private double mapOriginLat() {
+        return commanderCentered ? commanderLat : shipLat;
+    }
+
+    private double mapOriginLon() {
+        return commanderCentered ? commanderLon : shipLon;
+    }
+
+    private boolean canPaintMap() {
+        return commanderCentered || haveShip;
+    }
+
+    /** Map pixels for a world fix relative to the current map origin and heading. */
+    private int[] worldToMapPx(int cx, int cy, double scale, double worldLat, double worldLon) {
+        double oLat = mapOriginLat();
+        double oLon = mapOriginLon();
+        double d = greatCircleMeters(oLat, oLon, worldLat, worldLon, shipRadiusM);
+        double brng = bearingDeg(oLat, oLon, worldLat, worldLon);
+        double rel = Math.toRadians(brng - shipHeadingDeg);
+        int px = cx + (int) Math.round(Math.sin(rel) * d * scale);
+        int py = cy + (int) Math.round(-Math.cos(rel) * d * scale);
+        return new int[] { px, py };
     }
 
     @Override
@@ -1358,7 +1514,7 @@ private final class BioMapPanel extends JPanel {
             g2.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_140);
 //            g2.drawRect(x0, y0, side - 1, side - 1);
 
-            if (!haveShip) {
+            if (!canPaintMap()) {
                 g2.setColor(Color.WHITE);
                 String msg = "No position";
                 FontMetrics fm = g2.getFontMetrics();
@@ -1370,13 +1526,6 @@ private final class BioMapPanel extends JPanel {
 
             int cx = x0 + side / 2;
             int cy = y0 + side / 2;
-
-            // Draw ship marker
-            int r = 6;
-            g2.setColor(Color.WHITE);
-            g2.fill(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
-            g2.setColor(Color.BLACK);
-            g2.draw(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
 
             // Sample pins: parked history first, then active incomplete scans.
             java.util.List<BioRow> rows = model.getRowsSnapshot();
@@ -1400,49 +1549,18 @@ private final class BioMapPanel extends JPanel {
                     break;
                 }
             }
-            if ((rows == null || rows.isEmpty()) && !haveAbandonedPins) {
+            boolean haveSamplePins = haveActivePins || haveAbandonedPins;
+            if ((rows == null || rows.isEmpty()) && !haveAbandonedPins && !commanderCentered) {
                 g2.setColor(Color.WHITE);
                 String msg = "No specimens detected";
                 FontMetrics fm = g2.getFontMetrics();
                 int tx = x0 + (side - fm.stringWidth(msg)) / 2;
                 int ty = y0 + (side + fm.getAscent()) / 2;
                 g2.drawString(msg, tx, ty);
-            } else if (haveActivePins || haveAbandonedPins) {
-                double maxDistM = 1.0;
-                if (showParkedPins && abandonedByKey != null) {
-                    for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
-                        if (e.getValue() == null || e.getValue().isEmpty()) {
-                            continue;
-                        }
-                        for (BodyInfo.BioSamplePoint p : e.getValue()) {
-                            if (p == null) {
-                                continue;
-                            }
-                            double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
-                            if (d > maxDistM) {
-                                maxDistM = d;
-                            }
-                        }
-                    }
-                }
-                if (rows != null) {
-                    for (BioRow row : rows) {
-                        if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null) {
-                            continue;
-                        }
-                        for (BodyInfo.BioSamplePoint p : row.points) {
-                            if (p == null) {
-                                continue;
-                            }
-                            double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
-                            if (d > maxDistM) {
-                                maxDistM = d;
-                            }
-                        }
-                    }
-                }
-                double scale = (side * 0.42) / maxDistM;
+            }
 
+            double scale = (side * 0.42) / computeMaxDistM(rows, haveAbandonedPins);
+            if (haveSamplePins) {
                 g2.setStroke(new BasicStroke(2f));
                 if (showParkedPins && abandonedByKey != null) {
                     for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
@@ -1471,6 +1589,17 @@ private final class BioMapPanel extends JPanel {
                 }
             }
 
+            double shipRot = shipGlyphRotationDeg();
+            if (commanderCentered) {
+                drawCommanderMarkerAtCenter(g2, cx, cy);
+                if (haveShip) {
+                    int[] shipPx = worldToMapPx(cx, cy, scale, shipLat, shipLon);
+                    drawShipLocationMarker(g2, shipPx[0], shipPx[1], shipRot);
+                }
+            } else if (haveShip) {
+                drawShipLocationMarker(g2, cx, cy, shipRot);
+            }
+
             // Compass (upper right)
             int pad = 10;
             int compR = 22;
@@ -1496,6 +1625,96 @@ private final class BioMapPanel extends JPanel {
         }
     }
 
+    /** Commander (you) at map center when on foot / in SRV. */
+    private static void drawCommanderMarkerAtCenter(Graphics2D g2, int cx, int cy) {
+        int r = 5;
+        g2.setColor(BIO_MAP_COMMANDER_FILL);
+        g2.fill(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
+        g2.setColor(BIO_MAP_SHIP_OUTLINE);
+        g2.draw(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
+    }
+
+    private double computeMaxDistM(java.util.List<BioRow> rows, boolean haveAbandonedPins) {
+        double maxDistM = 1.0;
+        double oLat = mapOriginLat();
+        double oLon = mapOriginLon();
+        if (commanderCentered && haveShip) {
+            double d = greatCircleMeters(oLat, oLon, shipLat, shipLon, shipRadiusM);
+            if (d > maxDistM) {
+                maxDistM = d;
+            }
+        }
+        if (showParkedPins && haveAbandonedPins && abandonedByKey != null) {
+            for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
+                if (e.getValue() == null || e.getValue().isEmpty()) {
+                    continue;
+                }
+                for (BodyInfo.BioSamplePoint p : e.getValue()) {
+                    if (p == null) {
+                        continue;
+                    }
+                    double d = greatCircleMeters(oLat, oLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+                    if (d > maxDistM) {
+                        maxDistM = d;
+                    }
+                }
+            }
+        }
+        if (rows != null) {
+            for (BioRow row : rows) {
+                if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null) {
+                    continue;
+                }
+                for (BodyInfo.BioSamplePoint p : row.points) {
+                    if (p == null) {
+                        continue;
+                    }
+                    double d = greatCircleMeters(oLat, oLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+                    if (d > maxDistM) {
+                        maxDistM = d;
+                    }
+                }
+            }
+        }
+        return maxDistM;
+    }
+
+    /** Red ship glyph; {@code rotationDeg} is nose heading relative to map up (0 = forward on map). */
+    private static void drawShipLocationMarker(Graphics2D g2, float cx, float cy, double rotationDeg) {
+        AffineTransform saved = g2.getTransform();
+        if (Math.abs(rotationDeg) > 0.05) {
+            g2.rotate(Math.toRadians(rotationDeg), cx, cy);
+        }
+        try {
+            float halfW = 8f;
+            float top = cy - 10f;
+            float base = cy + 5f;
+
+            Path2D.Float hull = new Path2D.Float();
+            hull.moveTo(cx, top);
+            hull.lineTo(cx + halfW, base);
+            hull.lineTo(cx - halfW, base);
+            hull.closePath();
+
+            g2.setColor(BIO_MAP_SHIP_FILL);
+            g2.fill(hull);
+            g2.setColor(BIO_MAP_SHIP_OUTLINE);
+            g2.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.draw(hull);
+
+            g2.setColor(BIO_MAP_SHIP_DETAIL);
+            g2.setStroke(new BasicStroke(1.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            float innerHalf = halfW * 0.62f;
+            float innerBase = base - 1f;
+            float apex = cy - 1f;
+            g2.draw(new Line2D.Float(cx - innerHalf, innerBase, cx, apex));
+            g2.draw(new Line2D.Float(cx + innerHalf, innerBase, cx, apex));
+            g2.draw(new Line2D.Float(cx, apex, cx, top + 1f));
+        } finally {
+            g2.setTransform(saved);
+        }
+    }
+
     private void drawBioSampleRay(
             Graphics2D g2,
             int cx,
@@ -1508,8 +1727,10 @@ private final class BioMapPanel extends JPanel {
         if (p == null) {
             return;
         }
-        double d = greatCircleMeters(shipLat, shipLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
-        double brng = bearingDeg(shipLat, shipLon, p.getLatitude(), p.getLongitude());
+        double oLat = mapOriginLat();
+        double oLon = mapOriginLon();
+        double d = greatCircleMeters(oLat, oLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+        double brng = bearingDeg(oLat, oLon, p.getLatitude(), p.getLongitude());
         double rel = Math.toRadians(brng - shipHeadingDeg);
 
         double dx = Math.sin(rel) * d;
