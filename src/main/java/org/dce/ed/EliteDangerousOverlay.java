@@ -588,9 +588,8 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         }
         final int fallbackX = e.getX();
         final int fallbackY = e.getY();
-        final boolean[] applied = { false };
         try {
-            SwingUtilities.invokeAndWait(() -> {
+            SwingUtilities.invokeLater(() -> {
                 if (!passThroughMode || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
                     return;
                 }
@@ -613,14 +612,11 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
                     return;
                 }
                 EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
-                if (tp != null) {
-                    applied[0] = tp.handlePassThroughMouseWheelAtScreen(sx, sy, rot);
+                if (tp != null && tp.handlePassThroughMouseWheelAtScreen(sx, sy, rot)) {
+                    markNativeInputEventConsumed(e);
                 }
             });
         } catch (Exception ignored) {
-        }
-        if (applied[0]) {
-            markNativeInputEventConsumed(e);
         }
     }
 

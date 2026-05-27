@@ -433,6 +433,15 @@ public final class SystemPlanMapPanel extends JPanel {
     private int mapPanDragLastX;
     private int mapPanDragLastY;
 
+    /**
+     * Batched wheel notches flushed once per EDT pulse so rapid scrolling does not queue many expensive
+     * {@link #applyWheelZoomAtComponent} + orbit rebuilds after the wheel has already stopped.
+     */
+    private int pendingWheelClicks;
+    private int pendingWheelLocalX;
+    private int pendingWheelLocalY;
+    private boolean wheelZoomFlushScheduled;
+
     /** Right-button drag: line + distance label in Ls until release. */
     private boolean measureDragActive;
 
@@ -714,6 +723,7 @@ public final class SystemPlanMapPanel extends JPanel {
         cancelSubsystemProximityHop();
         mapPanDragActive = false;
         clearMeasureDrag();
+        resetPendingWheelZoom();
         setCursor(Cursor.getDefaultCursor());
         repaint();
     }
@@ -2001,8 +2011,40 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     private void handleMouseWheel(MouseWheelEvent e) {
+        scheduleWheelZoom(e.getX(), e.getY(), e.getWheelRotation());
+    }
+
+    /**
+     * Accumulates wheel notches and applies a single zoom on the next EDT flush. Multiple events before that flush
+     * (common during a fast spin) become one {@link #applyWheelZoomAtComponent} call.
+     */
+    private void scheduleWheelZoom(int localX, int localY, int wheelRotation) {
+        if (wheelRotation == 0) {
+            return;
+        }
         cancelSubsystemProximityHop();
-        applyWheelZoomAtComponent(e.getX(), e.getY(), e.getWheelRotation());
+        pendingWheelClicks += wheelRotation;
+        pendingWheelLocalX = localX;
+        pendingWheelLocalY = localY;
+        if (!wheelZoomFlushScheduled) {
+            wheelZoomFlushScheduled = true;
+            SwingUtilities.invokeLater(this::flushPendingWheelZoom);
+        }
+    }
+
+    private void flushPendingWheelZoom() {
+        wheelZoomFlushScheduled = false;
+        int clicks = pendingWheelClicks;
+        pendingWheelClicks = 0;
+        if (clicks == 0) {
+            return;
+        }
+        applyWheelZoomAtComponent(pendingWheelLocalX, pendingWheelLocalY, clicks);
+    }
+
+    private void resetPendingWheelZoom() {
+        pendingWheelClicks = 0;
+        wheelZoomFlushScheduled = false;
     }
 
     /**
@@ -2071,12 +2113,11 @@ public final class SystemPlanMapPanel extends JPanel {
         if (!contains(p)) {
             return false;
         }
-        applyWheelZoomAtComponent(p.x, p.y, wheelRotation);
+        scheduleWheelZoom(p.x, p.y, wheelRotation);
         return true;
     }
 
     private void applyWheelZoomAtComponent(int localX, int localY, int wheelRotation) {
-        cancelSubsystemProximityHop();
         if (sceneEmpty || dots.isEmpty()) {
             return;
         }
@@ -2133,7 +2174,7 @@ public final class SystemPlanMapPanel extends JPanel {
         if (MAP_AUTO_VIEW_PAN && !orbitSchematicPlaybackActive && zoomEssentiallyAtMinFit()) {
             snapViewCenterToSystemCentroidWorld();
         }
-        rebuildOrbitPolylines(false, !orbitSchematicPlaybackActive);
+        // Orbit stroke rebuild runs in paintComponent (one rebuild per visible frame, not per wheel notch).
         repaint();
     }
 
