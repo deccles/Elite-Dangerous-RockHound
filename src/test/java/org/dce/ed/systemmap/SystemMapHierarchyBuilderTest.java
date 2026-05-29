@@ -366,7 +366,7 @@ class SystemMapHierarchyBuilderTest {
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, t11, false);
         Map<Integer, double[]> playback = SystemMapPipeline.refreshPositionsForPlayback(model, kepler, t11, false);
         SystemMapModel playModel = SystemMapPipeline.playbackBase(bodies, model.projectionAxis0(),
-                model.projectionAxis1(), playback, model.wideBinaryFlattenFrame(), MapScaleMode.SCHEMATIC);
+                model.projectionAxis1(), playback, model.wideBinaryFlattenFrame(), MapScaleMode.TRUE_SCALE);
         var rebuilt = SystemMapPipeline.rebuildOrbitPolylines(playModel, playback, 96, Double.NaN, false, null,
                 MapScaleMode.TRUE_SCALE);
         OrbitGeometryTestSupport.assertNoSchematicConcentricBranchRings(rebuilt);
@@ -713,7 +713,7 @@ class SystemMapHierarchyBuilderTest {
     }
 
     @Test
-    void coeus_schematicPlayback_missingOrbitalPeriodsStayStable() throws IOException {
+    void coeus_trueScalePlayback_missingOrbitalPeriodsStayStable() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         int idA4 = coeus.bodyIdByLabel("A 4");
@@ -721,7 +721,7 @@ class SystemMapHierarchyBuilderTest {
         bodies.get(Integer.valueOf(idA4)).setOrbitalPeriod(null);
         bodies.get(Integer.valueOf(idA5)).setOrbitalPeriod(null);
         SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, true,
-                MapScaleMode.SCHEMATIC);
+                MapScaleMode.TRUE_SCALE);
         Instant tLater = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(365));
         Map<Integer, double[]> pos0 = SystemMapPipeline.refreshPositionsForPlayback(model,
                 SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, true), Instant.EPOCH, true);

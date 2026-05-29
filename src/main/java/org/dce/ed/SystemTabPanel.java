@@ -2263,9 +2263,9 @@ public class SystemTabPanel extends JPanel {
                 orbitAnimDemoActive, mapEpoch);
     }
 
-    /** Schematic playback freezes wide-binary stars; true-scale sim advances them on the mutual barycentre ring. */
+    /** True-scale orbit sim advances wide-binary stars on the mutual barycentre ring. */
     private boolean freezeBarycentreStarsDuringOrbitAnim() {
-        return orbitAnimDemoActive && !systemPlanMapPanel.mapScaleMode().trueScale();
+        return false;
     }
 
     /** Pause fast-forward: freeze map at current sim instant (do not rewind to play T+0). */

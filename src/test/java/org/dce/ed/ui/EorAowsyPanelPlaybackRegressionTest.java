@@ -93,8 +93,8 @@ class EorAowsyPanelPlaybackRegressionTest {
         double distBa = Math.hypot(panel.dotWorldXForTests(idB) - panel.dotWorldXForTests(idA),
                 panel.dotWorldYForTests(idB) - panel.dotWorldYForTests(idA)) / LS;
         assertTrue(dBc < 500.0, "B and C not stacked after playback; dBc=" + dBc + " Ls");
-        assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0,
-                "BCD on schematic trunk from A after playback; distBa=" + distBa + " Ls");
+        assertTrue(distBa >= 40_000.0 && distBa <= 52_000.0,
+                "BCD on true-scale trunk from A after playback; distBa=" + distBa + " Ls");
         assertTrue(panel.mapModelForTests().hasBarycentreMutualRing(), "four-star system barycentre ring");
     }
 

@@ -1,0 +1,79 @@
+{
+  "name": "Eol Prou NN-Y b31-0",
+  "notes": "Gas giant 7 (journal id 28) with moons 7 a–e; 7 d/7 e co-orbit at Null:32 (journal 2026-05-27).",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Eol Prou NN-Y b31-0",
+      "shortName": "Eol Prou NN-Y b31-0",
+      "distanceLs": 0,
+      "starType": "M",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 28,
+      "bodyName": "Eol Prou NN-Y b31-0 7",
+      "shortName": "7",
+      "distanceLs": 1410.41472,
+      "planetClass": "Sudarsky class I gas giant",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 422630339860.916138,
+      "orbitalPeriod": 312515056.13327
+    },
+    {
+      "id": 29,
+      "bodyName": "Eol Prou NN-Y b31-0 7 a",
+      "shortName": "7 a",
+      "distanceLs": 1408.952176,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 28,
+      "journalParents": ["Planet:28", "Star:0"],
+      "semiMajorAxisM": 1.0e9,
+      "orbitalPeriod": 100000.0
+    },
+    {
+      "id": 32,
+      "bodyName": "Eol Prou NN-Y b31-0 barycentre 32",
+      "shortName": "Null:32",
+      "distanceLs": 1403.7,
+      "scanBarycentreRow": true,
+      "immediateParentBodyId": 28,
+      "journalParents": ["Planet:28", "Star:0"]
+    },
+    {
+      "id": 33,
+      "bodyName": "Eol Prou NN-Y b31-0 7 d",
+      "shortName": "7 d",
+      "distanceLs": 1403.669518,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 28,
+      "journalParents": ["Null:32", "Planet:28", "Star:0"],
+      "semiMajorAxisM": 5.0e8,
+      "orbitalPeriod": 50000.0
+    },
+    {
+      "id": 34,
+      "bodyName": "Eol Prou NN-Y b31-0 7 e",
+      "shortName": "7 e",
+      "distanceLs": 1403.659856,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 28,
+      "journalParents": ["Null:32", "Planet:28", "Star:0"],
+      "semiMajorAxisM": 6.0e8,
+      "orbitalPeriod": 60000.0
+    }
+  ],
+  "expect": {
+    "layoutKind": "SINGLE_STAR_SCHEMATIC",
+    "mapStellarCount": 1,
+    "hasPlanetBinaryMutualRing": true,
+    "planetBinaryNullId": 32,
+    "bodiesOnMutualRing": ["7 d", "7 e"],
+    "bodiesWithoutOwnOrbitRing": ["7 d", "7 e"],
+    "parents": [
+      { "body": "7 d", "resolvesTo": "planetBinary:32" },
+      { "body": "7 e", "resolvesTo": "planetBinary:32" },
+      { "body": "7 a", "resolvesTo": "28" }
+    ]
+  }
+}

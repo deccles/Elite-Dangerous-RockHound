@@ -363,6 +363,7 @@ public class SystemEventProcessor {
             info.setOrbitalEpochMillis(Long.valueOf(scanInstant.toEpochMilli()));
         }
         state.getBodies().put(Integer.valueOf(e.getBodyId()), info);
+        ScanBarycentreRows.linkPlanetHostedBarycentreFromMembers(e.getBodyId(), state.getBodies());
     }
 
     private void handleScan(ScanEvent e) {
@@ -509,7 +510,7 @@ public class SystemEventProcessor {
         }
 
         List<ScanEvent.ParentRef> plist = e.getParents();
-        int immediateParent = ScanParents.immediateOrbitParentBodyId(plist, e);
+        int immediateParent = ScanParents.immediateOrbitParentBodyId(plist, e, state.getBodies());
         if (immediateParent >= 0) {
             info.setImmediateParentBodyId(immediateParent);
         } else {
@@ -518,6 +519,7 @@ public class SystemEventProcessor {
         if (plist != null && !plist.isEmpty()) {
             info.setJournalParentRefs(JournalParentRefs.fromScanParents(plist));
         }
+        ScanBarycentreRows.linkPlanetHostedBarycentreFromMoonScan(info, plist, state.getBodies());
 
         int parentStarBodyId = findParentStarBodyId(e);
         if (parentStarBodyId >= 0) {

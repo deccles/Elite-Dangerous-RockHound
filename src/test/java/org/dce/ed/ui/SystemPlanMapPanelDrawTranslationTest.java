@@ -58,7 +58,6 @@ class SystemPlanMapPanelDrawTranslationTest {
     private static SystemPlanMapPanel panelAfterSetScene() {
         SystemPlanMapPanel panel = new SystemPlanMapPanel();
         panel.setSize(900, 700);
-        panel.setMapScaleMode(MapScaleMode.SCHEMATIC);
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
         panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
         return panel;
@@ -67,12 +66,6 @@ class SystemPlanMapPanelDrawTranslationTest {
     @Nested
     @DisplayName("R-DRAW C: orbit polylines after setScene")
     class OrbitPolylines {
-
-        @Test
-        void hierarchicalBarycentreRing_bodyIdMinus2_atOrigin() {
-            SystemPlanMapPanel panel = panelAfterSetScene();
-            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(panel.mapModelForTests(), bodies, idA);
-        }
 
         @Test
         void noHeliocentricRingAroundPrimaryStar() {
@@ -238,8 +231,8 @@ class SystemPlanMapPanelDrawTranslationTest {
             double ax = panel.dotWorldXForTests(idA);
             double ay = panel.dotWorldYForTests(idA);
             double distBA = Math.hypot(bx - ax, by - ay) / ls;
-            assertTrue(distBA >= 3_000.0 && distBA <= 5_000.0,
-                    "BCD trunk journal-scale distance from A; was " + distBA + " Ls");
+            assertTrue(distBA >= 40_000.0 && distBA <= 52_000.0,
+                    "BCD trunk true-scale distance from A; was " + distBA + " Ls");
         }
     }
 
@@ -261,7 +254,7 @@ class SystemPlanMapPanelDrawTranslationTest {
             double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
             double distBa = Math.hypot(panel.dotWorldXForTests(idB) - panel.dotWorldXForTests(idA),
                     panel.dotWorldYForTests(idB) - panel.dotWorldYForTests(idA)) / ls;
-            assertTrue(distBa >= 3_000.0 && distBa <= 5_000.0);
+            assertTrue(distBa >= 40_000.0 && distBa <= 52_000.0);
             double bx = panel.dotWorldXForTests(idB);
             double by = panel.dotWorldYForTests(idB);
             double originSep = Math.hypot(bx, by) / ls;
@@ -303,8 +296,8 @@ class SystemPlanMapPanelDrawTranslationTest {
                 wy[i] = vcy + rM * Math.sin(theta);
             }
             OrbitPolylineWorldXY giant = new OrbitPolylineWorldXY(-153524, wx, wy);
-            assertTrue(panel.skipOversizeSchematicRingForTests(giant, 80.0, vcx, vcy, 0.08, 876.0, 676.0, true),
-                    "legacy ~50k Ls schematic rings should still be culled when focused on BCD");
+            assertFalse(panel.skipOversizeSchematicRingForTests(giant, 80.0, vcx, vcy, 0.08, 876.0, 676.0, true),
+                    "true-scale map does not cull legacy schematic ring geometry");
         }
     }
 

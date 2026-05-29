@@ -112,24 +112,6 @@ class SystemPlanMapPanelCoeusTrueScaleTest {
         OrbitGeometryTestSupport.assertBodyOnBinaryBarycentreOrbitRing(model, bodies, "B", 0.02, 5.0);
     }
 
-    @Test
-    @DisplayName("Schematic: star-hosted majors still get hub revolution ring cue")
-    void coeus_schematic_starHostedRevolutionRingDrawn() throws IOException {
-        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
-        Map<Integer, BodyInfo> bodies = coeus.toBodies();
-        int idA4 = coeus.bodyIdByLabel("A 4");
-
-        SystemPlanMapPanel panel = new SystemPlanMapPanel();
-        panel.setSize(900, 700);
-        panel.setMapScaleMode(MapScaleMode.SCHEMATIC);
-        Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
-        panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
-        panel.zoomFactorForTests(4.0);
-
-        assertTrue(panel.subsystemHubRevolutionPathRingDrawnForTests(idA4, DETAIL_VISIBLE_LS),
-                "schematic mode keeps journal-radius hub ring for star-hosted giants");
-    }
-
     private static void applyCoeusHighInclinationKeplerElements(Map<Integer, BodyInfo> bodies) {
         BodyInfo a1 = bodies.get(Integer.valueOf(OrbitGeometryTestSupport.findByShortName(bodies, "A 1")));
         if (a1 != null) {

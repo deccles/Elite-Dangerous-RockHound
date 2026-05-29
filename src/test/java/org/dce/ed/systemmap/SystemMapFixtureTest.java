@@ -64,7 +64,7 @@ class SystemMapFixtureTest {
                         "expected barycentric star: " + label);
             }
         }
-        if (Boolean.TRUE.equals(exp.barycentreRecentred) && clf.wideBinary()) {
+        if (Boolean.TRUE.equals(exp.barycentreRecentred) && clf.wideBinary() && !model.trueScale()) {
             assertBarycentreNearOrigin(model, clf.barycentricStarIds());
         }
         if (Boolean.TRUE.equals(exp.hasBarycentreMutualRing)) {

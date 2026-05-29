@@ -107,7 +107,7 @@ public final class OverlayPreferences {
     private static final String KEY_SYSTEM_TAB_STICKY_HUD_TARGET_BODY_PREFIX = "system.stickyHudTargetBody.";
     /** System plan map Play: orbit-model days advanced per wall-clock second (slider range 1–500; default 110). */
     private static final String KEY_SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND = "system.planMap.orbitAnim.daysPerWallSecond";
-    /** {@link org.dce.ed.systemmap.MapScaleMode} for the system plan map (default schematic). */
+    /** {@link org.dce.ed.systemmap.MapScaleMode} for the system plan map (default true scale). */
     private static final String KEY_SYSTEM_PLAN_MAP_SCALE_MODE = "system.planMap.scaleMode";
     /** True-scale map view tilt 0…90 ({@link org.dce.ed.systemmap.MapViewProjection}). */
     private static final String KEY_SYSTEM_PLAN_MAP_VIEW_TILT_DEG = "system.planMap.viewTiltDeg";
@@ -541,11 +541,7 @@ public final class OverlayPreferences {
     }
 
     public static void setSystemPlanMapScaleMode(org.dce.ed.systemmap.MapScaleMode mode) {
-        if (mode == null || mode == org.dce.ed.systemmap.MapScaleMode.SCHEMATIC) {
-            PREFS.remove(KEY_SYSTEM_PLAN_MAP_SCALE_MODE);
-        } else {
-            PREFS.put(KEY_SYSTEM_PLAN_MAP_SCALE_MODE, mode.toPrefsString());
-        }
+        PREFS.remove(KEY_SYSTEM_PLAN_MAP_SCALE_MODE);
         flushBackingStore();
     }
 

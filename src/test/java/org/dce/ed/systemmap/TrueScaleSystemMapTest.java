@@ -429,17 +429,4 @@ class TrueScaleSystemMapTest {
                 scalePxPerM, 0.15, 200.0);
     }
 
-    @Test
-    @DisplayName("Schematic mode still compresses Eor Aowsy wide binary")
-    void eorAowsy_schematic_compressesStarSeparation() {
-        SystemMapModel schematic = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false);
-        SystemMapModel trueScale = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
-        double schematicSep = distLs(schematic, idA, idB);
-        double trueSep = distLs(trueScale, idA, idB);
-        assertTrue(schematicSep < 9_000.0, "schematic A–B Ls=" + schematicSep);
-        assertTrue(trueSep > schematicSep * 4.0,
-                "true=" + trueSep + " schematic=" + schematicSep);
-    }
-
 }

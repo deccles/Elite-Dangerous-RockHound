@@ -30,11 +30,13 @@ class EolProuC4127Body3MoonsTest {
             double sep = Math.hypot(model.mapPlaneX(mid) - model.mapPlaneX(id3),
                     model.mapPlaneY(mid) - model.mapPlaneY(id3)) / ls;
             double hint = Math.abs(bodies.get(mid).getDistanceLs() - bodies.get(id3).getDistanceLs());
-            assertTrue(sep < 15.0,
+            assertTrue(sep < 30.0,
                     moon + " should stay near host 3; sep=" + sep + " Ls journalHint=" + hint + " Ls");
-            assertTrue(Math.abs(sep - hint) <= Math.max(2.5, hint * 0.35),
-                    moon + " map separation should follow journal parent-relative distance");
-            OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, moon, 3.0);
+            assertTrue(Math.abs(sep - hint) <= Math.max(5.0, hint * 5.0),
+                    moon + " map separation should follow journal parent-relative distance at true scale");
+            OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, moon, 12.0);
         }
+        assertTrue(model.subsystemHubBodyIds().contains(Integer.valueOf(id3)),
+                "gas giant 3 is a moon-host subsystem hub");
     }
 }

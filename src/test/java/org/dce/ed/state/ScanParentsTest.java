@@ -111,6 +111,22 @@ class ScanParentsTest {
         assertEquals(12, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan));
     }
 
+    /** Eol Prou NN-Y b31-0 7 d: Null:32 + Planet:28 — moon of gas giant 7, not star orbit. */
+    @Test
+    void eolProu_b310_7d_prefersPlanetHost28() {
+        ScanEvent scan = minimalPlanetScan("Eol Prou NN-Y b31-0 7 d",
+                List.of(new ParentRef("Null", 32), new ParentRef("Planet", 28), new ParentRef("Star", 0)));
+        java.util.Map<Integer, BodyInfo> bodies = new java.util.HashMap<>();
+        BodyInfo host = new BodyInfo();
+        host.setBodyId(28);
+        host.setBodyShortName("7");
+        host.setPlanetClass("Sudarsky class I gas giant");
+        host.setImmediateParentBodyId(0);
+        bodies.put(28, host);
+        assertTrue(ScanParents.scanIndicatesMoonBody(scan, bodies));
+        assertEquals(28, ScanParents.immediateOrbitParentBodyId(scan.getParents(), scan, bodies));
+    }
+
     private static ScanEvent minimalPlanetScan(List<ParentRef> parents) {
         return minimalPlanetScan("Sys 2", parents);
     }

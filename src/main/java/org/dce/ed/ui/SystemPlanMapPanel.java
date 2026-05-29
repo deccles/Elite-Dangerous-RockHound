@@ -385,10 +385,7 @@ public final class SystemPlanMapPanel extends JPanel {
      */
     private SystemMapModel mapModel;
 
-    /** Schematic (default) vs journal Kepler positions at true scale. */
-    private MapScaleMode mapScaleMode = MapScaleMode.SCHEMATIC;
-
-    /** True-scale view tilt 0…90° ({@link MapViewProjection}); ignored in schematic mode. */
+    /** True-scale view tilt 0…90° ({@link MapViewProjection}). */
     private int viewTiltDegrees;
 
     /** When body IDs change (new system / new scan), reset pan & zoom; otherwise keep user zoom across telemetry refreshes. */
@@ -454,30 +451,20 @@ public final class SystemPlanMapPanel extends JPanel {
     private int measureEndY;
 
     public MapScaleMode mapScaleMode() {
-        return mapScaleMode;
+        return MapScaleMode.TRUE_SCALE;
     }
 
-    /**
-     * Wide-binary stars stay fixed only during schematic playback ({@code freezeBarycentreStars}); true-scale sim
-     * advances them on the mutual barycentre ring.
-     */
+    /** True-scale orbit sim advances wide-binary stars on the mutual barycentre ring. */
     private boolean freezeBarycentreStarsDuringPlayback() {
-        return orbitSchematicPlaybackActive && !mapScaleMode.trueScale();
+        return false;
     }
 
-    /**
-     * Switches schematic vs true-scale layout; caller should refresh the scene (e.g. {@code refreshPlanMap}).
-     */
+    /** No-op; map is always true-scale. */
     public void setMapScaleMode(MapScaleMode mode) {
-        MapScaleMode next = mode != null ? mode : MapScaleMode.SCHEMATIC;
-        if (next == mapScaleMode) {
-            return;
-        }
-        mapScaleMode = next;
-        OverlayPreferences.setSystemPlanMapScaleMode(next);
+        OverlayPreferences.setSystemPlanMapScaleMode(MapScaleMode.TRUE_SCALE);
     }
 
-    /** True-scale view tilt 0…90°; schematic mode ignores this. */
+    /** True-scale view tilt 0…90°. */
     public int viewTiltDegrees() {
         return viewTiltDegrees;
     }
@@ -508,7 +495,7 @@ public final class SystemPlanMapPanel extends JPanel {
         if (positionMetres == null || positionMetres.length < 2) {
             return new double[] { Double.NaN, Double.NaN };
         }
-        if (!mapScaleMode.trueScale() || viewTiltDegrees <= 0) {
+        if (viewTiltDegrees <= 0) {
             return new double[] {
                     SystemOrbitGeometry.worldAxisMetres(positionMetres, mapProjA0),
                     SystemOrbitGeometry.worldAxisMetres(positionMetres, mapProjA1)
@@ -550,9 +537,7 @@ public final class SystemPlanMapPanel extends JPanel {
         reprojectBodyDotsAndShipFromGeomPositions();
         lastOrbitRebuildKey = Long.MIN_VALUE;
         rebuildOrbitPolylines(true, !orbitSchematicPlaybackActive);
-        if (mapScaleMode.trueScale()) {
-            refreshTrueScaleLayoutSpansFromView();
-        }
+        refreshTrueScaleLayoutSpansFromView();
         repaint();
     }
 
@@ -849,7 +834,7 @@ public final class SystemPlanMapPanel extends JPanel {
         if (!sceneEmpty) {
             String mapSystemName = resolveMapSystemName(bodies);
             mapModel = SystemMapPipeline.build(mapSystemName, bodies, orbitPositionEpoch,
-                    freezeBarycentreStarsDuringPlayback(), mapScaleMode);
+                    freezeBarycentreStarsDuringPlayback(), MapScaleMode.TRUE_SCALE);
             positions = new java.util.HashMap<>(mapModel.positionsMetres());
             mapProjA0 = mapModel.projectionAxis0();
             mapProjA1 = mapModel.projectionAxis1();
@@ -963,7 +948,7 @@ public final class SystemPlanMapPanel extends JPanel {
             double robBlendX = spans[4];
             double robBlendY = spans[5];
             MapLayoutSpanPick layoutPick;
-            if (mapScaleMode.trueScale()) {
+            if (true) {
                 layoutSpanX = Math.max(1.0, layoutSpanAxisMetres(bb.minX, bb.maxX));
                 layoutSpanY = Math.max(1.0, layoutSpanAxisMetres(bb.minY, bb.maxY));
                 layoutPick = new MapLayoutSpanPick(layoutSpanX, layoutSpanY, false, 0.0, 0.0);
@@ -1394,7 +1379,7 @@ public final class SystemPlanMapPanel extends JPanel {
             return Double.NaN;
         }
         double base = scaleFit * zoomFactor;
-        if (mapScaleMode.trueScale()) {
+        if (true) {
             return base;
         }
         double minPlot = Math.min(availW, availH);
@@ -1535,7 +1520,7 @@ public final class SystemPlanMapPanel extends JPanel {
         } else {
             scBits = Double.doubleToLongBits(Math.scalb(Math.rint(Math.scalb(sc, 18)), -18));
         }
-        long tiltBits = mapScaleMode.trueScale() ? ((long) viewTiltDegrees & 0x7fL) : 0L;
+        long tiltBits = true ? ((long) viewTiltDegrees & 0x7fL) : 0L;
         return ((long) w << 44) ^ ((long) h << 24) ^ (((long) zq & 0xfffffL) << 4) ^ (scBits >>> 1) ^ (tiltBits << 56);
     }
 
@@ -1616,11 +1601,11 @@ public final class SystemPlanMapPanel extends JPanel {
         boolean screenOrbitScale = useScreenChordScaleForSegments && !orbitSchematicPlaybackActive;
         double scalePxPerM = screenOrbitScale ? computeScalePixelsPerWorldMetre() : Double.NaN;
         int legacySeg = orbitSegmentsForZoom(zoomFactor);
-        int tiltForRebuild = mapScaleMode.trueScale() ? viewTiltDegrees : 0;
-        Instant strokeEpoch = orbitSchematicPlaybackActive && mapScaleMode.trueScale() ? orbitPlaybackEpoch : null;
+        int tiltForRebuild = true ? viewTiltDegrees : 0;
+        Instant strokeEpoch = orbitSchematicPlaybackActive && true ? orbitPlaybackEpoch : null;
         orbitLines = mapModel != null
                 ? SystemMapPipeline.rebuildOrbitPolylines(mapModel, orbitGeomPositions, legacySeg, scalePxPerM,
-                        false, ringRadiusReferencePositions, mapScaleMode, tiltForRebuild, strokeEpoch)
+                        false, ringRadiusReferencePositions, MapScaleMode.TRUE_SCALE, tiltForRebuild, strokeEpoch)
                 : Collections.emptyList();
         logOrbitLinesIfBodySetChanged(orbitLines);
     }
@@ -1919,7 +1904,7 @@ public final class SystemPlanMapPanel extends JPanel {
             String mapSystemName = resolveMapSystemName(bodies);
             Instant primeEpoch = orbitPlaybackBaseEpoch != null ? orbitPlaybackBaseEpoch : orbitPositionEpoch;
             mapModel = SystemMapPipeline.build(mapSystemName, bodies, primeEpoch,
-                    freezeBarycentreStarsDuringPlayback(), mapScaleMode);
+                    freezeBarycentreStarsDuringPlayback(), MapScaleMode.TRUE_SCALE);
             mapProjA0 = mapModel.projectionAxis0();
             mapProjA1 = mapModel.projectionAxis1();
             wideBinaryFlattenFrame = mapModel.wideBinaryFlattenFrame();
@@ -1989,9 +1974,7 @@ public final class SystemPlanMapPanel extends JPanel {
              * Frozen T+0 radii are schematic-only; true-scale playback uses Kepler/fallback radii from live positions
              * so elliptical paths stay tied to the moving direct parent.
              */
-            Map<Integer, double[]> ringRadiusRef = mapModel != null && !mapScaleMode.trueScale()
-                    ? mapModel.positionsMetres()
-                    : null;
+            Map<Integer, double[]> ringRadiusRef = null;
             rebuildOrbitPolylines(true, false, ringRadiusRef);
         }
         repaint();
@@ -2474,9 +2457,11 @@ public final class SystemPlanMapPanel extends JPanel {
                     continue;
                 }
                 float r = mapBodyDotRadiusPx(d, starR, bodyR, zoomFactor, showClusterDetail);
-                boolean lumpHub = subsystemHubLump(visibleLsMinAxis, d);
+                boolean lumpHub = subsystemHubLump(visibleLsMinAxis, d, labelPlan);
                 boolean moonHostHub = !d.star && subsystemHubLumpBodyIds.contains(Integer.valueOf(d.bodyId));
-                boolean hubTwinBlueRings = moonHostHub && lumpHub;
+                boolean summaryClusterHub = bodyShowsSubsystemTwinRingCue(d, labelPlan) && !moonHostHub;
+                boolean subsystemLumpDraw = moonHostHub || summaryClusterHub;
+                boolean hubTwinBlueRings = lumpHub && subsystemLumpDraw;
                 boolean ringHubOrSolo = !d.star
                         && (d.soleOrbitCluster || subsystemHubLumpBodyIds.contains(Integer.valueOf(d.bodyId)));
                 boolean ringedOrbitCentre = !d.star && mapModel != null
@@ -2498,7 +2483,7 @@ public final class SystemPlanMapPanel extends JPanel {
                         && orbitGeomBodies != null
                         && SystemMapRules.isMapStellarBody(
                                 orbitGeomBodies.get(Integer.valueOf(mapModel.resolveParentBodyId(d.bodyId))));
-                if (moonHostHub) {
+                if (subsystemLumpDraw) {
                     if (!lumpHub) {
                         Color fill = mapBodyFillColor(mapBody, d);
                         g2.setColor(fill);
@@ -2508,23 +2493,17 @@ public final class SystemPlanMapPanel extends JPanel {
                         g2.setColor(MAP_PLANET_DEFAULT_DOT);
                         g2.fill(new Ellipse2D.Double(sx - lr, sy - lr, lr * 2, lr * 2));
                     }
-                    if (!mapScaleMode.trueScale() && (hubTwinBlueRings || starHostedRevolutionCentre)) {
-                        drawSubsystemHubRevolutionPathRing(g2, d.bodyId, d.wx, d.wy, vcx, vcy, scale, availW, availH);
-                        if (hubTwinBlueRings) {
-                            drawSubsystemMoonHubDoubleRing(g2, sx, sy, r);
-                            if (ringsZoomOk) {
-                                float ringDecorR = Math.max(r, Math.max(bodyR * 0.92f, 4.5f));
-                                drawPlanetaryRingsDecor(g2, sx, sy, ringDecorR);
-                            }
+                    if (hubTwinBlueRings) {
+                        drawSubsystemMoonHubDoubleRing(g2, sx, sy, r);
+                        if (ringsZoomOk) {
+                            float ringDecorR = Math.max(r, Math.max(bodyR * 0.92f, 4.5f));
+                            drawPlanetaryRingsDecor(g2, sx, sy, ringDecorR);
                         }
                     }
                 } else if (starHostedRevolutionCentre) {
                     Color fill = mapBodyFillColor(mapBody, d);
                     g2.setColor(fill);
                     g2.fill(new Ellipse2D.Double(sx - r, sy - r, r * 2, r * 2));
-                    if (!mapScaleMode.trueScale()) {
-                        drawSubsystemHubRevolutionPathRing(g2, d.bodyId, d.wx, d.wy, vcx, vcy, scale, availW, availH);
-                    }
                 } else if (d.star) {
                     float starDrawR = d.loneCentralPrimary ? Math.max(r, starR) : r;
                     drawStarBody(g2, sx, sy, starDrawR, mapStarCoreColor(mapBody), mapBody);
@@ -2568,9 +2547,8 @@ public final class SystemPlanMapPanel extends JPanel {
                     continue;
                 }
                 float r = mapBodyDotRadiusPx(d, starR, bodyR, zoomFactor, showClusterDetail);
-                boolean lumpHub = subsystemHubLump(visibleLsMinAxis, d);
-                boolean moonHostHub = !d.star && subsystemHubLumpBodyIds.contains(Integer.valueOf(d.bodyId));
-                boolean hubTwinBlueRings = moonHostHub && lumpHub;
+                boolean lumpHub = subsystemHubLump(visibleLsMinAxis, d, labelPlan);
+                boolean hubTwinBlueRings = lumpHub;
                 float rLabel = hubTwinBlueRings
                         ? Math.max(7.5f, subsystemMoonHubRingOuterRadiusPx(r) + 2.5f)
                         : r;
@@ -2975,14 +2953,65 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     private boolean subsystemHubLump(double visibleLsMinAxis, BodyDot d) {
-        if (d == null || !subsystemHubLumpBodyIds.contains(Integer.valueOf(d.bodyId))) {
+        return subsystemHubLump(visibleLsMinAxis, d, null);
+    }
+
+    /**
+     * Zoomed-out lump view: collapse child bodies and show the twin-ring subsystem cue on the hub.
+     */
+    private boolean subsystemHubLump(double visibleLsMinAxis, BodyDot d, MapLabelDrawPlan labelPlan) {
+        if (d == null || !zoomedOutSubsystemLumpView(visibleLsMinAxis)) {
             return false;
         }
+        return bodyShowsSubsystemTwinRingCue(d, labelPlan);
+    }
+
+    private boolean zoomedOutSubsystemLumpView(double visibleLsMinAxis) {
         if (zoomFactor >= ZOOM_SUBSYSTEM_HUB_DETAIL - 1e-6) {
             return false;
         }
         return !Double.isFinite(visibleLsMinAxis)
                 || visibleLsMinAxis > SUBSYSTEM_CLUSTER_DETAIL_VISIBLE_LS;
+    }
+
+    /**
+     * Bodies that show the twin-ring subsystem cue when zoomed out. Moon hosts use {@link #subsystemHubLumpBodyIds};
+     * label collision can also collapse a cluster onto one summary hub (see {@link MapLabelDrawPlan}).
+     * <p>
+     * Does not include generic {@link SystemMapModel#isOrbitRevolutionCenter} bodies — every star-hosted planet is a
+     * revolution centre and must not trigger lump hiding or orbit suppression.
+     */
+    private boolean bodyShowsSubsystemTwinRingCue(BodyDot d, MapLabelDrawPlan labelPlan) {
+        if (d == null || d.star) {
+            return false;
+        }
+        if (subsystemHubLumpBodyIds.contains(Integer.valueOf(d.bodyId))) {
+            return true;
+        }
+        if (bodyHasResolvedMoonChildren(d.bodyId)) {
+            return true;
+        }
+        return labelPlan != null
+                && labelPlan.summaryClusterCentroids.containsKey(Integer.valueOf(d.bodyId));
+    }
+
+    /** True when any journal moon ({@code 7 d}, {@code A 3 e}, …) resolves to {@code hubBodyId} on the map. */
+    private boolean bodyHasResolvedMoonChildren(int hubBodyId) {
+        if (hubBodyId < 0 || mapModel == null || orbitGeomBodies == null || orbitGeomBodies.isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<Integer, BodyInfo> e : orbitGeomBodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getKey().intValue() == hubBodyId) {
+                continue;
+            }
+            if (!SystemOrbitGeometry.isMoonSatelliteBody(e.getValue(), orbitGeomBodies)) {
+                continue;
+            }
+            if (mapModel.resolveParentBodyId(e.getKey().intValue()) == hubBodyId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True when {@code bodyId} has FSS/journal exobiology on the body itself (not “any moon under hub”). */
@@ -3114,11 +3143,11 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Twin thin orbit-blue circles for moon-host hubs in {@link #subsystemHubLump} (zoomed-out lump view). Zoomed-in
-     * subsystem detail draws per-moon orbit strokes instead.
+     * Twin thin orbit-blue circles for moon-host hubs in {@link #subsystemHubLump} (zoomed-out lump view). Shown in both
+     * true-scale and schematic maps. Zoomed-in subsystem detail draws per-moon orbit strokes instead.
      */
     private void drawSubsystemMoonHubDoubleRing(Graphics2D g2, double sx, double sy, float bodyRadiusPx) {
-        if (mapScaleMode.trueScale() || bodyRadiusPx <= 0f || !Double.isFinite(sx) || !Double.isFinite(sy)) {
+        if (bodyRadiusPx <= 0f || !Double.isFinite(sx) || !Double.isFinite(sy)) {
             return;
         }
         Stroke prevStroke = g2.getStroke();
@@ -3477,7 +3506,7 @@ public final class SystemPlanMapPanel extends JPanel {
     private boolean skipOversizeSchematicRingForDetailView(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
             double viewCenterWx, double viewCenterWy, double scale, double availW, double availH,
             boolean detailOrbits) {
-        if (mapScaleMode.trueScale()) {
+        if (true) {
             return false;
         }
         if (poly == null || poly.wx == null || poly.wy == null || poly.wx.length < 3) {
@@ -3733,7 +3762,7 @@ public final class SystemPlanMapPanel extends JPanel {
      */
     private void drawSubsystemHubRevolutionPathRing(Graphics2D g2, int bodyId, double bodyWx, double bodyWy,
             double vcx, double vcy, double scale, double availW, double availH) {
-        if (mapScaleMode.trueScale()) {
+        if (true) {
             return;
         }
         if (mapModel == null || bodyId < 0 || !Double.isFinite(bodyWx) || !Double.isFinite(bodyWy)) {
@@ -5581,7 +5610,7 @@ public final class SystemPlanMapPanel extends JPanel {
         double radLs = hubRevolutionRingRadiusLsForTests(bestId);
         return String.format(Locale.US,
                 "nearUntrackedHubRevolutionRing bodyId=%d radiusLs=%.1f trueScale=%s drawn=%s",
-                bestId, radLs, mapScaleMode.trueScale(), subsystemHubRevolutionPathRingDrawnForTests(bestId,
+                bestId, radLs, true, subsystemHubRevolutionPathRingDrawnForTests(bestId,
                         ctx.visibleLsMinAxis));
     }
 
@@ -5796,9 +5825,8 @@ public final class SystemPlanMapPanel extends JPanel {
             float sx = (float) cxy[0];
             float sy = (float) cxy[1];
             float r = mapBodyDotRadiusPx(d, ctx.starR, ctx.bodyR, zoomFactor, ctx.showClusterDetail);
-            boolean lumpHub = subsystemHubLump(ctx.visibleLsMinAxis, d);
-            boolean moonHostHub = !d.star && subsystemHubLumpBodyIds.contains(Integer.valueOf(d.bodyId));
-            float rLabel = moonHostHub && lumpHub
+            boolean lumpHub = subsystemHubLump(ctx.visibleLsMinAxis, d, ctx.labelPlan);
+            float rLabel = lumpHub
                     ? Math.max(7.5f, subsystemMoonHubRingOuterRadiusPx(r) + 2.5f)
                     : r;
             boolean commanderHere = anchorBodyId != null && d.bodyId == anchorBodyId.intValue();
@@ -5917,9 +5945,7 @@ public final class SystemPlanMapPanel extends JPanel {
 
     private float bodyDotHitRadiusPx(MapClickPaintCtx ctx, BodyDot d) {
         float r = mapBodyDotRadiusPx(d, ctx.starR, ctx.bodyR, zoomFactor, ctx.showClusterDetail);
-        boolean lumpHub = subsystemHubLump(ctx.visibleLsMinAxis, d);
-        boolean moonHostHub = !d.star && subsystemHubLumpBodyIds.contains(Integer.valueOf(d.bodyId));
-        if (moonHostHub && lumpHub) {
+        if (subsystemHubLump(ctx.visibleLsMinAxis, d, null)) {
             r = Math.max(r, subsystemMoonHubRingOuterRadiusPx(r));
         }
         if (planetaryRingsDecorWouldDrawForTests(d.bodyId, ctx.visibleLsMinAxis)) {
@@ -6355,18 +6381,15 @@ public final class SystemPlanMapPanel extends JPanel {
             BodyInfo parent = parentId >= 0 ? orbitGeomBodies.get(Integer.valueOf(parentId)) : null;
             boolean starHostedRevolutionCentre = ringedOrbitCentre && parentId >= 0
                     && SystemMapRules.isMapStellarBody(parent);
-            boolean moonHostHub = subsystemHubLumpBodyIds.contains(Integer.valueOf(d.bodyId));
-            boolean lumpHub = subsystemHubLump(visibleLsMinAxis, d);
-            boolean hubTwinBlueRings = moonHostHub && lumpHub;
+            boolean lumpHub = subsystemHubLump(visibleLsMinAxis, d, null);
+            boolean hubTwinBlueRings = lumpHub;
             return hubTwinBlueRings || starHostedRevolutionCentre;
         }
         return false;
     }
 
-    /** {@link #drawSubsystemHubRevolutionPathRing} is schematic-only. */
     final boolean subsystemHubRevolutionPathRingDrawnForTests(int bodyId, double visibleLsMinAxis) {
-        return !mapScaleMode.trueScale()
-                && subsystemHubRevolutionPathRingEligibleForTests(bodyId, visibleLsMinAxis);
+        return false;
     }
 
     /** Radius (Ls) of the paint-only hub ring through the body's current map position. */
@@ -6399,8 +6422,7 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         for (BodyDot d : dots) {
             if (d != null && d.bodyId == bodyId) {
-                return !d.star && subsystemHubLumpBodyIds.contains(Integer.valueOf(bodyId))
-                        && subsystemHubLump(visibleLsMinAxis, d);
+                return subsystemHubLump(visibleLsMinAxis, d, null) && bodyShowsSubsystemTwinRingCue(d, null);
             }
         }
         return false;

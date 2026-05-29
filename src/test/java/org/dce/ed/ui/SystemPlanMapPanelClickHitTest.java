@@ -37,7 +37,6 @@ class SystemPlanMapPanelClickHitTest {
     void clickOnStarA_resolvesBodyId() {
         SystemPlanMapPanel panel = new SystemPlanMapPanel();
         panel.setSize(900, 700);
-        panel.setMapScaleMode(MapScaleMode.SCHEMATIC);
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
         panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
 
@@ -54,7 +53,6 @@ class SystemPlanMapPanelClickHitTest {
     void clickOnMargin_misses() {
         SystemPlanMapPanel panel = new SystemPlanMapPanel();
         panel.setSize(900, 700);
-        panel.setMapScaleMode(MapScaleMode.SCHEMATIC);
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
         panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
 
@@ -66,7 +64,6 @@ class SystemPlanMapPanelClickHitTest {
     void orbitStrokeHitInfo_classifiesKeplerEllipse() {
         SystemPlanMapPanel panel = new SystemPlanMapPanel();
         panel.setSize(900, 700);
-        panel.setMapScaleMode(MapScaleMode.SCHEMATIC);
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
         panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
         panel.rebuildOrbitPolylinesForTests(true, true);

@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.state.ScanBarycentreRows;
 import org.dce.ed.state.SystemState;
 
 /**
@@ -160,7 +161,30 @@ public final class SystemMapJournalEnricher {
             }
             mergeBodyFields(keep, src);
         }
+        relinkPlanetHostedScanBarycentres(target);
+        ScanBarycentreRows.backfillBinaryMoonNullRefsFromCoOrbitPartners(target);
         return added;
+    }
+
+    /** Wire map bodies before layout: scan rows, then co-orbit moon Null refs from siblings. */
+    public static void prepareMapBodies(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || bodies.isEmpty()) {
+            return;
+        }
+        relinkPlanetHostedScanBarycentres(bodies);
+        ScanBarycentreRows.backfillBinaryMoonNullRefsFromCoOrbitPartners(bodies);
+    }
+
+    /** After journal/cache merge, wire {@code ScanBaryCentre} rows from moon {@code Scan} parent chains. */
+    static void relinkPlanetHostedScanBarycentres(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null) {
+            return;
+        }
+        for (BodyInfo b : bodies.values()) {
+            if (b != null && b.isScanBarycentreRow()) {
+                ScanBarycentreRows.linkPlanetHostedBarycentreFromMembers(b.getBodyId(), bodies);
+            }
+        }
     }
 
     private static BodyInfo copyBodyForMerge(BodyInfo src) {

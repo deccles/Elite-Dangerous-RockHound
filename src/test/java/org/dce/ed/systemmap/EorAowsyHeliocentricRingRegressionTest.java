@@ -76,8 +76,8 @@ class EorAowsyHeliocentricRingRegressionTest {
         assertTrue(dBd > dBc * 1.2, "D separated from B+C inner pair; dBd=" + dBd + " dBc=" + dBc + " Ls");
         double distBa = Math.hypot(broken.mapPlaneX(idB) - broken.mapPlaneX(idA),
                 broken.mapPlaneY(idB) - broken.mapPlaneY(idA)) / ls;
-        assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0,
-                "BCD trunk schematic distance from A; was " + distBa + " Ls");
+        assertTrue(distBa >= 40_000.0 && distBa <= 52_000.0,
+                "BCD trunk true-scale distance from A; was " + distBa + " Ls");
     }
 
     @Test
@@ -101,8 +101,8 @@ class EorAowsyHeliocentricRingRegressionTest {
         int idB = fixture.bodyIdByLabel("B");
         double distBa = Math.hypot(liveLike.mapPlaneX(idB) - liveLike.mapPlaneX(idA),
                 liveLike.mapPlaneY(idB) - liveLike.mapPlaneY(idA)) / ls;
-        org.junit.jupiter.api.Assertions.assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0,
-                "BCD trunk schematic distance from A; was " + distBa + " Ls");
+        org.junit.jupiter.api.Assertions.assertTrue(distBa >= 40_000.0 && distBa <= 52_000.0,
+                "BCD trunk true-scale distance from A; was " + distBa + " Ls");
         boolean hasMutual3 = false;
         boolean hasMutual2 = false;
         boolean hasMutual49 = false;

@@ -51,7 +51,7 @@ public final class SystemMapModel {
             Map<Integer, Boolean> labelVisibleWhenZoomedOut) {
         this.systemName = systemName;
         this.bodies = Collections.unmodifiableMap(bodies);
-        this.mapScaleMode = mapScaleMode != null ? mapScaleMode : MapScaleMode.SCHEMATIC;
+        this.mapScaleMode = MapScaleMode.TRUE_SCALE;
         this.classification = classification;
         this.projectionAxis0 = projectionAxis0;
         this.projectionAxis1 = projectionAxis1;

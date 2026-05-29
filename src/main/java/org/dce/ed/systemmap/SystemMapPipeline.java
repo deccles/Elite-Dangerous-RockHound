@@ -29,7 +29,7 @@ public final class SystemMapPipeline {
 
     public static SystemMapModel build(String systemName, Map<Integer, BodyInfo> bodies, Instant epoch,
             boolean freezeBarycentreStars) {
-        return build(systemName, bodies, epoch, freezeBarycentreStars, MapScaleMode.SCHEMATIC);
+        return build(systemName, bodies, epoch, freezeBarycentreStars, MapScaleMode.TRUE_SCALE);
     }
 
     public static SystemMapModel build(String systemName, Map<Integer, BodyInfo> bodies, Instant epoch,
@@ -37,7 +37,8 @@ public final class SystemMapPipeline {
         if (bodies == null || bodies.isEmpty()) {
             return emptyModel(systemName, scaleMode);
         }
-        MapScaleMode mode = scaleMode != null ? scaleMode : MapScaleMode.SCHEMATIC;
+        SystemMapJournalEnricher.prepareMapBodies(bodies);
+        MapScaleMode mode = MapScaleMode.TRUE_SCALE;
         Instant t = epoch != null ? epoch : Instant.now();
         SystemMapClassification classification = SystemMapRules.classify(bodies);
 
@@ -49,7 +50,7 @@ public final class SystemMapPipeline {
         int a1 = axes[1];
 
         WideBinaryFlattenFrame frame = null;
-        if (mode.trueScale() && classification.layoutKind() == SystemLayoutKind.WIDE_BINARY) {
+        if (classification.layoutKind() == SystemLayoutKind.WIDE_BINARY) {
             SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(positions, bodies, a0, a1, true);
             if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
                 SystemOrbitGeometry.placeTrueScaleHierarchicalScanHubs(positions, bodies, a0, a1);
@@ -73,29 +74,15 @@ public final class SystemMapPipeline {
                         freezeBarycentreStars);
             }
             frame = SystemOrbitGeometry.captureWideBinaryFlattenFrame(positions, bodies, a0, a1);
-        } else if (!mode.trueScale()) {
-            if (classification.layoutKind() == SystemLayoutKind.SINGLE_STAR_SCHEMATIC
-                    || SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies)) {
-                positions = new HashMap<>(SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(bodies, t, a0, a1,
-                        freezeBarycentreStars));
-            } else if (classification.layoutKind() == SystemLayoutKind.WIDE_BINARY) {
-                SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(positions, bodies, a0, a1);
-                SystemOrbitGeometry.recenterBinaryBarycentreInMapPlane(positions, bodies, a0, a1);
-                positions = new HashMap<>(SystemOrbitGeometry.bodyPositionsMetresForWideBinaryMap(bodies, positions, t,
-                        a0, a1, freezeBarycentreStars));
-                /*
-                 * Branch placement seeds Null barycentres from journal heliocentric distances and can undo the first
-                 * flatten (four-star A + BCD). Re-flatten so the companion subtree stays on a schematic trunk, not a
-                 * ~49k Ls circle around A.
-                 */
-                if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
-                    SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(positions, bodies, a0, a1);
-                }
-                frame = SystemOrbitGeometry.captureWideBinaryFlattenFrame(positions, bodies, a0, a1);
-                applyHierarchicalWideBinaryMapLayout(positions, bodies, t, a0, a1, freezeBarycentreStars);
-            }
-        } else if (mode.trueScale() && classification.layoutKind() != SystemLayoutKind.WIDE_BINARY) {
+        } else {
             SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
+            SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
+            if (SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies)) {
+                SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
+            }
+            SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
         }
 
         Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies);
@@ -207,7 +194,7 @@ public final class SystemMapPipeline {
     }
 
     private static SystemMapModel emptyModel(String systemName, MapScaleMode scaleMode) {
-        MapScaleMode mode = scaleMode != null ? scaleMode : MapScaleMode.SCHEMATIC;
+        MapScaleMode mode = MapScaleMode.TRUE_SCALE;
         SystemMapClassification empty = new SystemMapClassification(SystemLayoutKind.GENERIC, 0, -1, -1,
                 List.of(), false);
         return new SystemMapModel(systemName, Map.of(), mode, empty, 0, 1, Map.of(), List.of(), null, Map.of(),
@@ -276,7 +263,7 @@ public final class SystemMapPipeline {
     /** Lightweight handle for {@link #refreshPositionsForPlayback} when the GUI already has flatten frame + axes. */
     public static SystemMapModel playbackBase(Map<Integer, BodyInfo> bodies, int projectionAxis0, int projectionAxis1,
             Map<Integer, double[]> lastPositions, WideBinaryFlattenFrame frame, MapScaleMode scaleMode) {
-        MapScaleMode mode = scaleMode != null ? scaleMode : MapScaleMode.SCHEMATIC;
+        MapScaleMode mode = MapScaleMode.TRUE_SCALE;
         SystemMapClassification clf = SystemMapRules.classify(bodies);
         Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies);
         Map<Integer, Integer> childCounts = buildDirectChildCounts(resolvedParents);
@@ -289,7 +276,7 @@ public final class SystemMapPipeline {
 
     public static SystemMapModel playbackBase(Map<Integer, BodyInfo> bodies, int projectionAxis0, int projectionAxis1,
             Map<Integer, double[]> lastPositions, WideBinaryFlattenFrame frame) {
-        return playbackBase(bodies, projectionAxis0, projectionAxis1, lastPositions, frame, MapScaleMode.SCHEMATIC);
+        return playbackBase(bodies, projectionAxis0, projectionAxis1, lastPositions, frame, MapScaleMode.TRUE_SCALE);
     }
 
     public static Map<Integer, double[]> refreshPositionsForPlayback(SystemMapModel base,
@@ -300,148 +287,46 @@ public final class SystemMapPipeline {
             return keplerPositions;
         }
         Map<Integer, BodyInfo> bodies = base.bodies();
-        if (base.trueScale()) {
-            if (base.classification().layoutKind() == SystemLayoutKind.WIDE_BINARY) {
-                Map<Integer, double[]> positions = new HashMap<>(keplerPositions);
-                int a0 = base.projectionAxis0();
-                int a1 = base.projectionAxis1();
-                WideBinaryFlattenFrame frame = base.wideBinaryFlattenFrame();
-                /*
-                 * Schematic playback reuses the captured A→B chord so the wide-binary frame does not spin. True-scale
-                 * sim must re-flatten from evolving Kepler positions so A and B move on their mutual barycentre ring.
-                 */
-                if (frame != null && !base.trueScale()) {
-                    SystemOrbitGeometry.reapplyWideBinaryFlattenWithFrame(positions, bodies, a0, a1, frame);
-                } else {
-                    SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(positions, bodies, a0, a1, true);
-                }
-                if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
-                    SystemOrbitGeometry.placeTrueScaleHierarchicalScanHubs(positions, bodies, a0, a1);
-                    SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
-                    Instant t = epoch != null ? epoch : Instant.now();
-                    SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
-                            freezeBarycentreStars);
-                    SystemOrbitGeometry.restoreTrueScaleHierarchicalOuterCompanionChord(positions, bodies, a0, a1);
-                    SystemOrbitGeometry.snapCompanionClusterOntoTrunkRing(positions, bodies, t, a0, a1,
-                            freezeBarycentreStars);
-                    SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
-                } else {
-                    Instant t = epoch != null ? epoch : Instant.now();
-                    SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
-                            freezeBarycentreStars);
-                    SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
-                }
-                return positions;
-            }
+        if (base.classification().layoutKind() == SystemLayoutKind.WIDE_BINARY) {
             Map<Integer, double[]> positions = new HashMap<>(keplerPositions);
-            SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies,
-                    base.projectionAxis0(), base.projectionAxis1());
+            int a0 = base.projectionAxis0();
+            int a1 = base.projectionAxis1();
+            SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(positions, bodies, a0, a1, true);
+            if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+                SystemOrbitGeometry.placeTrueScaleHierarchicalScanHubs(positions, bodies, a0, a1);
+                SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                Instant t = epoch != null ? epoch : Instant.now();
+                SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
+                SystemOrbitGeometry.restoreTrueScaleHierarchicalOuterCompanionChord(positions, bodies, a0, a1);
+                SystemOrbitGeometry.snapCompanionClusterOntoTrunkRing(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
+                SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+            } else {
+                Instant t = epoch != null ? epoch : Instant.now();
+                SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
+                SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+            }
             return positions;
         }
-        if (base.classification().layoutKind() != SystemLayoutKind.WIDE_BINARY) {
-            if (base.classification().layoutKind() == SystemLayoutKind.SINGLE_STAR_SCHEMATIC
-                    || SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies)) {
-                return SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(bodies,
-                        epoch != null ? epoch : Instant.now(), base.projectionAxis0(), base.projectionAxis1(),
-                        freezeBarycentreStars);
-            }
-            return keplerPositions;
-        }
-        /*
-         * Extend the last schematic layout, not raw Kepler coords from {@link SystemOrbitGeometry#bodyPositionsMetres}
-         * (cache can parent moons to the companion star; Kepler then parks A 3 a–f on B during playback).
-         */
-        Map<Integer, double[]> positions = base.positionsMetres() != null && !base.positionsMetres().isEmpty()
-                ? new HashMap<>(base.positionsMetres())
-                : new HashMap<>(keplerPositions);
+        Map<Integer, double[]> positions = new HashMap<>(keplerPositions);
         int a0 = base.projectionAxis0();
         int a1 = base.projectionAxis1();
-        WideBinaryFlattenFrame frame = base.wideBinaryFlattenFrame();
-        boolean hierarchical = SystemOrbitGeometry.isHierarchicalWideBinary(bodies);
-        /*
-         * Re-applying the two-star flatten chord moves only one companion anchor; inner B+C stay at the pre-align
-         * separation (~6k Ls) when cache parents companions to A. Hierarchical playback re-places from the last model.
-         */
-        if (frame != null && !hierarchical) {
-            SystemOrbitGeometry.reapplyWideBinaryFlattenWithFrame(positions, bodies, a0, a1, frame);
-        } else if (frame == null) {
-            SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(positions, bodies, a0, a1);
-        }
-        if (!SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
-            SystemOrbitGeometry.recenterBinaryBarycentreInMapPlane(positions, bodies, a0, a1);
-        }
         Instant t = epoch != null ? epoch : Instant.now();
-        /*
-         * Kepler re-seeding from heliocentric distances spreads inner stellar pairs (B+C) when cache parents them to
-         * the arrival star; keep the last schematic layout and only re-flatten + re-place hierarchically.
-         */
-        Map<Integer, double[]> refreshed;
-        if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
-            refreshed = new HashMap<>(positions);
-        } else {
-            refreshed = SystemOrbitGeometry.bodyPositionsMetresForWideBinaryMap(bodies, positions, t, a0, a1,
-                    freezeBarycentreStars);
-        }
-        if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
-            /*
-             * Match initial {@link #build}: branch seeding can undo the flatten chord; re-flatten before hierarchical
-             * placement (not after — that would spread B+C back onto the ~7.5k Ls trunk circle).
-             */
-            SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(refreshed, bodies, a0, a1);
-            applyHierarchicalWideBinaryMapLayout(refreshed, bodies, t, a0, a1, freezeBarycentreStars);
-        }
-        return refreshed;
-    }
-
-    /**
-     * Hierarchical wide-binary schematic placement shared by initial {@link #build} and orbit-playback refresh.
-     */
-    private static void applyHierarchicalWideBinaryMapLayout(Map<Integer, double[]> positions,
-            Map<Integer, BodyInfo> bodies,
-            Instant t,
-            int a0,
-            int a1,
-            boolean freezeBarycentreStars) {
-        SystemOrbitGeometry.placeHierarchicalWideBinaryOnSystemBarycentre(positions, bodies, a0, a1);
-        SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1, freezeBarycentreStars);
-        SystemOrbitGeometry.alignPrimaryBranchPlanetsOnSchematicRings(positions, bodies, t, a0, a1,
+        SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
+        SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
                 freezeBarycentreStars);
-        SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
-                freezeBarycentreStars);
-        if (SystemOrbitGeometry.isHierarchicalTripleStarMap(bodies)) {
-            SystemOrbitGeometry.placeHierarchicalWideBinaryOnSystemBarycentre(positions, bodies, a0, a1);
-            SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
-                    freezeBarycentreStars);
-            /*
-             * Triple-star trunk placement shifts the companion branch after A-branch schematic rings; re-seat A planets
-             * and moons (live cache parents A 2/A 3 to C → wrong branch shift undoes alignPrimaryBranch).
-             */
-            SystemOrbitGeometry.alignPrimaryBranchPlanetsOnSchematicRings(positions, bodies, t, a0, a1,
-                    freezeBarycentreStars);
+        if (SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies)) {
             SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
-                    freezeBarycentreStars);
-            SystemOrbitGeometry.snapCompanionClusterOntoTrunkRing(positions, bodies, t, a0, a1,
-                    freezeBarycentreStars);
-        } else if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
-            /*
-             * Four-star A vs BCD: parent-resolution + A-branch align can drift the companion trunk off the schematic
-             * chord; re-place and re-align so B/C/D sit on mutual rings before orbit polylines are built.
-             */
-            SystemOrbitGeometry.placeHierarchicalWideBinaryOnSystemBarycentre(positions, bodies, a0, a1);
-            SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
-                    freezeBarycentreStars);
-            SystemOrbitGeometry.alignPrimaryBranchPlanetsOnSchematicRings(positions, bodies, t, a0, a1,
-                    freezeBarycentreStars);
-            SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
-                    freezeBarycentreStars);
-            SystemOrbitGeometry.snapCompanionClusterOntoTrunkRing(positions, bodies, t, a0, a1,
                     freezeBarycentreStars);
         }
         SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+        return positions;
     }
 
     /**
-     * Picks two distinct world axes for the schematic map plane (same logic as the former GUI method).
+     * Picks two distinct world axes for the map plane (same logic as the former GUI method).
      */
     static int[] chooseProjectionAxes(Map<Integer, BodyInfo> bodies, Map<Integer, double[]> positions) {
         int a0 = 0;

@@ -162,15 +162,26 @@ public final class SystemMapRules {
             if (!SystemOrbitGeometry.isMoonSatelliteBody(e.getValue(), bodies)) {
                 continue;
             }
-            Integer pidObj = resolvedParents.get(e.getKey());
-            if (pidObj == null) {
-                continue;
-            }
-            int pId = pidObj.intValue();
+            int mapId = e.getKey().intValue();
+            int pId = resolveOrbitParentBodyId(e.getValue(), bodies, mapId);
             if (pId < 0 || pId == loneStarCentral) {
                 continue;
             }
+            if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(pId)) {
+                int hostHub = SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(pId, bodies);
+                if (hostHub >= 0 && hostHub != loneStarCentral) {
+                    BodyInfo host = bodies.get(Integer.valueOf(hostHub));
+                    if (host != null && !isMapStellarBody(host)) {
+                        hubs.add(Integer.valueOf(hostHub));
+                    }
+                }
+                continue;
+            }
             if (wideBinary && isWideBinaryBranchStarHub(bodies, pId)) {
+                continue;
+            }
+            BodyInfo parent = bodies.get(Integer.valueOf(pId));
+            if (parent != null && isMapStellarBody(parent)) {
                 continue;
             }
             hubs.add(Integer.valueOf(pId));

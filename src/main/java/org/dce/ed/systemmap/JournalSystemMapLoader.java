@@ -11,6 +11,7 @@ import org.dce.ed.logreader.event.ScanBaryCentreEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.JournalParentRefs;
+import org.dce.ed.state.ScanBarycentreRows;
 import org.dce.ed.state.ScanParents;
 import org.dce.ed.state.SystemState;
 
@@ -85,6 +86,7 @@ public final class JournalSystemMapLoader {
         if (e.getSemiMajorAxisM() != null) {
             info.setSemiMajorAxisM(e.getSemiMajorAxisM());
         }
+        ScanBarycentreRows.linkPlanetHostedBarycentreFromMembers(e.getBodyId(), state.getBodies());
     }
 
     public static void applyScan(SystemState state, ScanEvent e) {
@@ -109,13 +111,14 @@ public final class JournalSystemMapLoader {
         if (e.getSemiMajorAxisM() != null) {
             info.setSemiMajorAxisM(e.getSemiMajorAxisM());
         }
-        int ip = ScanParents.immediateOrbitParentBodyId(e.getParents(), e);
+        int ip = ScanParents.immediateOrbitParentBodyId(e.getParents(), e, state.getBodies());
         if (ip >= 0) {
             info.setImmediateParentBodyId(ip);
         }
         if (e.getParents() != null && !e.getParents().isEmpty()) {
             info.setJournalParentRefs(JournalParentRefs.fromScanParents(e.getParents()));
         }
+        ScanBarycentreRows.linkPlanetHostedBarycentreFromMoonScan(info, e.getParents(), state.getBodies());
     }
 
     private static int stableTempKey(String bodyName) {

@@ -64,8 +64,8 @@ class EolProuOrVD2399TripleStarTest {
         assertTrue(model.hasHierarchicalTripleStarTrunk());
         double d = Math.hypot(model.mapPlaneX(null2Key) - model.mapPlaneX(idA),
                 model.mapPlaneY(null2Key) - model.mapPlaneY(idA)) / LS;
-        assertTrue(d >= SCHEMATIC_TRUNK_LS * 0.75 && d <= SCHEMATIC_TRUNK_LS * 1.25,
-                "A to B+C hub schematic trunk; was " + d + " Ls");
+        assertTrue(d >= 40_000.0 && d <= 52_000.0,
+                "A to B+C hub true-scale trunk; was " + d + " Ls");
         OrbitGeometryTestSupport.assertPrimaryOnSchematicMutualRing(model, idA,
                 SystemOrbitGeometry.HIERARCHICAL_TRIPLE_STAR_TRUNK_POLYLINE_ID, 0.35);
     }
@@ -182,8 +182,8 @@ class EolProuOrVD2399TripleStarTest {
             double dA2 = distLs(journalIdA, idA2);
             double dHub = distLs(journalIdA, null2Key);
             assertTrue(dA1 < 5000.0 && dA2 < 5000.0, "A-branch planets near A; dA1=" + dA1 + " dA2=" + dA2);
-            assertTrue(dHub >= SCHEMATIC_TRUNK_LS * 0.5 && dHub <= SCHEMATIC_TRUNK_LS * 1.5,
-                    "BC hub on schematic trunk; was " + dHub + " Ls");
+            assertTrue(dHub >= 40_000.0 && dHub <= 52_000.0,
+                    "BC hub on true-scale trunk; was " + dHub + " Ls");
             assertTrue(dA1 < dHub * 0.85 && dA2 < dHub * 0.85);
         }
 

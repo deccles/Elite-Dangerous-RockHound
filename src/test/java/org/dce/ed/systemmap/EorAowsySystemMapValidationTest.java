@@ -277,8 +277,8 @@ class EorAowsySystemMapValidationTest {
         void bcdStars_onSchematicTrunkRing_withoutBaryRows() {
             double distBa = Math.hypot(partialModel.mapPlaneX(id("B")) - partialModel.mapPlaneX(idA),
                     partialModel.mapPlaneY(id("B")) - partialModel.mapPlaneY(idA)) / LS;
-            assertTrue(distBa >= 5_000.0 && distBa <= 15_000.0,
-                    "B on schematic trunk from A; distBa=" + distBa + " Ls");
+            assertTrue(distBa >= 40_000.0 && distBa <= 52_000.0,
+                    "B on true-scale trunk from A; distBa=" + distBa + " Ls");
             assertTrue(partialModel.hasBarycentreMutualRing(), "expected schematic system barycentre ring");
             /*
              * Without ScanBaryCentre rows, companion-cluster snap onto the trunk ring is weaker; full journal fixture

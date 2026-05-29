@@ -202,7 +202,7 @@ class SystemOrbitGeometryOrbitPolylinesTest {
         int legacySeg = 96;
         double tinyScalePxPerM = 1e-15;
         var polys = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(bodies, pos, legacySeg, tinyScalePxPerM, 0, 1,
-                false, null, MapScaleMode.SCHEMATIC);
+                false, null, MapScaleMode.TRUE_SCALE);
         int moon = findByShortName(bodies, "2 a");
         OrbitPolylineWorldXY ring = null;
         for (OrbitPolylineWorldXY p : polys) {
