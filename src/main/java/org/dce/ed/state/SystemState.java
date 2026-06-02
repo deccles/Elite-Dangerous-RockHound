@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.dce.ed.exobiology.BodyAttributes;
 import org.dce.ed.exobiology.ExobiologyData;
+import org.dce.systemmodel.journal.JournalRecord;
 
 /**
  * Pure domain model describing a star system and all bodies within it.
@@ -61,6 +62,9 @@ public class SystemState {
     // Body ID → BodyInfo
     private final Map<Integer, BodyInfo> bodies = new HashMap<>();
 
+    /** Append-only Scan / ScanBaryCentre log for journal-authoritative system model rebuild. */
+    private final List<JournalRecord> journalEventLog = new ArrayList<>();
+
 
     public SystemState() {
     }
@@ -79,6 +83,24 @@ public class SystemState {
         carrierParkedSystemAddress = 0L;
 
         bodies.clear();
+        journalEventLog.clear();
+    }
+
+    public List<JournalRecord> getJournalEventLog() {
+        return List.copyOf(journalEventLog);
+    }
+
+    public void appendJournalEvent(JournalRecord record) {
+        if (record != null) {
+            journalEventLog.add(record);
+        }
+    }
+
+    public void setJournalEventLog(List<JournalRecord> records) {
+        journalEventLog.clear();
+        if (records != null) {
+            journalEventLog.addAll(records);
+        }
     }
 
     public Long getExobiologyCreditsTotalUnsold() {

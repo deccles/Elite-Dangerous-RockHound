@@ -79,6 +79,14 @@ public final class SystemMapRules {
         return SystemOrbitGeometry.isMapStellarBody(b);
     }
 
+    /**
+     * Planetary ring belt scan rows ({@code 5 A Ring}, {@code bodyType: Ring}) — not map dots; ring art stays on the
+     * host planet.
+     */
+    public static boolean isPlanetaryRingMapBody(BodyInfo b) {
+        return SystemOrbitGeometry.isPlanetaryRingMapBody(b);
+    }
+
     public static int resolveOrbitParentBodyId(BodyInfo child, Map<Integer, BodyInfo> bodies, int mapBodyId) {
         return SystemOrbitGeometry.resolveOrbitParentBodyId(child, bodies, mapBodyId);
     }

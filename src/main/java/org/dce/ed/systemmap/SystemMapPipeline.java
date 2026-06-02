@@ -78,10 +78,8 @@ public final class SystemMapPipeline {
             SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
             SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
                     freezeBarycentreStars);
-            if (SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies)) {
-                SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
-                        freezeBarycentreStars);
-            }
+            SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
             SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
         }
 
@@ -317,10 +315,8 @@ public final class SystemMapPipeline {
         SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
         SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
                 freezeBarycentreStars);
-        if (SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies)) {
-            SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
-                    freezeBarycentreStars);
-        }
+        SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
+                freezeBarycentreStars);
         SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
         return positions;
     }

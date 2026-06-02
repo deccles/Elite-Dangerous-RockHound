@@ -102,6 +102,12 @@ public final class SystemMapHierarchyBuilder {
     private SystemMapHierarchyBuilder() {
     }
 
+    /**
+     * Map-pipeline topology for tests and fixtures only. Production UI uses {@link SystemModelHierarchyBuilder}.
+     *
+     * @deprecated journal-authoritative hierarchy must not use map infer / {@link SystemOrbitGeometry} parent repair
+     */
+    @Deprecated
     public static Graph build(String systemName, SystemMapModel model, Map<Integer, BodyInfo> bodies) {
         Map<Integer, List<Integer>> childKeys = buildChildKeys(model, bodies);
         Node root = new Node(ROOT_KEY, "Null:0", "system barycentre", null, NodeKind.SYSTEM_BARYCENTRE);
@@ -328,6 +334,7 @@ public final class SystemMapHierarchyBuilder {
             return;
         }
         syncCollapsePlaceholders(graph, collapsedKeys);
+        HierarchySiblingOrder.sortTree(graph.root);
         measureTree(graph.root, fm, padX, minW, minH, collapsedKeys);
         layoutSubtree(graph.root, 0.0, 0.0, siblingGap, collapsedKeys);
         separateSiblingSubtrees(graph.root, siblingGap, collapsedKeys);
@@ -782,5 +789,49 @@ public final class SystemMapHierarchyBuilder {
             return b.getShortName();
         }
         return "id " + id;
+    }
+
+    /**
+     * Collapse keys for uninteresting flat sibling groups on initial load.
+     */
+    public static Set<Integer> computeAutoCollapseKeys(Graph graph) {
+        Set<Integer> keys = new HashSet<>();
+        if (graph == null || graph.root == null) {
+            return keys;
+        }
+        collectAutoCollapse(graph.root, keys);
+        return keys;
+    }
+
+    private static void collectAutoCollapse(Node node, Set<Integer> keys) {
+        if (node == null || node.children.isEmpty()) {
+            return;
+        }
+        if (shouldAutoCollapse(node)) {
+            keys.add(node.mapKey);
+        }
+        for (Node child : node.children) {
+            collectAutoCollapse(child, keys);
+        }
+    }
+
+    private static boolean shouldAutoCollapse(Node node) {
+        if (node.children.isEmpty()) {
+            return false;
+        }
+        if (collapsedSummaryLabels(node).size() != 1) {
+            return false;
+        }
+        for (Node child : node.children) {
+            if (child.kind == NodeKind.SCAN_BARYCENTRE
+                    || child.kind == NodeKind.PLANET_BINARY_BARYCENTRE
+                    || child.kind == NodeKind.SYSTEM_BARYCENTRE) {
+                return false;
+            }
+            if (!child.children.isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 }

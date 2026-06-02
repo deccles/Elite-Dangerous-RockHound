@@ -121,6 +121,7 @@ public final class SystemMapJournalEnricher {
         if (b.getBodyId() < 0) {
             return false;
         }
+        // Planetary ring belts are not map dots but belong in cache/hierarchy (Coeus A 2 A Ring regressions).
         return !isDebrisBeltClusterName(b.getBodyName());
     }
 

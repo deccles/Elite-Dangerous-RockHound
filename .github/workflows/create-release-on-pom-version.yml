@@ -67,7 +67,7 @@ jobs:
 
       - name: Build (creates jar + src.zip)
         if: steps.decide.outputs.release == 'true'
-        run: mvn -B -U clean package
+        run: mvn -f reactor/pom.xml -B -U clean install
 
       - name: Locate release artifacts
         if: steps.decide.outputs.release == 'true'
@@ -188,7 +188,7 @@ jobs:
         env:
           MAVEN_OPTS: -Djdk.home=${{ env.JAVA_HOME }}
         run: |
-          mvn -B -DskipTests -Pinstaller clean package
+          mvn -f reactor/pom.xml -B -DskipTests -Pinstaller clean install
 
 
       - name: Upload MSI to GitHub Release

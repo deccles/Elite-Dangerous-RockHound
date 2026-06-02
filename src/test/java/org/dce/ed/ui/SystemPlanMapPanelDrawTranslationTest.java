@@ -136,14 +136,16 @@ class SystemPlanMapPanelDrawTranslationTest {
             assertFalse(panel.bodyLabelWouldDrawForTests(idA2a, wideViewLs),
                     "A 2 a label hidden at fit-scale visible span");
             panel.zoomFactorForTests(8.0);
-            assertFalse(panel.mapShowMoonLabelsForTests(wideViewLs),
-                    "subsystem-detail zoom shows revolution centers only, not moons");
+            assertTrue(panel.mapShowMoonLabelsForTests(wideViewLs),
+                    "moon labels at subsystem-detail zoom (×8 fit)");
+            assertTrue(panel.bodyLabelWouldDrawForTests(idA2a, wideViewLs),
+                    "A 2 a label at subsystem-detail zoom");
             int idBcd2 = fixture.bodyIdByLabel("BCD 2");
             int idBcd2a = fixture.bodyIdByLabel("BCD 2 a");
             assertTrue(panel.bodyLabelWouldDrawForTests(idBcd2, 80.0),
                     "BCD 2 revolution center visible at cluster zoom");
-            assertFalse(panel.bodyLabelWouldDrawForTests(idBcd2a, 80.0),
-                    "BCD 2 a hidden until deep zoom");
+            assertTrue(panel.bodyLabelWouldDrawForTests(idBcd2a, 80.0),
+                    "BCD 2 a visible at subsystem-detail zoom");
             panel.zoomFactorForTests(14.0);
             assertTrue(panel.mapShowMoonLabelsForTests(wideViewLs),
                     "moon labels at deep zoom (× fit), not layout Ls alone");
@@ -425,6 +427,19 @@ class SystemPlanMapPanelDrawTranslationTest {
         }
 
         @Test
+        void companionBcdCluster_showsSummaryLabelOnLumpHubAtFitZoom() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(1.0);
+            double wideLs = 8_000.0;
+            SystemPlanMapPanel.CompanionBranchLump lump = panel.companionBranchLumpForTests(wideLs);
+            assertNotNull(lump);
+            assertFalse(lump.summaryLabel.isBlank(), "companion lump should carry a summary label");
+            int idBcd2 = fixture.bodyIdByLabel("BCD 2");
+            assertFalse(panel.bodyLabelWouldDrawForTests(idBcd2, wideLs),
+                    "individual BCD 2 label hidden while lump is active");
+        }
+
+        @Test
         void companionBcdCluster_hidesLumpedPlanetLabelsAtFitZoom() {
             SystemPlanMapPanel panel = panelAfterSetScene();
             panel.zoomFactorForTests(1.0);
@@ -438,7 +453,7 @@ class SystemPlanMapPanelDrawTranslationTest {
             assertTrue(panel.bodyLabelWouldDrawForTests(idC, wideLs), "C star label at fit zoom");
             assertTrue(panel.bodyLabelWouldDrawForTests(idD, wideLs), "D star label at fit zoom");
             assertFalse(panel.bodyLabelWouldDrawForTests(idBcd2, wideLs),
-                    "BCD 2–5 summary must not appear until subsystem-detail zoom");
+                    "individual BCD 2 label hidden at fit zoom; summary is on the lump hub");
         }
 
         @Test

@@ -126,6 +126,16 @@ class EolProuNnYB3107MoonsTest {
 
     @Test
 
+    void moon7a_onOrbitRingAroundPlanet7() {
+
+        OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, "7 a", 0.5);
+
+    }
+
+
+
+    @Test
+
     void binaryMoons_onMutualRingAroundBarycentre() {
 
         assertTrue(model.hasPlanetBinaryMutualRing(32));

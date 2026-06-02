@@ -7,6 +7,9 @@ import java.util.Locale;
 import org.dce.ed.EliteDangerousOverlay;
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
+import org.dce.ed.systemmodel.adapter.JournalEventAdapter;
+import org.dce.systemmodel.journal.ScanBaryCentreRecord;
+import org.dce.systemmodel.journal.ScanRecord;
 import org.dce.ed.cache.SystemStore;
 import org.dce.ed.edsm.BodiesResponse;
 import org.dce.ed.exobiology.BodyAttributes;
@@ -274,6 +277,7 @@ public class SystemEventProcessor {
         state.setStarPos(starPos);
 
         state.resetBodies();
+        state.setJournalEventLog(List.of());
         state.setTotalBodies(null);
         state.setNonBodyCount(null);
         state.setFssProgress(null);
@@ -364,6 +368,8 @@ public class SystemEventProcessor {
         }
         state.getBodies().put(Integer.valueOf(e.getBodyId()), info);
         ScanBarycentreRows.linkPlanetHostedBarycentreFromMembers(e.getBodyId(), state.getBodies());
+        ScanBaryCentreRecord modelRec = JournalEventAdapter.fromScanBaryCentreEvent(e);
+        state.appendJournalEvent(modelRec);
     }
 
     private void handleScan(ScanEvent e) {
@@ -551,6 +557,11 @@ public class SystemEventProcessor {
 
         // Use the stable key, never e.getBodyId() when it is -1.
         state.getBodies().put(key, info);
+
+        if (e.getBodyId() >= 0) {
+            ScanRecord modelRec = JournalEventAdapter.fromScanEvent(e);
+            state.appendJournalEvent(modelRec);
+        }
 
         for (BodyInfo body : state.getBodies().values()) {
             updatePredictions(body);

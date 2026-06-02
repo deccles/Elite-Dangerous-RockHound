@@ -104,6 +104,7 @@ import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.systemmodel.SystemModelService;
 import org.dce.ed.util.SystemOrbitGeometry;
 
 import org.dce.ed.ui.DistanceToggleIcons;
@@ -301,6 +302,7 @@ public class SystemTabPanel extends JPanel {
     private static final int EXPAND_HIT_SLOP_PX = 2;
 
 	private JLabel headerSummaryLabel;
+	private JLabel systemModelStatusLabel;
 
 	/** Optional callback when system tab target/near/destination state changes (for debounced session persist). */
 	private Runnable sessionStateChangeCallback;
@@ -449,6 +451,11 @@ public class SystemTabPanel extends JPanel {
         headerSummaryLabel.setFont(uiFont.deriveFont(Font.BOLD));
 //        headerSummaryLabel.setBorder(new EmptyBorder(4, 8, 4, 8));
         headerSummaryLabel.setOpaque(false);
+
+        systemModelStatusLabel = new JLabel(" ");
+        systemModelStatusLabel.setForeground(EdoUi.User.MAIN_TEXT);
+        systemModelStatusLabel.setFont(uiFont.deriveFont(Font.PLAIN, uiFont.getSize2D() - 1f));
+        systemModelStatusLabel.setOpaque(false);
         
         // Table setup
         tableModel = new SystemBodiesTableModel();
@@ -735,8 +742,12 @@ public class SystemTabPanel extends JPanel {
 
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setOpaque(false);
-        headerPanel.add(headerLabel, BorderLayout.WEST);
-        headerPanel.add(headerSummaryLabel, BorderLayout.CENTER);
+        JPanel headerNorth = new JPanel(new BorderLayout());
+        headerNorth.setOpaque(false);
+        headerNorth.add(headerLabel, BorderLayout.WEST);
+        headerNorth.add(headerSummaryLabel, BorderLayout.CENTER);
+        headerPanel.add(headerNorth, BorderLayout.NORTH);
+        headerPanel.add(systemModelStatusLabel, BorderLayout.SOUTH);
 
         JPanel distToggleEast = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         distToggleEast.setOpaque(false);
@@ -819,6 +830,23 @@ public class SystemTabPanel extends JPanel {
         mapToolbar.add(mapViewTiltLabel);
         mapToolbar.add(mapViewTiltSlider);
         mapToolbar.add(mapViewTiltValueLabel);
+        JButton hierarchyGraphButton = new JButton("Hierarchy");
+        hierarchyGraphButton.setForeground(EdoUi.User.MAIN_TEXT);
+        hierarchyGraphButton.setOpaque(false);
+        hierarchyGraphButton.setContentAreaFilled(false);
+        hierarchyGraphButton.setBorderPainted(true);
+        hierarchyGraphButton.setFocusable(false);
+        hierarchyGraphButton.setFocusPainted(false);
+        hierarchyGraphButton.setToolTipText(
+                "Open orbital hierarchy graph for this system (parent links, collapse groups)");
+        hierarchyGraphButton.addActionListener(e -> {
+            String name = state.getSystemName();
+            if (name == null || name.isBlank()) {
+                return;
+            }
+            OverlayToolsLaunchers.launchSystemHierarchyGraphForSystem(SystemTabPanel.this, name);
+        });
+        mapToolbar.add(hierarchyGraphButton);
         orbitAnimPlayButton = new JToggleButton();
         orbitAnimPlayButton.setText(null);
         orbitAnimPlayButton.setForeground(EdoUi.User.MAIN_TEXT);
@@ -2196,6 +2224,36 @@ public class SystemTabPanel extends JPanel {
         return tableBodies;
     }
 
+    private void updateSystemModelStatus(SystemModelService.ModelHandle handle) {
+        if (systemModelStatusLabel == null) {
+            return;
+        }
+        if (handle == null || state == null) {
+            systemModelStatusLabel.setText(" ");
+            return;
+        }
+        if (handle.state() == SystemModelService.ModelState.OK) {
+            systemModelStatusLabel.setText(" ");
+            systemModelStatusLabel.setForeground(EdoUi.User.MAIN_TEXT);
+            return;
+        }
+        if (handle.statusMessage() != null) {
+            systemModelStatusLabel.setText(handle.statusMessage());
+        }
+        systemModelStatusLabel.setForeground(
+                handle.state() == SystemModelService.ModelState.ERROR
+                        ? EdoUi.User.ERROR
+                        : EdoUi.User.WARNING);
+    }
+
+    private void updateSystemModelStatus() {
+        if (state == null) {
+            updateSystemModelStatus(null);
+            return;
+        }
+        updateSystemModelStatus(SystemModelService.rebuild(state, false));
+    }
+
     /** Updates the orbital plan map (journal-derived X/Y projection). */
     private void refreshPlanMap() {
         Map<Integer, BodyInfo> bodies = state.getBodies();
@@ -2229,6 +2287,7 @@ public class SystemTabPanel extends JPanel {
         }
         Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, mapEpoch,
                 freezeBarycentreStarsDuringOrbitAnim());
+        updateSystemModelStatus(SystemModelService.rebuild(state, false));
         Integer commanderRefMap = resolvePlanMapShipAnchorBodyId();
         double[] ship = null;
         if (commanderRefMap != null) {

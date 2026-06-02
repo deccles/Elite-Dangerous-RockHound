@@ -1,0 +1,78 @@
+{
+  "name": "Eol Prou NN-Y b31-0",
+  "notes": "Co-orbit majors 5+6 at Null:20. Cache may parent planets to star while journal lists Null:20. Ring scan is decor only.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Eol Prou NN-Y b31-0",
+      "shortName": "Eol Prou NN-Y b31-0",
+      "distanceLs": 0,
+      "starType": "M",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 20,
+      "bodyName": "Eol Prou NN-Y b31-0 barycentre 20",
+      "shortName": "Null:20",
+      "distanceLs": 102,
+      "scanBarycentreRow": true,
+      "immediateParentBodyId": 0
+    },
+    {
+      "id": 21,
+      "bodyName": "Eol Prou NN-Y b31-0 5",
+      "shortName": "5",
+      "distanceLs": 100,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 0,
+      "journalParents": ["Null:20", "Star:0"]
+    },
+    {
+      "id": 25,
+      "bodyName": "Eol Prou NN-Y b31-0 6",
+      "shortName": "6",
+      "distanceLs": 104,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 0,
+      "journalParents": ["Null:20", "Star:0"]
+    },
+    {
+      "id": 211,
+      "bodyName": "Eol Prou NN-Y b31-0 5 a",
+      "shortName": "5 a",
+      "distanceLs": 101.5,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 21,
+      "journalParents": ["Null:20", "Planet:21", "Star:0"]
+    },
+    {
+      "id": 212,
+      "bodyName": "Eol Prou NN-Y b31-0 5 b",
+      "shortName": "5 b",
+      "distanceLs": 101.2,
+      "planetClass": "Icy body",
+      "immediateParentBodyId": 21,
+      "journalParents": ["Planet:21", "Star:0"]
+    },
+    {
+      "id": 301,
+      "bodyName": "Eol Prou NN-Y b31-0 5 A Ring",
+      "shortName": "5 A Ring",
+      "distanceLs": 101.0,
+      "planetClass": "Planetary Ring",
+      "immediateParentBodyId": 21,
+      "journalParents": ["Planet:21", "Star:0"]
+    }
+  ],
+  "expect": {
+    "layoutKind": "GENERIC",
+    "hasPlanetBinaryMutualRing": true,
+    "planetBinaryNullId": 20,
+    "parents": [
+      { "body": "5", "resolvesTo": "planetBinary:20" },
+      { "body": "6", "resolvesTo": "planetBinary:20" },
+      { "body": "5 a", "resolvesTo": "5" },
+      { "body": "5 b", "resolvesTo": "5" }
+    ]
+  }
+}

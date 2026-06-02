@@ -340,6 +340,8 @@ public final class SystemPlanMapPanel extends JPanel {
     private Instant orbitPlaybackBaseEpoch;
     /** Latest sim epoch from the System tab fast-forward timer. */
     private Instant orbitPlaybackEpoch;
+    /** Epoch passed to the last {@link #setScene} (frozen map time when not playing). */
+    private Instant lastSceneOrbitEpoch = Instant.now();
 
     /**
      * When not {@code -1}, subsystem zoom-lock is active for this hub id; after a wheel nudge the hub still uses the
@@ -536,7 +538,7 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         reprojectBodyDotsAndShipFromGeomPositions();
         lastOrbitRebuildKey = Long.MIN_VALUE;
-        rebuildOrbitPolylines(true, !orbitSchematicPlaybackActive);
+        rebuildOrbitPolylines(true, true);
         refreshTrueScaleLayoutSpansFromView();
         repaint();
     }
@@ -823,6 +825,7 @@ public final class SystemPlanMapPanel extends JPanel {
         this.highlightNearBodyId = highlightNearBodyId;
         this.orbitSchematicPlaybackActive = orbitSchematicPlaybackActive;
         syncOrbitPlaybackEpochTracking(orbitSchematicPlaybackActive, orbitPositionEpoch);
+        lastSceneOrbitEpoch = orbitPositionEpoch != null ? orbitPositionEpoch : Instant.now();
         sceneEmpty = bodies == null || bodies.isEmpty() || positions == null || positions.isEmpty();
         mapModel = null;
         playbackPipelinePrimed = false;
@@ -869,7 +872,7 @@ public final class SystemPlanMapPanel extends JPanel {
                     continue;
                 }
                 BodyInfo b = e.getValue();
-                if (b.isScanBarycentreRow()) {
+                if (b.isScanBarycentreRow() || SystemMapRules.isPlanetaryRingMapBody(b)) {
                     continue;
                 }
                 int mapKey = e.getKey().intValue();
@@ -1379,9 +1382,6 @@ public final class SystemPlanMapPanel extends JPanel {
             return Double.NaN;
         }
         double base = scaleFit * zoomFactor;
-        if (true) {
-            return base;
-        }
         double minPlot = Math.min(availW, availH);
         if (!Double.isFinite(minPlot) || minPlot <= 0.0) {
             return base;
@@ -1595,10 +1595,11 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         lastOrbitRebuildKey = key;
         /*
-         * Screen-chord segment count tracks how many pixels each orbit spans at the current zoom. Disabled during
-         * schematic playback so vertex count stays fixed and rings do not tangentially stutter each tick.
+         * Screen-chord segment count tracks how many pixels each orbit spans at the current zoom. Kepler strokes use
+         * journal SMA/eccentricity (stable during playback). Schematic fallback rings keep a fixed legacy segment
+         * count during playback so inferred radii do not reshuffle vertex count each tick.
          */
-        boolean screenOrbitScale = useScreenChordScaleForSegments && !orbitSchematicPlaybackActive;
+        boolean screenOrbitScale = useScreenChordScaleForSegments;
         double scalePxPerM = screenOrbitScale ? computeScalePixelsPerWorldMetre() : Double.NaN;
         int legacySeg = orbitSegmentsForZoom(zoomFactor);
         int tiltForRebuild = true ? viewTiltDegrees : 0;
@@ -1840,8 +1841,8 @@ public final class SystemPlanMapPanel extends JPanel {
     /**
      * Updates dot and ship world positions without resetting zoom or layout spans.
      * Rebuilds orbit polylines from the new positions so rings stay centred on moving parents (e.g. during Play).
-     * Uses a fixed zoom-based segment count (not screen chord) each tick so schematic rings do not reshuffle vertex
-     * count when their inferred radius breathes — that was causing tangential stutter along the stroke during playback.
+     * Kepler strokes use screen-chord segment counts (journal SMA/ecc are stable). Schematic fallback rings keep a
+     * fixed legacy segment count during playback so inferred radii do not reshuffle vertex count each tick.
      * Subsystem follow hub snapping during schematic playback runs on the next {@link #paintComponent}, not here, so
      * this stays cheap. Wheel-driven recentre is applied only in {@link #applyWheelZoomAtComponent}.
      * The “fit all” world span used for scale is not recomputed here (it is refreshed on {@link #setScene} only), so
@@ -1975,7 +1976,7 @@ public final class SystemPlanMapPanel extends JPanel {
              * so elliptical paths stay tied to the moving direct parent.
              */
             Map<Integer, double[]> ringRadiusRef = null;
-            rebuildOrbitPolylines(true, false, ringRadiusRef);
+            rebuildOrbitPolylines(true, true, ringRadiusRef);
         }
         repaint();
         return true;
@@ -2146,7 +2147,7 @@ public final class SystemPlanMapPanel extends JPanel {
         viewCenterWx = wx - (ex - PAD - availW / 2.0) / scaleNew;
         viewCenterWy = wy + (ey - PAD - availH / 2.0) / scaleNew;
         if (zoomFactor >= ZOOM_SUBSYSTEM_CENTER_LOCK && zoomFactor > prevZoom) {
-            ResolvedSubsystemHub hub = tryResolveSubsystemFollowHub(availW, availH, scaleNew, false);
+            ResolvedSubsystemHub hub = tryResolveSubsystemFollowHub(availW, availH, scaleNew, false, wx, wy, true);
             if (hub != null) {
                 nudgeViewCenterTowardSubsystemHubOnWheel(hub, scaleNew);
             }
@@ -2360,7 +2361,7 @@ public final class SystemPlanMapPanel extends JPanel {
             final double plotCx = PAD + availW * 0.5;
             final double plotCy = PAD + availH * 0.5;
 
-            rebuildOrbitPolylines(false, !orbitSchematicPlaybackActive);
+            rebuildOrbitPolylines(false, true);
 
             g2.setColor(EdoUi.Internal.GRAY_ALPHA_140);
             g2.setStroke(new BasicStroke(1f));
@@ -2432,6 +2433,9 @@ public final class SystemPlanMapPanel extends JPanel {
                     }
                 }
             }
+            if (!showClusterDetail) {
+                drawMissingHostOrbitRings(g2, vcx, vcy, scale, availW, availH);
+            }
 
             g2.setFont(labelFont);
             float dotEm = Math.max(8f, labelFm.getHeight() * 0.42f);
@@ -2495,6 +2499,10 @@ public final class SystemPlanMapPanel extends JPanel {
                     }
                     if (hubTwinBlueRings) {
                         drawSubsystemMoonHubDoubleRing(g2, sx, sy, r);
+                        if (!showClusterDetail && !hasOrbitPolylineForBody(d.bodyId)) {
+                            drawSubsystemHubRevolutionPathRing(g2, d.bodyId, d.wx, d.wy, vcx, vcy, scale, availW,
+                                    availH);
+                        }
                         if (ringsZoomOk) {
                             float ringDecorR = Math.max(r, Math.max(bodyR * 0.92f, 4.5f));
                             drawPlanetaryRingsDecor(g2, sx, sy, ringDecorR);
@@ -3107,9 +3115,12 @@ public final class SystemPlanMapPanel extends JPanel {
                 && visibleLsMinAxis <= SUBSYSTEM_CLUSTER_DETAIL_VISIBLE_LS;
     }
 
-    /** Moon designations ({@code A 2 a}); requires deep zoom, not merely subsystem cluster detail. */
+    /** Moon designations ({@code A 2 a}) once subsystem detail is active (same threshold as hub lump expansion). */
     private boolean mapShowMoonLabels(double visibleLsMinAxis) {
-        return mapShowAllBodyLabels(visibleLsMinAxis);
+        if (mapShowAllBodyLabels(visibleLsMinAxis)) {
+            return true;
+        }
+        return mapShowClusterDetail(visibleLsMinAxis);
     }
 
     /** All body labels (including moons); below this only stars and {@link SystemMapModel#isOrbitRevolutionCenter}. */
@@ -3180,11 +3191,23 @@ public final class SystemPlanMapPanel extends JPanel {
             return false;
         }
         /*
-         * Wide-zoom companion lump (BCD 2–5): twin-ring hub only — no summary text until subsystem-detail zoom
-         * (individual B/C/D star labels stay on via the star branch below).
+         * Wide-zoom companion lump (e.g. BCD 2–5, ABC 2–4): twin-ring hub shows a summary label; individual member
+         * labels stay hidden until subsystem-detail zoom (branch stars keep single-letter labels).
          */
         if (companionLump != null && companionLump.contains(d.bodyId)) {
             return false;
+        }
+        if (!showClusterDetail && orbitGeomBodies != null
+                && SystemOrbitGeometry.isHierarchicalWideBinary(orbitGeomBodies)) {
+            String trunkPrefix = SystemOrbitGeometry.hierarchicalCompanionTrunkDesignationPrefix(orbitGeomBodies);
+            if (trunkPrefix != null && d.label != null && labelHasCompanionTrunkPrefix(d.label, trunkPrefix)
+                    && mapModel != null && mapModel.isOrbitRevolutionCenter(d.bodyId)
+                    && !mapModel.isPrimaryBranchBody(d.bodyId)) {
+                return true;
+            }
+        }
+        if (!showClusterDetail && bodyHasResolvedMoonChildren(d.bodyId)) {
+            return true;
         }
         if (d.moon && !showMoonLabels) {
             return false;
@@ -3199,6 +3222,9 @@ public final class SystemPlanMapPanel extends JPanel {
             return true;
         }
         if (showClusterDetail && mapModel != null && mapModel.isOrbitRevolutionCenter(d.bodyId)) {
+            return true;
+        }
+        if (showClusterDetail && showMoonLabels && d.moon) {
             return true;
         }
         if (!showClusterDetail && mapModel != null && !d.star) {
@@ -3539,9 +3565,8 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * When the companion branch is zoomed out, merge its major planets (e.g. BCD 2–5) into one lump hub with twin
-     * orbit-blue rings instead of overlapping dots, polylines, and barycentre crosses. Summary text is deferred until
-     * subsystem-detail zoom ({@link #mapShowClusterDetail}); branch stars B/C/D keep their single-letter labels.
+     * When the companion branch is zoomed out, merge its major planets (e.g. BCD 2–5, ABC 2–4) into one lump hub with twin
+     * orbit-blue rings instead of overlapping dots, polylines, and barycentre crosses.
      */
     private CompanionBranchLump buildCompanionBranchRevolutionLump(List<BodyDot> dots, boolean showClusterDetail,
             double visibleLsMinAxis) {
@@ -3550,6 +3575,11 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         if (!mapModel.classification().wideBinary()
                 || !SystemOrbitGeometry.isHierarchicalWideBinary(orbitGeomBodies)) {
+            return null;
+        }
+        String companionTrunkPrefix = SystemOrbitGeometry
+                .hierarchicalCompanionTrunkDesignationPrefix(orbitGeomBodies);
+        if (companionTrunkPrefix == null || companionTrunkPrefix.isEmpty()) {
             return null;
         }
         List<BodyDot> candidates = new ArrayList<>();
@@ -3564,12 +3594,12 @@ public final class SystemPlanMapPanel extends JPanel {
                 continue;
             }
             /*
-             * Hierarchical A vs BCD: only lump the companion-trunk giants (BCD n), not branch stars B/C/D or
-             * mis-clustered A-branch planets that screen-close to the BCD hub.
+             * Hierarchical A vs companion trunk: only lump companion-trunk giants (BCD n / ABC n), not branch stars or
+             * mis-clustered A-branch planets that screen-close to the companion hub.
              */
             if (SystemOrbitGeometry.isHierarchicalWideBinary(orbitGeomBodies)) {
                 String lbl = d.label != null ? d.label.trim() : "";
-                if (lbl.isEmpty() || !lbl.startsWith("BCD")) {
+                if (!labelHasCompanionTrunkPrefix(lbl, companionTrunkPrefix)) {
                     continue;
                 }
             }
@@ -3634,7 +3664,7 @@ public final class SystemPlanMapPanel extends JPanel {
             if (members.size() < 2) {
                 continue;
             }
-            members = pruneCompanionLumpOutliers(members);
+            members = pruneCompanionLumpOutliers(members, companionTrunkPrefix);
             if (members.size() < 2) {
                 continue;
             }
@@ -3669,36 +3699,46 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Wide-zoom screen clustering can glue distant trunk planets onto a tight subsystem core; drop {@code BCD 1} when
-     * the lump already contains {@code BCD 2+} so the summary reads {@code BCD 2–5}.
+     * Wide-zoom screen clustering can glue distant trunk planets onto a tight subsystem core; drop the lowest-index
+     * trunk major (e.g. {@code BCD 1} / {@code ABC 1}) when the lump already contains {@code n+} so the summary reads
+     * {@code BCD 2–5} / {@code ABC 2–4}.
      */
-    private static List<BodyDot> pruneCompanionLumpOutliers(List<BodyDot> members) {
-        if (members == null || members.size() < 3) {
+    private static List<BodyDot> pruneCompanionLumpOutliers(List<BodyDot> members, String trunkPrefix) {
+        if (members == null || members.size() < 3 || trunkPrefix == null || trunkPrefix.isEmpty()) {
             return members;
         }
-        boolean hasBcd1 = false;
-        boolean hasBcd2Plus = false;
+        String outlierLabel = trunkPrefix + " 1";
+        boolean hasTrunk1 = false;
+        boolean hasTrunk2Plus = false;
         for (BodyDot d : members) {
             if (d == null || d.label == null) {
                 continue;
             }
             String label = d.label.trim();
-            if ("BCD 1".equals(label)) {
-                hasBcd1 = true;
-            } else if (label.startsWith("BCD ")) {
-                hasBcd2Plus = true;
+            if (outlierLabel.equals(label)) {
+                hasTrunk1 = true;
+            } else if (label.startsWith(trunkPrefix + " ")) {
+                hasTrunk2Plus = true;
             }
         }
-        if (!hasBcd1 || !hasBcd2Plus) {
+        if (!hasTrunk1 || !hasTrunk2Plus) {
             return members;
         }
         List<BodyDot> trimmed = new ArrayList<>(members.size());
         for (BodyDot d : members) {
-            if (d != null && !"BCD 1".equals(d.label != null ? d.label.trim() : "")) {
+            if (d != null && !outlierLabel.equals(d.label != null ? d.label.trim() : "")) {
                 trimmed.add(d);
             }
         }
         return trimmed.size() >= 2 ? trimmed : members;
+    }
+
+    private static boolean labelHasCompanionTrunkPrefix(String label, String trunkPrefix) {
+        if (label == null || trunkPrefix == null || trunkPrefix.isEmpty()) {
+            return false;
+        }
+        String t = label.trim();
+        return t.startsWith(trunkPrefix + " ") || t.equals(trunkPrefix);
     }
 
     /** Hub id for summary label anchor ({@code BCD 2–5} → body {@code BCD 2}). */
@@ -3752,19 +3792,23 @@ public final class SystemPlanMapPanel extends JPanel {
                 break;
             }
         }
+        if (lump.summaryLabel != null && !lump.summaryLabel.isEmpty()) {
+            Font labelFont = g2.getFont().deriveFont(Font.PLAIN, Math.max(10f, g2.getFont().getSize2D()));
+            g2.setFont(labelFont);
+            FontMetrics fm = g2.getFontMetrics(labelFont);
+            int summaryW = fm.stringWidth(lump.summaryLabel);
+            float[] lp = bodyLabelAnchor((float) sx, (float) sy, lr, lump.hubBodyId, lump.summaryLabel, summaryW, fm,
+                    false);
+            drawLabelOutlined(g2, lump.summaryLabel, lp[0], lp[1]);
+        }
     }
 
     /**
-     * Schematic orbit path for a subsystem hub: circle centred on the resolved parent through the hub (same geometry
-     * as {@link SystemOrbitGeometry} schematic rings). Drawn at lump zoom so majors still show the arc they follow.
-     * Not used in true scale — journal-radius circles there duplicate Kepler {@link #orbitLines} strokes and are not
-     * hit-testable as orbit polylines.
+     * Orbit path for a subsystem hub when Kepler {@link #orbitLines} has no stroke: circle centred on the resolved
+     * parent through the hub at live playback positions.
      */
     private void drawSubsystemHubRevolutionPathRing(Graphics2D g2, int bodyId, double bodyWx, double bodyWy,
             double vcx, double vcy, double scale, double availW, double availH) {
-        if (true) {
-            return;
-        }
         if (mapModel == null || bodyId < 0 || !Double.isFinite(bodyWx) || !Double.isFinite(bodyWy)) {
             return;
         }
@@ -3772,8 +3816,22 @@ public final class SystemPlanMapPanel extends JPanel {
         if (parentId < 0) {
             return;
         }
-        double px = mapModel.mapPlaneX(parentId);
-        double py = mapModel.mapPlaneY(parentId);
+        double px = Double.NaN;
+        double py = Double.NaN;
+        Map<Integer, double[]> positions = currentMapPositionsMetres();
+        double[] parentPos = positions.get(Integer.valueOf(parentId));
+        int p0 = mapModel.projectionAxis0();
+        int p1 = mapModel.projectionAxis1();
+        if (parentPos != null && parentPos.length > Math.max(p0, p1)) {
+            px = SystemOrbitGeometry.worldAxisMetres(parentPos, p0);
+            py = SystemOrbitGeometry.worldAxisMetres(parentPos, p1);
+        } else {
+            BodyDot parentDot = findBodyDot(parentId);
+            if (parentDot != null && Double.isFinite(parentDot.wx) && Double.isFinite(parentDot.wy)) {
+                px = parentDot.wx;
+                py = parentDot.wy;
+            }
+        }
         if (!Double.isFinite(px) || !Double.isFinite(py)) {
             return;
         }
@@ -3793,19 +3851,37 @@ public final class SystemPlanMapPanel extends JPanel {
             g2.setColor(new Color(110, 165, 220));
             g2.setStroke(new BasicStroke(1.15f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f));
             g2.draw(new Ellipse2D.Double(cx - rPx, cy - rPx, rPx * 2.0, rPx * 2.0));
-            if (!loggedHubRevolutionDrawTrace) {
-                loggedHubRevolutionDrawTrace = true;
-                double radLs = radM / SystemOrbitGeometry.LIGHT_SECOND_METRES;
-                BodyInfo body = orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(bodyId)) : null;
-                String label = body != null && body.getShortName() != null ? body.getShortName() : "?" + bodyId;
-                System.out.println(String.format(Locale.US,
-                        "[EDO][OrbitMap][Draw] schematic hub revolution ring body=%s id=%d parent=%d radiusLs=%.1f"
-                                + " (live distance; not an orbit polyline)",
-                        label, bodyId, parentId, radLs));
-            }
         } finally {
             g2.setStroke(prevStroke);
             g2.setColor(prevColor);
+        }
+    }
+
+    /**
+     * At lump zoom, majors and moon-host hubs may lack a Kepler polyline (true-scale playback snap, or lump suppression).
+     * Draw a parent-centred fallback ring so bodies are visibly on an orbit.
+     */
+    private void drawMissingHostOrbitRings(Graphics2D g2, double vcx, double vcy, double scale, double availW,
+            double availH) {
+        if (mapModel == null || dots == null) {
+            return;
+        }
+        for (BodyDot d : dots) {
+            if (d == null || d.star || hasOrbitPolylineForBody(d.bodyId)) {
+                continue;
+            }
+            if (!Double.isFinite(d.wx) || !Double.isFinite(d.wy)) {
+                continue;
+            }
+            boolean moonHost = bodyHasResolvedMoonChildren(d.bodyId);
+            boolean major = mapModel.isOrbitRevolutionCenter(d.bodyId) && !d.moon;
+            if (!moonHost && !major) {
+                continue;
+            }
+            if (mapModel.resolveParentBodyId(d.bodyId) < 0) {
+                continue;
+            }
+            drawSubsystemHubRevolutionPathRing(g2, d.bodyId, d.wx, d.wy, vcx, vcy, scale, availW, availH);
         }
     }
 
@@ -3853,14 +3929,56 @@ public final class SystemPlanMapPanel extends JPanel {
         return distLs <= lump.clusterRadiusLs + 80.0;
     }
 
+    /** Positions for map draw/hit-test: live playback positions when set, else pipeline snapshot. */
+    private Map<Integer, double[]> currentMapPositionsMetres() {
+        if (orbitGeomPositions != null && !orbitGeomPositions.isEmpty()) {
+            return orbitGeomPositions;
+        }
+        if (mapModel != null) {
+            Map<Integer, double[]> snap = mapModel.positionsMetres();
+            if (snap != null && !snap.isEmpty()) {
+                return snap;
+            }
+        }
+        return Map.of();
+    }
+
+    final Map<Integer, double[]> orbitGeomPositionsForTests() {
+        return orbitGeomPositions;
+    }
+
+    /** Scan / planet-binary barycentre marker world XY (map plane); for tests and diagnostics. */
+    final double[] barycentreMarkerMapXYForTests(int mapKey) {
+        if (mapModel == null) {
+            return null;
+        }
+        Map<Integer, double[]> positions = currentMapPositionsMetres();
+        double[] p = positions.get(Integer.valueOf(mapKey));
+        if (p == null) {
+            return null;
+        }
+        int p0 = mapModel.projectionAxis0();
+        int p1 = mapModel.projectionAxis1();
+        int needLen = Math.max(p0, p1) + 1;
+        if (p.length < needLen) {
+            return null;
+        }
+        double x = SystemOrbitGeometry.worldAxisMetres(p, p0);
+        double y = SystemOrbitGeometry.worldAxisMetres(p, p1);
+        if (!Double.isFinite(x) || !Double.isFinite(y)) {
+            return null;
+        }
+        return new double[] { x, y };
+    }
+
     /** Scan-barycentre rows and planet-binary map keys — drawn as {@code +} on the map, not body dots. */
     private void drawBarycentreMarkers(Graphics2D g2, float dotEm, double vcx, double vcy, double scale, double availW,
             double availH, double plotCx, double plotCy, CompanionBranchLump companionLump) {
         if (mapModel == null) {
             return;
         }
-        Map<Integer, double[]> positions = mapModel.positionsMetres();
-        if (positions == null || positions.isEmpty()) {
+        Map<Integer, double[]> positions = currentMapPositionsMetres();
+        if (positions.isEmpty()) {
             return;
         }
         int p0 = mapModel.projectionAxis0();
@@ -4146,10 +4264,15 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         if (self != null) {
             String shortName = self.getShortName();
-            if (shortName != null && shortName.startsWith("BCD")) {
+            String trunkPrefix = SystemOrbitGeometry.hierarchicalCompanionTrunkDesignationPrefix(orbitGeomBodies);
+            if (trunkPrefix != null && shortName != null && labelHasCompanionTrunkPrefix(shortName, trunkPrefix)) {
                 for (Map.Entry<Integer, BodyInfo> e : orbitGeomBodies.entrySet()) {
-                    if (e.getKey() != null && e.getValue() != null
-                            && "B".equalsIgnoreCase(e.getValue().getShortName())) {
+                    if (e.getKey() == null || e.getValue() == null) {
+                        continue;
+                    }
+                    if (SystemMapRules.isMapStellarBody(e.getValue())
+                            && !SystemOrbitGeometry.isWideBinaryPrimaryBranchBody(e.getKey().intValue(),
+                                    orbitGeomBodies)) {
                         return e.getKey().intValue();
                     }
                 }
@@ -4563,21 +4686,59 @@ public final class SystemPlanMapPanel extends JPanel {
         return s;
     }
 
-    /** Body ids whose dots fall inside an axis-aligned world window around {@link #viewCenterWx}/{@link #viewCenterWy}. */
-    private Set<Integer> collectBodyIdsNearViewCenter(double halfW, double halfH, double margin) {
+    /** Body ids whose dots fall inside an axis-aligned world window around {@code centerWx}/{@code centerWy}. */
+    private Set<Integer> collectBodyIdsNearWorldPoint(double centerWx, double centerWy, double halfW, double halfH,
+            double margin) {
         double mw = halfW * margin;
         double mh = halfH * margin;
-        double minWx = viewCenterWx - mw;
-        double maxWx = viewCenterWx + mw;
-        double minWy = viewCenterWy - mh;
-        double maxWy = viewCenterWy + mh;
+        double minWx = centerWx - mw;
+        double maxWx = centerWx + mw;
+        double minWy = centerWy - mh;
+        double maxWy = centerWy + mh;
         Set<Integer> visible = new HashSet<>();
         for (BodyDot d : dots) {
+            if (d == null || !Double.isFinite(d.wx) || !Double.isFinite(d.wy)) {
+                continue;
+            }
             if (d.wx >= minWx && d.wx <= maxWx && d.wy >= minWy && d.wy <= maxWy) {
                 visible.add(Integer.valueOf(d.bodyId));
             }
         }
         return visible;
+    }
+
+    /** Body ids whose dots fall inside an axis-aligned world window around {@link #viewCenterWx}/{@link #viewCenterWy}. */
+    private Set<Integer> collectBodyIdsNearViewCenter(double halfW, double halfH, double margin) {
+        return collectBodyIdsNearWorldPoint(viewCenterWx, viewCenterWy, halfW, halfH, margin);
+    }
+
+    /** Closest plotted body to a world point (ignores lump-hidden dots — they are not drawn at that location). */
+    private int nearestPlottedBodyIdToWorldPoint(double wx, double wy) {
+        int best = -1;
+        double bestD2 = Double.MAX_VALUE;
+        for (BodyDot d : dots) {
+            if (d == null || !Double.isFinite(d.wx) || !Double.isFinite(d.wy)) {
+                continue;
+            }
+            double d2 = Math.hypot(d.wx - wx, d.wy - wy);
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                best = d.bodyId;
+            }
+        }
+        return best;
+    }
+
+    private boolean hasOrbitPolylineForBody(int bodyId) {
+        if (orbitLines == null || orbitLines.isEmpty()) {
+            return false;
+        }
+        for (OrbitPolylineWorldXY poly : orbitLines) {
+            if (poly != null && poly.bodyId == bodyId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -4592,7 +4753,18 @@ public final class SystemPlanMapPanel extends JPanel {
      *
      * @return {@code null} when no hub applies
      */
-    private ResolvedSubsystemHub tryResolveSubsystemFollowHub(double availW, double availH, double scale, boolean pauseResync) {
+    private ResolvedSubsystemHub tryResolveSubsystemFollowHub(double availW, double availH, double scale,
+            boolean pauseResync) {
+        return tryResolveSubsystemFollowHub(availW, availH, scale, pauseResync, viewCenterWx, viewCenterWy, false);
+    }
+
+    /**
+     * @param focusWx world point to search for bodies (wheel cursor when {@code preferCursorLocalHub})
+     * @param preferCursorLocalHub when true (mouse wheel zoom-in), anchor on the body nearest the cursor instead of
+     *        the whole viewport — needed in wide binaries where the view still spans multiple branches.
+     */
+    private ResolvedSubsystemHub tryResolveSubsystemFollowHub(double availW, double availH, double scale,
+            boolean pauseResync, double focusWx, double focusWy, boolean preferCursorLocalHub) {
         if (sceneEmpty || dots.isEmpty() || orbitGeomBodies == null || orbitGeomBodies.isEmpty()) {
             return null;
         }
@@ -4604,9 +4776,9 @@ public final class SystemPlanMapPanel extends JPanel {
         if (!Double.isFinite(halfW) || !Double.isFinite(halfH)) {
             return null;
         }
-        Set<Integer> visible = collectBodyIdsNearViewCenter(halfW, halfH, 1.0);
+        Set<Integer> visible = collectBodyIdsNearWorldPoint(focusWx, focusWy, halfW, halfH, 1.0);
         if (visible.isEmpty()) {
-            visible = collectBodyIdsNearViewCenter(halfW, halfH, SUBSYSTEM_FOLLOW_VISIBLE_MARGIN);
+            visible = collectBodyIdsNearWorldPoint(focusWx, focusWy, halfW, halfH, SUBSYSTEM_FOLLOW_VISIBLE_MARGIN);
         }
         boolean fullSystemHubPick = false;
         if (visible.isEmpty()) {
@@ -4623,9 +4795,31 @@ public final class SystemPlanMapPanel extends JPanel {
             return null;
         }
         Set<Integer> pickedForHub = new HashSet<>();
-        for (Integer idObj : visible) {
-            if (idObj != null && orbitGeomBodies.containsKey(idObj)) {
-                pickedForHub.add(idObj);
+        if (preferCursorLocalHub) {
+            int nearest = nearestPlottedBodyIdToWorldPoint(focusWx, focusWy);
+            if (nearest >= 0) {
+                pickedForHub.add(Integer.valueOf(nearest));
+                for (Integer idObj : visible) {
+                    if (idObj == null || idObj.intValue() == nearest) {
+                        continue;
+                    }
+                    BodyDot nearDot = findBodyDot(nearest);
+                    BodyDot other = findBodyDot(idObj.intValue());
+                    if (nearDot != null && other != null && Double.isFinite(nearDot.wx) && Double.isFinite(other.wx)) {
+                        double sepLs = Math.hypot(nearDot.wx - other.wx, nearDot.wy - other.wy)
+                                / SystemOrbitGeometry.LIGHT_SECOND_METRES;
+                        if (sepLs <= Math.max(halfW, halfH) / SystemOrbitGeometry.LIGHT_SECOND_METRES * 0.55) {
+                            pickedForHub.add(idObj);
+                        }
+                    }
+                }
+            }
+        }
+        if (pickedForHub.isEmpty()) {
+            for (Integer idObj : visible) {
+                if (idObj != null && orbitGeomBodies.containsKey(idObj)) {
+                    pickedForHub.add(idObj);
+                }
             }
         }
         int hub = -1;
@@ -5704,7 +5898,7 @@ public final class SystemPlanMapPanel extends JPanel {
             if (!Double.isFinite(scale) || scale <= 0.0) {
                 return null;
             }
-            rebuildOrbitPolylines(false, !orbitSchematicPlaybackActive);
+            rebuildOrbitPolylines(false, true);
             double vcx = viewCenterWx;
             double vcy = viewCenterWy;
             double plotCx = PAD + availW * 0.5;
@@ -6051,8 +6245,8 @@ public final class SystemPlanMapPanel extends JPanel {
         if (mapModel == null) {
             return out;
         }
-        Map<Integer, double[]> positions = mapModel.positionsMetres();
-        if (positions == null || positions.isEmpty()) {
+        Map<Integer, double[]> positions = currentMapPositionsMetres();
+        if (positions.isEmpty()) {
             return out;
         }
         int p0 = mapModel.projectionAxis0();
@@ -6517,8 +6711,8 @@ public final class SystemPlanMapPanel extends JPanel {
         if (mapModel == null) {
             return 0;
         }
-        Map<Integer, double[]> positions = mapModel.positionsMetres();
-        if (positions == null || positions.isEmpty()) {
+        Map<Integer, double[]> positions = currentMapPositionsMetres();
+        if (positions.isEmpty()) {
             return 0;
         }
         int p0 = mapModel.projectionAxis0();

@@ -2152,9 +2152,11 @@ public class RouteTabPanel extends JPanel {
 			int knownBodies = tmp.getBodies().size();
 			Boolean all = tmp.getAllBodiesFound();
 			Double progress = tmp.getFssProgress();
-			if (Boolean.TRUE.equals(all)) {
-				journalStatus = "Complete";
-			} else if (progress != null && progress.doubleValue() > 0.0 && progress.doubleValue() < 1.0) {
+            if (Boolean.TRUE.equals(all) && totalBodies != null && totalBodies > 0 && knownBodies < totalBodies) {
+                journalStatus = "FSS complete (count mismatch)";
+            } else if (Boolean.TRUE.equals(all)) {
+                journalStatus = "Complete";
+            } else if (progress != null && progress.doubleValue() > 0.0 && progress.doubleValue() < 1.0) {
 				journalStatus = "In progress";
 			} else if (knownBodies > 0) {
 				journalStatus = "In progress";

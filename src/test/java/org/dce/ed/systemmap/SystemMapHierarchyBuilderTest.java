@@ -137,6 +137,20 @@ class SystemMapHierarchyBuilderTest {
         assertFalse(SystemMapHierarchyBuilder.summarizeCollapsedChildren(starA).isEmpty());
     }
 
+    @Test
+    void computeAutoCollapseKeys_collapsesConsecutiveMoons() {
+        SystemMapHierarchyBuilder.Node parent = new SystemMapHierarchyBuilder.Node(28, "7", "gas giant", null,
+                NodeKind.PLANET);
+        for (char c = 'a'; c <= 'e'; c++) {
+            SystemMapHierarchyBuilder.Node moon = child("7 " + c, "map: 7");
+            parent.children.add(moon);
+        }
+        SystemMapHierarchyBuilder.Graph graph = new SystemMapHierarchyBuilder.Graph("test", parent, List.of());
+        graph.nodeByKey.put(Integer.valueOf(28), parent);
+        var keys = SystemMapHierarchyBuilder.computeAutoCollapseKeys(graph);
+        assertTrue(keys.contains(Integer.valueOf(28)));
+    }
+
     private static SystemMapHierarchyBuilder.Node child(String label, String subtitle) {
         return new SystemMapHierarchyBuilder.Node(label.hashCode(), label, subtitle, null, NodeKind.PLANET);
     }

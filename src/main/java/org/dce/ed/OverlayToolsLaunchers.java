@@ -212,6 +212,10 @@ public final class OverlayToolsLaunchers {
         SystemHierarchyGraphFrame.showDefaultOrBringToFront(parent);
     }
 
+    public static void launchSystemHierarchyGraphForSystem(Component parent, String systemName) {
+        SystemHierarchyGraphFrame.showForSystem(parent, systemName);
+    }
+
     public static void launchExoPredictionDebugger(Component parent) {
         SwingUtilities.invokeLater(() -> {
             try {

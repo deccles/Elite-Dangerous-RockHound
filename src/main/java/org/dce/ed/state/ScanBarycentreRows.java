@@ -77,7 +77,7 @@ public final class ScanBarycentreRows {
                 continue;
             }
             int nullId = bary.getBodyId();
-            if (nullId <= 0) {
+            if (nullId <= 0 || SystemOrbitGeometry.isCoOrbitMajorSharedNullHub(nullId, bodies)) {
                 continue;
             }
             int hostId = bary.getImmediateParentBodyId();
@@ -166,6 +166,9 @@ public final class ScanBarycentreRows {
         }
         BodyInfo bary = bodies.get(Integer.valueOf(nullId));
         if (bary == null || !bary.isScanBarycentreRow()) {
+            return;
+        }
+        if (SystemOrbitGeometry.isCoOrbitMajorSharedNullHub(nullId, bodies)) {
             return;
         }
         int planetHostId = -1;

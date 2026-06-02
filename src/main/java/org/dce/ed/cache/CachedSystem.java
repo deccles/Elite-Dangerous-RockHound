@@ -24,4 +24,11 @@ import java.util.List;
         public Integer nonBodyCount;
         public Double fssProgress;
         public Boolean allBodiesFound;
+
+        /** Ordered Scan + ScanBaryCentre journal records (JSON). */
+        public String journalEventLogJson;
+        /** Frozen {@link org.dce.systemmodel.snapshot.SystemSnapshot}. */
+        public String modelSnapshotJson;
+        /** OK | INCOMPLETE | ERROR from last model rebuild. */
+        public String modelState;
     }

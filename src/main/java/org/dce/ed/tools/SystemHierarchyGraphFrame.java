@@ -33,13 +33,17 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
-import org.dce.ed.state.BodyInfo;
-import org.dce.ed.systemmap.SystemMapHierarchyBuilder;
+import org.dce.ed.cache.CachedSystem;
+import org.dce.ed.cache.SystemCache;
+import org.dce.ed.state.SystemState;
+import org.dce.ed.systemmap.JournalSystemMapLoader;
+import org.dce.ed.systemmap.JournalSystemVisitHistory;
 import org.dce.ed.systemmap.SystemMapHierarchyBuilder.Graph;
-import org.dce.ed.systemmap.SystemMapPipeline;
 import org.dce.ed.systemmap.SystemMapSystemLoader;
 import org.dce.ed.systemmap.SystemMapSystemLoader.Loaded;
 import org.dce.ed.systemmap.SystemMapSystemLoader.Source;
+import org.dce.ed.systemmap.SystemModelHierarchyBuilder;
+import org.dce.ed.systemmap.SystemVisitNav;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.SystemHierarchyGraphPanel;
 
@@ -74,6 +78,12 @@ public final class SystemHierarchyGraphFrame extends JFrame {
     private final JComboBox<Source> sourceBox;
     private final JLabel statusLabel;
     private final SystemHierarchyGraphPanel graphPanel;
+    private final JButton backBtn;
+    private final JButton forwardBtn;
+
+    private final SystemVisitNav visitNav = new SystemVisitNav();
+    private boolean navigationLoad;
+    private int navigationRevertIndex = -1;
 
     private SystemHierarchyGraphFrame() {
         super("System hierarchy graph");
@@ -102,7 +112,13 @@ public final class SystemHierarchyGraphFrame extends JFrame {
         top.setBackground(EdoUi.User.PANEL_BG);
         top.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         top.add(new JLabel("System:"));
+        backBtn = new JButton("<");
+        forwardBtn = new JButton(">");
+        backBtn.setToolTipText("Previous system in journal visit history");
+        forwardBtn.setToolTipText("Next system in journal visit history");
+        top.add(backBtn);
         top.add(systemField);
+        top.add(forwardBtn);
         top.add(new JLabel("Source:"));
         top.add(sourceBox);
         JButton loadBtn = new JButton("Load");
@@ -123,10 +139,14 @@ public final class SystemHierarchyGraphFrame extends JFrame {
         getContentPane().add(new JScrollPane(graphPanel), BorderLayout.CENTER);
         getContentPane().add(statusBar, BorderLayout.SOUTH);
 
-        loadBtn.addActionListener(e -> loadSystem());
+        loadBtn.addActionListener(e -> loadSystem(false));
         fitBtn.addActionListener(e -> graphPanel.fitToGraph());
-        systemField.addActionListener(e -> loadSystem());
+        backBtn.addActionListener(e -> navigateVisitBack());
+        forwardBtn.addActionListener(e -> navigateVisitForward());
+        systemField.addActionListener(e -> loadSystem(false));
         getRootPane().setDefaultButton(loadBtn);
+        updateNavButtons();
+        loadJournalVisitHistoryAsync();
         getRootPane().getInputMap(javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW)
                 .put(KeyStroke.getKeyStroke("control F"), "fit");
         getRootPane().getActionMap().put("fit", new AbstractAction() {
@@ -364,7 +384,71 @@ public final class SystemHierarchyGraphFrame extends JFrame {
         return loaded.loadedFrom;
     }
 
+    private void navigateVisitBack() {
+        navigationRevertIndex = visitNav.currentIndex();
+        String name = visitNav.back();
+        if (name != null) {
+            systemField.setText(name);
+            loadSystem(true);
+            updateNavButtons();
+        }
+    }
+
+    private void navigateVisitForward() {
+        navigationRevertIndex = visitNav.currentIndex();
+        String name = visitNav.forward();
+        if (name != null) {
+            systemField.setText(name);
+            loadSystem(true);
+            updateNavButtons();
+        }
+    }
+
+    private void updateNavButtons() {
+        backBtn.setEnabled(visitNav.canBack());
+        forwardBtn.setEnabled(visitNav.canForward());
+    }
+
+    private void loadJournalVisitHistoryAsync() {
+        String initialSystem = systemField.getText();
+        SwingWorker<java.util.List<String>, Void> worker = new SwingWorker<>() {
+            @Override
+            protected java.util.List<String> doInBackground() {
+                try {
+                    return JournalSystemVisitHistory.loadViewableTransitionSystemNames(
+                            JournalSystemMapLoader.defaultJournalDirectory());
+                } catch (IOException ex) {
+                    return java.util.List.of();
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    java.util.List<String> history = get();
+                    visitNav.setJournalHistory(history, systemField.getText());
+                    updateNavButtons();
+                    if (history.isEmpty()) {
+                        return;
+                    }
+                    String trimmed = initialSystem != null ? initialSystem.trim() : "";
+                    if (trimmed.isEmpty() && lastLoadedSystemName == null) {
+                        systemField.setText(history.get(history.size() - 1));
+                        loadSystem(false);
+                    }
+                } catch (Exception ignored) {
+                    updateNavButtons();
+                }
+            }
+        };
+        worker.execute();
+    }
+
     private void loadSystem() {
+        loadSystem(false);
+    }
+
+    private void loadSystem(boolean fromNavigation) {
         String name = systemField.getText();
         if (name == null || name.isBlank()) {
             JOptionPane.showMessageDialog(this, "Enter a system name.", "System hierarchy graph",
@@ -377,11 +461,15 @@ public final class SystemHierarchyGraphFrame extends JFrame {
         }
         PREFS.put(PREF_LAST_SYSTEM, name.trim());
         PREFS.put(PREF_LAST_SOURCE, source.name());
+        navigationLoad = fromNavigation;
 
         statusLabel.setText("Loading…");
-        lastLoadedSystemName = null;
-        graphPanel.setGraph(null);
+        if (!fromNavigation) {
+            lastLoadedSystemName = null;
+            graphPanel.setGraph(null);
+        }
         Source loadSource = source;
+        String failedName = name.trim();
         SwingWorker<Graph, Void> worker = new SwingWorker<Graph, Void>() {
             private Loaded loadedResult;
             private String error;
@@ -389,11 +477,22 @@ public final class SystemHierarchyGraphFrame extends JFrame {
             @Override
             protected Graph doInBackground() {
                 try {
-                    Loaded loaded = SystemMapSystemLoader.load(name.trim(), loadSource);
+                    String trimmed = name.trim();
+                    Loaded loaded = SystemMapSystemLoader.load(trimmed, loadSource);
                     loadedResult = loaded;
-                    Map<Integer, BodyInfo> bodies = loaded.bodies;
-                    var model = SystemMapPipeline.build(loaded.systemName, bodies, Instant.EPOCH, true);
-                    return SystemMapHierarchyBuilder.build(loaded.systemName, model, bodies);
+
+                    Graph graph = SystemModelHierarchyBuilder.buildForLoaded(loaded);
+                    if (graph == null && loadSource != Source.CACHE) {
+                        SystemState journalState = JournalSystemMapLoader.loadFromJournal(
+                                JournalSystemMapLoader.defaultJournalDirectory(), trimmed);
+                        graph = SystemModelHierarchyBuilder.buildFromState(journalState);
+                    }
+                    if (graph == null || !SystemModelHierarchyBuilder.isUsableHierarchy(graph)) {
+                        throw new IOException(
+                                "No hierarchy data for " + trimmed
+                                        + " (need FSS Scan rows in cache or journal with parent links)");
+                    }
+                    return graph;
                 } catch (IOException ex) {
                     error = ex.getMessage();
                     return null;
@@ -405,6 +504,10 @@ public final class SystemHierarchyGraphFrame extends JFrame {
                 try {
                     Graph graph = get();
                     if (graph == null) {
+                        if (navigationLoad) {
+                            revertFailedNavigation(failedName, error);
+                            return;
+                        }
                         statusLabel.setText("Load failed");
                         JOptionPane.showMessageDialog(SystemHierarchyGraphFrame.this,
                                 error != null ? error : "No data",
@@ -413,7 +516,13 @@ public final class SystemHierarchyGraphFrame extends JFrame {
                         return;
                     }
                     graphPanel.setGraph(graph);
+                    graphPanel.applyAutoCollapseOnLoad();
                     lastLoadedSystemName = graph.systemName;
+                    navigationRevertIndex = -1;
+                    if (!navigationLoad) {
+                        visitNav.visit(graph.systemName);
+                    }
+                    updateNavButtons();
                     SwingUtilities.invokeLater(() -> {
                         if (!restoreViewPrefsIfMatching(graph.systemName)) {
                             graphPanel.fitToGraph();
@@ -424,6 +533,10 @@ public final class SystemHierarchyGraphFrame extends JFrame {
                     statusLabel.setText(graph.systemName + " — " + nodes + " nodes from "
                             + formatLoadedFrom(loadedResult));
                 } catch (Exception ex) {
+                    if (navigationLoad) {
+                        revertFailedNavigation(failedName, ex.getMessage());
+                        return;
+                    }
                     statusLabel.setText("Load failed");
                     JOptionPane.showMessageDialog(SystemHierarchyGraphFrame.this,
                             ex.getMessage(),
@@ -435,6 +548,22 @@ public final class SystemHierarchyGraphFrame extends JFrame {
         worker.execute();
     }
 
+    private void revertFailedNavigation(String failedSystemName, String detail) {
+        if (navigationRevertIndex >= 0) {
+            visitNav.setIndex(navigationRevertIndex);
+        }
+        navigationRevertIndex = -1;
+        updateNavButtons();
+        if (lastLoadedSystemName != null && !lastLoadedSystemName.isBlank()) {
+            systemField.setText(lastLoadedSystemName);
+        }
+        String msg = "No hierarchy data for " + failedSystemName;
+        if (lastLoadedSystemName != null && !lastLoadedSystemName.isBlank()) {
+            msg += " — showing " + lastLoadedSystemName;
+        }
+        statusLabel.setText(msg);
+    }
+
     public static void showDefaultOrBringToFront(Component parent) {
         SwingUtilities.invokeLater(() -> {
             if (openInstance != null && openInstance.isDisplayable()) {
@@ -443,6 +572,29 @@ public final class SystemHierarchyGraphFrame extends JFrame {
                 return;
             }
             openInstance = new SystemHierarchyGraphFrame();
+            if (!openInstance.restoredFrameBounds) {
+                openInstance.setLocationRelativeTo(parent);
+            }
+            openInstance.setVisible(true);
+            openInstance.loadSystem();
+        });
+    }
+
+    public static void showForSystem(Component parent, String systemName) {
+        SwingUtilities.invokeLater(() -> {
+            String name = systemName != null ? systemName.trim() : "";
+            if (name.isEmpty()) {
+                return;
+            }
+            if (openInstance != null && openInstance.isDisplayable()) {
+                openInstance.systemField.setText(name);
+                openInstance.toFront();
+                openInstance.requestFocus();
+                openInstance.loadSystem();
+                return;
+            }
+            openInstance = new SystemHierarchyGraphFrame();
+            openInstance.systemField.setText(name);
             if (!openInstance.restoredFrameBounds) {
                 openInstance.setLocationRelativeTo(parent);
             }

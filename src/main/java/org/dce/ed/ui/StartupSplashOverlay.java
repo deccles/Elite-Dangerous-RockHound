@@ -3,6 +3,7 @@ package org.dce.ed.ui;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Window;
 import java.awt.Font;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
@@ -17,6 +18,7 @@ import javax.swing.JRootPane;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
+import org.dce.ed.OverlayFrame;
 import org.dce.ed.util.AppIconUtil;
 
 /**
@@ -124,6 +126,10 @@ public final class StartupSplashOverlay {
                     empty.setOpaque(false);
                     root.setGlassPane(empty);
                     empty.setVisible(false);
+                }
+                Window host = SwingUtilities.getWindowAncestor(root);
+                if (host instanceof OverlayFrame overlay) {
+                    overlay.reapplyNativeMousePassThroughIfEnabled();
                 }
             };
             if (SwingUtilities.isEventDispatchThread()) {
@@ -249,6 +255,10 @@ public final class StartupSplashOverlay {
             }
             if (previousGlass != null) {
                 SwingUtilities.paintComponent(g, previousGlass, this, 0, 0, w, h);
+            }
+            Window host = SwingUtilities.getWindowAncestor(root);
+            if (host instanceof OverlayFrame overlay) {
+                overlay.scheduleNativePassThroughReapplyAfterPaint();
             }
         }
 

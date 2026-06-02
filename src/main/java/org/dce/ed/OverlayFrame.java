@@ -4,11 +4,13 @@ import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.geom.Line2D;
 import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.IllegalComponentStateException;
@@ -16,15 +18,17 @@ import java.awt.MouseInfo;
 import java.awt.Point;
 import java.awt.PointerInfo;
 import java.awt.Rectangle;
-import java.awt.RenderingHints;
-import java.awt.geom.Line2D;
-import java.awt.geom.Point2D;
 import java.awt.Toolkit;
 import java.awt.Window;
+import java.awt.AWTEvent;
+import java.awt.event.AWTEventListener;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.HierarchyEvent;
+import java.awt.event.PaintEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.geom.Point2D;
 import java.text.NumberFormat;
 import java.time.Instant;
 import java.util.HashSet;
@@ -74,11 +78,7 @@ import org.dce.ed.tts.TtsSprintf;
 
 import com.google.gson.JsonObject;
 import com.sun.jna.Native;
-import com.sun.jna.Pointer;
-import com.sun.jna.platform.win32.User32;
-import com.sun.jna.platform.win32.WinDef.HWND;
-import com.sun.jna.platform.win32.WinUser;
-import com.sun.jna.platform.win32.WinUser.WNDENUMPROC;
+import org.dce.ed.util.WindowsNativeMousePassThrough;
 
 import org.dce.ed.ui.EdoUi;
 
@@ -121,13 +121,16 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private final Preferences prefs = Preferences.userNodeForPackage(OverlayFrame.class);
 
     /** Last HWND used for native pass-through; refreshed on each apply (peer can be recreated). */
-    private HWND hwnd;
     private boolean passThroughEnabled;
 
     /**
-     * AWT can clear {@link WinUser#WS_EX_TRANSPARENT} after layered repaints or {@code setBounds}; re-apply while MPT is on.
+     * AWT can clear {@link com.sun.jna.platform.win32.WinUser#WS_EX_TRANSPARENT} after layered repaints or
+     * {@code setBounds}; re-apply while mouse pass-through is on.
      */
     private Timer mousePassThroughNativeStyleTimer;
+    /** Coalesces EDT re-applies triggered by high-frequency overlay repaints. */
+    private boolean nativePassThroughReapplyScheduled;
+    private AWTEventListener passThroughPaintGuard;
 
     private volatile CargoMonitor.Snapshot lastCargoSnapshot;
 
@@ -145,7 +148,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private volatile String exceptionLeftStatusText;
     private volatile Instant exceptionLeftStatusUntil;
 
-    // Crosshair overlay and timer to show mouse position in pass-through mode
+    // Crosshair on glass pane (draw-only, on top of all UI; {@link CrosshairOverlay#contains} is false)
     private final CrosshairOverlay crosshairOverlay = new CrosshairOverlay();
     private final Timer crosshairTimer;
     /** Smoothed glass-pane position (reduces jitter from coarse MouseInfo polling). */
@@ -496,9 +499,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             System.err.println("WARNING: Per-pixel translucency not supported on this device.");
         }
 
-        // Install crosshair overlay as glass pane (draw-only, no mouse handling)
         setGlassPane(crosshairOverlay);
-        crosshairOverlay.setVisible(false); // off until we detect pass-through + hover
+        crosshairOverlay.setVisible(false);
 
         // Poll global mouse position and update crosshair (~60 Hz + smoothing)
         crosshairTimer = new Timer(CROSSHAIR_POLL_MS, e -> updateCrosshair());
@@ -546,6 +548,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 reapplyNativeMousePassThroughIfEnabled();
             }
         });
+
+        installPassThroughPaintGuard();
+        installPassThroughHierarchyGuard();
 
         // Save bounds and session state on close; re-apply Win32 click-through once HWND exists.
         addWindowListener(new java.awt.event.WindowAdapter() {
@@ -660,6 +665,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     /** Rebind session + mission board after {@link OverlayContentPanel#rebuildTabbedPane()}. */
     public void onTabbedPaneRebuilt() {
         installSessionPersistence();
+        reapplyNativeMousePassThroughIfEnabled();
     }
 
     /**
@@ -1392,28 +1398,39 @@ private void refreshPassThroughUnifiedStatus() {
      */
     private boolean tryAcquireHwnd() {
         if (!isDisplayable()) {
-            hwnd = null;
             return false;
         }
-        String os = System.getProperty("os.name", "").toLowerCase();
-        if (!os.contains("win")) {
-            return false;
-        }
-        try {
-            Pointer ptr = Native.getWindowPointer(this);
-            if (ptr == null) {
-                hwnd = null;
-                System.err.println("Failed to obtain native window pointer for overlay window.");
-                return false;
+        return WindowsNativeMousePassThrough.isWindows();
+    }
+
+    private void installPassThroughPaintGuard() {
+        passThroughPaintGuard = event -> {
+            if (!passThroughEnabled || !isShowing()) {
+                return;
             }
-            hwnd = new HWND(ptr);
-            return true;
-        } catch (Exception ex) {
-            hwnd = null;
-            System.err.println("Failed to obtain native window pointer for overlay window.");
-            ex.printStackTrace();
-            return false;
-        }
+            if (event.getID() != PaintEvent.PAINT) {
+                return;
+            }
+            if (!(event.getSource() instanceof Component src)) {
+                return;
+            }
+            if (!SwingUtilities.isDescendingFrom(src, this)) {
+                return;
+            }
+            scheduleNativePassThroughReapplyAfterPaint();
+        };
+        Toolkit.getDefaultToolkit().addAWTEventListener(passThroughPaintGuard, AWTEvent.PAINT_EVENT_MASK);
+    }
+
+    private void installPassThroughHierarchyGuard() {
+        addHierarchyListener(e -> {
+            if (!passThroughEnabled || !isShowing()) {
+                return;
+            }
+            if ((e.getChangeFlags() & HierarchyEvent.DISPLAYABILITY_CHANGED) != 0) {
+                scheduleNativePassThroughReapplyAfterPaint();
+            }
+        });
     }
 
     private void updateMousePassThroughNativeStyleTimer() {
@@ -1421,7 +1438,7 @@ private void refreshPassThroughUnifiedStatus() {
         if (!passThroughEnabled || !isShowing()) {
             return;
         }
-        mousePassThroughNativeStyleTimer = new Timer(500, e -> {
+        mousePassThroughNativeStyleTimer = new Timer(CROSSHAIR_POLL_MS, e -> {
             if (!passThroughEnabled || !isShowing()) {
                 stopMousePassThroughNativeStyleTimer();
                 return;
@@ -1474,6 +1491,24 @@ private void refreshPassThroughUnifiedStatus() {
         if (passThroughEnabled) {
             applyPassThrough(true);
         }
+    }
+
+    /**
+     * Layered-window repaints can clear {@code WS_EX_TRANSPARENT} immediately after a re-apply; schedule one EDT
+     * pass after the paint completes.
+     */
+    public void scheduleNativePassThroughReapplyAfterPaint() {
+        if (!passThroughEnabled || !isShowing()) {
+            return;
+        }
+        if (nativePassThroughReapplyScheduled) {
+            return;
+        }
+        nativePassThroughReapplyScheduled = true;
+        SwingUtilities.invokeLater(() -> {
+            nativePassThroughReapplyScheduled = false;
+            applyPassThrough(true);
+        });
     }
 
     public void togglePassThrough() {
@@ -1622,12 +1657,10 @@ private void refreshPassThroughUnifiedStatus() {
             return;
         }
 
-        applyNativePassThroughToHwnd(hwnd, enable);
-        WNDENUMPROC childProc = (hWnd, data) -> {
-            applyNativePassThroughToHwnd(hWnd, enable);
-            return true;
-        };
-        User32.INSTANCE.EnumChildWindows(hwnd, childProc, null);
+        if (!WindowsNativeMousePassThrough.applyToWindowTree(this, enable)) {
+            System.err.println("Failed to apply native mouse pass-through to overlay window.");
+            return;
+        }
 
         if (enable) {
             getRootPane().setBorder(null);
@@ -1637,30 +1670,11 @@ private void refreshPassThroughUnifiedStatus() {
 
         revalidate();
     }
-
-    /**
-     * Applies or clears {@link WinUser#WS_EX_TRANSPARENT} on one Win32 HWND and commits with {@code SetWindowPos}.
-     */
-    private static void applyNativePassThroughToHwnd(HWND target, boolean enable) {
-        if (target == null) {
-            return;
-        }
-        int exStyle = User32.INSTANCE.GetWindowLong(target, WinUser.GWL_EXSTYLE);
-        if (enable) {
-            exStyle = exStyle | WinUser.WS_EX_LAYERED | WinUser.WS_EX_TRANSPARENT;
-        } else {
-            exStyle = exStyle | WinUser.WS_EX_LAYERED;
-            exStyle = exStyle & ~WinUser.WS_EX_TRANSPARENT;
-        }
-        User32.INSTANCE.SetWindowLong(target, WinUser.GWL_EXSTYLE, exStyle);
-        User32.INSTANCE.SetWindowPos(target, null, 0, 0, 0, 0,
-                WinUser.SWP_NOMOVE | WinUser.SWP_NOSIZE | WinUser.SWP_NOZORDER | WinUser.SWP_FRAMECHANGED);
-    }
-    public void prepareForShow(boolean passThroughMode) {
+    public void prepareForShow(boolean passThroughAppearanceMode) {
         // Make sure we have the right background color/alpha set BEFORE first paint
-        applyOverlayBackgroundFromPreferences(passThroughMode);
+        applyOverlayBackgroundFromPreferences(passThroughAppearanceMode);
         if (titleBar != null) {
-            titleBar.setPassThrough(passThroughMode);
+            titleBar.setPassThrough(this.passThroughEnabled);
         }
 
         // Defensive: avoid any default opaque background painting
@@ -2046,25 +2060,28 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
     private void updateCrosshair() {
-        // If window isn't showing, don't bother
         if (!isShowing()) {
             crosshairSmoothX = Double.NaN;
             crosshairSmoothY = Double.NaN;
+            crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             resetPassThroughCloseHoverState();
             return;
         }
 
-        // Only show crosshair when pass-through is enabled
-//        if (!passThroughEnabled) {
-//            crosshairOverlay.setVisible(false);
-//            return;
-//        }
+        if (!passThroughEnabled) {
+            crosshairSmoothX = Double.NaN;
+            crosshairSmoothY = Double.NaN;
+            crosshairOverlay.setCrosshairPoint(null);
+            crosshairOverlay.setVisible(false);
+            return;
+        }
 
         PointerInfo pi = MouseInfo.getPointerInfo();
         if (pi == null) {
             crosshairSmoothX = Double.NaN;
             crosshairSmoothY = Double.NaN;
+            crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             resetPassThroughCloseHoverState();
             return;
@@ -2077,6 +2094,7 @@ private void refreshPassThroughUnifiedStatus() {
         } catch (IllegalComponentStateException ex) {
             crosshairSmoothX = Double.NaN;
             crosshairSmoothY = Double.NaN;
+            crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             resetPassThroughCloseHoverState();
             return;
@@ -2085,7 +2103,6 @@ private void refreshPassThroughUnifiedStatus() {
         int relX = mouseOnScreen.x - frameOnScreen.x;
         int relY = mouseOnScreen.y - frameOnScreen.y;
 
-        // Inside the overlay bounds?
         if (relX >= 0 && relY >= 0 && relX < getWidth() && relY < getHeight()) {
             Point2D.Double smoothed = smoothCrosshairPoint(relX, relY);
             crosshairOverlay.setCrosshairPoint(smoothed);
@@ -2104,7 +2121,7 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
     /**
-     * Exponential smoothing of polled cursor position so the glass-pane crosshair does not jitter on every
+     * Exponential smoothing of polled cursor position so the crosshair does not jitter on every
      * {@link MouseInfo} sample. Large jumps snap immediately so fast mouse movement stays responsive.
      */
     private Point2D.Double smoothCrosshairPoint(int targetX, int targetY) {
@@ -2247,7 +2264,6 @@ private void refreshPassThroughUnifiedStatus() {
                 double y = crosshairPoint.y;
                 double arm = 11.0;
 
-                // Dark outline so the crosshair stays visible on bright game UI and stars
                 g2.setStroke(new BasicStroke(3.25f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 g2.setColor(CROSSHAIR_OUTLINE);
                 g2.draw(new Line2D.Double(x - arm, y, x + arm, y));
@@ -2261,6 +2277,10 @@ private void refreshPassThroughUnifiedStatus() {
             } finally {
                 g2.dispose();
             }
+            OverlayFrame frame = overlayFrame;
+            if (frame != null) {
+                frame.scheduleNativePassThroughReapplyAfterPaint();
+            }
         }
 
         @Override
@@ -2269,7 +2289,7 @@ private void refreshPassThroughUnifiedStatus() {
             return false;
         }
     }
-    
+
     private long getLong(JsonObject obj, String field) {
         return getLong(obj, field, 0L);
     }

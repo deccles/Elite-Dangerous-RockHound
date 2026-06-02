@@ -7,6 +7,7 @@ import java.awt.Graphics2D;
 
 import javax.swing.JPanel;
 
+import org.dce.ed.OverlayFrame;
 import org.dce.ed.OverlayPreferences;
 
 /**
@@ -47,12 +48,16 @@ public final class OverlayBackgroundPanel extends JPanel {
                     g2.setColor(new Color(b.getRed(), b.getGreen(), b.getBlue(), 255));
                     g2.fillRect(0, 0, getWidth(), getHeight());
                 }
-                return;
+            } else {
+                g2.setColor(paintColor);
+                g2.fillRect(0, 0, getWidth(), getHeight());
             }
-            g2.setColor(paintColor);
-            g2.fillRect(0, 0, getWidth(), getHeight());
         } finally {
             g2.dispose();
+        }
+        OverlayFrame frame = OverlayFrame.overlayFrame;
+        if (frame != null) {
+            frame.scheduleNativePassThroughReapplyAfterPaint();
         }
     }
 }

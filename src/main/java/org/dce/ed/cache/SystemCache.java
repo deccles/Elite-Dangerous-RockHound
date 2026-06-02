@@ -23,6 +23,10 @@ import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.systemmap.SystemMapJournalEnricher;
+import org.dce.ed.systemmodel.SystemModelService;
+import org.dce.systemmodel.build.SystemModelBuilder;
+import org.dce.systemmodel.model.SystemModel;
+import org.dce.systemmodel.snapshot.SystemSnapshot;
 import org.dce.ed.util.RingSummaryFormatter;
 import org.dce.ed.util.ExplorationBodyCredits;
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
@@ -279,6 +283,21 @@ public final class SystemCache implements SystemStore {
             Boolean allBodiesFound,
             Long exobiologyCreditsTotalUnsold,
             List<CachedBody> bodies) {
+        put(systemAddress, systemName, starPos, totalBodies, nonBodyCount, fssProgress, allBodiesFound,
+                exobiologyCreditsTotalUnsold, bodies, null, null);
+    }
+
+    public synchronized void put(long systemAddress,
+            String systemName,
+            double starPos[],
+            Integer totalBodies,
+            Integer nonBodyCount,
+            Double fssProgress,
+            Boolean allBodiesFound,
+            Long exobiologyCreditsTotalUnsold,
+            List<CachedBody> bodies,
+            String modelSnapshotJson,
+            String modelState) {
         if (!sqliteReady) {
             return;
         }
@@ -319,6 +338,13 @@ public final class SystemCache implements SystemStore {
                 }
             }
         }
+        if (modelSnapshotJson != null) {
+            cs.modelSnapshotJson = modelSnapshotJson;
+            cs.journalEventLogJson = modelSnapshotJson;
+        }
+        if (modelState != null) {
+            cs.modelState = modelState;
+        }
         sqliteUpsert(cs);
         lastLoadedSystem = cs;
     }
@@ -349,6 +375,7 @@ public final class SystemCache implements SystemStore {
                 state.setDocked(sess.getDocked().booleanValue());
             }
         }
+        restoreJournalEventLogFromCachedSystem(state, cs);
         if (cs.bodies == null) {
             return;
         }
@@ -730,6 +757,7 @@ public final class SystemCache implements SystemStore {
         // Merge-on-save: preserve certain fields from the existing on-disk cache when the
         // current in-memory SystemState does not currently have them populated.
         CachedSystem existing = get(state.getSystemAddress(), state.getSystemName());
+        mergeJournalEventLogFromCache(state, existing);
         // Bulk journal rescan already replays every event; per-system journal replay here would re-read all logs.
         if (!isBulkSystemWrite()) {
             SystemMapJournalEnricher.enrichStateFromJournalIfSparse(state, existing);
@@ -1043,6 +1071,15 @@ public final class SystemCache implements SystemStore {
             }
         }
 
+        SystemModelService.ModelHandle modelHandle = SystemModelService.rebuild(state, false);
+        SystemModel snapshotModel = modelHandle.model();
+        if (snapshotModel == null) {
+            snapshotModel = new SystemModelBuilder()
+                    .systemName(state.getSystemName())
+                    .systemAddress(state.getSystemAddress())
+                    .buildPartial();
+        }
+        SystemSnapshot snapshot = SystemSnapshot.fromModel(snapshotModel, state.getJournalEventLog());
         put(state.getSystemAddress(),
                 state.getSystemName(),
                 state.getStarPos(),
@@ -1051,7 +1088,9 @@ public final class SystemCache implements SystemStore {
                 state.getFssProgress(),
                 state.getAllBodiesFound(),
                 state.getExobiologyCreditsTotalUnsold(),
-                list);
+                list,
+                snapshot.toJson(),
+                SystemModelService.modelStateName(modelHandle));
         if (sqliteReady && !isBulkSystemWrite()) {
             mergeEdoSessionBlobFromStoreSystem(state);
         }
@@ -1199,6 +1238,7 @@ public final class SystemCache implements SystemStore {
                 ps.execute();
             }
             migrateOverlayGlobalStateSchema();
+            migrateSystemsModelColumns();
             migrateExobiologyCreditsIntoGlobalTableIfNeeded();
             System.out.println("[EDO][Cache] sqlite path=" + cacheDbPath.toAbsolutePath());
             return true;
@@ -1213,6 +1253,34 @@ public final class SystemCache implements SystemStore {
             sqliteConnection = null;
             return false;
         }
+    }
+
+    private void migrateSystemsModelColumns() throws SQLException {
+        ensureSystemsColumn("journal_event_log_json", "TEXT");
+        ensureSystemsColumn("model_snapshot_json", "TEXT");
+        ensureSystemsColumn("model_state", "TEXT");
+    }
+
+    private void ensureSystemsColumn(String column, String typeAndConstraints) throws SQLException {
+        if (systemsHasColumn(column)) {
+            return;
+        }
+        try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                "ALTER TABLE systems ADD COLUMN " + column + " " + typeAndConstraints)) {
+            ps.execute();
+        }
+    }
+
+    private boolean systemsHasColumn(String column) throws SQLException {
+        try (PreparedStatement ps = sqliteConnection.prepareStatement("PRAGMA table_info(systems)");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                if (column.equalsIgnoreCase(rs.getString("name"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void migrateOverlayGlobalStateSchema() throws SQLException {
@@ -1253,6 +1321,31 @@ public final class SystemCache implements SystemStore {
             }
         }
         return false;
+    }
+
+    private static void mergeJournalEventLogFromCache(SystemState state, CachedSystem existing) {
+        if (state == null || existing == null || !state.getJournalEventLog().isEmpty()) {
+            return;
+        }
+        restoreJournalEventLogFromCachedSystem(state, existing);
+    }
+
+    private static void restoreJournalEventLogFromCachedSystem(SystemState state, CachedSystem cs) {
+        if (state == null || cs == null) {
+            return;
+        }
+        String json = cs.modelSnapshotJson != null ? cs.modelSnapshotJson : cs.journalEventLogJson;
+        if (json == null || json.isBlank()) {
+            return;
+        }
+        try {
+            SystemSnapshot snap = SystemSnapshot.fromJson(json);
+            if (snap.eventLog() != null && !snap.eventLog().isEmpty()) {
+                state.setJournalEventLog(snap.eventLog());
+            }
+        } catch (RuntimeException ex) {
+            System.err.println("SystemCache: failed to restore journal event log: " + ex.getMessage());
+        }
     }
 
     private String toSqlitePayloadJson(CachedSystem cs) {
@@ -1405,6 +1498,24 @@ public final class SystemCache implements SystemStore {
         return null;
     }
 
+    private static final String SQLITE_SYSTEM_SELECT =
+            "payload_json, journal_event_log_json, model_snapshot_json, model_state, cached_body_count, cache_key";
+
+    private CachedSystem parseCachedSystemRow(ResultSet rs) throws SQLException {
+        CachedSystem cs = gson.fromJson(rs.getString("payload_json"), CachedSystem.class);
+        if (cs == null) {
+            return null;
+        }
+        cs.journalEventLogJson = rs.getString("journal_event_log_json");
+        cs.modelSnapshotJson = rs.getString("model_snapshot_json");
+        cs.modelState = rs.getString("model_state");
+        if ((cs.modelSnapshotJson == null || cs.modelSnapshotJson.isBlank())
+                && cs.journalEventLogJson != null && !cs.journalEventLogJson.isBlank()) {
+            cs.modelSnapshotJson = cs.journalEventLogJson;
+        }
+        return cs;
+    }
+
     private CachedSystem sqliteGet(long systemAddress, String systemName) {
         if (sqliteConnection == null) {
             return null;
@@ -1419,11 +1530,11 @@ public final class SystemCache implements SystemStore {
                 String canonical = canonicalName(systemName);
                 final String sqlAddrPick;
                 if (canonical != null && !canonical.isBlank()) {
-                    sqlAddrPick = "SELECT payload_json, cached_body_count, cache_key FROM systems "
+                    sqlAddrPick = "SELECT " + SQLITE_SYSTEM_SELECT + " FROM systems "
                             + "WHERE system_address=? OR canonical_name=? "
                             + "ORDER BY cached_body_count DESC, updated_at DESC LIMIT 1";
                 } else {
-                    sqlAddrPick = "SELECT payload_json, cached_body_count, cache_key FROM systems WHERE system_address=? "
+                    sqlAddrPick = "SELECT " + SQLITE_SYSTEM_SELECT + " FROM systems WHERE system_address=? "
                             + "ORDER BY cached_body_count DESC, updated_at DESC LIMIT 1";
                 }
                 try (PreparedStatement ps = sqliteConnection.prepareStatement(sqlAddrPick)) {
@@ -1433,7 +1544,7 @@ public final class SystemCache implements SystemStore {
                     }
                     try (ResultSet rs = ps.executeQuery()) {
                         if (rs.next()) {
-                            CachedSystem cs = gson.fromJson(rs.getString(1), CachedSystem.class);
+                            CachedSystem cs = parseCachedSystemRow(rs);
                             lastLoadedSystem = cs;
                             return cs;
                         }
@@ -1443,11 +1554,11 @@ public final class SystemCache implements SystemStore {
             String exactKey = sqliteKey(systemAddress, systemName);
             if (exactKey != null) {
                 try (PreparedStatement ps = sqliteConnection.prepareStatement(
-                        "SELECT payload_json, cached_body_count, cache_key FROM systems WHERE cache_key=? LIMIT 1")) {
+                        "SELECT " + SQLITE_SYSTEM_SELECT + " FROM systems WHERE cache_key=? LIMIT 1")) {
                     ps.setString(1, exactKey);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (rs.next()) {
-                            CachedSystem cs = gson.fromJson(rs.getString(1), CachedSystem.class);
+                            CachedSystem cs = parseCachedSystemRow(rs);
                             lastLoadedSystem = cs;
                             return cs;
                         }
@@ -1457,12 +1568,12 @@ public final class SystemCache implements SystemStore {
             String canonical = canonicalName(systemName);
             if (canonical != null && !canonical.isBlank()) {
                 try (PreparedStatement ps = sqliteConnection.prepareStatement(
-                        "SELECT payload_json, cached_body_count, cache_key FROM systems WHERE canonical_name=? "
+                        "SELECT " + SQLITE_SYSTEM_SELECT + " FROM systems WHERE canonical_name=? "
                                 + "ORDER BY cached_body_count DESC, updated_at DESC LIMIT 1")) {
                     ps.setString(1, canonical);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (rs.next()) {
-                            CachedSystem cs = gson.fromJson(rs.getString(1), CachedSystem.class);
+                            CachedSystem cs = parseCachedSystemRow(rs);
                             lastLoadedSystem = cs;
                             return cs;
                         }
@@ -1751,12 +1862,13 @@ public final class SystemCache implements SystemStore {
         int cachedBodyCount = (cs.bodies == null) ? 0 : cs.bodies.size();
         String payload = toSqlitePayloadJson(cs);
         long now = nextMonotonicUpdateMillis();
-        String sql = "INSERT INTO systems (cache_key, system_address, canonical_name, system_name, total_bodies, fss_progress, all_bodies_found, cached_body_count, updated_at, payload_json) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+        String sql = "INSERT INTO systems (cache_key, system_address, canonical_name, system_name, total_bodies, fss_progress, all_bodies_found, cached_body_count, updated_at, payload_json, journal_event_log_json, model_snapshot_json, model_state) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
                 "ON CONFLICT(cache_key) DO UPDATE SET " +
                 "system_address=excluded.system_address, canonical_name=excluded.canonical_name, system_name=excluded.system_name, " +
                 "total_bodies=excluded.total_bodies, fss_progress=excluded.fss_progress, all_bodies_found=excluded.all_bodies_found, " +
-                "cached_body_count=excluded.cached_body_count, updated_at=excluded.updated_at, payload_json=excluded.payload_json";
+                "cached_body_count=excluded.cached_body_count, updated_at=excluded.updated_at, payload_json=excluded.payload_json, " +
+                "journal_event_log_json=excluded.journal_event_log_json, model_snapshot_json=excluded.model_snapshot_json, model_state=excluded.model_state";
         try (PreparedStatement ps = sqliteConnection.prepareStatement(sql)) {
             ps.setString(1, key);
             ps.setLong(2, cs.systemAddress);
@@ -1773,6 +1885,9 @@ public final class SystemCache implements SystemStore {
             ps.setInt(8, cachedBodyCount);
             ps.setLong(9, now);
             ps.setString(10, payload);
+            ps.setString(11, cs.journalEventLogJson);
+            ps.setString(12, cs.modelSnapshotJson);
+            ps.setString(13, cs.modelState);
             ps.executeUpdate();
         } catch (SQLException ex) {
             System.err.println("SystemCache: sqlite upsert failed: " + ex.getMessage());

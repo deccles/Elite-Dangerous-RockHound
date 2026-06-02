@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.dce</groupId>
+    <artifactId>elite-dangerous-overlay-parent</artifactId>
+    <version>1.2.47</version>
+    <packaging>pom</packaging>
+
+    <name>Elite Dangerous Overlay (parent)</name>
+    <description>Maven aggregator for EDO and edo-system-model</description>
+
+    <modules>
+        <module>../edo-system-model</module>
+        <module>..</module>
+    </modules>
+
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <edo-system-model.version>1.0.0</edo-system-model.version>
+    </properties>
+</project>

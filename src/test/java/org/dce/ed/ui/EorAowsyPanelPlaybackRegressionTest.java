@@ -1,5 +1,6 @@
 package org.dce.ed.ui;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -96,6 +97,32 @@ class EorAowsyPanelPlaybackRegressionTest {
         assertTrue(distBa >= 40_000.0 && distBa <= 52_000.0,
                 "BCD on true-scale trunk from A after playback; distBa=" + distBa + " Ls");
         assertTrue(panel.mapModelForTests().hasBarycentreMutualRing(), "four-star system barycentre ring");
+    }
+
+    @Test
+    void playbackTicks_barycentreMarkersTrackOrbitGeomPositions() {
+        Map<Integer, BodyInfo> bodies = copyBodies();
+        SystemPlanMapPanel panel = new SystemPlanMapPanel();
+        panel.setSize(900, 700);
+        Instant epoch = Instant.EPOCH;
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, epoch, false);
+        panel.setScene(bodies, pos, null, null, null, true, epoch);
+
+        Instant later = epoch.plus(java.time.Duration.ofDays(180));
+        pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, later, true);
+        assertTrue(panel.tryApplyPositionUpdate(bodies, pos, null, null, null, true, later));
+
+        var model = panel.mapModelForTests();
+        Map<Integer, double[]> expected = SystemMapPipeline.refreshPositionsForPlayback(model, pos, later, false);
+        int baryKey = 3;
+        double[] marker = panel.barycentreMarkerMapXYForTests(baryKey);
+        assertNotNull(marker, "Null:3 scan barycentre marker");
+        double[] exp = expected.get(Integer.valueOf(baryKey));
+        assertNotNull(exp);
+        double expX = SystemOrbitGeometry.worldAxisMetres(exp, model.projectionAxis0());
+        double expY = SystemOrbitGeometry.worldAxisMetres(exp, model.projectionAxis1());
+        assertTrue(Math.hypot(marker[0] - expX, marker[1] - expY) < 1.0,
+                "barycentre + must use orbitGeomPositions (playback), not frozen pipeline snapshot");
     }
 
     @Test

@@ -136,6 +136,14 @@ public final class SystemHierarchyGraphPanel extends JPanel {
         repaint();
     }
 
+    public void applyAutoCollapseOnLoad() {
+        if (graph == null) {
+            return;
+        }
+        collapsedKeys.addAll(SystemMapHierarchyBuilder.computeAutoCollapseKeys(graph));
+        fitToGraph();
+    }
+
     public void setViewChangeListener(Runnable viewChangeListener) {
         this.viewChangeListener = viewChangeListener;
     }

@@ -1,0 +1,158 @@
+{
+  "systemName": "Eol Prou NN-Y b31-0",
+  "notes": "Gas giant 7 with moons 7 a–e; 7 d/7 e co-orbit at Null:32",
+  "events": [
+    {
+      "kind": "Scan",
+      "data": {
+        "timestamp": "2026-05-27T12:00:00Z",
+        "bodyId": 0,
+        "bodyName": "Eol Prou NN-Y b31-0",
+        "bodyType": "Star",
+        "subType": "M",
+        "distanceFromArrivalLs": 0,
+        "stellarMass": 0,
+        "radius": 0,
+        "surfaceGravity": 0,
+        "surfaceTemperature": 0,
+        "rotationalPeriod": 0,
+        "rotationalPeriodTidallyLocked": 0,
+        "axialTilt": 0,
+        "terraformState": 0,
+        "parents": [],
+        "wasDiscovered": false,
+        "wasMapped": false
+      }
+    },
+    {
+      "kind": "Scan",
+      "data": {
+        "timestamp": "2026-05-27T12:00:01Z",
+        "bodyId": 28,
+        "bodyName": "Eol Prou NN-Y b31-0 7",
+        "bodyType": "Planet",
+        "subType": "Sudarsky class I gas giant",
+        "distanceFromArrivalLs": 1410.41472,
+        "stellarMass": 0,
+        "radius": 0,
+        "surfaceGravity": 0,
+        "surfaceTemperature": 0,
+        "rotationalPeriod": 0,
+        "rotationalPeriodTidallyLocked": 0,
+        "axialTilt": 0,
+        "terraformState": 0,
+        "parents": [{"type": "STAR", "bodyId": 0}],
+        "orbit": {
+          "semiMajorAxisM": 422630339860.916138,
+          "eccentricity": 0.01,
+          "orbitalInclinationDeg": 0,
+          "periapsisArgDeg": 0,
+          "ascendingNodeDeg": 0,
+          "meanAnomalyDeg": 0,
+          "orbitalPeriodSec": 312515056.13327,
+          "orbitalEpoch": "2026-05-27T12:00:00Z"
+        },
+        "wasDiscovered": false,
+        "wasMapped": false
+      }
+    },
+    {
+      "kind": "Scan",
+      "data": {
+        "timestamp": "2026-05-27T12:00:02Z",
+        "bodyId": 33,
+        "bodyName": "Eol Prou NN-Y b31-0 7 d",
+        "bodyType": "Planet",
+        "subType": "Icy body",
+        "distanceFromArrivalLs": 1403.669518,
+        "stellarMass": 0,
+        "radius": 0,
+        "surfaceGravity": 0,
+        "surfaceTemperature": 0,
+        "rotationalPeriod": 0,
+        "rotationalPeriodTidallyLocked": 0,
+        "axialTilt": 0,
+        "terraformState": 0,
+        "parents": [
+          {"type": "NULL", "bodyId": 32},
+          {"type": "PLANET", "bodyId": 28},
+          {"type": "STAR", "bodyId": 0}
+        ],
+        "orbit": {
+          "semiMajorAxisM": 500000000,
+          "eccentricity": 0,
+          "orbitalInclinationDeg": 0,
+          "periapsisArgDeg": 0,
+          "ascendingNodeDeg": 0,
+          "meanAnomalyDeg": 0,
+          "orbitalPeriodSec": 50000,
+          "orbitalEpoch": "2026-05-27T12:00:00Z"
+        },
+        "wasDiscovered": false,
+        "wasMapped": false
+      }
+    },
+    {
+      "kind": "Scan",
+      "data": {
+        "timestamp": "2026-05-27T12:00:03Z",
+        "bodyId": 34,
+        "bodyName": "Eol Prou NN-Y b31-0 7 e",
+        "bodyType": "Planet",
+        "subType": "Icy body",
+        "distanceFromArrivalLs": 1403.659856,
+        "stellarMass": 0,
+        "radius": 0,
+        "surfaceGravity": 0,
+        "surfaceTemperature": 0,
+        "rotationalPeriod": 0,
+        "rotationalPeriodTidallyLocked": 0,
+        "axialTilt": 0,
+        "terraformState": 0,
+        "parents": [
+          {"type": "NULL", "bodyId": 32},
+          {"type": "PLANET", "bodyId": 28},
+          {"type": "STAR", "bodyId": 0}
+        ],
+        "orbit": {
+          "semiMajorAxisM": 600000000,
+          "eccentricity": 0,
+          "orbitalInclinationDeg": 0,
+          "periapsisArgDeg": 0,
+          "ascendingNodeDeg": 0,
+          "meanAnomalyDeg": 0,
+          "orbitalPeriodSec": 60000,
+          "orbitalEpoch": "2026-05-27T12:00:00Z"
+        },
+        "wasDiscovered": false,
+        "wasMapped": false
+      }
+    },
+    {
+      "kind": "ScanBaryCentre",
+      "data": {
+        "timestamp": "2026-05-27T12:00:04Z",
+        "bodyId": 32,
+        "bodyName": "Eol Prou NN-Y b31-0 barycentre 32",
+        "parents": [],
+        "childBodyIds": [33, 34],
+        "orbit": {
+          "semiMajorAxisM": 1000000000,
+          "eccentricity": 0,
+          "orbitalInclinationDeg": 0,
+          "periapsisArgDeg": 0,
+          "ascendingNodeDeg": 0,
+          "meanAnomalyDeg": 0,
+          "orbitalPeriodSec": 100000,
+          "orbitalEpoch": "2026-05-27T12:00:00Z"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "moon7dParentType": "NULL",
+    "moon7dParentId": 32,
+    "moon7eParentType": "NULL",
+    "moon7eParentId": 32
+  }
+}

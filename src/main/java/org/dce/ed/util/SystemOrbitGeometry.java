@@ -3466,6 +3466,32 @@ public final class SystemOrbitGeometry {
         return journalNullIdFromRefs(body) == journalNullId;
     }
 
+    /** Non-moon body listed at a shared {@code Null:N} hub (journal refs or cache parent to the sentinel row). */
+    private static boolean isSharedNullHubMajor(BodyInfo b, int journalNullId, Map<Integer, BodyInfo> bodies) {
+        if (b == null || b.isScanBarycentreRow() || isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
+            return false;
+        }
+        return referencesJournalNull(b, journalNullId);
+    }
+
+    private static int countSharedNullHubMajors(int journalNullId, Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || journalNullId <= 0) {
+            return 0;
+        }
+        int n = 0;
+        for (BodyInfo b : bodies.values()) {
+            if (isSharedNullHubMajor(b, journalNullId, bodies)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** {@code Null:N} hosting two or more co-orbit majors (e.g. planets 5 and 6 at {@code Null:20}). */
+    public static boolean isCoOrbitMajorSharedNullHub(int journalNullId, Map<Integer, BodyInfo> bodies) {
+        return countSharedNullHubMajors(journalNullId, bodies) >= 2;
+    }
+
     private static boolean moonSharesPlanetHostDesignation(BodyInfo moon, int hostMapKey,
             Map<Integer, BodyInfo> bodies) {
         if (moon == null || hostMapKey < 0 || bodies == null) {
@@ -5013,7 +5039,7 @@ public final class SystemOrbitGeometry {
     }
 
     /** Leading designation tokens before the major index, e.g. {@code BCD 1} → {@code BCD}. */
-    private static String multiTokenDesignationPrefix(BodyInfo child) {
+    public static String multiTokenDesignationPrefix(BodyInfo child) {
         String s = firstNonBlank(child.getShortName(), child.getBodyName());
         if (s == null) {
             return null;
@@ -5031,6 +5057,41 @@ public final class SystemOrbitGeometry {
             return null;
         }
         return head;
+    }
+
+    /**
+     * Most common multi-token companion-trunk designation in a hierarchical wide binary ({@code BCD}, {@code ABC}, …).
+     */
+    public static String hierarchicalCompanionTrunkDesignationPrefix(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || !isHierarchicalWideBinary(bodies)) {
+            return null;
+        }
+        Map<String, Integer> counts = new HashMap<>();
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            BodyInfo b = e.getValue();
+            if (b.isScanBarycentreRow() || isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
+                continue;
+            }
+            if (isWideBinaryPrimaryBranchBody(e.getKey().intValue(), bodies)) {
+                continue;
+            }
+            String prefix = multiTokenDesignationPrefix(b);
+            if (prefix != null && prefix.length() > 1) {
+                counts.merge(prefix, 1, Integer::sum);
+            }
+        }
+        String best = null;
+        int bestCount = 0;
+        for (Map.Entry<String, Integer> ce : counts.entrySet()) {
+            if (ce.getValue().intValue() > bestCount) {
+                bestCount = ce.getValue().intValue();
+                best = ce.getKey();
+            }
+        }
+        return bestCount > 0 ? best : null;
     }
 
     private static int inferPlanetBinaryNullParentId(BodyInfo child, Map<Integer, BodyInfo> bodies, int mapBodyId) {
@@ -5505,6 +5566,35 @@ public final class SystemOrbitGeometry {
         }
         String sl = st.toLowerCase(Locale.ROOT);
         return sl.contains("sudarsky") || sl.contains("gas giant");
+    }
+
+    /** Planetary ring belt scan rows ({@code 5 A Ring}) — not map dots; ring art stays on the host planet. */
+    public static boolean isPlanetaryRingMapBody(BodyInfo b) {
+        if (b == null || b.isScanBarycentreRow()) {
+            return false;
+        }
+        String name = b.getBodyName();
+        if (name == null || name.isBlank()) {
+            name = b.getShortName();
+        }
+        if (name != null) {
+            String n = name.trim().toLowerCase(Locale.ROOT);
+            if (n.contains("planetary ring") || n.contains("planetaryring")) {
+                return true;
+            }
+            if (n.contains("belt cluster") || n.contains("belt ")) {
+                return true;
+            }
+            if (n.contains(" ring") || n.endsWith("ring")) {
+                return true;
+            }
+        }
+        String planetClass = b.getPlanetClass();
+        if (planetClass != null) {
+            String pc = planetClass.trim().toLowerCase(Locale.ROOT);
+            return pc.contains("planetary ring") || pc.contains("planetaryring");
+        }
+        return false;
     }
 
     /** True stars for map/UI, not Sudarsky-class gas giants (starType + atmosphere/planet class). */
