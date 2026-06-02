@@ -27,6 +27,13 @@ public final class SystemMapFixture {
         public Integer immediateParentBodyId;
         public Boolean parentIsBarycentre;
         public Double semiMajorAxisM;
+        /** Journal orbit elements (same units as live {@code Scan} / cache). */
+        public Double eccentricity;
+        public Double orbitalInclination;
+        public Double periapsis;
+        public Double ascendingNode;
+        public Double meanAnomaly;
+        public Double orbitalPeriod;
         /** Journal {@code ScanBaryCentre} sentinel row for planet-binary {@code Null:N}. */
         public Boolean scanBarycentreRow;
         /** Journal {@code Parents[]} inner-to-outer, e.g. {@code ["Null:14","Star:1","Null:0"]}. */
@@ -87,6 +94,24 @@ public final class SystemMapFixture {
             }
             if (spec.semiMajorAxisM != null) {
                 b.setSemiMajorAxisM(spec.semiMajorAxisM);
+            }
+            if (spec.eccentricity != null) {
+                b.setEccentricity(spec.eccentricity);
+            }
+            if (spec.orbitalInclination != null) {
+                b.setOrbitalInclination(spec.orbitalInclination);
+            }
+            if (spec.periapsis != null) {
+                b.setPeriapsis(spec.periapsis);
+            }
+            if (spec.ascendingNode != null) {
+                b.setAscendingNode(spec.ascendingNode);
+            }
+            if (spec.meanAnomaly != null) {
+                b.setMeanAnomaly(spec.meanAnomaly);
+            }
+            if (spec.orbitalPeriod != null) {
+                b.setOrbitalPeriod(spec.orbitalPeriod);
             }
             if (Boolean.TRUE.equals(spec.scanBarycentreRow)) {
                 b.setScanBarycentreRow(true);

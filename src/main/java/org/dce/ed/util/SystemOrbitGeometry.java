@@ -398,6 +398,31 @@ public final class SystemOrbitGeometry {
     }
 
     /**
+     * When FSS {@link BodyInfo#getSemiMajorAxisM()} is consistent with journal parent-relative distance, keep Kepler
+     * placement from {@link #bodyPositionsMetres} instead of snapping to arrival-distance hints.
+     */
+    private static boolean moonUsesJournalKeplerPlacement(BodyInfo moon, int mapBodyId, int parentMapId,
+            Map<Integer, BodyInfo> bodies) {
+        if (moon == null || bodies == null || parentMapId < 0 || isPlanetBinaryBarycentreMapKey(parentMapId)) {
+            return false;
+        }
+        Double aObj = moon.getSemiMajorAxisM();
+        if (aObj == null || aObj.doubleValue() <= 0 || Double.isNaN(aObj.doubleValue())) {
+            return false;
+        }
+        double hintLs = journalOrbitRadiusLsFromParent(moon, parentMapId, bodies, mapBodyId);
+        if (!Double.isFinite(hintLs) || hintLs <= 0.0) {
+            return true;
+        }
+        double aLs = aObj.doubleValue() / LIGHT_SECOND_METRES;
+        double ecc = (moon.getEccentricity() != null && !Double.isNaN(moon.getEccentricity()))
+                ? clamp(moon.getEccentricity().doubleValue(), 0, 0.999999)
+                : 0.0;
+        double maxLs = hintLs * KEPLER_MAX_OVER_HINT_RATIO;
+        return aLs <= maxLs && aLs * (1.0 + ecc) <= maxLs;
+    }
+
+    /**
      * Moons around gas giants (A 2 a, A 3 a, …): journal parent-relative distance on the map plane, not Kepler SMA
      * which often places them far from the host (Eor Aowsy A 2 a ~5 Ls journal vs ~22 Ls Kepler).
      */
@@ -429,6 +454,9 @@ public final class SystemOrbitGeometry {
             }
             int pId = resolveOrbitParentBodyId(b, bodies, mapId);
             if (pId < 0 || isPlanetBinaryBarycentreMapKey(pId)) {
+                continue;
+            }
+            if (moonUsesJournalKeplerPlacement(b, mapId, pId, bodies)) {
                 continue;
             }
             double[] parentPos = positions.get(Integer.valueOf(pId));
@@ -1372,7 +1400,7 @@ public final class SystemOrbitGeometry {
             }
             int bodyId = e.getKey().intValue();
             BodyInfo b = e.getValue();
-            if (b.isScanBarycentreRow()) {
+            if (b.isScanBarycentreRow() || isPlanetaryRingMapBody(b)) {
                 continue;
             }
             int binaryMoonNull = journalNullIdFromRefs(b);
@@ -1462,8 +1490,9 @@ public final class SystemOrbitGeometry {
             if (!trueScale) {
                 haveKepler = isMapStellarBody(b) && haveKepler;
             }
-            if (!trueScale && haveKepler && !keplerOrbitPolylineMatchesSchematicPlacement(b, pId, bodies, bodyId,
-                    bodyPos, parentPos, p0, p1)) {
+            if (haveKepler && isMoonSatelliteBody(b, bodies) && pId >= 0
+                    && !keplerOrbitPolylineMatchesSchematicPlacement(b, pId, bodies, bodyId, bodyPos, parentPos, p0,
+                            p1)) {
                 haveKepler = false;
             }
             int n;
@@ -1567,7 +1596,15 @@ public final class SystemOrbitGeometry {
                         radiusBodyPos != null ? radiusBodyPos : bodyPos,
                         radiusParentPos != null ? radiusParentPos : parentPos, p0, p1);
                 if (moonMinRadius) {
-                    rad = enforceMinMoonOrbitRadiusMetres(b, pId, bodies, rad, scalePixelsPerMetre);
+                    double beforeMin = rad;
+                    double withMin = enforceMinMoonOrbitRadiusMetres(b, pId, bodies, rad, scalePixelsPerMetre);
+                    /*
+                     * Screen-min moon rings must not outgrow the placed body dot — schematicOrbitRadiusMetres
+                     * already uses map-plane separation so the stroke passes through the moon.
+                     */
+                    if (beforeMin < MIN_FALLBACK_ORBIT_RADIUS_METRES || withMin <= beforeMin * 1.02) {
+                        rad = withMin;
+                    }
                 }
                 if (!Double.isFinite(rad) || rad < MIN_FALLBACK_ORBIT_RADIUS_METRES) {
                     continue;
@@ -2502,6 +2539,12 @@ public final class SystemOrbitGeometry {
         int moonHostPlanet = resolveMoonHostPlanetParent(child, bodies, mapBodyId);
         if (moonHostPlanet >= 0) {
             return moonHostPlanet;
+        }
+        int coOrbitNull = journalNullIdFromRefs(child);
+        if (coOrbitNull > 0 && !isMoonSatelliteBody(child, bodies) && !isPlanetaryRingMapBody(child)
+                && referencesJournalNull(child, coOrbitNull)
+                && isCoOrbitMajorSharedNullHub(coOrbitNull, bodies)) {
+            return planetBinaryBarycentreMapKey(coOrbitNull);
         }
         /*
          * ScanBaryCentre rows (Null:N) before wide-binary companion override — inner stellar multiples (B+C at Null:3)
@@ -3466,9 +3509,19 @@ public final class SystemOrbitGeometry {
         return journalNullIdFromRefs(body) == journalNullId;
     }
 
-    /** Non-moon body listed at a shared {@code Null:N} hub (journal refs or cache parent to the sentinel row). */
+    /** Non-moon, non-stellar body at a shared {@code Null:N} (co-orbit planets, not B+C stellar pairs). */
     private static boolean isSharedNullHubMajor(BodyInfo b, int journalNullId, Map<Integer, BodyInfo> bodies) {
-        if (b == null || b.isScanBarycentreRow() || isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
+        if (b == null || b.isScanBarycentreRow() || isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)
+                || isPlanetaryRingMapBody(b)) {
+            return false;
+        }
+        return referencesJournalNull(b, journalNullId);
+    }
+
+    /** Stars and planets that journal-reference the same {@code Null:N} (e.g. B+C at Null:2). */
+    private static boolean isSharedNullHubMember(BodyInfo b, int journalNullId, Map<Integer, BodyInfo> bodies) {
+        if (b == null || b.isScanBarycentreRow() || isMoonSatelliteBody(b, bodies)
+                || isPlanetaryRingMapBody(b)) {
             return false;
         }
         return referencesJournalNull(b, journalNullId);
@@ -3481,6 +3534,19 @@ public final class SystemOrbitGeometry {
         int n = 0;
         for (BodyInfo b : bodies.values()) {
             if (isSharedNullHubMajor(b, journalNullId, bodies)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private static int countSharedNullHubMembers(int journalNullId, Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || journalNullId <= 0) {
+            return 0;
+        }
+        int n = 0;
+        for (BodyInfo b : bodies.values()) {
+            if (isSharedNullHubMember(b, journalNullId, bodies)) {
                 n++;
             }
         }
@@ -3515,10 +3581,18 @@ public final class SystemOrbitGeometry {
             return false;
         }
         if (referencesJournalNull(body, journalNullId)) {
+            int planetHost = journalPlanetHostMapKey(body, bodies);
+            if (planetHost >= 0 && isCoOrbitMajorSharedNullHub(journalNullId, bodies)
+                    && moonSharesPlanetHostDesignation(body, planetHost, bodies)) {
+                return false;
+            }
             return true;
         }
         int listedNull = journalNullIdFromRefs(body);
         if (listedNull > 0 && listedNull != journalNullId) {
+            return false;
+        }
+        if (journalPlanetHostMapKey(body, bodies) >= 0) {
             return false;
         }
         int host = binaryMoonHostPlanetMapKey(journalNullId, bodies);
@@ -3567,6 +3641,9 @@ public final class SystemOrbitGeometry {
             return -1;
         }
         if (journalNullIdFromRefs(child) > 0) {
+            return -1;
+        }
+        if (journalPlanetHostMapKey(child, bodies) >= 0) {
             return -1;
         }
         String hostDesig = moonParentDesignationFromName(child);
@@ -3785,23 +3862,7 @@ public final class SystemOrbitGeometry {
         if (isBinaryMoonPairAtJournalNull(journalNullParentId, bodies)) {
             return true;
         }
-        int majors = 0;
-        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
-            if (e.getKey() == null || e.getValue() == null) {
-                continue;
-            }
-            BodyInfo b = e.getValue();
-            if (isMapStellarBody(b) || isMoonSatelliteBody(b, bodies)) {
-                continue;
-            }
-            if (b.getImmediateParentBodyId() == journalNullParentId) {
-                majors++;
-                if (majors >= 2) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return isCoOrbitMajorSharedNullHub(journalNullParentId, bodies);
     }
 
     /**
@@ -3816,19 +3877,7 @@ public final class SystemOrbitGeometry {
         if (sentinel != null && !sentinel.isScanBarycentreRow()) {
             return false;
         }
-        int members = 0;
-        for (BodyInfo b : bodies.values()) {
-            if (b == null || isMoonSatelliteBody(b, bodies)) {
-                continue;
-            }
-            if (b.getImmediateParentBodyId() == journalNullParentId) {
-                members++;
-                if (members >= 2) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return countSharedNullHubMembers(journalNullParentId, bodies) >= 2;
     }
 
     /** {@code Parents:[{"Null":N}]} — {@code N} absent from bodies or present as {@code ScanBaryCentre} sentinel. */
@@ -5901,20 +5950,39 @@ public final class SystemOrbitGeometry {
             return true;
         }
         double hintLs = journalOrbitRadiusLsFromParent(child, parentMapId, bodies, mapBodyId);
-        if (!Double.isFinite(hintLs) || hintLs <= 2.0) {
-            return true;
-        }
-        double hintM = hintLs * LIGHT_SECOND_METRES;
         double a = aObj.doubleValue();
         double ecc = (child.getEccentricity() != null && !Double.isNaN(child.getEccentricity()))
                 ? clamp(child.getEccentricity().doubleValue(), 0, 0.999999)
                 : 0.0;
-        if (a > hintM * KEPLER_MAX_OVER_HINT_RATIO) {
-            return false;
+        /*
+         * Close moons (hint under 2 Ls) still need SMA sanity: FSS often lists placeholder barycentric axes (e.g. 1e9 m)
+         * while the dot uses parent-relative arrival distance (~1.5 Ls from gas giant 7).
+         */
+        if (Double.isFinite(hintLs) && hintLs > 0.0) {
+            double hintM = hintLs * LIGHT_SECOND_METRES;
+            if (a > hintM * KEPLER_MAX_OVER_HINT_RATIO) {
+                return false;
+            }
+            if (a * (1.0 + ecc) > hintM * KEPLER_MAX_OVER_HINT_RATIO) {
+                return false;
+            }
+        } else {
+            double dx = worldAxisMetres(bodyPos, p0) - worldAxisMetres(parentPos, p0);
+            double dy = worldAxisMetres(bodyPos, p1) - worldAxisMetres(parentPos, p1);
+            double projM = Math.hypot(dx, dy);
+            if (projM >= MIN_FALLBACK_ORBIT_RADIUS_METRES) {
+                if (a > projM * KEPLER_MAX_OVER_HINT_RATIO) {
+                    return false;
+                }
+                if (a * (1.0 + ecc) > projM * KEPLER_MAX_OVER_HINT_RATIO) {
+                    return false;
+                }
+            }
         }
-        if (a * (1.0 + ecc) > hintM * KEPLER_MAX_OVER_HINT_RATIO) {
-            return false;
+        if (!Double.isFinite(hintLs) || hintLs <= 2.0) {
+            return true;
         }
+        double hintM = hintLs * LIGHT_SECOND_METRES;
         if (!keplerProjectedOrbitSpanMatchesHint(child, parentPos, p0, p1, hintM)) {
             return false;
         }

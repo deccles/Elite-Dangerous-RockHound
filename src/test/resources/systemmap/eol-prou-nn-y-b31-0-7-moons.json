@@ -1,6 +1,6 @@
 {
   "name": "Eol Prou NN-Y b31-0",
-  "notes": "Gas giant 7 (journal id 28) with moons 7 a–e; 7 d/7 e co-orbit at Null:32 (journal 2026-05-27).",
+  "notes": "Gas giant 7 (journal id 28) with moons 7 a–e; 7 d/7 e co-orbit at Null:32. Moon 7 a from FSS Detailed Scan 2026-06-01.",
   "bodies": [
     {
       "id": 0,
@@ -24,12 +24,17 @@
       "id": 29,
       "bodyName": "Eol Prou NN-Y b31-0 7 a",
       "shortName": "7 a",
-      "distanceLs": 1408.952176,
+      "distanceLs": 1408.950408,
       "planetClass": "Icy body",
       "immediateParentBodyId": 28,
       "journalParents": ["Planet:28", "Star:0"],
-      "semiMajorAxisM": 1.0e9,
-      "orbitalPeriod": 100000.0
+      "semiMajorAxisM": 472947907.447815,
+      "eccentricity": 0.002694,
+      "orbitalInclination": 0.137678,
+      "periapsis": 229.690707,
+      "ascendingNode": -163.952414,
+      "meanAnomaly": 13.425979,
+      "orbitalPeriod": 431211.197376
     },
     {
       "id": 32,
