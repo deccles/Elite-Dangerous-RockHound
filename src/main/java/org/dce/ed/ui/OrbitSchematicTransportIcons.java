@@ -237,4 +237,88 @@ public final class OrbitSchematicTransportIcons {
             return size;
         }
     }
+
+    /** Single wedge pointing down (collapse map toward bottom of tab). */
+    public static final class ChevronDownIcon implements Icon {
+        private final int size;
+
+        public ChevronDownIcon(int size) {
+            this.size = Math.max(10, size);
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color fg = c != null ? c.getForeground() : Color.WHITE;
+                g2.setColor(fg);
+                double pad = size * 0.22;
+                double w = size * 0.36;
+                double midX = x + size * 0.5;
+                double apexY = y + size - pad;
+                double h = size - 2.0 * pad;
+                Path2D tri = new Path2D.Double();
+                tri.moveTo(midX, apexY);
+                tri.lineTo(midX - w * 0.5, apexY - h);
+                tri.lineTo(midX + w * 0.5, apexY - h);
+                tri.closePath();
+                g2.fill(tri);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+    }
+
+    /** Single wedge pointing up (restore map height). */
+    public static final class ChevronUpIcon implements Icon {
+        private final int size;
+
+        public ChevronUpIcon(int size) {
+            this.size = Math.max(10, size);
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color fg = c != null ? c.getForeground() : Color.WHITE;
+                g2.setColor(fg);
+                double pad = size * 0.22;
+                double w = size * 0.36;
+                double midX = x + size * 0.5;
+                double apexY = y + pad;
+                double h = size - 2.0 * pad;
+                Path2D tri = new Path2D.Double();
+                tri.moveTo(midX, apexY);
+                tri.lineTo(midX - w * 0.5, apexY + h);
+                tri.lineTo(midX + w * 0.5, apexY + h);
+                tri.closePath();
+                g2.fill(tri);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+    }
 }

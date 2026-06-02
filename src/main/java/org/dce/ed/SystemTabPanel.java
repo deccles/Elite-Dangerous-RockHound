@@ -43,7 +43,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import javax.swing.Icon;
 import javax.swing.JButton;
@@ -109,6 +111,7 @@ import org.dce.ed.util.SystemOrbitGeometry;
 
 import org.dce.ed.ui.DistanceToggleIcons;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
+import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OrbitSchematicTransportIcons;
 import org.dce.ed.ui.LeafIcon;
 import org.dce.ed.ui.SystemPlanMapPanel;
@@ -158,6 +161,21 @@ public class SystemTabPanel extends JPanel {
     private final JScrollPane systemBodyScrollPane;
     /** Resizable split between bodies table (top) and plan map (bottom), like Mining tab dividers. */
     private JSplitPane systemTableMapSplit;
+    /** Map toolbar (kept visible when the plan map canvas is collapsed to the tab bottom). */
+    private JPanel systemPlanMapToolbar;
+    /** Collapse / restore plan map height (toolbar stays docked at bottom). */
+    private JButton systemPlanMapCollapseButton;
+    private JButton systemPlanMapExpandButton;
+    private boolean systemPlanMapCollapseHovered;
+    private boolean systemPlanMapExpandHovered;
+    private boolean systemPlanMapCollapsed;
+    /** View tilt label + slider + value (pass-through hover hit target). */
+    private JPanel mapViewTiltCluster;
+    private boolean mapViewTiltHovered;
+    /** Pass-through scrub on the tilt slider ({@link JSlider#setValueIsAdjusting}). */
+    private boolean mapViewTiltPassThroughAdjusting;
+    /** Table/map split ratio saved before collapse; restored by expand. */
+    private double systemPlanMapSplitRatioBeforeCollapse = OverlayPreferences.getSystemTabPanelTableSplitRatio();
     /** Bottom panel: top-down schematic of approximate body and ship positions. */
     private final SystemPlanMapPanel systemPlanMapPanel = new SystemPlanMapPanel();
     private final JTextField headerLabel;
@@ -258,6 +276,7 @@ public class SystemTabPanel extends JPanel {
     /** Avoid pause handler when Stop programmatically deselects Play. */
     private boolean orbitAnimSuppressPlayToggleHandler;
     private JSlider mapViewTiltSlider;
+    private JLabel mapViewTiltLabel;
     private JLabel mapViewTiltValueLabel;
     private JButton orbitAnimSpeedDownButton;
     private JButton orbitAnimSpeedUpButton;
@@ -292,6 +311,8 @@ public class SystemTabPanel extends JPanel {
      */
     private Integer bioExpandCueDwellArmBodyUntilCueExit;
     private static final int BIO_EXPAND_HOVER_OPEN_DELAY_MS = 400;
+    /** Pass-through hover-to-activate for map toolbar icon buttons (matches tab bar). */
+    private static final int MAP_TOOLBAR_HOVER_CLICK_DELAY_MS = 500;
     /** After a system load, seed "all bio sections collapsed" once bodies exist. */
     private boolean bioCollapsedDefaultsSeededForCurrentSystem;
     /** Body id expanded only because it was targeted (eligible for auto-collapse on untarget). */
@@ -348,6 +369,9 @@ public class SystemTabPanel extends JPanel {
 	 * bodies table when the pointer is over the scroll area and the vertical bar is visible.
 	 */
 	public boolean applyPassThroughWheelIfHit(int screenX, int screenY, int wheelRotation) {
+		if (applyPassThroughMapViewTiltWheelIfHit(screenX, screenY, wheelRotation)) {
+			return true;
+		}
 		if (systemPlanMapPanel.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation)) {
 			return true;
 		}
@@ -809,13 +833,35 @@ public class SystemTabPanel extends JPanel {
 
         JPanel mapColumn = new JPanel(new BorderLayout());
         mapColumn.setOpaque(false);
-        JPanel mapToolbar = new JPanel(new FlowLayout(FlowLayout.TRAILING, 8, 2));
+        JPanel mapToolbarEast = new JPanel(new FlowLayout(FlowLayout.TRAILING, 4, 2));
+        mapToolbarEast.setOpaque(false);
+        systemPlanMapCollapseButton = new JButton();
+        systemPlanMapCollapseButton.setToolTipText("Collapse the plan map to the bottom (toolbar stays visible).");
+        systemPlanMapCollapseButton.addActionListener(e -> collapseSystemPlanMap());
+        systemPlanMapExpandButton = new JButton();
+        systemPlanMapExpandButton.setToolTipText("Restore the plan map to its previous height.");
+        systemPlanMapExpandButton.addActionListener(e -> expandSystemPlanMap());
+        BooleanSupplier mapToolbarPassThrough = OverlayPreferences::isOverlayMousePassThroughToGame;
+        HoverClickPoller.register(systemPlanMapCollapseButton, MAP_TOOLBAR_HOVER_CLICK_DELAY_MS,
+                this::collapseSystemPlanMap, mapToolbarPassThrough);
+        HoverClickPoller.register(systemPlanMapExpandButton, MAP_TOOLBAR_HOVER_CLICK_DELAY_MS,
+                this::expandSystemPlanMap, mapToolbarPassThrough);
+        installMapToolbarButtonHoverListeners(systemPlanMapCollapseButton, () -> systemPlanMapCollapseHovered,
+                v -> systemPlanMapCollapseHovered = v);
+        installMapToolbarButtonHoverListeners(systemPlanMapExpandButton, () -> systemPlanMapExpandHovered,
+                v -> systemPlanMapExpandHovered = v);
+        mapToolbarEast.add(systemPlanMapCollapseButton);
+        mapToolbarEast.add(systemPlanMapExpandButton);
+        JPanel mapToolbar = new JPanel(new BorderLayout());
         mapToolbar.setOpaque(true);
         mapToolbar.setBackground(EdoUi.User.PANEL_BG);
+        JPanel mapToolbarMain = new JPanel(new FlowLayout(FlowLayout.LEADING, 8, 2));
+        mapToolbarMain.setOpaque(false);
+        systemPlanMapToolbar = mapToolbar;
         systemPlanMapPanel.setMapScaleMode(org.dce.ed.systemmap.MapScaleMode.TRUE_SCALE);
         int savedViewTilt = OverlayPreferences.getSystemPlanMapViewTiltDegrees();
         systemPlanMapPanel.setViewTiltDegrees(savedViewTilt, false);
-        JLabel mapViewTiltLabel = new JLabel("View:");
+        mapViewTiltLabel = new JLabel("View:");
         mapViewTiltLabel.setForeground(EdoUi.User.MAIN_TEXT);
         mapViewTiltSlider = new JSlider(0, 90, savedViewTilt);
         mapViewTiltSlider.setOpaque(false);
@@ -823,13 +869,38 @@ public class SystemTabPanel extends JPanel {
         mapViewTiltSlider.setMajorTickSpacing(45);
         mapViewTiltSlider.setPaintTicks(true);
         mapViewTiltSlider.setToolTipText(
-                "Tilt the 3D view from top-down (0°) toward edge-on (90°) to open squashed orbits.");
+                "Tilt the 3D view from top-down (0°) toward edge-on (90°). "
+                        + "In mouse pass-through mode, move the pointer along the slider to scrub tilt; "
+                        + "use the wheel over this control for fine steps.");
         mapViewTiltValueLabel = new JLabel(savedViewTilt + "°");
         mapViewTiltValueLabel.setForeground(EdoUi.User.MAIN_TEXT);
         mapViewTiltSlider.addChangeListener(e -> onMapViewTiltSliderChanged());
-        mapToolbar.add(mapViewTiltLabel);
-        mapToolbar.add(mapViewTiltSlider);
-        mapToolbar.add(mapViewTiltValueLabel);
+        mapViewTiltCluster = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
+        mapViewTiltCluster.setOpaque(false);
+        mapViewTiltCluster.add(mapViewTiltLabel);
+        mapViewTiltCluster.add(mapViewTiltSlider);
+        mapViewTiltCluster.add(mapViewTiltValueLabel);
+        mapViewTiltCluster.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                    return;
+                }
+                mapViewTiltHovered = true;
+                updateMapViewTiltHoverAppearance();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                    return;
+                }
+                mapViewTiltHovered = false;
+                updateMapViewTiltHoverAppearance();
+            }
+        });
+        mapToolbarMain.add(mapViewTiltCluster);
+        updateMapToolbarHoverAppearance();
         JButton hierarchyGraphButton = new JButton("Hierarchy");
         hierarchyGraphButton.setForeground(EdoUi.User.MAIN_TEXT);
         hierarchyGraphButton.setOpaque(false);
@@ -846,7 +917,7 @@ public class SystemTabPanel extends JPanel {
             }
             OverlayToolsLaunchers.launchSystemHierarchyGraphForSystem(SystemTabPanel.this, name);
         });
-        mapToolbar.add(hierarchyGraphButton);
+        mapToolbarMain.add(hierarchyGraphButton);
         orbitAnimPlayButton = new JToggleButton();
         orbitAnimPlayButton.setText(null);
         orbitAnimPlayButton.setForeground(EdoUi.User.MAIN_TEXT);
@@ -879,7 +950,7 @@ public class SystemTabPanel extends JPanel {
                 pauseOrbitAnimPlayback();
             }
         });
-        mapToolbar.add(orbitAnimPlayButton);
+        mapToolbarMain.add(orbitAnimPlayButton);
         orbitAnimStopButton = new JButton();
         orbitAnimStopButton.setText(null);
         orbitAnimStopButton.setForeground(EdoUi.User.MAIN_TEXT);
@@ -891,7 +962,7 @@ public class SystemTabPanel extends JPanel {
         orbitAnimStopButton.setToolTipText(
                 "Stop orbit simulation and return bodies to real-time journal positions (now).");
         orbitAnimStopButton.addActionListener(e -> stopOrbitAnimSimulation());
-        mapToolbar.add(orbitAnimStopButton);
+        mapToolbarMain.add(orbitAnimStopButton);
         String orbitSpeedTt = "Orbit model days advanced per second of real time while playing.";
         orbitAnimSpeedDownButton = new JButton();
         orbitAnimSpeedDownButton.setText(null);
@@ -911,9 +982,11 @@ public class SystemTabPanel extends JPanel {
         applyOrbitMapToolbarTypography("Slower: fewer model days per second of real time.",
                 "Faster: more model days per second of real time.",
                 orbitSpeedTt);
-        mapToolbar.add(orbitAnimSpeedDownButton);
-        mapToolbar.add(orbitAnimSpeedValueLabel);
-        mapToolbar.add(orbitAnimSpeedUpButton);
+        mapToolbarMain.add(orbitAnimSpeedDownButton);
+        mapToolbarMain.add(orbitAnimSpeedValueLabel);
+        mapToolbarMain.add(orbitAnimSpeedUpButton);
+        mapToolbar.add(mapToolbarMain, BorderLayout.WEST);
+        mapToolbar.add(mapToolbarEast, BorderLayout.EAST);
         mapColumn.add(mapToolbar, BorderLayout.NORTH);
         mapColumn.add(systemPlanMapPanel, BorderLayout.CENTER);
 
@@ -925,7 +998,7 @@ public class SystemTabPanel extends JPanel {
             if (!JSplitPane.DIVIDER_LOCATION_PROPERTY.equals(evt.getPropertyName())) {
                 return;
             }
-            saveSystemTableMapSplitRatio();
+            onSystemTableMapDividerMoved();
         });
         addComponentListener(new ComponentAdapter() {
             @Override
@@ -933,12 +1006,17 @@ public class SystemTabPanel extends JPanel {
                 if (systemTableMapSplit == null || systemTableMapSplit.getHeight() < 32) {
                     return;
                 }
-                double ratio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
-                systemTableMapSplit.setResizeWeight(ratio);
-                systemTableMapSplit.setDividerLocation(ratio);
+                if (systemPlanMapCollapsed) {
+                    applySystemPlanMapCollapsedDivider();
+                } else {
+                    double ratio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
+                    systemTableMapSplit.setResizeWeight(ratio);
+                    systemTableMapSplit.setDividerLocation(ratio);
+                }
                 EdoMiningSplitPaneUi.applyDividerTheme(systemTableMapSplit);
             }
         });
+        updateSystemPlanMapCollapseButtons();
         add(systemTableMapSplit, BorderLayout.CENTER);
 
         refreshFromCache();
@@ -2477,6 +2555,122 @@ public class SystemTabPanel extends JPanel {
         orbitAnimSpeedUpButton.setPreferredSize(new Dimension(chevPrefW, chevPrefH));
 
         updateOrbitAnimSpeedChevrons();
+        applySystemPlanMapCollapseButtonTypography(toolbarFont, fm, iconSize);
+    }
+
+    private void applySystemPlanMapCollapseButtonTypography(Font toolbarFont, FontMetrics fm, int iconSize) {
+        if (systemPlanMapCollapseButton == null || systemPlanMapExpandButton == null) {
+            return;
+        }
+        int chevSize = Math.max(12, Math.min(40, Math.round(fm.getHeight() * 0.88f)));
+        Icon down = new OrbitSchematicTransportIcons.ChevronDownIcon(chevSize);
+        Icon up = new OrbitSchematicTransportIcons.ChevronUpIcon(chevSize);
+        int btnH = iconSize + Math.max(4, (int) Math.ceil(Math.max(2, fm.getDescent())));
+        int btnW = chevSize + Math.max(8, (int) Math.round(chevSize * 0.15) + 6);
+        int side = Math.max(btnW, btnH);
+        Dimension pref = new Dimension(side, side);
+        configureSystemPlanMapChromeButton(systemPlanMapCollapseButton, toolbarFont, down, pref);
+        configureSystemPlanMapChromeButton(systemPlanMapExpandButton, toolbarFont, up, pref);
+        updateMapToolbarHoverAppearance();
+    }
+
+    private static void configureSystemPlanMapChromeButton(JButton b, Font font, Icon icon, Dimension pref) {
+        if (b == null) {
+            return;
+        }
+        b.setFont(font);
+        b.setText(null);
+        b.setIcon(icon);
+        b.setIconTextGap(0);
+        b.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        b.setHorizontalAlignment(SwingConstants.CENTER);
+        b.setVerticalAlignment(SwingConstants.CENTER);
+        b.setForeground(EdoUi.User.MAIN_TEXT);
+        b.setOpaque(false);
+        b.setContentAreaFilled(false);
+        b.setBorderPainted(true);
+        b.setFocusable(false);
+        b.setFocusPainted(false);
+        if (pref != null) {
+            b.setPreferredSize(pref);
+        }
+    }
+
+    private void collapseSystemPlanMap() {
+        if (systemTableMapSplit == null || systemPlanMapCollapsed) {
+            return;
+        }
+        systemPlanMapSplitRatioBeforeCollapse = computeVerticalSplitRatio(systemTableMapSplit);
+        systemPlanMapCollapsed = true;
+        systemPlanMapPanel.setVisible(false);
+        applySystemPlanMapCollapsedDivider();
+        updateSystemPlanMapCollapseButtons();
+        revalidate();
+        repaint();
+    }
+
+    private void expandSystemPlanMap() {
+        if (systemTableMapSplit == null || !systemPlanMapCollapsed) {
+            return;
+        }
+        systemPlanMapCollapsed = false;
+        systemPlanMapPanel.setVisible(true);
+        double ratio = systemPlanMapSplitRatioBeforeCollapse;
+        if (ratio < 0.05 || ratio > 0.95) {
+            ratio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
+        }
+        configureSystemTableMapSplit(systemTableMapSplit, ratio);
+        updateSystemPlanMapCollapseButtons();
+        revalidate();
+        repaint();
+    }
+
+    private void updateSystemPlanMapCollapseButtons() {
+        if (systemPlanMapCollapseButton == null || systemPlanMapExpandButton == null) {
+            return;
+        }
+        systemPlanMapCollapseButton.setVisible(!systemPlanMapCollapsed);
+        systemPlanMapExpandButton.setVisible(systemPlanMapCollapsed);
+    }
+
+    private void applySystemPlanMapCollapsedDivider() {
+        if (systemTableMapSplit == null) {
+            return;
+        }
+        int splitH = systemTableMapSplit.getHeight();
+        if (splitH < 32) {
+            return;
+        }
+        int toolbarH = 26;
+        if (systemPlanMapToolbar != null) {
+            toolbarH = Math.max(22, systemPlanMapToolbar.getPreferredSize().height);
+        }
+        int divider = systemTableMapSplit.getDividerSize();
+        int loc = splitH - divider - toolbarH;
+        systemTableMapSplit.setResizeWeight(1.0);
+        systemTableMapSplit.setDividerLocation(Math.max(0, loc));
+    }
+
+    private void onSystemTableMapDividerMoved() {
+        if (systemTableMapSplit == null) {
+            return;
+        }
+        if (systemPlanMapCollapsed) {
+            int splitH = systemTableMapSplit.getHeight();
+            if (splitH < 32) {
+                return;
+            }
+            int toolbarH = systemPlanMapToolbar != null
+                    ? Math.max(22, systemPlanMapToolbar.getPreferredSize().height)
+                    : 26;
+            int divider = systemTableMapSplit.getDividerSize();
+            int collapsedLoc = splitH - divider - toolbarH;
+            if (systemTableMapSplit.getDividerLocation() < collapsedLoc - 8) {
+                expandSystemPlanMap();
+            }
+            return;
+        }
+        saveSystemTableMapSplitRatio();
     }
 
     /** Ship / star distance toggles: icon size tracks {@link #uiFont}. */
@@ -2987,6 +3181,7 @@ public class SystemTabPanel extends JPanel {
         if (!table.isShowing()) {
             syncBioColumnHeaderExpandHoverFromScreen(null, false);
             syncDistModeToggleHoverFromScreen(null);
+            syncMapToolbarHoverFromScreen(null);
             cancelBioExpandDelayedOpenPending();
             cancelBioHeaderAllDwellPending();
             return;
@@ -2995,6 +3190,7 @@ public class SystemTabPanel extends JPanel {
         if (pi == null) {
             syncBioColumnHeaderExpandHoverFromScreen(null, false);
             syncDistModeToggleHoverFromScreen(null);
+            syncMapToolbarHoverFromScreen(null);
             cancelBioHeaderAllDwellPending();
             return;
         }
@@ -3002,11 +3198,14 @@ public class SystemTabPanel extends JPanel {
         if (!OverlayPreferences.isOverlayMousePassThroughToGame()) {
             syncBioColumnHeaderExpandHoverFromScreen(null, false);
             syncDistModeToggleHoverFromScreen(null);
+            syncMapToolbarHoverFromScreen(null);
             cancelBioExpandDelayedOpenPending();
             cancelBioHeaderAllDwellPending();
             return;
         }
         syncDistModeToggleHoverFromScreen(screen);
+        syncMapToolbarHoverFromScreen(screen);
+        syncMapViewTiltPassThroughFromScreen(screen);
         syncBioColumnHeaderExpandHoverFromScreen(screen, true);
 
         boolean overHeaderCue = isGlobalPointerOverBioHeaderExpandCue(screen);
@@ -3103,6 +3302,204 @@ public class SystemTabPanel extends JPanel {
         distFromShipHovered = false;
         distFromStarHovered = false;
         updateDistModeToggleAppearance();
+    }
+
+    /**
+     * Pass-through: map toolbar collapse/expand and view-tilt cluster hover from {@link MouseInfo}.
+     */
+    private void syncMapToolbarHoverFromScreen(Point screen) {
+        if (screen == null || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+            clearMapToolbarProgrammaticHover();
+            endMapViewTiltPassThroughAdjusting();
+            return;
+        }
+        boolean overCollapse = systemPlanMapCollapseButton != null && systemPlanMapCollapseButton.isShowing()
+                && isGlobalPointerOverComponent(screen, systemPlanMapCollapseButton);
+        boolean overExpand = !overCollapse && systemPlanMapExpandButton != null && systemPlanMapExpandButton.isShowing()
+                && isGlobalPointerOverComponent(screen, systemPlanMapExpandButton);
+        boolean overTilt = mapViewTiltCluster != null && mapViewTiltCluster.isShowing()
+                && isGlobalPointerOverComponent(screen, mapViewTiltCluster);
+        if (overCollapse == systemPlanMapCollapseHovered && overExpand == systemPlanMapExpandHovered
+                && overTilt == mapViewTiltHovered) {
+            return;
+        }
+        systemPlanMapCollapseHovered = overCollapse;
+        systemPlanMapExpandHovered = overExpand;
+        mapViewTiltHovered = overTilt;
+        updateMapToolbarHoverAppearance();
+    }
+
+    private void clearMapToolbarProgrammaticHover() {
+        if (!systemPlanMapCollapseHovered && !systemPlanMapExpandHovered && !mapViewTiltHovered) {
+            return;
+        }
+        systemPlanMapCollapseHovered = false;
+        systemPlanMapExpandHovered = false;
+        mapViewTiltHovered = false;
+        updateMapToolbarHoverAppearance();
+    }
+
+    /**
+     * Pass-through: horizontal pointer position on the tilt slider sets view tilt (clicks do not reach Swing).
+     */
+    private void syncMapViewTiltPassThroughFromScreen(Point screen) {
+        if (!OverlayPreferences.isOverlayMousePassThroughToGame() || mapViewTiltSlider == null) {
+            endMapViewTiltPassThroughAdjusting();
+            return;
+        }
+        boolean overSlider = screen != null && mapViewTiltSlider.isShowing()
+                && isGlobalPointerOverComponent(screen, mapViewTiltSlider);
+        if (!overSlider) {
+            endMapViewTiltPassThroughAdjusting();
+            return;
+        }
+        int degrees = mapViewTiltDegreesForPassThroughPointer(screen, mapViewTiltSlider);
+        if (!mapViewTiltPassThroughAdjusting) {
+            mapViewTiltPassThroughAdjusting = true;
+            mapViewTiltSlider.setValueIsAdjusting(true);
+        }
+        if (degrees != mapViewTiltSlider.getValue()) {
+            mapViewTiltSlider.setValue(degrees);
+        }
+    }
+
+    private void endMapViewTiltPassThroughAdjusting() {
+        if (!mapViewTiltPassThroughAdjusting) {
+            return;
+        }
+        mapViewTiltPassThroughAdjusting = false;
+        if (mapViewTiltSlider != null) {
+            mapViewTiltSlider.setValueIsAdjusting(false);
+        }
+        onMapViewTiltSliderChanged();
+    }
+
+    private static int mapViewTiltDegreesForPassThroughPointer(Point screen, JSlider slider) {
+        if (screen == null || slider == null) {
+            return 0;
+        }
+        Point local = new Point(screen);
+        try {
+            SwingUtilities.convertPointFromScreen(local, slider);
+        } catch (IllegalStateException ignored) {
+            return slider.getValue();
+        }
+        int w = slider.getWidth();
+        if (w <= 1) {
+            return slider.getValue();
+        }
+        double frac = local.x / (double) (w - 1);
+        frac = Math.max(0.0, Math.min(1.0, frac));
+        int min = slider.getMinimum();
+        int max = slider.getMaximum();
+        return min + (int) Math.round(frac * (max - min));
+    }
+
+    /**
+     * Pass-through wheel over the view-tilt cluster nudges tilt before map zoom / table scroll.
+     */
+    private boolean applyPassThroughMapViewTiltWheelIfHit(int screenX, int screenY, int wheelRotation) {
+        if (wheelRotation == 0 || !OverlayPreferences.isOverlayMousePassThroughToGame()
+                || mapViewTiltSlider == null || mapViewTiltCluster == null || !mapViewTiltCluster.isShowing()) {
+            return false;
+        }
+        Point screen = new Point(screenX, screenY);
+        if (!isGlobalPointerOverComponent(screen, mapViewTiltCluster)) {
+            return false;
+        }
+        int min = mapViewTiltSlider.getMinimum();
+        int max = mapViewTiltSlider.getMaximum();
+        int cur = mapViewTiltSlider.getValue();
+        int step = wheelRotation > 0 ? -2 : 2;
+        int next = Math.max(min, Math.min(max, cur + step));
+        if (next == cur) {
+            return true;
+        }
+        mapViewTiltSlider.setValue(next);
+        return true;
+    }
+
+    private void installMapToolbarButtonHoverListeners(JButton button, Supplier<Boolean> hoveredGetter,
+            Consumer<Boolean> hoveredSetter) {
+        if (button == null || hoveredGetter == null || hoveredSetter == null) {
+            return;
+        }
+        button.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                    return;
+                }
+                hoveredSetter.accept(true);
+                updateMapToolbarHoverAppearance();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                    return;
+                }
+                hoveredSetter.accept(false);
+                updateMapToolbarHoverAppearance();
+            }
+        });
+    }
+
+    private void updateMapToolbarHoverAppearance() {
+        if (systemPlanMapCollapseButton != null) {
+            applyMapToolbarIconButtonHoverChrome(systemPlanMapCollapseButton, systemPlanMapCollapseHovered);
+            systemPlanMapCollapseButton.repaint();
+        }
+        if (systemPlanMapExpandButton != null) {
+            applyMapToolbarIconButtonHoverChrome(systemPlanMapExpandButton, systemPlanMapExpandHovered);
+            systemPlanMapExpandButton.repaint();
+        }
+        updateMapViewTiltHoverAppearance();
+    }
+
+    private static void applyMapToolbarIconButtonHoverChrome(JButton b, boolean hovered) {
+        Color hoverLine = EdoUi.Internal.MAIN_TEXT_ALPHA_200;
+        Color hoverFill = EdoUi.Internal.MAIN_TEXT_ALPHA_40;
+        if (hovered) {
+            b.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(hoverLine, 1),
+                    new EmptyBorder(2, 4, 2, 4)));
+            b.setOpaque(true);
+            b.setBackground(hoverFill);
+        } else {
+            b.setBorder(new EmptyBorder(3, 5, 3, 5));
+            b.setOpaque(false);
+        }
+        b.setCursor(Cursor.getPredefinedCursor(hovered ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+    }
+
+    private void updateMapViewTiltHoverAppearance() {
+        if (mapViewTiltCluster == null) {
+            return;
+        }
+        Color labelFg = mapViewTiltHovered ? EdoUi.Internal.MAIN_TEXT_ALPHA_220 : EdoUi.User.MAIN_TEXT;
+        if (mapViewTiltLabel != null) {
+            mapViewTiltLabel.setForeground(labelFg);
+        }
+        if (mapViewTiltValueLabel != null) {
+            mapViewTiltValueLabel.setForeground(labelFg);
+        }
+        if (mapViewTiltHovered) {
+            mapViewTiltCluster.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(EdoUi.Internal.MAIN_TEXT_ALPHA_200, 1),
+                    new EmptyBorder(2, 4, 2, 4)));
+            mapViewTiltCluster.setOpaque(true);
+            mapViewTiltCluster.setBackground(EdoUi.Internal.MAIN_TEXT_ALPHA_40);
+        } else {
+            mapViewTiltCluster.setBorder(new EmptyBorder(3, 5, 3, 5));
+            mapViewTiltCluster.setOpaque(false);
+        }
+        Cursor c = Cursor.getPredefinedCursor(mapViewTiltHovered ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR);
+        mapViewTiltCluster.setCursor(c);
+        if (mapViewTiltSlider != null) {
+            mapViewTiltSlider.setCursor(c);
+        }
+        mapViewTiltCluster.repaint();
     }
 
     private static boolean isGlobalPointerOverComponent(Point screen, Component comp) {
@@ -5108,7 +5505,7 @@ static class Row {
     }
 
     private void saveSystemTableMapSplitRatio() {
-        if (systemTableMapSplit == null || systemTableMapSplit.getHeight() < 32) {
+        if (systemPlanMapCollapsed || systemTableMapSplit == null || systemTableMapSplit.getHeight() < 32) {
             return;
         }
         double ratio = computeVerticalSplitRatio(systemTableMapSplit);
