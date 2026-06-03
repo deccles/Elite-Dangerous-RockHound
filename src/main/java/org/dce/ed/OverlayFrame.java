@@ -658,6 +658,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getSystemTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getMiningTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getMissionsTabPanel().setSessionStateChangeCallback(debouncedSave);
+        tabs.getBiologyTabPanel().setSessionStateChangeCallback(debouncedSave);
         restoreSessionState();
         tabs.getMissionsTabPanel().hydrateTrackerFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
     }
@@ -694,6 +695,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getSystemTabPanel().fillSessionState(state);
         tabs.getMiningTabPanel().fillSessionState(state);
         tabs.getMissionsTabPanel().fillSessionState(state);
+        tabs.getBiologyTabPanel().fillSessionState(state);
         state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
         state.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
         fillCarrierSessionState(state);
@@ -724,6 +726,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getSystemTabPanel().applySessionState(state);
         tabs.getMiningTabPanel().applySessionState(state);
         tabs.getMissionsTabPanel().applySessionState(state);
+        tabs.getBiologyTabPanel().applySessionState(state);
         applyCarrierSessionState(state);
         if (state.getExobiologyCreditsTotalUnsold() != null) {
             exoCreditsTotal = state.getExobiologyCreditsTotalUnsold().longValue();

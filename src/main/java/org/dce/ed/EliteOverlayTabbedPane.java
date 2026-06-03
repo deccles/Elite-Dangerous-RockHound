@@ -336,6 +336,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyOverlayTabBarVisibility();
 		selectFirstVisibleTab();
 		maybeSelectMiningTabFromStartupJournal();
+		maybeSelectBiologyTabFromStartupStatus();
 
 		add(scrollableTabBar, BorderLayout.NORTH);
 
@@ -506,6 +507,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	public MiningTabPanel getMiningTabPanel() {
 		return miningTab;
+	}
+
+	public BiologyTabPanel getBiologyTabPanel() {
+		return biologyTab;
 	}
 
 	public MissionsTabPanel getMissionsTabPanel() {
@@ -704,6 +709,64 @@ public class EliteOverlayTabbedPane extends JPanel {
 			}
 		} catch (IOException | RuntimeException ignored) {
 		}
+	}
+
+	/**
+	 * If {@code Status.json} shows the commander on a planetary surface (landed ship, SRV, or on foot),
+	 * open Biology on startup — after mining startup so exobiology takes priority over ring mining.
+	 */
+	private void maybeSelectBiologyTabFromStartupStatus() {
+		if (!OverlayPreferences.isAutoSwitchBiologyOnNearLandableAtmosphere()) {
+			return;
+		}
+		if (biologyButton == null || !biologyButton.isVisible()) {
+			return;
+		}
+		StatusEvent se = readStatusSnapshotFromDisk();
+		if (!isOnPlanetarySurface(se)) {
+			return;
+		}
+		Integer bodyId = se.getStatusBodyId();
+		if (bodyId != null) {
+			lastAutoBiologyBodyId = bodyId;
+		}
+		showBiologyTabFromStatusWatcher();
+	}
+
+	/** True when undocked on a world with surface coordinates (ship landed, SRV, or Odyssey on foot). */
+	private static boolean isOnPlanetarySurface(StatusEvent se) {
+		if (se == null || se.getDecodedFlags() == null) {
+			return false;
+		}
+		if (se.isDocked()) {
+			return false;
+		}
+		StatusEvent.DecodedFlags f = se.getDecodedFlags();
+		if (!f.hasLatLong) {
+			return false;
+		}
+		Double radius = se.getPlanetRadius();
+		if (radius == null || radius.doubleValue() <= 1.0) {
+			return false;
+		}
+		String body = se.getBodyNamePhysical();
+		if (body == null || body.isBlank()) {
+			body = se.getBodyName();
+		}
+		if (body == null || body.isBlank()) {
+			return false;
+		}
+		return f.landed || f.inSrv || f.onFootOnPlanet || (se.isOnFoot() && f.hasLatLong);
+	}
+
+	private void showBiologyTabFromStatusWatcher() {
+		if (!OverlayPreferences.isAutoSwitchBiologyOnNearLandableAtmosphere()) {
+			return;
+		}
+		if (biologyButton == null || !biologyButton.isVisible()) {
+			return;
+		}
+		SwingUtilities.invokeLater(() -> selectTab(CARD_BIOLOGY, biologyButton));
 	}
 
 	private void handleProspectedAsteroid(ProspectedAsteroidEvent event) {
@@ -1089,7 +1152,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	    }
 
 	    lastAutoBiologyBodyId = bodyId;
-	    SwingUtilities.invokeLater(() -> selectTab(CARD_BIOLOGY, biologyButton));
+	    showBiologyTabFromStatusWatcher();
 	}
 
 	private boolean hasAtmosphere(String atmosphere) {

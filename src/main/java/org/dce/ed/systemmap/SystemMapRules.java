@@ -274,4 +274,34 @@ public final class SystemMapRules {
         }
         return ids;
     }
+
+    /**
+     * Map key for a journal {@code BodyID} / HUD destination id. Prefers a drawable planet or star over scan-only
+     * barycentre or ring rows when several entries share the same {@link BodyInfo#getBodyId()}.
+     */
+    public static Integer mapKeyForJournalBodyId(Map<Integer, BodyInfo> bodies, int journalBodyId) {
+        if (bodies == null || journalBodyId <= 0) {
+            return null;
+        }
+        Integer scanOrDecor = null;
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            if (e.getValue().getBodyId() != journalBodyId) {
+                continue;
+            }
+            BodyInfo b = e.getValue();
+            if (b.isScanBarycentreRow() || isPlanetaryRingMapBody(b)) {
+                scanOrDecor = e.getKey();
+                continue;
+            }
+            return e.getKey();
+        }
+        if (scanOrDecor != null) {
+            return scanOrDecor;
+        }
+        Integer direct = Integer.valueOf(journalBodyId);
+        return bodies.containsKey(direct) ? direct : null;
+    }
 }

@@ -100,8 +100,15 @@ public final class OverlayPreferences {
 
     /** When true, distance column and body sort use approximate distance from your ship (requires Status near-body). */
     private static final String KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP = "overlay.systemTab.distanceFromShip";
+    /** {@link SystemTabTableSortMode#toPrefsString()} — body table sort (ship / star / value). */
+    private static final String KEY_SYSTEM_TAB_TABLE_SORT_MODE = "overlay.systemTab.tableSortMode";
     /** {@link SystemTabShipRefMode#toPrefsString()} — how ship-centric anchor + plan-map “You” are resolved. */
     private static final String KEY_SYSTEM_TAB_SHIP_REF_MODE = "overlay.systemTab.shipRefMode";
+    /**
+     * When {@link SystemTabShipRefMode#TARGETED_BODY} and the HUD selects a body, animate the plan map to frame that
+     * body’s orbit subsystem (~5 s).
+     */
+    private static final String KEY_SYSTEM_PLAN_MAP_AUTO_ZOOM_HUD_TARGET = "system.planMap.autoZoomHudTargetSubsystem";
 
     /** Per-system: last HUD body target used when “HUD target (sticky)” mode keeps a ref after untargeting. */
     private static final String KEY_SYSTEM_TAB_STICKY_HUD_TARGET_BODY_PREFIX = "system.stickyHudTargetBody.";
@@ -436,12 +443,31 @@ public final class OverlayPreferences {
         PREFS.putBoolean(KEY_SYSTEM_AUTO_EXPAND_BIO_ON_TARGET, enabled);
     }
 
+    public static SystemTabTableSortMode getSystemTabTableSortMode() {
+        String mode = PREFS.get(KEY_SYSTEM_TAB_TABLE_SORT_MODE, "");
+        if (!mode.isEmpty()) {
+            return SystemTabTableSortMode.fromPrefsString(mode);
+        }
+        return PREFS.getBoolean(KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP, false)
+                ? SystemTabTableSortMode.FROM_SHIP
+                : SystemTabTableSortMode.FROM_STAR;
+    }
+
+    public static void setSystemTabTableSortMode(SystemTabTableSortMode mode) {
+        if (mode == null) {
+            mode = SystemTabTableSortMode.FROM_STAR;
+        }
+        PREFS.put(KEY_SYSTEM_TAB_TABLE_SORT_MODE, mode.toPrefsString());
+        PREFS.putBoolean(KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP, mode == SystemTabTableSortMode.FROM_SHIP);
+        flushBackingStore();
+    }
+
     public static boolean isSystemTabDistanceFromShip() {
-        return PREFS.getBoolean(KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP, false);
+        return getSystemTabTableSortMode() == SystemTabTableSortMode.FROM_SHIP;
     }
 
     public static void setSystemTabDistanceFromShip(boolean enabled) {
-        PREFS.putBoolean(KEY_SYSTEM_TAB_DISTANCE_FROM_SHIP, enabled);
+        setSystemTabTableSortMode(enabled ? SystemTabTableSortMode.FROM_SHIP : SystemTabTableSortMode.FROM_STAR);
     }
 
     public static SystemTabShipRefMode getSystemTabShipRefMode() {
@@ -454,6 +480,15 @@ public final class OverlayPreferences {
         } else {
             PREFS.put(KEY_SYSTEM_TAB_SHIP_REF_MODE, mode.toPrefsString());
         }
+    }
+
+    /** Default on: HUD-target subsystem framing in {@link SystemTabShipRefMode#TARGETED_BODY}. */
+    public static boolean isSystemPlanMapAutoZoomHudTargetSubsystem() {
+        return PREFS.getBoolean(KEY_SYSTEM_PLAN_MAP_AUTO_ZOOM_HUD_TARGET, true);
+    }
+
+    public static void setSystemPlanMapAutoZoomHudTargetSubsystem(boolean enabled) {
+        PREFS.putBoolean(KEY_SYSTEM_PLAN_MAP_AUTO_ZOOM_HUD_TARGET, enabled);
     }
 
     /**

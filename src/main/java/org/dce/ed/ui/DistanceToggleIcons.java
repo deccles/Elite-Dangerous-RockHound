@@ -3,6 +3,8 @@ package org.dce.ed.ui;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -244,6 +246,52 @@ public final class DistanceToggleIcons {
                 float sw = Math.max(1.15f, (float) (d * 0.072f));
                 g2.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 g2.drawOval(ox, oy, d, d);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+    }
+
+    /** System tab: sort by exploration value — ring around a {@code $} mark. */
+    public static final class CircleAroundDollarIcon implements Icon {
+        private final int size;
+
+        public CircleAroundDollarIcon(int size) {
+            this.size = Math.max(14, size);
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color fg = c != null ? c.getForeground() : Color.WHITE;
+                g2.setColor(fg);
+                int pad = 2;
+                int d = size - pad * 2;
+                int ox = x + pad;
+                int oy = y + pad;
+                float sw = Math.max(1.15f, (float) (d * 0.072f));
+                g2.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.drawOval(ox, oy, d, d);
+
+                Font base = c != null ? c.getFont() : new Font("Dialog", Font.BOLD, 12);
+                g2.setFont(base.deriveFont(Font.BOLD, Math.max(10f, d * 0.64f)));
+                FontMetrics fm = g2.getFontMetrics();
+                String mark = "$";
+                int tx = ox + (d - fm.stringWidth(mark)) / 2;
+                int ty = oy + (d + fm.getAscent() - fm.getDescent()) / 2;
+                g2.drawString(mark, tx, ty);
             } finally {
                 g2.dispose();
             }

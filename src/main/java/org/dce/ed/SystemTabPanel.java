@@ -71,11 +71,12 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.edsm.BodiesResponse;
-import org.dce.ed.edsm.UtilTable;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteJournalReader;
@@ -106,6 +107,7 @@ import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.systemmap.SystemMapRules;
 import org.dce.ed.systemmodel.SystemModelService;
 import org.dce.ed.util.SystemOrbitGeometry;
 
@@ -180,6 +182,15 @@ public class SystemTabPanel extends JPanel {
     private final SystemPlanMapPanel systemPlanMapPanel = new SystemPlanMapPanel();
     private final JTextField headerLabel;
     private final SystemBodiesTableModel tableModel;
+    private DefaultTableCellRenderer systemBodiesTextCellRenderer;
+
+    /** Body column is never truncated; atmo column shrinks first when the viewport is narrow. */
+    private static final int SYSTEM_TABLE_BODY_COL_PAD_PX = 12;
+    private static final int SYSTEM_TABLE_ATMO_COL_MIN_PX = 40;
+    private static final int SYSTEM_TABLE_BIO_COL_MIN_PX = 145;
+    private static final int SYSTEM_TABLE_VALUE_COL_MIN_PX = 44;
+    private static final int SYSTEM_TABLE_LAND_COL_MIN_PX = 28;
+    private static final int SYSTEM_TABLE_DIST_COL_MIN_PX = 56;
 
     private final SystemState state = new SystemState();
     private final SystemEventProcessor processor = new SystemEventProcessor(EliteDangerousOverlay.clientKey, state, new EdsmClient());
@@ -202,11 +213,13 @@ public class SystemTabPanel extends JPanel {
     private volatile Integer targetDestinationParentBodyId;
     private volatile String targetDestinationName;
 
-    /** System tab distance mode toggles: rocket-in-ring = from ship, star-in-ring = from star / arrival. */
+    /** System tab sort toggles: rocket = from ship, star = from arrival, $ = by exploration value. */
     private JButton distFromShipButton;
     private JButton distFromStarButton;
+    private JButton distByValueButton;
     private boolean distFromShipHovered;
     private boolean distFromStarHovered;
+    private boolean distByValueHovered;
 
     /** Latest Status.json geometry when near a body (for ship-centric distances). */
     private volatile Double statusLatitude;
@@ -244,6 +257,11 @@ public class SystemTabPanel extends JPanel {
      * until another in-system body is targeted. Persisted per {@link SystemState#getSystemAddress()}.
      */
     private volatile Integer stickyHudTargetBodyId;
+
+    /**
+     * After {@link #refreshPlanMap()}, animate the plan map to this body’s orbit cluster (HUD target auto-zoom).
+     */
+    private volatile Integer pendingHudTargetMapZoomBodyId;
 
     /**
      * Last {@link SystemState#isDocked()} seen from Status (after {@link SystemEventProcessor}); used to refresh
@@ -362,6 +380,7 @@ public class SystemTabPanel extends JPanel {
 	        state.setCarrierParkedSystemAddress(ramParkedSys != 0L ? Long.valueOf(ramParkedSys) : null);
 	    }
 	    // else: keep carrierParked* already on `state` from EdoSessionPersistence.load() — do not wipe with empty SystemState.
+	    state.setSystemTabTableSortMode(OverlayPreferences.getSystemTabTableSortMode().toPrefsString());
 	}
 
 	/**
@@ -408,6 +427,11 @@ public class SystemTabPanel extends JPanel {
 	        this.state.setCarrierParkedSystemAddress(0L);
 	    } else {
 	        this.state.setCarrierParkedSystemAddress(ps != null ? ps.longValue() : 0L);
+	    }
+	    String sortMode = state.getSystemTabTableSortMode();
+	    if (sortMode != null && !sortMode.isBlank()) {
+	        OverlayPreferences.setSystemTabTableSortMode(SystemTabTableSortMode.fromPrefsString(sortMode));
+	        updateDistModeToggleAppearance();
 	    }
 	    // Session restore runs after refreshFromCache() already seeded "all bio collapsed" with no target yet.
 	    // reconcileAutoExpandBioForCurrentTargetBody() only runs on that seed pass; run it here too so a
@@ -538,7 +562,7 @@ public class SystemTabPanel extends JPanel {
                 return label;
             }
         });
-        DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer() {
+        systemBodiesTextCellRenderer = new DefaultTableCellRenderer() {
             {
                 setOpaque(false);
                 setForeground(EdoUi.User.MAIN_TEXT);
@@ -553,39 +577,33 @@ public class SystemTabPanel extends JPanel {
                                                            int column) {
                 Component c = super.getTableCellRendererComponent(
                         table, value, isSelected, hasFocus, row, column);
-
-                // Detail rows: bio (sample colors) or ring lines (muted gray)
-                Row r = tableModel.getRowAt(row);
-                boolean isBioRow = r != null && r.detail && !r.destinationRow && !r.isRingDetail()
-                        && (r.bioText != null || r.bioValue != null);
-
-                if (isSelected) {
-                    c.setForeground(Color.BLACK);
-                } else if (r != null && r.detail && r.isRingDetail()) {
-                    c.setForeground(EdoUi.Internal.GRAY_180);
-                } else if (isBioRow) {
-                    int samples = r.getBioSampleCount();
-
-                    if (samples >= 3) {
-                        c.setForeground(EdoUi.User.PRIMARY_HIGHLIGHT);
-                    } else if (samples > 0) {
-                        c.setForeground(EdoUi.User.SECONDARY_HIGHLIGHT);
-                    } else {
-                        c.setForeground(EdoUi.Internal.GRAY_180); // gray for biologicals
-                    }
-                } else {
-                    c.setForeground(EdoUi.User.MAIN_TEXT);
-                }
-
-                if (c instanceof JComponent) {
-                    ((JComponent) c).setOpaque(false);
-                }
-                c.setBackground(EdoUi.Internal.TRANSPARENT);
+                applySystemBodiesTextCellStyle(c, tableModel.getRowAt(row), isSelected);
                 return c;
             }
         };
 
-        table.setDefaultRenderer(Object.class, cellRenderer);
+        table.setDefaultRenderer(Object.class, systemBodiesTextCellRenderer);
+
+        DefaultTableCellRenderer atmoCellRenderer = new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable tbl,
+                                                           Object value,
+                                                           boolean isSelected,
+                                                           boolean hasFocus,
+                                                           int row,
+                                                           int column) {
+                String full = value != null ? String.valueOf(value) : "";
+                Component c = systemBodiesTextCellRenderer.getTableCellRendererComponent(
+                        tbl, full, isSelected, hasFocus, row, column);
+                if (c instanceof JLabel label) {
+                    int colW = tbl.getColumnModel().getColumn(column).getWidth();
+                    FontMetrics fm = label.getFontMetrics(label.getFont());
+                    label.setText(ellipsizeTextToPixelWidth(full, fm, Math.max(0, colW - 8)));
+                }
+                return c;
+            }
+        };
+        table.getColumnModel().getColumn(1).setCellRenderer(atmoCellRenderer);
 
 
         DefaultTableCellRenderer valueRightRenderer = new DefaultTableCellRenderer() {
@@ -777,10 +795,13 @@ public class SystemTabPanel extends JPanel {
         distToggleEast.setOpaque(false);
         distFromShipButton = new JButton();
         distFromStarButton = new JButton();
+        distByValueButton = new JButton();
         configureDistModeToggleButton(distFromShipButton,
-                "Approximate distance from your ship (orbital model + Status near-body / surface fix)");
+                "Sort by approximate distance from your ship (orbital model + Status near-body / surface fix)");
         configureDistModeToggleButton(distFromStarButton,
-                "Distance from system entry / star (journal DistanceFromArrivalLS)");
+                "Sort by distance from system entry / star (journal DistanceFromArrivalLS)");
+        configureDistModeToggleButton(distByValueButton,
+                "Sort by exploration value (exobiology, geological signals, high-value worlds)");
         distFromShipButton.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent e) {
@@ -807,20 +828,35 @@ public class SystemTabPanel extends JPanel {
                 updateDistModeToggleAppearance();
             }
         });
-        distFromShipButton.addActionListener(e -> {
-            OverlayPreferences.setSystemTabDistanceFromShip(true);
-            updateDistModeToggleAppearance();
-            requestRebuild();
+        distByValueButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                distByValueHovered = true;
+                updateDistModeToggleAppearance();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                distByValueHovered = false;
+                updateDistModeToggleAppearance();
+            }
         });
-        distFromStarButton.addActionListener(e -> {
-            OverlayPreferences.setSystemTabDistanceFromShip(false);
-            updateDistModeToggleAppearance();
-            requestRebuild();
-        });
+        distFromShipButton.addActionListener(e -> selectSystemTabTableSortMode(SystemTabTableSortMode.FROM_SHIP));
+        distFromStarButton.addActionListener(e -> selectSystemTabTableSortMode(SystemTabTableSortMode.FROM_STAR));
+        distByValueButton.addActionListener(e -> selectSystemTabTableSortMode(SystemTabTableSortMode.BY_VALUE));
         distToggleEast.add(distFromShipButton);
         distToggleEast.add(distFromStarButton);
+        distToggleEast.add(distByValueButton);
         headerPanel.add(distToggleEast, BorderLayout.EAST);
         headerPanel.setBorder(null);
+
+        BooleanSupplier tableSortPassThrough = OverlayPreferences::isOverlayMousePassThroughToGame;
+        HoverClickPoller.register(distFromShipButton, MAP_TOOLBAR_HOVER_CLICK_DELAY_MS,
+                () -> applySystemTabTableSortMode(SystemTabTableSortMode.FROM_SHIP), tableSortPassThrough);
+        HoverClickPoller.register(distFromStarButton, MAP_TOOLBAR_HOVER_CLICK_DELAY_MS,
+                () -> applySystemTabTableSortMode(SystemTabTableSortMode.FROM_STAR), tableSortPassThrough);
+        HoverClickPoller.register(distByValueButton, MAP_TOOLBAR_HOVER_CLICK_DELAY_MS,
+                () -> applySystemTabTableSortMode(SystemTabTableSortMode.BY_VALUE), tableSortPassThrough);
 
         applyDistanceToggleIcons();
         updateDistModeToggleAppearance();
@@ -901,7 +937,7 @@ public class SystemTabPanel extends JPanel {
         });
         mapToolbarMain.add(mapViewTiltCluster);
         updateMapToolbarHoverAppearance();
-        JButton hierarchyGraphButton = new JButton("Hierarchy");
+        JButton hierarchyGraphButton = new JButton("Graph");
         hierarchyGraphButton.setForeground(EdoUi.User.MAIN_TEXT);
         hierarchyGraphButton.setOpaque(false);
         hierarchyGraphButton.setContentAreaFilled(false);
@@ -1020,37 +1056,9 @@ public class SystemTabPanel extends JPanel {
         add(systemTableMapSplit, BorderLayout.CENTER);
 
         refreshFromCache();
-        
-        UtilTable.autoSizeTableColumns(table);
-        
-        // Prevent the first columns from expanding too much (which pushes the "Bio" column
-        // off-screen in small overlay widths). We cap only the leading columns so Bio starts
-        // further left and stays readable.
-        // Column order: 0=Body, 1=Atmo/Body, 2=Bio, 3=Value, 4=Land, 5=Dist (Ls)
-        javax.swing.table.TableColumn bodyCol = table.getColumnModel().getColumn(0);
-        javax.swing.table.TableColumn atmoCol = table.getColumnModel().getColumn(1);
-        javax.swing.table.TableColumn bioCol = table.getColumnModel().getColumn(2);
 
-        // Tuned for typical overlay width ~423px (see screenshot):
-        // shift Bio left by capping earlier columns.
-        int bodyWidth = 44;
-        int atmoWidth = 112;
-        int bioMinWidth = 145;
-
-        bodyCol.setPreferredWidth(bodyWidth);
-        bodyCol.setMinWidth(bodyWidth);
-
-        atmoCol.setPreferredWidth(atmoWidth);
-        atmoCol.setMinWidth(atmoWidth);
-
-        // Ensure Bio has at least enough room for icon stack + text.
-        if (bioCol.getPreferredWidth() < bioMinWidth) {
-            bioCol.setPreferredWidth(bioMinWidth);
-            bioCol.setMinWidth(bioMinWidth);
-        }
-
-        // Fill horizontal space: fixed-ish leading columns, last column stretches with viewport.
-        table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+        configureSystemBodiesTableColumnResize();
+        SwingUtilities.invokeLater(this::applySystemBodiesTableColumnLayout);
 
         bioExpandCueHoverPollTimer = new Timer(40, e -> pollBioExpandCueHoverFromGlobalMouse());
         bioExpandCueHoverPollTimer.setRepeats(true);
@@ -1608,15 +1616,7 @@ public class SystemTabPanel extends JPanel {
             highlightBodyId = findBodyIdByName(destName);
         }
         if (highlightBodyId == null && destBody != null) {
-            for (BodyInfo bi : state.getBodies().values()) {
-                if (bi == null) {
-                    continue;
-                }
-                if (bi.getBodyId() == destBody.intValue()) {
-                    highlightBodyId = bi.getBodyId();
-                    break;
-                }
-            }
+            highlightBodyId = SystemMapRules.mapKeyForJournalBodyId(state.getBodies(), destBody.intValue());
         }
 
         final Integer newBodyId = highlightBodyId;
@@ -1717,6 +1717,12 @@ public class SystemTabPanel extends JPanel {
             }
 
             boolean bioMutated = applyBioExpandCollapseForTargetChange(previousTargetBodyId, targetBodyId);
+
+            if (changed && newBodyId != null
+                    && OverlayPreferences.getSystemTabShipRefMode() == SystemTabShipRefMode.TARGETED_BODY
+                    && OverlayPreferences.isSystemPlanMapAutoZoomHudTargetSubsystem()) {
+                pendingHudTargetMapZoomBodyId = newBodyId;
+            }
 
             if (changed || bioMutated) {
                 requestRebuild();
@@ -2051,24 +2057,25 @@ public class SystemTabPanel extends JPanel {
             return null;
         }
 
-        // 1) Prefer exact match on BodyName
-        for (BodyInfo b : state.getBodies().values()) {
-            if (b == null || b.getBodyName() == null) {
+        // 1) Prefer exact match on BodyName (map key, not journal BodyID)
+        for (Map.Entry<Integer, BodyInfo> e : state.getBodies().entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
                 continue;
             }
-            if (bodyName.equalsIgnoreCase(b.getBodyName())) {
-                return b.getBodyId();
+            String nm = e.getValue().getBodyName();
+            if (nm != null && bodyName.equalsIgnoreCase(nm)) {
+                return e.getKey();
             }
         }
 
         // 2) Fallback: match on "short name" (e.g., system + body index)
-        for (BodyInfo b : state.getBodies().values()) {
-            if (b == null) {
+        for (Map.Entry<Integer, BodyInfo> e : state.getBodies().entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
                 continue;
             }
-            String shortName = b.getShortName();
+            String shortName = e.getValue().getShortName();
             if (shortName != null && bodyName.equalsIgnoreCase(shortName)) {
-                return b.getBodyId();
+                return e.getKey();
             }
         }
 
@@ -2098,8 +2105,9 @@ public class SystemTabPanel extends JPanel {
             return;
         }
         Map<Integer, BodyInfo> bodies = state.getBodies();
-        if (bodies != null && bodies.containsKey(stored)) {
-            stickyHudTargetBodyId = stored;
+        Integer mapKey = bodies != null ? SystemMapRules.mapKeyForJournalBodyId(bodies, stored.intValue()) : null;
+        if (mapKey != null && bodies.containsKey(mapKey)) {
+            stickyHudTargetBodyId = mapKey;
         } else {
             stickyHudTargetBodyId = null;
             OverlayPreferences.setSystemTabStickyHudTargetBodyId(systemAddress, null);
@@ -2133,6 +2141,7 @@ public class SystemTabPanel extends JPanel {
         supercruiseDropReferenceBodyId = null;
         lastVisitedNonStarBodyId = null;
         stickyHudTargetBodyId = null;
+        pendingHudTargetMapZoomBodyId = null;
         lastStatusDockedForShipAnchorUi = null;
 
         // 1) Load from cache if we have it
@@ -2248,7 +2257,9 @@ public class SystemTabPanel extends JPanel {
         for (Integer latched : passthroughHoverExpandBodyIds) {
             hiddenBioDetails.remove(latched);
         }
-        boolean shipDistMode = OverlayPreferences.isSystemTabDistanceFromShip();
+        SystemTabTableSortMode tableSortMode = OverlayPreferences.getSystemTabTableSortMode();
+        boolean sortByValue = tableSortMode == SystemTabTableSortMode.BY_VALUE;
+        boolean shipDistMode = !sortByValue && tableSortMode == SystemTabTableSortMode.FROM_SHIP;
         Map<Integer, Double> shipCentric = shipDistMode ? computeShipCentricDistancesLs() : null;
         boolean shipAnchorMissing = shipDistMode && (shipCentric == null || shipCentric.isEmpty());
         if (shipAnchorMissing) {
@@ -2272,6 +2283,7 @@ public class SystemTabPanel extends JPanel {
                 shipDistMode,
                 shipCentric,
                 false,
+                sortByValue,
                 geometryFallbackDistLs);
         injectIntermediateDestinationRow(rows);
         tableModel.setRows(rows);
@@ -2282,6 +2294,7 @@ public class SystemTabPanel extends JPanel {
         }
         table.getTableHeader().repaint();
         refreshPlanMap();
+        SwingUtilities.invokeLater(this::applySystemBodiesTableColumnLayout);
 
         // Debug only:
         // debugDumpBioRowsToConsole();
@@ -2366,22 +2379,27 @@ public class SystemTabPanel extends JPanel {
         Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, mapEpoch,
                 freezeBarycentreStarsDuringOrbitAnim());
         updateSystemModelStatus(SystemModelService.rebuild(state, false));
-        Integer commanderRefMap = resolvePlanMapShipAnchorBodyId();
+        Integer shipAnchorMap = resolvePlanMapShipAnchorBodyId();
         double[] ship = null;
-        if (commanderRefMap != null) {
+        if (shipAnchorMap != null) {
             ship = SystemOrbitGeometry.shipPositionMetres(
                     bodies,
                     pos,
-                    commanderRefMap.intValue(),
+                    shipAnchorMap.intValue(),
                     statusLatitude,
                     statusLongitude,
                     statusAltitude,
                     statusPlanetRadius);
         }
-        Integer commanderHighlight = resolveCommanderRefBodyId();
+        Integer planMapTriangleAnchor = resolvePlanMapTriangleAnchorBodyId();
+        Integer proximityHighlight = null;
+        if (nearBodyId != null && bodies.containsKey(nearBodyId)
+                && !Objects.equals(nearBodyId, planMapTriangleAnchor)) {
+            proximityHighlight = nearBodyId;
+        }
         if (orbitAnimDemoActive) {
             if (systemPlanMapPanel.tryApplyPositionUpdate(
-                    bodies, pos, ship, commanderRefMap, commanderHighlight, orbitAnimDemoActive, mapEpoch)) {
+                    bodies, pos, ship, planMapTriangleAnchor, proximityHighlight, orbitAnimDemoActive, mapEpoch)) {
                 return;
             }
             orbitAnimDemoActive = false;
@@ -2391,13 +2409,35 @@ public class SystemTabPanel extends JPanel {
             if (orbitAnimPlayButton != null) {
                 orbitAnimPlayButton.setSelected(false);
             }
-            systemPlanMapPanel.setScene(bodies, pos, ship, commanderRefMap, commanderHighlight,
+            boolean hudZoomPending = pendingHudTargetMapZoomBodyId != null;
+            systemPlanMapPanel.setSkipProximityHopForHudTarget(hudZoomPending);
+            systemPlanMapPanel.setScene(bodies, pos, ship, planMapTriangleAnchor, proximityHighlight,
                     orbitAnimDemoActive, mapEpoch);
+            systemPlanMapPanel.setSkipProximityHopForHudTarget(false);
             systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
+            finishPendingHudTargetMapZoom();
             return;
         }
-        systemPlanMapPanel.setScene(bodies, pos, ship, commanderRefMap, commanderHighlight,
+        boolean hudZoomPending = pendingHudTargetMapZoomBodyId != null;
+        systemPlanMapPanel.setSkipProximityHopForHudTarget(hudZoomPending);
+        systemPlanMapPanel.setScene(bodies, pos, ship, planMapTriangleAnchor, proximityHighlight,
                 orbitAnimDemoActive, mapEpoch);
+        systemPlanMapPanel.setSkipProximityHopForHudTarget(false);
+        finishPendingHudTargetMapZoom();
+    }
+
+    private void finishPendingHudTargetMapZoom() {
+        Integer zoomBody = pendingHudTargetMapZoomBodyId;
+        pendingHudTargetMapZoomBodyId = null;
+        if (zoomBody == null || orbitAnimDemoActive) {
+            return;
+        }
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        Integer mapKey = bodyMapKeyForJournalId(bodies, zoomBody.intValue());
+        if (mapKey == null) {
+            return;
+        }
+        systemPlanMapPanel.focusCameraOnHudTargetSubsystem(mapKey.intValue());
     }
 
     /** True-scale orbit sim advances wide-binary stars on the mutual barycentre ring. */
@@ -2675,7 +2715,7 @@ public class SystemTabPanel extends JPanel {
 
     /** Ship / star distance toggles: icon size tracks {@link #uiFont}. */
     private void applyDistanceToggleIcons() {
-        if (distFromShipButton == null || distFromStarButton == null) {
+        if (distFromShipButton == null || distFromStarButton == null || distByValueButton == null) {
             return;
         }
         Font f = uiFont != null ? uiFont : getFont();
@@ -2697,9 +2737,11 @@ public class SystemTabPanel extends JPanel {
         }
         distFromShipButton.setIcon(new DistanceToggleIcons.CircleAroundRocketIcon(sz));
         distFromStarButton.setIcon(new DistanceToggleIcons.CircleAroundStarIcon(sz));
+        distByValueButton.setIcon(new DistanceToggleIcons.CircleAroundDollarIcon(sz));
         int btn = sz + 4;
         distFromShipButton.setPreferredSize(new Dimension(btn, btn));
         distFromStarButton.setPreferredSize(new Dimension(btn, btn));
+        distByValueButton.setPreferredSize(new Dimension(btn, btn));
     }
 
     private static void configureOrbitSpeedChevronButton(JButton b, Font font, String toolTipText) {
@@ -3175,7 +3217,7 @@ public class SystemTabPanel extends JPanel {
     /**
      * Global mouse poll for pass-through (see {@link MiningTabPanel}'s scatter plot). Updates Bio header −/+ hover;
      * body dwell on + latches open; dwell on − collapses (removes latch and ensures collapsed set). Also updates
-     * distance-from-ship / distance-from-star toggle hover when pass-through is on (Swing does not receive motion).
+     * table sort toggle (rocket / star / $) hover when pass-through is on (Swing does not receive motion).
      */
     private void pollBioExpandCueHoverFromGlobalMouse() {
         if (!table.isShowing()) {
@@ -3269,38 +3311,42 @@ public class SystemTabPanel extends JPanel {
     }
 
     /**
-     * Pass-through: drive distance-mode toggle hover from {@link MouseInfo} (Swing hover is unreliable).
+     * Pass-through: drive table-sort toggle hover chrome from {@link MouseInfo} (Swing hover is unreliable).
+     * Activation on dwell uses {@link HoverClickPoller} on each sort button.
      *
      * @param screen global pointer, or {@code null} to clear programmatic hover
      */
     private void syncDistModeToggleHoverFromScreen(Point screen) {
-        if (distFromShipButton == null || distFromStarButton == null) {
+        if (distFromShipButton == null || distFromStarButton == null || distByValueButton == null) {
             return;
         }
         if (screen == null || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
             clearDistModeToggleProgrammaticHover();
             return;
         }
-        if (!distFromShipButton.isShowing() || !distFromStarButton.isShowing()) {
+        if (!distFromShipButton.isShowing() || !distFromStarButton.isShowing() || !distByValueButton.isShowing()) {
             clearDistModeToggleProgrammaticHover();
             return;
         }
         boolean overShip = isGlobalPointerOverComponent(screen, distFromShipButton);
         boolean overStar = !overShip && isGlobalPointerOverComponent(screen, distFromStarButton);
-        if (overShip == distFromShipHovered && overStar == distFromStarHovered) {
+        boolean overValue = !overShip && !overStar && isGlobalPointerOverComponent(screen, distByValueButton);
+        if (overShip == distFromShipHovered && overStar == distFromStarHovered && overValue == distByValueHovered) {
             return;
         }
         distFromShipHovered = overShip;
         distFromStarHovered = overStar;
+        distByValueHovered = overValue;
         updateDistModeToggleAppearance();
     }
 
     private void clearDistModeToggleProgrammaticHover() {
-        if (!distFromShipHovered && !distFromStarHovered) {
+        if (!distFromShipHovered && !distFromStarHovered && !distByValueHovered) {
             return;
         }
         distFromShipHovered = false;
         distFromStarHovered = false;
+        distByValueHovered = false;
         updateDistModeToggleAppearance();
     }
 
@@ -4437,6 +4483,15 @@ static class Row {
                     }
                 }
             }
+            if (col == 1) {
+                Object v = getValueAt(viewRow, col);
+                if (v != null) {
+                    String text = String.valueOf(v);
+                    if (!text.isBlank()) {
+                        return text;
+                    }
+                }
+            }
             if (col == 3) {
                 Row r = tableModel.getRowAt(viewRow);
                 if (r != null && !r.detail && r.body != null && r.body.isHighValue()) {
@@ -4837,6 +4892,251 @@ static class Row {
         systemPlanMapPanel.setViewTiltDegrees(deg, persist);
     }
 
+    private void configureSystemBodiesTableColumnResize() {
+        if (table == null) {
+            return;
+        }
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        if (systemBodyScrollPane == null) {
+            return;
+        }
+        JViewport viewport = systemBodyScrollPane.getViewport();
+        if (viewport == null) {
+            return;
+        }
+        viewport.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                SwingUtilities.invokeLater(SystemTabPanel.this::applySystemBodiesTableColumnLayout);
+            }
+        });
+    }
+
+    /**
+     * Body names stay fully visible; atmo/type text yields width first, then dist/value/land; bio keeps a floor.
+     */
+    private void applySystemBodiesTableColumnLayout() {
+        if (table == null || systemBodyScrollPane == null) {
+            return;
+        }
+        JViewport viewport = systemBodyScrollPane.getViewport();
+        if (viewport == null) {
+            return;
+        }
+        int avail = viewport.getExtentSize().width;
+        if (avail <= 0) {
+            return;
+        }
+
+        int wBody = measureSystemTableColumnContentPx(0, SYSTEM_TABLE_BODY_COL_PAD_PX);
+        int wAtmoPref = measureSystemTableColumnContentPx(1, SYSTEM_TABLE_BODY_COL_PAD_PX);
+        int wBio = measureSystemTableBioColumnContentPx();
+        int wValue = Math.max(SYSTEM_TABLE_VALUE_COL_MIN_PX, measureSystemTableColumnContentPx(3, 8));
+        int wLand = Math.max(SYSTEM_TABLE_LAND_COL_MIN_PX, measureSystemTableColumnContentPx(4, 8));
+        int wDist = Math.max(SYSTEM_TABLE_DIST_COL_MIN_PX, measureSystemTableColumnContentPx(5, 8));
+
+        int wAtmo = Math.max(SYSTEM_TABLE_ATMO_COL_MIN_PX, avail - wBody - wBio - wValue - wLand - wDist);
+        if (wAtmo > wAtmoPref) {
+            wDist += wAtmo - wAtmoPref;
+            wAtmo = wAtmoPref;
+        }
+
+        int total = wBody + wAtmo + wBio + wValue + wLand + wDist;
+        if (total > avail) {
+            int slack = total - avail;
+            int take = Math.min(slack, Math.max(0, wAtmo - SYSTEM_TABLE_ATMO_COL_MIN_PX));
+            wAtmo -= take;
+            slack -= take;
+            if (slack > 0) {
+                take = Math.min(slack, Math.max(0, wDist - SYSTEM_TABLE_DIST_COL_MIN_PX));
+                wDist -= take;
+                slack -= take;
+            }
+            if (slack > 0) {
+                take = Math.min(slack, Math.max(0, wValue - SYSTEM_TABLE_VALUE_COL_MIN_PX));
+                wValue -= take;
+                slack -= take;
+            }
+            if (slack > 0) {
+                take = Math.min(slack, Math.max(0, wLand - SYSTEM_TABLE_LAND_COL_MIN_PX));
+                wLand -= take;
+                slack -= take;
+            }
+            // Bio and Body widths are content-sized; do not truncate payout/signal text.
+        } else if (total < avail) {
+            wDist += avail - total;
+        }
+
+        TableColumnModel cm = table.getColumnModel();
+        setSystemTableColumnFixedWidth(cm.getColumn(0), wBody);
+        setSystemTableColumnFlexibleWidth(cm.getColumn(1), wAtmo, SYSTEM_TABLE_ATMO_COL_MIN_PX);
+        setSystemTableColumnFixedWidth(cm.getColumn(2), wBio);
+        setSystemTableColumnFlexibleWidth(cm.getColumn(3), wValue, SYSTEM_TABLE_VALUE_COL_MIN_PX);
+        setSystemTableColumnFlexibleWidth(cm.getColumn(4), wLand, SYSTEM_TABLE_LAND_COL_MIN_PX);
+        setSystemTableColumnFlexibleWidth(cm.getColumn(5), wDist, SYSTEM_TABLE_DIST_COL_MIN_PX);
+        table.revalidate();
+        table.repaint();
+        SwingUtilities.invokeLater(() -> {
+            if (systemBodyScrollPane == null) {
+                return;
+            }
+            JViewport vp = systemBodyScrollPane.getViewport();
+            if (vp == null) {
+                return;
+            }
+            Point p = vp.getViewPosition();
+            if (p.x != 0) {
+                vp.setViewPosition(new Point(0, p.y));
+            }
+        });
+    }
+
+    /**
+     * Bio column display width: leading icon stack + plain text from {@link BioTableBuilder#formatBodyBioColumnText}
+     * (model column 2 is often empty on body rows).
+     */
+    private int measureSystemTableBioColumnContentPx() {
+        if (table == null || tableModel == null) {
+            return SYSTEM_TABLE_BIO_COL_MIN_PX;
+        }
+        FontMetrics fm = table.getFontMetrics(table.getFont());
+        int max = fm.stringWidth("Bio");
+        int leadingPad = bioColumnBioLeadingSlotWidthPx() + 4;
+        int rows = tableModel.getRowCount();
+        for (int r = 0; r < rows; r++) {
+            Row row = tableModel.getRowAt(r);
+            String text = systemTableBioCellPlainText(row);
+            if (text == null || text.isEmpty()) {
+                continue;
+            }
+            max = Math.max(max, leadingPad + fm.stringWidth(text));
+        }
+        return Math.max(SYSTEM_TABLE_BIO_COL_MIN_PX, max + 8);
+    }
+
+    private String systemTableBioCellPlainText(Row r) {
+        if (r == null) {
+            return "";
+        }
+        if (r.detail) {
+            if (!r.destinationRow && r.bioText != null && !r.bioText.isBlank()) {
+                return r.bioText;
+            }
+            return "";
+        }
+        BodyInfo b = r.body;
+        if (b == null || BioTableBuilder.spanshExobiologyExclusionActive(b) || !b.hasBio()) {
+            return "";
+        }
+        String cell = BioTableBuilder.formatBodyBioColumnText(b);
+        if (cell != null && !cell.isEmpty()) {
+            return cell;
+        }
+        String valueOrRange = r.getBioHeaderSummary();
+        if (valueOrRange == null || valueOrRange.isEmpty()) {
+            valueOrRange = formatBioHeaderValueOrRange(b);
+        }
+        return valueOrRange != null ? valueOrRange : "";
+    }
+
+    private int measureSystemTableColumnContentPx(int modelColumn, int padPx) {
+        if (table == null || tableModel == null) {
+            return padPx;
+        }
+        FontMetrics fm = table.getFontMetrics(table.getFont());
+        int max = 0;
+        String header = table.getColumnName(modelColumn);
+        if (header != null) {
+            max = fm.stringWidth(header);
+        }
+        int rows = tableModel.getRowCount();
+        for (int r = 0; r < rows; r++) {
+            Object v = tableModel.getValueAt(r, modelColumn);
+            if (v == null) {
+                continue;
+            }
+            String s = String.valueOf(v);
+            if (!s.isEmpty()) {
+                max = Math.max(max, fm.stringWidth(s));
+            }
+        }
+        return max + padPx;
+    }
+
+    private static void setSystemTableColumnFixedWidth(TableColumn col, int w) {
+        col.setMinWidth(w);
+        col.setMaxWidth(w);
+        col.setPreferredWidth(w);
+        col.setWidth(w);
+    }
+
+    private static void setSystemTableColumnFlexibleWidth(TableColumn col, int w, int minWidthPx) {
+        col.setMinWidth(minWidthPx);
+        col.setMaxWidth(Integer.MAX_VALUE);
+        col.setPreferredWidth(w);
+        col.setWidth(w);
+    }
+
+    private static void applySystemBodiesTextCellStyle(Component c, Row r, boolean isSelected) {
+        if (isSelected) {
+            c.setForeground(Color.BLACK);
+        } else if (r != null && r.detail && r.isRingDetail()) {
+            c.setForeground(EdoUi.Internal.GRAY_180);
+        } else if (r != null && r.detail && !r.destinationRow && !r.isRingDetail()
+                && (r.bioText != null || r.bioValue != null)) {
+            int samples = r.getBioSampleCount();
+            if (samples >= 3) {
+                c.setForeground(EdoUi.User.PRIMARY_HIGHLIGHT);
+            } else if (samples > 0) {
+                c.setForeground(EdoUi.User.SECONDARY_HIGHLIGHT);
+            } else {
+                c.setForeground(EdoUi.Internal.GRAY_180);
+            }
+        } else {
+            c.setForeground(EdoUi.User.MAIN_TEXT);
+        }
+        if (c instanceof JComponent) {
+            ((JComponent) c).setOpaque(false);
+        }
+        c.setBackground(EdoUi.Internal.TRANSPARENT);
+    }
+
+    private static String ellipsizeTextToPixelWidth(String text, FontMetrics fm, int maxPx) {
+        if (text == null || text.isEmpty() || maxPx <= 0) {
+            return text != null ? text : "";
+        }
+        if (fm.stringWidth(text) <= maxPx) {
+            return text;
+        }
+        String ell = "\u2026";
+        int ellW = fm.stringWidth(ell);
+        int budget = Math.max(0, maxPx - ellW);
+        for (int end = text.length(); end > 0; end--) {
+            if (fm.stringWidth(text.substring(0, end)) <= budget) {
+                return text.substring(0, end) + ell;
+            }
+        }
+        return ell;
+    }
+
+    private void selectSystemTabTableSortMode(SystemTabTableSortMode mode) {
+        if (mode == null) {
+            return;
+        }
+        OverlayPreferences.setSystemTabTableSortMode(mode);
+        updateDistModeToggleAppearance();
+        fireSessionStateChanged();
+        requestRebuild();
+    }
+
+    /** Pass-through hover dwell: switch only when the mode actually changes. */
+    private void applySystemTabTableSortMode(SystemTabTableSortMode mode) {
+        if (mode == null || OverlayPreferences.getSystemTabTableSortMode() == mode) {
+            return;
+        }
+        selectSystemTabTableSortMode(mode);
+    }
+
     private void configureDistModeToggleButton(JButton b, String tooltip) {
         b.setToolTipText(tooltip);
         b.setMargin(new java.awt.Insets(2, 4, 2, 4));
@@ -4877,14 +5177,19 @@ static class Row {
     }
 
     private void updateDistModeToggleAppearance() {
-        if (distFromShipButton == null || distFromStarButton == null) {
+        if (distFromShipButton == null || distFromStarButton == null || distByValueButton == null) {
             return;
         }
-        boolean shipMode = OverlayPreferences.isSystemTabDistanceFromShip();
-        applyDistModeToggleButtonHoverChrome(distFromShipButton, shipMode, distFromShipHovered);
-        applyDistModeToggleButtonHoverChrome(distFromStarButton, !shipMode, distFromStarHovered);
+        SystemTabTableSortMode mode = OverlayPreferences.getSystemTabTableSortMode();
+        applyDistModeToggleButtonHoverChrome(distFromShipButton, mode == SystemTabTableSortMode.FROM_SHIP,
+                distFromShipHovered);
+        applyDistModeToggleButtonHoverChrome(distFromStarButton, mode == SystemTabTableSortMode.FROM_STAR,
+                distFromStarHovered);
+        applyDistModeToggleButtonHoverChrome(distByValueButton, mode == SystemTabTableSortMode.BY_VALUE,
+                distByValueHovered);
         distFromShipButton.repaint();
         distFromStarButton.repaint();
+        distByValueButton.repaint();
         refreshOrbitEvolutionTimerRunning();
     }
 
@@ -4946,24 +5251,9 @@ static class Row {
         requestRebuild();
     }
 
-    /** Map key for a journal {@code BodyID} (may differ from {@link BodyInfo#getBodyId()} on rare temp rows). */
+    /** Map key for a journal {@code BodyID} (may differ from map key on barycentre / ring rows). */
     private static Integer bodyMapKeyForJournalId(Map<Integer, BodyInfo> bodies, int journalBodyId) {
-        if (bodies == null || journalBodyId <= 0) {
-            return null;
-        }
-        Integer key = Integer.valueOf(journalBodyId);
-        if (bodies.containsKey(key)) {
-            return key;
-        }
-        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
-            if (e.getKey() == null || e.getValue() == null) {
-                continue;
-            }
-            if (e.getValue().getBodyId() == journalBodyId) {
-                return e.getKey();
-            }
-        }
-        return null;
+        return SystemMapRules.mapKeyForJournalBodyId(bodies, journalBodyId);
     }
 
     /**
@@ -4989,8 +5279,9 @@ static class Row {
      * Body whose centre (plus optional Status lat/lon/alt) anchors ship-centric distances and the distance column
      * when “from ship” / targeted mode applies. See {@link SystemTabShipRefMode} (Overlay preferences → System tab).
      * <p>
-     * The orbit schematic map’s ▲ “You” label is {@link #resolvePlanMapShipAnchorBodyId()} instead — it never follows
-     * HUD {@link #targetBodyId} so FSS scan targets do not pin You on the wrong world.
+     * The orbit schematic map’s ▲ “You” label is {@link #resolvePlanMapTriangleAnchorBodyId()} in
+     * {@link SystemTabShipRefMode#TARGETED_BODY} (HUD navigation target, not FSS destination rows). Ship position on
+     * the map still uses {@link #resolvePlanMapShipAnchorBodyId()} (physical anchor only).
      * </p>
      * <p>
      * Both modes: docked on a fleet carrier (journal parked body in scope) → that parked body. Otherwise a surface
@@ -5080,10 +5371,42 @@ static class Row {
     }
 
     /**
-     * Orbit schematic map “▲ You” anchor only: never HUD {@link #targetBodyId}/{@link #stickyHudTargetBodyId} —
-     * FSS/analysis targets Elite mirrors into Destination would otherwise pin You on rings you only zoomed toward.
-     * Ship-centric distance mode still uses {@link #resolveCommanderRefBodyId()} (may follow HUD target in
-     * {@link SystemTabShipRefMode#TARGETED_BODY}).
+     * Plan-map ▲ label anchor: in {@link SystemTabShipRefMode#TARGETED_BODY}, follows HUD body target (sticky) after
+     * journal ApproachBody / DSS; otherwise same fallbacks as {@link #resolvePlanMapShipAnchorBodyId()}.
+     */
+    private Integer resolvePlanMapTriangleAnchorBodyId() {
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        if (bodies == null || bodies.isEmpty()) {
+            return null;
+        }
+        Integer fc = resolveFleetCarrierParkedBodyForAnchor(bodies);
+        if (fc != null) {
+            return fc;
+        }
+        boolean hasSurfaceFix = statusLatitude != null && statusLongitude != null
+                && statusAltitude != null && statusPlanetRadius != null
+                && statusPlanetRadius.doubleValue() > 1.0;
+        if (hasSurfaceFix && nearBodyId != null && bodies.containsKey(nearBodyId)) {
+            return nearBodyId;
+        }
+        Integer ap = resolveJournalShipRefBodyId(bodies);
+        if (ap != null) {
+            return ap;
+        }
+        if (OverlayPreferences.getSystemTabShipRefMode() == SystemTabShipRefMode.TARGETED_BODY) {
+            if (targetBodyId != null && bodies.containsKey(targetBodyId)) {
+                return targetBodyId;
+            }
+            Integer stickyTgt = stickyHudTargetBodyId;
+            if (stickyTgt != null && bodies.containsKey(stickyTgt)) {
+                return stickyTgt;
+            }
+        }
+        return resolvePlanMapShipAnchorBodyId();
+    }
+
+    /**
+     * Physical ship anchor for plan-map ship glyph and Status lat/lon offset — never HUD navigation target alone.
      */
     private Integer resolvePlanMapShipAnchorBodyId() {
         Map<Integer, BodyInfo> bodies = state.getBodies();
@@ -5472,9 +5795,10 @@ static class Row {
         if (headerSummaryLabel != null) {
             headerSummaryLabel.setFont(uiFont.deriveFont(Font.BOLD));
         }
-        if (distFromShipButton != null && distFromStarButton != null) {
+        if (distFromShipButton != null && distFromStarButton != null && distByValueButton != null) {
             distFromShipButton.setForeground(EdoUi.User.MAIN_TEXT);
             distFromStarButton.setForeground(EdoUi.User.MAIN_TEXT);
+            distByValueButton.setForeground(EdoUi.User.MAIN_TEXT);
             applyDistanceToggleIcons();
             updateDistModeToggleAppearance();
         }
@@ -5484,6 +5808,7 @@ static class Row {
             if (table.getTableHeader() != null) {
                 table.getTableHeader().setFont(uiFont.deriveFont(Font.BOLD));
             }
+            SwingUtilities.invokeLater(this::applySystemBodiesTableColumnLayout);
         }
         applyOrbitMapToolbarTypography(
                 "Slower: fewer model days per second of real time.",

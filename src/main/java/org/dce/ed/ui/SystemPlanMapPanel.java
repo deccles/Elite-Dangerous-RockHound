@@ -297,10 +297,30 @@ public final class SystemPlanMapPanel extends JPanel {
     private static final int SUBSYSTEM_HOP_TICK_MS = 32;
     private static final int SUBSYSTEM_HOP_OUT_TICKS = 12;
     private static final int SUBSYSTEM_HOP_IN_TICKS = 14;
+    /** HUD target: zoom out to full-system context, then zoom in to frame the cluster. */
+    private static final int HUD_TARGET_SUBSYSTEM_ZOOM_OUT_MS = 1600;
+    private static final int HUD_TARGET_SUBSYSTEM_ZOOM_IN_MS = 2400;
+    /** When already at fit-all zoom, skip the zoom-out phase if within this factor of {@code 1.0}. */
+    private static final double HUD_TARGET_SYSTEM_ZOOM_EPS = 0.04;
+    /** Tight HUD framing: padding around the dot bbox (ss2-style moon cluster fill). */
+    private static final double HUD_TARGET_FIT_MARGIN = 0.03;
+    /** Do not inflate HUD fit to this huge schematic floor — use actual moon spread. */
+    private static final double HUD_TARGET_MIN_HALF_SPAN_METRES = 4.0e8;
+    /**
+     * HUD end zoom: stay near hierarchy subsystem lump scale ({@link #SUBSYSTEM_MOON_LABEL_VISIBLE_LS}), not planet surface.
+     */
+    private static final double HUD_TARGET_MAX_VISIBLE_LS = SUBSYSTEM_MOON_LABEL_VISIBLE_LS;
     private static final double SUBSYSTEM_HOP_TARGET_ZOOM_MOON_CLUSTER = 11.0;
     private static final double SUBSYSTEM_HOP_TARGET_ZOOM_STAR = 4.0;
     /** When framing an {@code ApproachBody} view, leave this fraction of the plot empty around the fitted subsystem. */
     private static final double APPROACH_SUBSYSTEM_FIT_MARGIN = 0.10;
+    /**
+     * HUD / approach framing: aim for at least this much zoom (× fit) so lump icons give way to individual bodies
+     * ({@link #mapShowClusterDetail} uses {@link #ZOOM_SUBSYSTEM_HUB_DETAIL} and visible span).
+     */
+    private static final double SUBSYSTEM_FRAME_MIN_ZOOM_FACTOR = ZOOM_SUBSYSTEM_HUB_DETAIL;
+    /** Minimum half-extent (m) around the dot centroid when a lone hub has no moon dots yet. */
+    private static final double SUBSYSTEM_FRAME_MIN_HALF_SPAN_METRES = 8.0e9;
 
     private final List<BodyDot> dots = new ArrayList<>();
     private int exobiologyLeafIconPx = -1;
@@ -416,7 +436,12 @@ public final class SystemPlanMapPanel extends JPanel {
 
     private Timer subsystemHopTimer;
     private boolean subsystemProximityHopActive;
+    /** Blocks proximity-highlight hops while a HUD-target auto-zoom is queued or running. */
+    private boolean skipProximityHopForHudTarget;
+    private boolean hudTargetSubsystemHopActive;
     private int subsystemHopTick;
+    private int subsystemHopOutTicks = SUBSYSTEM_HOP_OUT_TICKS;
+    private int subsystemHopInTicks = SUBSYSTEM_HOP_IN_TICKS;
     private double subHopZ0;
     private double subHopZ1;
     private double subHopZ2;
@@ -1147,14 +1172,15 @@ public final class SystemPlanMapPanel extends JPanel {
             return;
         }
         cancelSubsystemProximityHop();
-        if (sceneEmpty || dots.isEmpty() || bodyId < 0) {
+        final int mapKey = resolveMapKeyForBody(bodyId);
+        if (sceneEmpty || dots.isEmpty() || mapKey < 0) {
             return;
         }
-        if (orbitGeomBodies != null && !orbitGeomBodies.containsKey(Integer.valueOf(bodyId))) {
+        if (orbitGeomBodies != null && !orbitGeomBodies.containsKey(Integer.valueOf(mapKey))) {
             return;
         }
         double[] target = new double[2];
-        if (!worldXYForBody(bodyId, target)) {
+        if (!worldXYForBody(mapKey, target)) {
             return;
         }
         Bounds bb = computeBounds(dots,
@@ -1163,26 +1189,171 @@ public final class SystemPlanMapPanel extends JPanel {
         double midCx = (bb.minX + bb.maxX) * 0.5;
         double midCy = (bb.minY + bb.maxY) * 0.5;
 
-        int frameHub = approachFrameHubId(bodyId, orbitGeomBodies, mapResolvedParents());
-        double[] frame = computeApproachSubsystemFrame(bodyId, frameHub, target);
+        int frameHub = approachFrameHubId(mapKey, orbitGeomBodies, mapResolvedParents());
+        double[] frame = computeApproachSubsystemFrame(mapKey, frameHub, target);
         double targetZoom = frame[2];
         double focusX = frame[0];
         double focusY = frame[1];
 
-        subHopZ0 = zoomFactor;
-        subHopZ1 = 1.0;
-        subHopZ2 = targetZoom;
-        subHopX0 = viewCenterWx;
-        subHopY0 = viewCenterWy;
-        subHopX1 = midCx;
-        subHopY1 = midCy;
-        subHopX2 = focusX;
-        subHopY2 = focusY;
-        subsystemHopTick = 0;
-        subsystemProximityHopActive = true;
-        ensureSubsystemHopTimer();
-        subsystemHopTimer.start();
-        repaint();
+        beginSubsystemCameraHop(zoomFactor, 1.0, targetZoom, viewCenterWx, viewCenterWy, midCx, midCy, focusX, focusY,
+                SUBSYSTEM_HOP_OUT_TICKS, SUBSYSTEM_HOP_IN_TICKS);
+    }
+
+    /**
+     * Ease the plan map toward the orbit cluster for a HUD-selected body: when zoomed in, ~2 s zoom out to the
+     * full-system view, then ~3 s zoom in to a framed subsystem (see {@link #computeApproachSubsystemFrame}).
+     */
+    public void focusCameraOnHudTargetSubsystem(int bodyId) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> focusCameraOnHudTargetSubsystem(bodyId));
+            return;
+        }
+        final int mapKey = resolveMapKeyForBody(bodyId);
+        if (orbitSchematicPlaybackActive || sceneEmpty || dots.isEmpty() || mapKey < 0) {
+            return;
+        }
+        if (orbitGeomBodies != null && !orbitGeomBodies.containsKey(Integer.valueOf(mapKey))) {
+            return;
+        }
+        rebuildOrbitPolylines(false, true);
+        double[] target = new double[2];
+        if (!worldXYForBody(mapKey, target)) {
+            return;
+        }
+
+        int frameHub = resolveHudTargetSubsystemHub(mapKey);
+        double[] frame = computeApproachSubsystemFrame(mapKey, frameHub, target, true);
+        double targetX = frame[0];
+        double targetY = frame[1];
+        double targetZ = frame[2];
+
+        double systemZoom = clamp(1.0, zoomMinFit, ZOOM_MAX);
+        boolean zoomedPastSystem = zoomFactor > systemZoom * (1.0 + HUD_TARGET_SYSTEM_ZOOM_EPS);
+
+        /*
+         * Google Earth–style fly-to: (1) zoom out in place; (2) zoom in with the destination fixed at the view centre
+         * ({@link #tickSubsystemProximityHop} does not pan during the in leg — centre snaps to target before zoom-in).
+         */
+        int outTicks = 0;
+        double zoomMid = zoomFactor;
+        double panMidX = viewCenterWx;
+        double panMidY = viewCenterWy;
+        if (zoomedPastSystem) {
+            outTicks = subsystemHopTicksForDurationMs(HUD_TARGET_SUBSYSTEM_ZOOM_OUT_MS);
+            zoomMid = systemZoom;
+        }
+        int inTicks = subsystemHopTicksForDurationMs(HUD_TARGET_SUBSYSTEM_ZOOM_IN_MS);
+        beginSubsystemCameraHop(zoomFactor, zoomMid, targetZ, viewCenterWx, viewCenterWy, panMidX, panMidY,
+                targetX, targetY, outTicks, inTicks);
+        hudTargetSubsystemHopActive = true;
+    }
+
+    /** Map key for a journal / HUD body id; prefers drawable bodies over scan barycentre rows. */
+    private static int resolveMapKeyForBody(int bodyIdOrJournal, Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || bodyIdOrJournal < 0) {
+            return bodyIdOrJournal;
+        }
+        Integer key = SystemMapRules.mapKeyForJournalBodyId(bodies, bodyIdOrJournal);
+        return key != null ? key.intValue() : bodyIdOrJournal;
+    }
+
+    private int resolveMapKeyForBody(int bodyIdOrJournal) {
+        return resolveMapKeyForBody(bodyIdOrJournal, orbitGeomBodies);
+    }
+
+    /**
+     * Hierarchy subsystem for HUD auto-zoom: the orbit parent cluster (moon host or common parent of the target),
+     * matching zoomed-out lump / hierarchy framing — not the individual planet surface.
+     */
+    private int resolveHudTargetSubsystemHub(int bodyId) {
+        Map<Integer, BodyInfo> bodies = orbitGeomBodies;
+        Map<Integer, Integer> resolvedParents = mapResolvedParents();
+        if (bodies == null || bodyId < 0 || !bodies.containsKey(Integer.valueOf(bodyId))) {
+            return -1;
+        }
+        if (subsystemHubLumpBodyIds.contains(Integer.valueOf(bodyId))) {
+            return bodyId;
+        }
+        if (bodyHostsDirectOrbitChildren(bodyId, resolvedParents)) {
+            return bodyId;
+        }
+        int orbitParent = resolvedParentFromMap(bodyId, resolvedParents);
+        if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(orbitParent)) {
+            int host = SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(orbitParent, bodies);
+            if (host >= 0 && bodies.containsKey(Integer.valueOf(host))) {
+                return host;
+            }
+        } else if (orbitParent >= 0 && bodies.containsKey(Integer.valueOf(orbitParent))) {
+            BodyInfo parent = bodies.get(Integer.valueOf(orbitParent));
+            if (parent != null && !SystemMapRules.isMapStellarBody(parent)) {
+                return orbitParent;
+            }
+        }
+        return approachFrameHubId(bodyId, bodies, resolvedParents);
+    }
+
+    private static boolean bodyHostsDirectOrbitChildren(int bodyId, Map<Integer, Integer> resolvedParents) {
+        if (resolvedParents == null || bodyId < 0) {
+            return false;
+        }
+        for (Map.Entry<Integer, Integer> e : resolvedParents.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            if (e.getValue().intValue() == bodyId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<Integer> membersForHudTargetSubsystem(int hubId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        if (hubId < 0 || bodies == null) {
+            return Collections.emptySet();
+        }
+        /*
+         * Full orbit subtree under the frame hub (gas giant + all moons, including co-orbit pairs at an inner
+         * barycentre). Direct-child membership alone would drop 7 d / 7 e when the hub is planet 7.
+         */
+        Set<Integer> out = membersUnderApproachHub(hubId, bodies, resolvedParents);
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            int id = e.getKey().intValue();
+            BodyInfo b = e.getValue();
+            int p = SystemOrbitGeometry.resolveOrbitParentBodyId(b, bodies, id);
+            if (!SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(p)) {
+                continue;
+            }
+            if (SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(p, bodies) == hubId) {
+                out.add(e.getKey());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Bodies that share the subsystem hub’s orbit: the hub plus every body whose resolved parent is {@code hubId}
+     * (same rule as hierarchy “orbiting this parent”).
+     */
+    private static Set<Integer> membersOrbitingSubsystemHub(int hubId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        Set<Integer> out = new HashSet<>();
+        if (bodies == null || hubId < 0) {
+            return out;
+        }
+        out.add(Integer.valueOf(hubId));
+        for (Integer k : bodies.keySet()) {
+            if (k == null) {
+                continue;
+            }
+            if (resolvedParentFromMap(k.intValue(), resolvedParents) == hubId) {
+                out.add(k);
+            }
+        }
+        return out;
     }
 
     /**
@@ -1205,6 +1376,41 @@ public final class SystemPlanMapPanel extends JPanel {
         return subsystemFocusKeyForBody(bodyId, bodies, resolvedParents);
     }
 
+    /**
+     * Next map key toward the schematic root when walking orbit parents. Skips planet-binary barycentre hubs to
+     * their moon-host or hierarchy parent (e.g. {@code 7 d} → Null:32 bary → gas giant {@code 7}).
+     */
+    private static int advanceResolvedOrbitParent(int cur, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        if (cur < 0) {
+            return -1;
+        }
+        if (bodies != null && SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(cur)) {
+            int hubParent = SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(cur, bodies);
+            if (hubParent >= 0 && hubParent != cur) {
+                return hubParent;
+            }
+        }
+        int p = -1;
+        BodyInfo body = bodies != null ? bodies.get(Integer.valueOf(cur)) : null;
+        if (body != null) {
+            p = SystemOrbitGeometry.resolveOrbitParentBodyId(body, bodies, cur);
+        }
+        if (p < 0 || p == cur) {
+            p = resolvedParentFromMap(cur, resolvedParents);
+        }
+        if (p < 0 || p == cur) {
+            return -1;
+        }
+        if (bodies != null && SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(p)) {
+            int host = SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(p, bodies);
+            if (host >= 0 && host != p) {
+                return host;
+            }
+        }
+        return p;
+    }
+
     private static boolean orbitSubtreeContainsHub(int bodyId, int hubId, Map<Integer, BodyInfo> bodies,
             Map<Integer, Integer> resolvedParents) {
         int root = schematicRootBodyId(bodies, resolvedParents);
@@ -1216,11 +1422,11 @@ public final class SystemPlanMapPanel extends JPanel {
             if (cur == root) {
                 return hubId == root;
             }
-            int p = resolvedParentFromMap(cur, resolvedParents);
-            if (p < 0 || p == cur) {
+            int next = advanceResolvedOrbitParent(cur, bodies, resolvedParents);
+            if (next < 0) {
                 break;
             }
-            cur = p;
+            cur = next;
         }
         return false;
     }
@@ -1257,7 +1463,13 @@ public final class SystemPlanMapPanel extends JPanel {
         if (hubId == root) {
             return p == root;
         }
-        return p == hubId;
+        if (p == hubId) {
+            return true;
+        }
+        if (bodies != null && SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(p)) {
+            return SystemOrbitGeometry.planetBinaryBarycentreHierarchyParentMapKey(p, bodies) == hubId;
+        }
+        return false;
     }
 
     /**
@@ -1266,6 +1478,11 @@ public final class SystemPlanMapPanel extends JPanel {
      * @return {@code [focusWx, focusWy, targetZoom]}
      */
     private double[] computeApproachSubsystemFrame(int bodyId, int frameHub, double[] approachedXY) {
+        return computeApproachSubsystemFrame(bodyId, frameHub, approachedXY, false);
+    }
+
+    private double[] computeApproachSubsystemFrame(int bodyId, int frameHub, double[] approachedXY,
+            boolean hudTightFit) {
         int rootId = orbitGeomBodies != null ? SystemOrbitGeometry.primaryAnchorBodyMapKey(orbitGeomBodies) : 0;
         double fallbackZ = (bodyId == rootId) ? SUBSYSTEM_HOP_TARGET_ZOOM_STAR : SUBSYSTEM_HOP_TARGET_ZOOM_MOON_CLUSTER;
         fallbackZ = clamp(fallbackZ, zoomMinFit, ZOOM_MAX);
@@ -1284,18 +1501,25 @@ public final class SystemPlanMapPanel extends JPanel {
             return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
         }
 
-        Set<Integer> members = membersUnderApproachHub(frameHub, orbitGeomBodies, mapResolvedParents());
-        if (members.isEmpty()) {
-            return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
+        Map<Integer, Integer> resolvedParents = mapResolvedParents();
+        Set<Integer> members = hudTightFit
+                ? membersForHudTargetSubsystem(frameHub, orbitGeomBodies, resolvedParents)
+                : membersUnderApproachHub(frameHub, orbitGeomBodies, resolvedParents);
+        if (!hudTightFit) {
+            members.add(Integer.valueOf(frameHub));
+            members.add(Integer.valueOf(bodyId));
+        } else {
+            members.add(Integer.valueOf(bodyId));
         }
 
         double minX = Double.POSITIVE_INFINITY;
         double maxX = Double.NEGATIVE_INFINITY;
         double minY = Double.POSITIVE_INFINITY;
         double maxY = Double.NEGATIVE_INFINITY;
+        int dotCount = 0;
 
         for (BodyDot d : dots) {
-            if (!members.contains(Integer.valueOf(d.bodyId))) {
+            if (d == null || !members.contains(Integer.valueOf(d.bodyId))) {
                 continue;
             }
             if (Double.isFinite(d.wx) && Double.isFinite(d.wy)) {
@@ -1303,21 +1527,143 @@ public final class SystemPlanMapPanel extends JPanel {
                 maxX = Math.max(maxX, d.wx);
                 minY = Math.min(minY, d.wy);
                 maxY = Math.max(maxY, d.wy);
+                dotCount++;
             }
         }
-        if (shipKnown && Double.isFinite(shipWx) && Double.isFinite(shipWy)) {
-            minX = Math.min(minX, shipWx);
-            maxX = Math.max(maxX, shipWx);
-            minY = Math.min(minY, shipWy);
-            maxY = Math.max(maxY, shipWy);
+
+        if (dotCount == 0) {
+            double[] xy = new double[2];
+            BodyDot targetDotOnly = findBodyDot(bodyId);
+            if (targetDotOnly != null && Double.isFinite(targetDotOnly.wx) && Double.isFinite(targetDotOnly.wy)) {
+                double z = Math.max(fallbackZ, SUBSYSTEM_FRAME_MIN_ZOOM_FACTOR);
+                return new double[] { targetDotOnly.wx, targetDotOnly.wy, z };
+            }
+            if (worldXYForBody(bodyId, xy) || worldXYForBody(frameHub, xy)) {
+                double z = Math.max(fallbackZ, SUBSYSTEM_FRAME_MIN_ZOOM_FACTOR);
+                return new double[] { xy[0], xy[1], z };
+            }
+            return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
         }
 
-        double scalePxPerM = computeScalePixelsPerWorldMetre();
-        List<OrbitPolylineWorldXY> polys = mapModel != null
-                ? SystemMapPipeline.rebuildOrbitPolylines(mapModel, orbitGeomPositions, ORBIT_SEGMENTS_MAX, scalePxPerM)
-                : Collections.emptyList();
+        double focusWx = (minX + maxX) * 0.5;
+        double focusWy = (minY + maxY) * 0.5;
+        if (!hudTightFit) {
+            BodyDot targetDot = findBodyDot(bodyId);
+            if (targetDot != null && Double.isFinite(targetDot.wx) && Double.isFinite(targetDot.wy)) {
+                focusWx = targetDot.wx;
+                focusWy = targetDot.wy;
+            }
+        }
+
+        double fitMargin = hudTightFit ? HUD_TARGET_FIT_MARGIN : APPROACH_SUBSYSTEM_FIT_MARGIN;
+        double minHalfSpan = hudTightFit ? HUD_TARGET_MIN_HALF_SPAN_METRES : SUBSYSTEM_FRAME_MIN_HALF_SPAN_METRES;
+        double minSpan = Math.max(layoutSpanX, layoutSpanY) * 1e-5;
+        double halfW = Math.max((maxX - minX) * 0.5, minHalfSpan);
+        double halfH = Math.max((maxY - minY) * 0.5, minHalfSpan);
+        halfW = Math.max(halfW, Math.max(maxX - focusWx, focusWx - minX));
+        halfH = Math.max(halfH, Math.max(maxY - focusWy, focusWy - minY));
+        halfW = Math.max(halfW, minSpan * 0.5);
+        halfH = Math.max(halfH, minSpan * 0.5);
+
+        double[] halfExtents = new double[] { halfW, halfH };
+        appendOrbitStrokeExtentsAroundFocus(frameHub, focusWx, focusWy, halfExtents);
+        halfW = halfExtents[0];
+        halfH = halfExtents[1];
+
+        double wSpan = 2.0 * halfW * (1.0 + 2.0 * fitMargin);
+        double hSpan = 2.0 * halfH * (1.0 + 2.0 * fitMargin);
+
+        double zFit = zoomFactorToFitWorldSpans(availW, availH, layoutSpanX, layoutSpanY, wSpan, hSpan);
+        double zoomFit = clamp(Math.max(zFit, Math.max(fallbackZ, SUBSYSTEM_FRAME_MIN_ZOOM_FACTOR)),
+                zoomMinFit, ZOOM_MAX);
+        double spanM = Math.max(wSpan, hSpan);
+        zoomFit = capZoomFactorToVisibleWorldSpan(zoomFit, spanM, availW, availH, layoutSpanX, layoutSpanY, fitMargin);
+        if (hudTightFit) {
+            zoomFit = capHudZoomToSubsystemVisibleSpan(zoomFit, spanM, availW, availH, layoutSpanX, layoutSpanY, fitMargin);
+        }
+        return new double[] { focusWx, focusWy, zoomFit };
+    }
+
+    /**
+     * Do not zoom in past hierarchy subsystem lump scale ({@link #HUD_TARGET_MAX_VISIBLE_LS}); still honour
+     * {@link #capZoomFactorToVisibleWorldSpan} so the cluster remains visible.
+     */
+    private double capHudZoomToSubsystemVisibleSpan(double zoomCandidate, double clusterSpanM, double availW,
+            double availH, double spanX, double spanY, double fitMargin) {
+        double needLs = (clusterSpanM / SystemOrbitGeometry.LIGHT_SECOND_METRES) * (1.0 + 2.0 * fitMargin);
+        if (!Double.isFinite(needLs) || needLs <= 0.0) {
+            return zoomCandidate;
+        }
+        double lo = zoomMinFit;
+        double hi = zoomCandidate;
+        double best = hi;
+        for (int i = 0; i < 52; i++) {
+            double mid = (lo + hi) * 0.5;
+            double scale = mapPlotScaleForZoom(mid, availW, availH, spanX, spanY);
+            double vis = estimateVisibleLightSecondsAcrossMinPlotAxis(availW, availH, scale);
+            if (!Double.isFinite(vis) || vis < needLs) {
+                hi = mid;
+            } else if (vis > HUD_TARGET_MAX_VISIBLE_LS) {
+                lo = mid;
+            } else {
+                best = mid;
+                lo = mid;
+            }
+        }
+        return clamp(best, zoomMinFit, zoomCandidate);
+    }
+
+    /**
+     * {@link #zoomFactorToFitWorldSpans} can pick {@link #ZOOM_MAX} while the deep-zoom floor still shows only
+     * {@link #ZOOM_DEEP_MIN_VISIBLE_LIGHT_SECONDS} across the plot — narrower than the framed cluster. Reduce zoom until
+     * the visible span actually covers {@code spanMetres}.
+     */
+    private double capZoomFactorToVisibleWorldSpan(double zoomCandidate, double spanMetres,
+            double availW, double availH, double spanX, double spanY) {
+        return capZoomFactorToVisibleWorldSpan(zoomCandidate, spanMetres, availW, availH, spanX, spanY,
+                APPROACH_SUBSYSTEM_FIT_MARGIN);
+    }
+
+    private double capZoomFactorToVisibleWorldSpan(double zoomCandidate, double spanMetres,
+            double availW, double availH, double spanX, double spanY, double fitMargin) {
+        if (!Double.isFinite(zoomCandidate) || !Double.isFinite(spanMetres) || spanMetres <= 0.0) {
+            return zoomCandidate;
+        }
+        double targetLs = (spanMetres / SystemOrbitGeometry.LIGHT_SECOND_METRES) * (1.0 + 2.0 * fitMargin);
+        double scaleAtCand = mapPlotScaleForZoom(zoomCandidate, availW, availH, spanX, spanY);
+        double visAtCand = estimateVisibleLightSecondsAcrossMinPlotAxis(availW, availH, scaleAtCand);
+        if (Double.isFinite(visAtCand) && visAtCand >= targetLs) {
+            return zoomCandidate;
+        }
+        double lo = zoomMinFit;
+        double hi = zoomCandidate;
+        for (int i = 0; i < 52; i++) {
+            double mid = (lo + hi) * 0.5;
+            double scale = mapPlotScaleForZoom(mid, availW, availH, spanX, spanY);
+            double vis = estimateVisibleLightSecondsAcrossMinPlotAxis(availW, availH, scale);
+            if (Double.isFinite(vis) && vis >= targetLs) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        return clamp(lo, zoomMinFit, zoomCandidate);
+    }
+
+    /**
+     * Expand fit half-extents using on-screen orbit strokes near the focus (same coords as {@link #dots}). Only
+     * vertices within a reasonable distance of the cluster are included so schematic parent rings do not pull the
+     * frame to empty space.
+     */
+    private void appendOrbitStrokeExtentsAroundFocus(int frameHub, double focusWx, double focusWy,
+            double[] halfExtentsMetres) {
+        if (orbitLines == null || orbitLines.isEmpty() || frameHub < 0 || halfExtentsMetres == null
+                || halfExtentsMetres.length < 2) {
+            return;
+        }
         Map<Integer, Integer> resolvedParents = mapResolvedParents();
-        for (OrbitPolylineWorldXY pl : polys) {
+        double maxPadM = Math.max(halfExtentsMetres[0], halfExtentsMetres[1]) * 4.0 + 4.0e10;
+        for (OrbitPolylineWorldXY pl : orbitLines) {
             if (pl == null || pl.wx == null || pl.wy == null || pl.wx.length != pl.wy.length) {
                 continue;
             }
@@ -1327,36 +1673,54 @@ public final class SystemPlanMapPanel extends JPanel {
             for (int i = 0; i < pl.wx.length; i++) {
                 double x = pl.wx[i];
                 double y = pl.wy[i];
-                if (Double.isFinite(x) && Double.isFinite(y)) {
-                    minX = Math.min(minX, x);
-                    maxX = Math.max(maxX, x);
-                    minY = Math.min(minY, y);
-                    maxY = Math.max(maxY, y);
+                if (!Double.isFinite(x) || !Double.isFinite(y)) {
+                    continue;
                 }
+                double dx = x - focusWx;
+                double dy = y - focusWy;
+                if (dx * dx + dy * dy > maxPadM * maxPadM) {
+                    continue;
+                }
+                halfExtentsMetres[0] = Math.max(halfExtentsMetres[0], Math.abs(dx));
+                halfExtentsMetres[1] = Math.max(halfExtentsMetres[1], Math.abs(dy));
             }
         }
+    }
 
-        if (!Double.isFinite(minX) || !Double.isFinite(maxX) || !Double.isFinite(minY) || !Double.isFinite(maxY)) {
-            return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
+    private double mapPlotScaleForZoom(double z, double availW, double availH, double spanX, double spanY) {
+        double saved = zoomFactor;
+        zoomFactor = clamp(z, zoomMinFit, ZOOM_MAX);
+        try {
+            return computeMapPlotScale(availW, availH, spanX, spanY);
+        } finally {
+            zoomFactor = saved;
         }
+    }
 
-        double mx = (minX + maxX) * 0.5;
-        double my = (minY + maxY) * 0.5;
-        double minSpan = Math.max(layoutSpanX, layoutSpanY) * 1e-5;
-        double wSpan = Math.max(maxX - minX, minSpan) * (1.0 + 2.0 * APPROACH_SUBSYSTEM_FIT_MARGIN);
-        double hSpan = Math.max(maxY - minY, minSpan) * (1.0 + 2.0 * APPROACH_SUBSYSTEM_FIT_MARGIN);
-
-        double scaleFit = Math.min(availW / layoutSpanX, availH / layoutSpanY);
-        if (!Double.isFinite(scaleFit) || scaleFit <= 0.0) {
-            return new double[] { mx, my, fallbackZ };
+    /**
+     * Largest zoom factor (× fit) such that {@code wSpanM} × {@code hSpanM} fits the plot, using the same scale curve
+     * as {@link #paintComponent} (wide-binary deep-zoom floor included).
+     */
+    private double zoomFactorToFitWorldSpans(double availW, double availH, double spanX, double spanY,
+            double wSpanM, double hSpanM) {
+        if (!Double.isFinite(wSpanM) || !Double.isFinite(hSpanM) || wSpanM <= 0.0 || hSpanM <= 0.0) {
+            return SUBSYSTEM_HOP_TARGET_ZOOM_MOON_CLUSTER;
         }
-
-        double zoomFit = Math.min(availW / (scaleFit * wSpan), availH / (scaleFit * hSpan));
-        if (!Double.isFinite(zoomFit) || zoomFit <= 0.0) {
-            return new double[] { mx, my, fallbackZ };
+        double targetScale = Math.min(availW / wSpanM, availH / hSpanM);
+        if (!Double.isFinite(targetScale) || targetScale <= 0.0) {
+            return SUBSYSTEM_HOP_TARGET_ZOOM_MOON_CLUSTER;
         }
-        zoomFit = clamp(zoomFit, zoomMinFit, ZOOM_MAX);
-        return new double[] { mx, my, zoomFit };
+        double lo = zoomMinFit;
+        double hi = ZOOM_MAX;
+        for (int i = 0; i < 52; i++) {
+            double mid = (lo + hi) * 0.5;
+            if (mapPlotScaleForZoom(mid, availW, availH, spanX, spanY) >= targetScale) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        return clamp(lo, zoomMinFit, ZOOM_MAX);
     }
 
     private static double layoutScaleFit(double availW, double availH, double spanX, double spanY) {
@@ -1648,12 +2012,41 @@ public final class SystemPlanMapPanel extends JPanel {
         System.out.println("[EDO][OrbitMap] Drawing " + n + " orbit ring(s): " + joiner);
     }
 
+    /** {@link org.dce.ed.SystemTabPanel} sets this before {@link #setScene} when a HUD-target zoom is pending. */
+    public void setSkipProximityHopForHudTarget(boolean skip) {
+        skipProximityHopForHudTarget = skip;
+    }
+
     private void cancelSubsystemProximityHop() {
         subsystemProximityHopActive = false;
+        hudTargetSubsystemHopActive = false;
         subsystemHopTick = 0;
+        subsystemHopOutTicks = SUBSYSTEM_HOP_OUT_TICKS;
+        subsystemHopInTicks = SUBSYSTEM_HOP_IN_TICKS;
         if (subsystemHopTimer != null) {
             subsystemHopTimer.stop();
         }
+    }
+
+    private void beginSubsystemCameraHop(double z0, double zMid, double z2, double x0, double y0, double xMid, double yMid,
+            double x2, double y2, int outTicks, int inTicks) {
+        cancelSubsystemProximityHop();
+        subsystemHopOutTicks = Math.max(0, outTicks);
+        subsystemHopInTicks = Math.max(1, inTicks);
+        subHopZ0 = z0;
+        subHopZ1 = zMid;
+        subHopZ2 = z2;
+        subHopX0 = x0;
+        subHopY0 = y0;
+        subHopX1 = xMid;
+        subHopY1 = yMid;
+        subHopX2 = x2;
+        subHopY2 = y2;
+        subsystemHopTick = 0;
+        subsystemProximityHopActive = true;
+        ensureSubsystemHopTimer();
+        subsystemHopTimer.start();
+        repaint();
     }
 
     private void ensureSubsystemHopTimer() {
@@ -1661,6 +2054,10 @@ public final class SystemPlanMapPanel extends JPanel {
             subsystemHopTimer = new Timer(SUBSYSTEM_HOP_TICK_MS, e -> tickSubsystemProximityHop());
             subsystemHopTimer.setRepeats(true);
         }
+    }
+
+    private static int subsystemHopTicksForDurationMs(int durationMs) {
+        return Math.max(1, (durationMs + SUBSYSTEM_HOP_TICK_MS - 1) / SUBSYSTEM_HOP_TICK_MS);
     }
 
     private static double hopEaseInOut(double t) {
@@ -1671,6 +2068,29 @@ public final class SystemPlanMapPanel extends JPanel {
             return 1.0;
         }
         return t * t * (3.0 - 2.0 * t);
+    }
+
+    /** Fast start (zoom-out leg). */
+    private static double hopEaseOut(double t) {
+        if (t <= 0) {
+            return 0.0;
+        }
+        if (t >= 1) {
+            return 1.0;
+        }
+        double u = 1.0 - t;
+        return 1.0 - u * u * u;
+    }
+
+    /** Fast finish (zoom-in leg). */
+    private static double hopEaseIn(double t) {
+        if (t <= 0) {
+            return 0.0;
+        }
+        if (t >= 1) {
+            return 1.0;
+        }
+        return t * t * t;
     }
 
     private static double hopLerp(double a, double b, double u) {
@@ -1711,13 +2131,11 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         if (orbitGeomPositions != null) {
             double[] r = orbitGeomPositions.get(Integer.valueOf(bodyId));
-            int needLen = Math.max(mapProjA0, mapProjA1) + 1;
-            if (r != null && r.length >= needLen) {
-                double px = SystemOrbitGeometry.worldAxisMetres(r, mapProjA0);
-                double py = SystemOrbitGeometry.worldAxisMetres(r, mapProjA1);
-                if (Double.isFinite(px) && Double.isFinite(py)) {
-                    outXY[0] = px;
-                    outXY[1] = py;
+            if (r != null && r.length >= 2) {
+                double[] xy = mapViewCoordsFromWorldMetres(r);
+                if (Double.isFinite(xy[0]) && Double.isFinite(xy[1])) {
+                    outXY[0] = xy[0];
+                    outXY[1] = xy[1];
                     return true;
                 }
             }
@@ -1737,6 +2155,9 @@ public final class SystemPlanMapPanel extends JPanel {
     private void maybeStartSubsystemProximityHop(Integer newHighlightId, Map<Integer, BodyInfo> bodies,
             boolean orbitSchematicPlaybackActive) {
         if (orbitSchematicPlaybackActive) {
+            return;
+        }
+        if (skipProximityHopForHudTarget || hudTargetSubsystemHopActive) {
             return;
         }
         if (subsystemProximityHopActive) {
@@ -1777,19 +2198,8 @@ public final class SystemPlanMapPanel extends JPanel {
         double targetZoom = (hubBodyId == rootId) ? SUBSYSTEM_HOP_TARGET_ZOOM_STAR : SUBSYSTEM_HOP_TARGET_ZOOM_MOON_CLUSTER;
         targetZoom = clamp(targetZoom, zoomMinFit, ZOOM_MAX);
 
-        subHopZ0 = zoomFactor;
-        subHopZ1 = 1.0;
-        subHopZ2 = targetZoom;
-        subHopX0 = viewCenterWx;
-        subHopY0 = viewCenterWy;
-        subHopX1 = midCx;
-        subHopY1 = midCy;
-        subHopX2 = hub[0];
-        subHopY2 = hub[1];
-        subsystemHopTick = 0;
-        subsystemProximityHopActive = true;
-        ensureSubsystemHopTimer();
-        subsystemHopTimer.start();
+        beginSubsystemCameraHop(zoomFactor, 1.0, targetZoom, viewCenterWx, viewCenterWy, midCx, midCy, hub[0], hub[1],
+                SUBSYSTEM_HOP_OUT_TICKS, SUBSYSTEM_HOP_IN_TICKS);
     }
 
     private void tickSubsystemProximityHop() {
@@ -1799,21 +2209,33 @@ public final class SystemPlanMapPanel extends JPanel {
             }
             return;
         }
-        int out = SUBSYSTEM_HOP_OUT_TICKS;
-        int inn = SUBSYSTEM_HOP_IN_TICKS;
+        int out = subsystemHopOutTicks;
+        int inn = subsystemHopInTicks;
         int total = out + inn;
         int tick = subsystemHopTick++;
+        boolean hudFly = hudTargetSubsystemHopActive;
         if (tick < out) {
-            double u = hopEaseInOut((tick + 1.0) / out);
+            double t = out > 0 ? (tick + 1.0) / out : 1.0;
+            double u = hudFly ? hopEaseOut(t) : hopEaseInOut(t);
             zoomFactor = hopLerp(subHopZ0, subHopZ1, u);
-            viewCenterWx = hopLerp(subHopX0, subHopX1, u);
-            viewCenterWy = hopLerp(subHopY0, subHopY1, u);
+            if (hudFly) {
+                viewCenterWx = subHopX0;
+                viewCenterWy = subHopY0;
+            } else {
+                viewCenterWx = hopLerp(subHopX0, subHopX1, u);
+                viewCenterWy = hopLerp(subHopY0, subHopY1, u);
+            }
         } else if (tick < total) {
             int lt = tick - out;
-            double u = hopEaseInOut((lt + 1.0) / inn);
+            double u = hudFly ? hopEaseIn((lt + 1.0) / inn) : hopEaseInOut((lt + 1.0) / inn);
             zoomFactor = hopLerp(subHopZ1, subHopZ2, u);
-            viewCenterWx = hopLerp(subHopX1, subHopX2, u);
-            viewCenterWy = hopLerp(subHopY1, subHopY2, u);
+            if (hudFly) {
+                viewCenterWx = subHopX2;
+                viewCenterWy = subHopY2;
+            } else {
+                viewCenterWx = hopLerp(subHopX1, subHopX2, u);
+                viewCenterWy = hopLerp(subHopY1, subHopY2, u);
+            }
         } else {
             zoomFactor = clamp(subHopZ2, zoomMinFit, ZOOM_MAX);
             viewCenterWx = subHopX2;
@@ -2544,7 +2966,8 @@ public final class SystemPlanMapPanel extends JPanel {
 
             drawSummaryClusterCenterDots(g2, labelPlan, bodyR, companionLump);
 
-            drawBarycentreMarkers(g2, dotEm, vcx, vcy, scale, availW, availH, plotCx, plotCy, companionLump);
+            drawBarycentreMarkers(g2, dotEm, vcx, vcy, scale, availW, availH, plotCx, plotCy, companionLump,
+                    showClusterDetail);
 
             /* Labels last so orbit strokes never paint over text. */
             for (BodyDot d : dots) {
@@ -3957,24 +4380,18 @@ public final class SystemPlanMapPanel extends JPanel {
         if (p == null) {
             return null;
         }
-        int p0 = mapModel.projectionAxis0();
-        int p1 = mapModel.projectionAxis1();
-        int needLen = Math.max(p0, p1) + 1;
-        if (p.length < needLen) {
+        double[] xy = mapViewCoordsFromWorldMetres(p);
+        if (!Double.isFinite(xy[0]) || !Double.isFinite(xy[1])) {
             return null;
         }
-        double x = SystemOrbitGeometry.worldAxisMetres(p, p0);
-        double y = SystemOrbitGeometry.worldAxisMetres(p, p1);
-        if (!Double.isFinite(x) || !Double.isFinite(y)) {
-            return null;
-        }
-        return new double[] { x, y };
+        return xy;
     }
 
     /** Scan-barycentre rows and planet-binary map keys — drawn as {@code +} on the map, not body dots. */
     private void drawBarycentreMarkers(Graphics2D g2, float dotEm, double vcx, double vcy, double scale, double availW,
-            double availH, double plotCx, double plotCy, CompanionBranchLump companionLump) {
-        if (mapModel == null) {
+            double availH, double plotCx, double plotCy, CompanionBranchLump companionLump,
+            boolean showClusterDetail) {
+        if (!showClusterDetail || mapModel == null) {
             return;
         }
         Map<Integer, double[]> positions = currentMapPositionsMetres();
@@ -3995,7 +4412,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 if (shouldSuppressSystemBarycentreMarker(scanKey, positions, p0, p1, needLen)) {
                     continue;
                 }
-                collectBarycentreMarker(markers, drawn, positions, scanKey, p0, p1, needLen);
+                collectBarycentreMarker(markers, drawn, positions, scanKey);
             }
         }
         for (Map.Entry<Integer, double[]> e : positions.entrySet()) {
@@ -4008,7 +4425,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 if (orbitGeomBodies != null && orbitGeomBodies.containsKey(Integer.valueOf(nullId))) {
                     continue;
                 }
-                collectBarycentreMarker(markers, drawn, positions, key, p0, p1, needLen);
+                collectBarycentreMarker(markers, drawn, positions, key);
             }
         }
         if (markers.isEmpty()) {
@@ -4080,21 +4497,20 @@ public final class SystemPlanMapPanel extends JPanel {
         return !SystemOrbitGeometry.isPlanetBinaryNullParentId(0, orbitGeomBodies);
     }
 
-    private static void collectBarycentreMarker(List<double[]> markers, Set<Integer> drawn,
-            Map<Integer, double[]> positions, int mapKey, int p0, int p1, int needLen) {
+    private void collectBarycentreMarker(List<double[]> markers, Set<Integer> drawn,
+            Map<Integer, double[]> positions, int mapKey) {
         if (!drawn.add(Integer.valueOf(mapKey))) {
             return;
         }
         double[] p = positions.get(Integer.valueOf(mapKey));
-        if (p == null || p.length < needLen) {
+        if (p == null || p.length < 2) {
             return;
         }
-        double x = SystemOrbitGeometry.worldAxisMetres(p, p0);
-        double y = SystemOrbitGeometry.worldAxisMetres(p, p1);
-        if (!Double.isFinite(x) || !Double.isFinite(y)) {
+        double[] xy = mapViewCoordsFromWorldMetres(p);
+        if (!Double.isFinite(xy[0]) || !Double.isFinite(xy[1])) {
             return;
         }
-        markers.add(new double[] { x, y });
+        markers.add(xy);
     }
 
     /**
@@ -5914,7 +6330,7 @@ public final class SystemPlanMapPanel extends JPanel {
             float dotEm = Math.max(8f, labelFm.getHeight() * 0.42f);
             float starR = Math.max(4.5f, dotEm * 1.05f);
             float bodyR = Math.max(3f, dotEm * 0.62f);
-            List<BarycentreMarkerHit> baryMarkers = collectBarycentreMarkersForHit(companionLump);
+            List<BarycentreMarkerHit> baryMarkers = collectBarycentreMarkersForHit(companionLump, showClusterDetail);
             return new MapClickPaintCtx(labelFm, labelFont, availW, availH, plotCx, plotCy, scale, vcx, vcy,
                     visibleLsMinAxis, showClusterDetail, showMoonLabels, showAllBodyLabels, companionLump, labelPlan,
                     starR, bodyR, dotEm, baryMarkers);
@@ -6240,9 +6656,10 @@ public final class SystemPlanMapPanel extends JPanel {
         return dx * dx + dy * dy <= r * r;
     }
 
-    private List<BarycentreMarkerHit> collectBarycentreMarkersForHit(CompanionBranchLump companionLump) {
+    private List<BarycentreMarkerHit> collectBarycentreMarkersForHit(CompanionBranchLump companionLump,
+            boolean showClusterDetail) {
         List<BarycentreMarkerHit> out = new ArrayList<>();
-        if (mapModel == null) {
+        if (!showClusterDetail || mapModel == null) {
             return out;
         }
         Map<Integer, double[]> positions = currentMapPositionsMetres();
@@ -6262,7 +6679,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 if (shouldSuppressSystemBarycentreMarker(scanKey, positions, p0, p1, needLen)) {
                     continue;
                 }
-                appendBarycentreMarkerForHit(out, drawn, positions, scanKey, p0, p1, needLen, companionLump);
+                appendBarycentreMarkerForHit(out, drawn, positions, scanKey, companionLump);
             }
         }
         for (Map.Entry<Integer, double[]> e : positions.entrySet()) {
@@ -6277,30 +6694,28 @@ public final class SystemPlanMapPanel extends JPanel {
             if (orbitGeomBodies != null && orbitGeomBodies.containsKey(Integer.valueOf(nullId))) {
                 continue;
             }
-            appendBarycentreMarkerForHit(out, drawn, positions, key, p0, p1, needLen, companionLump);
+            appendBarycentreMarkerForHit(out, drawn, positions, key, companionLump);
         }
         return out;
     }
 
-    private static void appendBarycentreMarkerForHit(List<BarycentreMarkerHit> out, Set<Integer> drawn,
-            Map<Integer, double[]> positions, int mapKey, int p0, int p1, int needLen,
-            CompanionBranchLump companionLump) {
+    private void appendBarycentreMarkerForHit(List<BarycentreMarkerHit> out, Set<Integer> drawn,
+            Map<Integer, double[]> positions, int mapKey, CompanionBranchLump companionLump) {
         if (!drawn.add(Integer.valueOf(mapKey))) {
             return;
         }
         double[] p = positions.get(Integer.valueOf(mapKey));
-        if (p == null || p.length < needLen) {
+        if (p == null || p.length < 2) {
             return;
         }
-        double x = SystemOrbitGeometry.worldAxisMetres(p, p0);
-        double y = SystemOrbitGeometry.worldAxisMetres(p, p1);
-        if (!Double.isFinite(x) || !Double.isFinite(y)) {
+        double[] xy = mapViewCoordsFromWorldMetres(p);
+        if (!Double.isFinite(xy[0]) || !Double.isFinite(xy[1])) {
             return;
         }
-        if (suppressBarycentreMarkerForCompanionLump(x, y, companionLump)) {
+        if (suppressBarycentreMarkerForCompanionLump(xy[0], xy[1], companionLump)) {
             return;
         }
-        out.add(new BarycentreMarkerHit(mapKey, x, y));
+        out.add(new BarycentreMarkerHit(mapKey, xy[0], xy[1]));
     }
 
     private static final class MapClickPaintCtx {
@@ -6663,6 +7078,28 @@ public final class SystemPlanMapPanel extends JPanel {
         lastOrbitRebuildKey = Long.MIN_VALUE;
     }
 
+    /** {@code [focusWx, focusWy, targetZoom]} for HUD auto-zoom regression tests. */
+    final double[] hudTargetSubsystemFrameForTests(int bodyIdOrJournal) {
+        int mapKey = resolveMapKeyForBody(bodyIdOrJournal, orbitGeomBodies);
+        double[] target = new double[2];
+        if (!worldXYForBody(mapKey, target)) {
+            return null;
+        }
+        int frameHub = resolveHudTargetSubsystemHub(mapKey);
+        return computeApproachSubsystemFrame(mapKey, frameHub, target, true);
+    }
+
+    final int hudTargetSubsystemHubForTests(int bodyIdOrJournal) {
+        int mapKey = resolveMapKeyForBody(bodyIdOrJournal, orbitGeomBodies);
+        return resolveHudTargetSubsystemHub(mapKey);
+    }
+
+    final Set<Integer> hudTargetSubsystemMemberIdsForTests(int bodyIdOrJournal) {
+        int mapKey = resolveMapKeyForBody(bodyIdOrJournal, orbitGeomBodies);
+        int frameHub = resolveHudTargetSubsystemHub(mapKey);
+        return membersForHudTargetSubsystem(frameHub, orbitGeomBodies, mapResolvedParents());
+    }
+
     final String dotLabelForTests(int bodyId) {
         for (BodyDot d : dots) {
             if (d.bodyId == bodyId) {
@@ -6711,13 +7148,21 @@ public final class SystemPlanMapPanel extends JPanel {
         if (mapModel == null) {
             return 0;
         }
+        int plotH = Math.max(88, getHeight() - MAP_BOTTOM_INSET);
+        double availW = Math.max(1.0, getWidth() - 2.0 * PAD);
+        double availH = Math.max(1.0, plotH - 2.0 * PAD);
+        double scale = computeMapPlotScale(availW, availH, layoutSpanX, layoutSpanY);
+        if (!Double.isFinite(scale) || scale <= 0.0) {
+            return 0;
+        }
+        double visibleLsMinAxis = estimateVisibleLightSecondsAcrossMinPlotAxis(availW, availH, scale);
+        if (!mapShowClusterDetail(visibleLsMinAxis)) {
+            return 0;
+        }
         Map<Integer, double[]> positions = currentMapPositionsMetres();
         if (positions.isEmpty()) {
             return 0;
         }
-        int p0 = mapModel.projectionAxis0();
-        int p1 = mapModel.projectionAxis1();
-        int needLen = Math.max(p0, p1) + 1;
         Set<Integer> drawn = new HashSet<>();
         List<double[]> markers = new ArrayList<>();
         if (orbitGeomBodies != null) {
@@ -6725,7 +7170,7 @@ public final class SystemPlanMapPanel extends JPanel {
                 if (e.getKey() == null || e.getValue() == null || !e.getValue().isScanBarycentreRow()) {
                     continue;
                 }
-                collectBarycentreMarker(markers, drawn, positions, e.getKey().intValue(), p0, p1, needLen);
+                collectBarycentreMarker(markers, drawn, positions, e.getKey().intValue());
             }
         }
         for (Map.Entry<Integer, double[]> e : positions.entrySet()) {
@@ -6734,7 +7179,7 @@ public final class SystemPlanMapPanel extends JPanel {
             }
             int key = e.getKey().intValue();
             if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(key)) {
-                collectBarycentreMarker(markers, drawn, positions, key, p0, p1, needLen);
+                collectBarycentreMarker(markers, drawn, positions, key);
             }
         }
         return markers.size();

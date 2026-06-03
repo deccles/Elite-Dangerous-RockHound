@@ -36,6 +36,8 @@ public enum EliteEventType {
     CODEX_ENTRY("CodexEntry"),
     LEAVE_BODY("LeaveBody"),
     APPROACH_BODY("ApproachBody"),
+    TOUCHDOWN("Touchdown"),
+    LIFTOFF("Liftoff"),
     CARGO("Cargo"),
     LOADOUT("Loadout"),
     SHIP_LOCKER("ShipLocker"),

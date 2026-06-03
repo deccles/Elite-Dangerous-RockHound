@@ -287,6 +287,32 @@ class BioTableBuilderTest {
     }
 
     @Test
+    void sortByExplorationValue_ordersHighestPayoutFirst() {
+        BodyInfo barren = new BodyInfo();
+        barren.setBodyId(1);
+        barren.setBodyName("Test 1");
+        barren.setBodyShortName("Test 1");
+        barren.setDistanceLs(10.0);
+
+        BodyInfo valuable = new BodyInfo();
+        valuable.setBodyId(2);
+        valuable.setBodyName("Test 2");
+        valuable.setBodyShortName("Test 2");
+        valuable.setDistanceLs(1000.0);
+        valuable.setHasBio(true);
+        valuable.setPredictions(new ArrayList<>(List.of(
+                makeCandidate("Bacterium Acies", 80_000_000L))));
+
+        java.util.Map<Integer, BodyInfo> bodies = new java.util.LinkedHashMap<>();
+        bodies.put(Integer.valueOf(1), barren);
+        bodies.put(Integer.valueOf(2), valuable);
+
+        List<String> order = bodyRowShortNames(BioTableBuilder.buildRows(bodies, false, null, false, null, false,
+                true, null));
+        assertEquals(List.of("Test 2", "Test 1"), order);
+    }
+
+    @Test
     void sortByShipDistance_roundsToDisplayedLs_stableOrderForSubLsJitter() {
         BodyInfo near = new BodyInfo();
         near.setBodyId(10);

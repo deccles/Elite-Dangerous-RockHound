@@ -128,6 +128,7 @@ public class PreferencesDialog extends JDialog {
 
 	/** Overlay tab: System tab ship / plan-map reference body mode */
 	private JComboBox<SystemTabShipRefMode> systemTabShipRefModeComboBox;
+	private JCheckBox systemPlanMapAutoZoomHudTargetCheckBox;
 
 	// Logging-tab fields so OK can read them
 	private JCheckBox autoDetectCheckBox;
@@ -515,8 +516,9 @@ public class PreferencesDialog extends JDialog {
 						+ "<b>Approach body</b>: journal ApproachBody and Status proximity — stays on the last "
 						+ "approached body until a new approach.<br>"
 						+ "<b>HUD target (sticky)</b>: the HUD navigation body; clearing the target keeps that body "
-						+ "until you select another. Active ApproachBody always overrides.<br>"
-						+ "<b>Both</b>: docked on a fleet carrier → the carrier’s parked orbit body.</html>");
+						+ "until you select another (plan-map ▲ follows the target). Active ApproachBody always overrides.<br>"
+						+ "Optional <b>Auto-zoom to destination subsystem</b> frames the target cluster on the plan map.<br>"
+						+ "Docked on a fleet carrier → the carrier’s parked orbit body.</html>");
 		systemTabShipRefModeComboBox.setRenderer(new DefaultListCellRenderer() {
 			private static final long serialVersionUID = 1L;
 			@Override
@@ -530,6 +532,20 @@ public class PreferencesDialog extends JDialog {
 			}
 		});
 		systemTabPrefsPanel.add(systemTabShipRefModeComboBox, stc);
+
+		stc.gridx = 0;
+		stc.gridy = 1;
+		stc.gridwidth = 2;
+		systemPlanMapAutoZoomHudTargetCheckBox = new JCheckBox("Auto-zoom to destination subsystem",
+				OverlayPreferences.isSystemPlanMapAutoZoomHudTargetSubsystem());
+		systemPlanMapAutoZoomHudTargetCheckBox.setOpaque(false);
+		systemPlanMapAutoZoomHudTargetCheckBox.setToolTipText(
+				"<html>When <b>HUD target (sticky)</b> is selected and you target a body on the HUD, "
+						+ "the plan map eases out to the full system (~2 s when zoomed in), then in to frame "
+						+ "that body’s orbit cluster (~3 s).<br>"
+						+ "Does not apply in Approach body mode.</html>");
+		systemTabPrefsPanel.add(systemPlanMapAutoZoomHudTargetCheckBox, stc);
+		stc.gridwidth = 1;
 
 		content.add(systemTabPrefsPanel, outer);
 
@@ -582,7 +598,8 @@ public class PreferencesDialog extends JDialog {
 		autoSwitchPanel.add(autoSwitchMiningOnStartupPlanetaryRingCheckBox, agc);
 
 		agc.gridy++;
-		autoSwitchBiologyOnNearBodyCheckBox = new JCheckBox("Near landable body with atmosphere → Biology tab");
+		autoSwitchBiologyOnNearBodyCheckBox = new JCheckBox(
+				"On planetary surface / near landable body with atmosphere → Biology tab");
 		autoSwitchBiologyOnNearBodyCheckBox.setOpaque(false);
 		autoSwitchBiologyOnNearBodyCheckBox.setSelected(OverlayPreferences.isAutoSwitchBiologyOnNearLandableAtmosphere());
 		autoSwitchPanel.add(autoSwitchBiologyOnNearBodyCheckBox, agc);
@@ -2120,6 +2137,10 @@ public class PreferencesDialog extends JDialog {
             if (sel instanceof SystemTabShipRefMode) {
                 OverlayPreferences.setSystemTabShipRefMode((SystemTabShipRefMode) sel);
             }
+        }
+        if (systemPlanMapAutoZoomHudTargetCheckBox != null) {
+            OverlayPreferences.setSystemPlanMapAutoZoomHudTargetSubsystem(
+                    systemPlanMapAutoZoomHudTargetCheckBox.isSelected());
         }
 
         // Logging tab

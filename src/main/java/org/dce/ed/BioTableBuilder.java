@@ -20,11 +20,15 @@ import org.dce.ed.util.RingSummaryFormatter;
 import org.dce.ed.util.SpanshBodyExobiologyInfo;
 import org.dce.ed.util.SpanshLandmark;
 import org.dce.ed.util.SpanshLandmarkCache;
+import org.dce.ed.util.ValuableBodyExplorationEstimate;
 
 final class BioTableBuilder {
 
     /** Match Dist column display ({@code %.0f Ls}) so sub-ls jitter does not reshuffle rows. */
     private static final double DIST_LS_SORT_QUANTUM = 1.0;
+
+    /** Sort tie-breaker for geo-only bodies when no credit estimate is available. */
+    private static final long GEO_EXPLORATION_SORT_NOMINAL_CREDITS = 1L;
 
     private BioTableBuilder() {
         // utility
@@ -338,7 +342,7 @@ final class BioTableBuilder {
             java.util.Map<Integer, Double> shipCentricDistLs,
             boolean shipCentricAnchorMissing) {
         return buildRows(bodyMapFromCollection(bodies), shouldCollapse, hideBioDetailRowsForBodyIds,
-                distanceFromShipMode, shipCentricDistLs, shipCentricAnchorMissing, null);
+                distanceFromShipMode, shipCentricDistLs, shipCentricAnchorMissing, false, null);
     }
 
     private static LinkedHashMap<Integer, BodyInfo> bodyMapFromCollection(java.util.Collection<BodyInfo> bodies) {
@@ -364,6 +368,17 @@ final class BioTableBuilder {
             java.util.Map<Integer, Double> shipCentricDistLs,
             boolean shipCentricAnchorMissing,
             java.util.Map<Integer, Double> geometryFallbackDistLs) {
+        return buildRows(bodiesByMapKey, shouldCollapse, hideBioDetailRowsForBodyIds, distanceFromShipMode,
+                shipCentricDistLs, shipCentricAnchorMissing, false, geometryFallbackDistLs);
+    }
+
+    static List<Row> buildRows(java.util.Map<Integer, BodyInfo> bodiesByMapKey, boolean shouldCollapse,
+            Set<Integer> hideBioDetailRowsForBodyIds,
+            boolean distanceFromShipMode,
+            java.util.Map<Integer, Double> shipCentricDistLs,
+            boolean shipCentricAnchorMissing,
+            boolean sortByExplorationValue,
+            java.util.Map<Integer, Double> geometryFallbackDistLs) {
         if (bodiesByMapKey == null || bodiesByMapKey.isEmpty()) {
             return new ArrayList<>();
         }
@@ -375,29 +390,35 @@ final class BioTableBuilder {
             }
         }
 
-        final boolean sortByShip = distanceFromShipMode && !shipCentricAnchorMissing
+        final boolean sortByShip = !sortByExplorationValue && distanceFromShipMode && !shipCentricAnchorMissing
                 && shipCentricDistLs != null && !shipCentricDistLs.isEmpty();
 
-        // System tab: default order — closest to arrival / primary first (journal {@code DistanceFromArrivalLS}).
-        // Ship mode — closest to commander first when {@code shipCentricDistLs} is populated.
+        // Value mode — highest exploration payout first; distance modes — closest first.
         sorted.sort((ea, eb) -> {
             BodyInfo a = ea.getValue();
             BodyInfo b = eb.getValue();
             if (a == null || b == null) {
                 return 0;
             }
-            double aDist;
-            double bDist;
-            if (sortByShip) {
-                aDist = shipCentricDistanceSortKey(ea.getKey(), a, shipCentricDistLs);
-                bDist = shipCentricDistanceSortKey(eb.getKey(), b, shipCentricDistLs);
+            if (sortByExplorationValue) {
+                int cmp = Long.compare(explorationValueSortKey(b), explorationValueSortKey(a));
+                if (cmp != 0) {
+                    return cmp;
+                }
             } else {
-                aDist = arrivalOrGeometrySortKey(a, ea.getKey(), geometryFallbackDistLs);
-                bDist = arrivalOrGeometrySortKey(b, eb.getKey(), geometryFallbackDistLs);
-            }
-            int cmp = Double.compare(distanceSortKeyForTable(aDist), distanceSortKeyForTable(bDist));
-            if (cmp != 0) {
-                return cmp;
+                double aDist;
+                double bDist;
+                if (sortByShip) {
+                    aDist = shipCentricDistanceSortKey(ea.getKey(), a, shipCentricDistLs);
+                    bDist = shipCentricDistanceSortKey(eb.getKey(), b, shipCentricDistLs);
+                } else {
+                    aDist = arrivalOrGeometrySortKey(a, ea.getKey(), geometryFallbackDistLs);
+                    bDist = arrivalOrGeometrySortKey(b, eb.getKey(), geometryFallbackDistLs);
+                }
+                int cmp = Double.compare(distanceSortKeyForTable(aDist), distanceSortKeyForTable(bDist));
+                if (cmp != 0) {
+                    return cmp;
+                }
             }
             int keyCmp = Integer.compare(ea.getKey().intValue(), eb.getKey().intValue());
             if (keyCmp != 0) {
@@ -872,6 +893,35 @@ final class BioTableBuilder {
      */
     static long getMaxBioEstimatedCredits(BodyInfo b) {
         return maxBioValue(b);
+    }
+
+    /**
+     * Credits used to order bodies when sorting by exploration value (high-value worlds, remaining exobiology max,
+     * geo signals).
+     */
+    static long explorationValueSortKey(BodyInfo b) {
+        if (b == null) {
+            return 0L;
+        }
+        long max = 0L;
+        if (b.isHighValue()) {
+            max = Math.max(max, ValuableBodyExplorationEstimate.resolveCreditsForDisplay(b));
+        }
+        if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
+            BioColumnHeaderParts parts = buildBioColumnHeaderParts(b);
+            if (parts != null && parts.maxRemainingCredits != null) {
+                max = Math.max(max, parts.maxRemainingCredits.longValue());
+            } else {
+                long bioMax = getMaxBioEstimatedCredits(b);
+                if (bioMax > Long.MIN_VALUE) {
+                    max = Math.max(max, bioMax);
+                }
+            }
+        }
+        if (b.hasGeo() && max <= 0L) {
+            max = GEO_EXPLORATION_SORT_NOMINAL_CREDITS;
+        }
+        return max;
     }
 
     private static long maxBioValue(BodyInfo b) {

@@ -18,6 +18,7 @@ import java.util.Set;
 
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.systemmap.MapScaleMode;
+import org.dce.ed.systemmap.SystemMapJournalEnricher;
 import org.dce.ed.systemmap.SystemMapFixture;
 import org.dce.ed.systemmap.SystemMapFixtureLoader;
 import org.dce.ed.systemmap.SystemMapModel;
@@ -243,16 +244,41 @@ class SystemPlanMapPanelDrawTranslationTest {
     class BarycentreMarkersAndRingCull {
 
         @Test
+        void barycentreMarkers_hiddenWhenZoomedOutToSubsystemLump() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(1.0);
+            assertEquals(0, panel.barycentreMarkerCountForTests(),
+                    "barycentre + markers only when individual planets are visible");
+        }
+
+        @Test
         void barycentreMarkers_includeScanRowsAndPlanetBinaryKeys() {
             SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(8.0);
             int count = panel.barycentreMarkerCountForTests();
             assertTrue(count >= 5,
                     "scan rows 2/3/49 plus planet-binary map keys should yield multiple + markers; count=" + count);
         }
 
         @Test
+        void barycentreMarkers_followViewTiltProjection() {
+            SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(8.0);
+            panel.setViewTiltDegrees(45, false);
+            double[] marker = panel.barycentreMarkerMapXYForTests(3);
+            assertNotNull(marker, "Null:3 barycentre marker");
+            double mx = (panel.dotWorldXForTests(idB) + panel.dotWorldXForTests(idC)) * 0.5;
+            double my = (panel.dotWorldYForTests(idB) + panel.dotWorldYForTests(idC)) * 0.5;
+            double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
+            double missLs = Math.hypot(marker[0] - mx, marker[1] - my) / ls;
+            assertTrue(missLs < 800.0,
+                    "tilted barycentre + should track projected B/C cluster; miss=" + missLs + " Ls");
+        }
+
+        @Test
         void barycentreMarkers_notStrandedAtMapOrigin_whenBcdOnTrunk() {
             SystemPlanMapPanel panel = panelAfterSetScene();
+            panel.zoomFactorForTests(8.0);
             double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
             double distBa = Math.hypot(panel.dotWorldXForTests(idB) - panel.dotWorldXForTests(idA),
                     panel.dotWorldYForTests(idB) - panel.dotWorldYForTests(idA)) / ls;
@@ -574,6 +600,78 @@ class SystemPlanMapPanelDrawTranslationTest {
             }
         }
         return ids;
+    }
+
+    @Nested
+    @DisplayName("HUD target subsystem frame")
+    class HudTargetSubsystemFrame {
+
+        @Test
+        void gasGiant7_frameCentersOnMoonHostSubsystem() throws IOException {
+            SystemMapFixture moons = SystemMapFixtureLoader.loadClasspath("eol-prou-nn-y-b31-0-7-moons.json");
+            Map<Integer, BodyInfo> moonBodies = moons.toBodies();
+            int giantKey = moons.bodyIdByLabel("7");
+            int moonAKey = moons.bodyIdByLabel("7 a");
+            SystemPlanMapPanel panel = new SystemPlanMapPanel();
+            panel.setSize(900, 700);
+            Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(moonBodies, Instant.EPOCH, false);
+            panel.setScene(moonBodies, kepler, null, null, null, false, Instant.EPOCH);
+            assertTrue(panel.hasBodyDotForTests(giantKey));
+            assertTrue(panel.hasBodyDotForTests(moonAKey));
+            double gx = panel.dotWorldXForTests(giantKey);
+            double gy = panel.dotWorldYForTests(giantKey);
+            double ax = panel.dotWorldXForTests(moonAKey);
+            double ay = panel.dotWorldYForTests(moonAKey);
+            double[] frame = panel.hudTargetSubsystemFrameForTests(giantKey);
+            assertNotNull(frame);
+            double cx = (gx + ax) * 0.5;
+            double cy = (gy + ay) * 0.5;
+            assertEquals(cx, frame[0], Math.max(1.0, Math.abs(cx) * 0.05));
+            assertEquals(cy, frame[1], Math.max(1.0, Math.abs(cy) * 0.05));
+            assertTrue(frame[2] >= 8.0, "zoom should reach cluster detail");
+        }
+
+        @Test
+        void binaryMoons7d7e_frameGasGiantMoonHostSubsystem() throws IOException {
+            SystemMapFixture moons = SystemMapFixtureLoader.loadClasspath("eol-prou-nn-y-b31-0-7-moons.json");
+            Map<Integer, BodyInfo> moonBodies = moons.toBodies();
+            SystemMapJournalEnricher.prepareMapBodies(moonBodies);
+            int giantKey = moons.bodyIdByLabel("7");
+            int moonAKey = moons.bodyIdByLabel("7 a");
+            int moonDKey = moons.bodyIdByLabel("7 d");
+            int moonEKey = moons.bodyIdByLabel("7 e");
+            SystemPlanMapPanel panel = new SystemPlanMapPanel();
+            panel.setSize(900, 700);
+            Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(moonBodies, Instant.EPOCH, false);
+            panel.setScene(moonBodies, kepler, null, null, null, false, Instant.EPOCH);
+
+            assertEquals(giantKey, panel.hudTargetSubsystemHubForTests(moonDKey));
+            assertEquals(giantKey, panel.hudTargetSubsystemHubForTests(moonEKey));
+            var membersD = panel.hudTargetSubsystemMemberIdsForTests(moonDKey);
+            assertTrue(membersD.contains(Integer.valueOf(giantKey)));
+            assertTrue(membersD.contains(Integer.valueOf(moonAKey)));
+            assertTrue(membersD.contains(Integer.valueOf(moonDKey)));
+            assertTrue(membersD.contains(Integer.valueOf(moonEKey)));
+
+            double gx = panel.dotWorldXForTests(giantKey);
+            double gy = panel.dotWorldYForTests(giantKey);
+            double ax = panel.dotWorldXForTests(moonAKey);
+            double ay = panel.dotWorldYForTests(moonAKey);
+            double dx = panel.dotWorldXForTests(moonDKey);
+            double dy = panel.dotWorldYForTests(moonDKey);
+            double ex = panel.dotWorldXForTests(moonEKey);
+            double ey = panel.dotWorldYForTests(moonEKey);
+            double[] frameD = panel.hudTargetSubsystemFrameForTests(moonDKey);
+            double[] frameHost = panel.hudTargetSubsystemFrameForTests(giantKey);
+            assertNotNull(frameD);
+            assertNotNull(frameHost);
+            double hostCx = (gx + ax + dx + ex) * 0.25;
+            double hostCy = (gy + ay + dy + ey) * 0.25;
+            assertEquals(hostCx, frameD[0], Math.max(1.0, Math.abs(hostCx) * 0.08));
+            assertEquals(hostCy, frameD[1], Math.max(1.0, Math.abs(hostCy) * 0.08));
+            assertEquals(frameHost[0], frameD[0], Math.max(1.0, Math.abs(hostCx) * 0.05));
+            assertEquals(frameHost[1], frameD[1], Math.max(1.0, Math.abs(hostCy) * 0.05));
+        }
     }
 
     @Nested

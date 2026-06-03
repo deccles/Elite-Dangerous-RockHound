@@ -12,6 +12,7 @@ import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.StatusEvent;
+import org.dce.ed.logreader.event.TouchdownEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -134,5 +135,32 @@ class EliteLogParserTest {
         String json = "{\"timestamp\":\"" + ISO_TS + "\",\"Flags\":0}";
         EliteLogEvent event = parser.parseRecord(json);
         assertInstanceOf(StatusEvent.class, event);
+    }
+
+    @Test
+    void parseRecord_touchdown_playerControlled_parsesLatLonAndBody() {
+        String json = "{\"timestamp\":\"2026-06-03T13:57:33Z\",\"event\":\"Touchdown\","
+                + "\"PlayerControlled\":true,\"Taxi\":false,\"Multicrew\":false,"
+                + "\"StarSystem\":\"Eol Prou VK-N d7-150\",\"SystemAddress\":5162374402371,"
+                + "\"Body\":\"Eol Prou VK-N d7-150 A 14 b\",\"BodyID\":68,"
+                + "\"OnStation\":false,\"OnPlanet\":true,"
+                + "\"Latitude\":27.656620,\"Longitude\":-87.234451}";
+        TouchdownEvent td = assertInstanceOf(TouchdownEvent.class, parser.parseRecord(json));
+        assertTrue(td.isPlayerControlled());
+        assertTrue(td.isOnPlanet());
+        assertEquals("Eol Prou VK-N d7-150 A 14 b", td.getBodyName());
+        assertEquals(68, td.getBodyId());
+        assertEquals(27.656620, td.getLatitude().doubleValue(), 1e-6);
+        assertEquals(-87.234451, td.getLongitude().doubleValue(), 1e-6);
+    }
+
+    @Test
+    void parseRecord_touchdown_srvLanding_playerControlledFalse() {
+        String json = "{\"timestamp\":\"2026-06-03T14:19:55Z\",\"event\":\"Touchdown\","
+                + "\"PlayerControlled\":false,\"OnPlanet\":true,"
+                + "\"Body\":\"Eol Prou VK-N d7-150 A 14 b\",\"BodyID\":68,"
+                + "\"Latitude\":27.637203,\"Longitude\":-87.579308}";
+        TouchdownEvent td = assertInstanceOf(TouchdownEvent.class, parser.parseRecord(json));
+        assertTrue(!td.isPlayerControlled());
     }
 }

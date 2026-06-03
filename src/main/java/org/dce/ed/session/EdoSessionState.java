@@ -47,6 +47,11 @@ public final class EdoSessionState {
      * {@code SystemAddress} of the system where {@link #carrierParkedBodyId} applies. Null in older session JSON.
      */
     private Long carrierParkedSystemAddress;
+    /**
+     * System tab body table sort ({@link org.dce.ed.SystemTabTableSortMode#toPrefsString()}:
+     * {@code ship}, {@code star}, or {@code value}).
+     */
+    private String systemTabTableSortMode;
 
     // --- Mining tab (run start time) ---
     /** ISO-8601 instant of last undock; used as run start for the first row of each run. */
@@ -72,6 +77,17 @@ public final class EdoSessionState {
 
     // --- Missions tab ---
     private MissionSessionData missions;
+
+    // --- Biology tab (parked ship anchor on a planetary surface) ---
+    private Double biologyParkedShipLat;
+    private Double biologyParkedShipLon;
+    private Double biologyParkedShipRadiusM;
+    private Double biologyParkedShipHeadingDeg;
+    private String biologyParkedShipBodyName;
+    private Integer biologyParkedShipBodyId;
+    private Double biologyParkedSrvLat;
+    private Double biologyParkedSrvLon;
+    private Double biologyParkedSrvHeadingDeg;
 
     /** Restart-safe snapshot of transient mining runtime state. */
     public static final class MiningRuntimeState {
@@ -390,6 +406,14 @@ public final class EdoSessionState {
         this.carrierParkedSystemAddress = carrierParkedSystemAddress;
     }
 
+    public String getSystemTabTableSortMode() {
+        return systemTabTableSortMode;
+    }
+
+    public void setSystemTabTableSortMode(String systemTabTableSortMode) {
+        this.systemTabTableSortMode = systemTabTableSortMode;
+    }
+
     public String getLastUndockTime() {
         return lastUndockTime;
     }
@@ -460,5 +484,77 @@ public final class EdoSessionState {
 
     public void setMissions(MissionSessionData missions) {
         this.missions = missions;
+    }
+
+    public Double getBiologyParkedShipLat() {
+        return biologyParkedShipLat;
+    }
+
+    public void setBiologyParkedShipLat(Double biologyParkedShipLat) {
+        this.biologyParkedShipLat = biologyParkedShipLat;
+    }
+
+    public Double getBiologyParkedShipLon() {
+        return biologyParkedShipLon;
+    }
+
+    public void setBiologyParkedShipLon(Double biologyParkedShipLon) {
+        this.biologyParkedShipLon = biologyParkedShipLon;
+    }
+
+    public Double getBiologyParkedShipRadiusM() {
+        return biologyParkedShipRadiusM;
+    }
+
+    public void setBiologyParkedShipRadiusM(Double biologyParkedShipRadiusM) {
+        this.biologyParkedShipRadiusM = biologyParkedShipRadiusM;
+    }
+
+    public Double getBiologyParkedShipHeadingDeg() {
+        return biologyParkedShipHeadingDeg;
+    }
+
+    public void setBiologyParkedShipHeadingDeg(Double biologyParkedShipHeadingDeg) {
+        this.biologyParkedShipHeadingDeg = biologyParkedShipHeadingDeg;
+    }
+
+    public String getBiologyParkedShipBodyName() {
+        return biologyParkedShipBodyName;
+    }
+
+    public void setBiologyParkedShipBodyName(String biologyParkedShipBodyName) {
+        this.biologyParkedShipBodyName = biologyParkedShipBodyName;
+    }
+
+    public Integer getBiologyParkedShipBodyId() {
+        return biologyParkedShipBodyId;
+    }
+
+    public void setBiologyParkedShipBodyId(Integer biologyParkedShipBodyId) {
+        this.biologyParkedShipBodyId = biologyParkedShipBodyId;
+    }
+
+    public Double getBiologyParkedSrvLat() {
+        return biologyParkedSrvLat;
+    }
+
+    public void setBiologyParkedSrvLat(Double biologyParkedSrvLat) {
+        this.biologyParkedSrvLat = biologyParkedSrvLat;
+    }
+
+    public Double getBiologyParkedSrvLon() {
+        return biologyParkedSrvLon;
+    }
+
+    public void setBiologyParkedSrvLon(Double biologyParkedSrvLon) {
+        this.biologyParkedSrvLon = biologyParkedSrvLon;
+    }
+
+    public Double getBiologyParkedSrvHeadingDeg() {
+        return biologyParkedSrvHeadingDeg;
+    }
+
+    public void setBiologyParkedSrvHeadingDeg(Double biologyParkedSrvHeadingDeg) {
+        this.biologyParkedSrvHeadingDeg = biologyParkedSrvHeadingDeg;
     }
 }

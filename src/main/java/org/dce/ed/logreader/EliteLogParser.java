@@ -17,6 +17,7 @@ import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.ApproachBodyEvent;
+import org.dce.ed.logreader.event.TouchdownEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.CommanderEvent;
@@ -158,6 +159,8 @@ public class EliteLogParser {
                 return parseApproachBody(ts, obj);
             case LEAVE_BODY:
                 return parseLeaveBody(ts, obj);
+            case TOUCHDOWN:
+                return parseTouchdown(ts, obj);
 
             case PROSPECTED_ASTEROID:
                 return parseProspectedAsteroid(ts, obj);
@@ -795,6 +798,23 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
         String body = getString(obj, "Body");
         int bodyId = obj.has("BodyID") ? obj.get("BodyID").getAsInt() : -1;
         return new LeaveBodyEvent(ts, obj, starSystem, systemAddress, body, bodyId);
+    }
+
+    private TouchdownEvent parseTouchdown(Instant ts, JsonObject obj) {
+        String starSystem = getString(obj, "StarSystem");
+        long systemAddress = obj.has("SystemAddress") ? obj.get("SystemAddress").getAsLong() : 0L;
+        String body = getString(obj, "Body");
+        int bodyId = obj.has("BodyID") ? obj.get("BodyID").getAsInt() : -1;
+        boolean playerControlled = obj.has("PlayerControlled") && obj.get("PlayerControlled").getAsBoolean();
+        boolean onPlanet = obj.has("OnPlanet") && obj.get("OnPlanet").getAsBoolean();
+        Double latitude = obj.has("Latitude") && !obj.get("Latitude").isJsonNull()
+                ? Double.valueOf(obj.get("Latitude").getAsDouble())
+                : null;
+        Double longitude = obj.has("Longitude") && !obj.get("Longitude").isJsonNull()
+                ? Double.valueOf(obj.get("Longitude").getAsDouble())
+                : null;
+        return new TouchdownEvent(ts, obj, starSystem, systemAddress, body, bodyId,
+                playerControlled, onPlanet, latitude, longitude);
     }
 
     private ScanOrganicEvent parseScanOrganic(Instant ts, JsonObject json) {

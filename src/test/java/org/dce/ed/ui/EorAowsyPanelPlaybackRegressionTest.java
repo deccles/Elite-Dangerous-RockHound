@@ -119,9 +119,9 @@ class EorAowsyPanelPlaybackRegressionTest {
         assertNotNull(marker, "Null:3 scan barycentre marker");
         double[] exp = expected.get(Integer.valueOf(baryKey));
         assertNotNull(exp);
-        double expX = SystemOrbitGeometry.worldAxisMetres(exp, model.projectionAxis0());
-        double expY = SystemOrbitGeometry.worldAxisMetres(exp, model.projectionAxis1());
-        assertTrue(Math.hypot(marker[0] - expX, marker[1] - expY) < 1.0,
+        double[] expView = org.dce.ed.systemmap.MapViewProjection.projectFromPositionMetres(exp,
+                model.projectionAxis0(), model.projectionAxis1(), panel.viewTiltDegrees());
+        assertTrue(Math.hypot(marker[0] - expView[0], marker[1] - expView[1]) < 1.0,
                 "barycentre + must use orbitGeomPositions (playback), not frozen pipeline snapshot");
     }
 
