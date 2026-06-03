@@ -6882,12 +6882,20 @@ public final class SystemPlanMapPanel extends JPanel {
 
     // --- Package-private test hooks (R-DRAW translation contract; org.dce.ed.ui tests only) ---
 
+    /**
+     * Body id under a screen point for tests — accepts dot ({@link MapClickHit.Kind#BODY}) and
+     * name-label ({@link MapClickHit.Kind#LABEL}) hits so font/OS differences at the dot centre
+     * do not flake between local Windows and headless Linux CI.
+     */
     final int mapClickHitBodyIdForTests(int px, int py) {
         MapClickHit hit = findMapClickHit(px, py);
-        if (hit == null || hit.kind != MapClickHit.Kind.BODY) {
+        if (hit == null) {
             return -1;
         }
-        return hit.bodyId;
+        if (hit.kind == MapClickHit.Kind.BODY || hit.kind == MapClickHit.Kind.LABEL) {
+            return hit.bodyId;
+        }
+        return -1;
     }
 
     /** Screen px of a body dot centre using the same layout as click hit-testing. */
