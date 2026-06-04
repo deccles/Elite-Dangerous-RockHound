@@ -151,6 +151,8 @@ public final class OverlayPreferences {
     private static final String KEY_MINING_PANEL_SPLIT_INNER = "mining.panel.splitInner";
     /** Vertical split: fraction of System tab height for the bodies table (top pane). */
     private static final String KEY_SYSTEM_TAB_PANEL_TABLE_SPLIT = "system.panel.splitTable";
+    /** Vertical split: fraction of Biology tab height for the specimen table (top pane). */
+    private static final String KEY_BIOLOGY_PANEL_TABLE_SPLIT = "biology.panel.splitTable";
 
     // Mining: low-limpet reminder
     private static final String KEY_MINING_LIMPET_REMINDER_ENABLED = "mining.limpetReminder.enabled";
@@ -1179,6 +1181,22 @@ public static Engine getSpeechEngine() {
 
     public static void setSystemTabPanelTableSplitRatio(double ratio) {
         PREFS.put(KEY_SYSTEM_TAB_PANEL_TABLE_SPLIT, Double.toString(clampSplitRatio(ratio)));
+    }
+
+    /**
+     * Fraction of Biology tab height (below the header) for the specimen table; the remainder is the surface map.
+     */
+    public static double getBiologyPanelTableSplitRatio() {
+        String s = PREFS.get(KEY_BIOLOGY_PANEL_TABLE_SPLIT, "0.42");
+        try {
+            return clampSplitRatio(Double.parseDouble(s.trim()));
+        } catch (Exception e) {
+            return 0.42;
+        }
+    }
+
+    public static void setBiologyPanelTableSplitRatio(double ratio) {
+        PREFS.put(KEY_BIOLOGY_PANEL_TABLE_SPLIT, Double.toString(clampSplitRatio(ratio)));
     }
 
     private static double clampSplitRatio(double ratio) {

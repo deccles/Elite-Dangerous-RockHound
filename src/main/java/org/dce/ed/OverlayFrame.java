@@ -2220,6 +2220,11 @@ private void refreshPassThroughUnifiedStatus() {
             return;
         }
         passThroughSettingsHoverStartMs = -1L;
+
+        EliteOverlayTabbedPane tp = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tp != null) {
+            tp.applyPassThroughBioMapControlsAtScreen(mouseOnScreen.x, mouseOnScreen.y);
+        }
     }
 
     private void resetPassThroughCloseHoverState() {
@@ -2232,6 +2237,10 @@ private void refreshPassThroughUnifiedStatus() {
             titleBar.setToggleHoverProgrammatic(false);
             titleBar.setHammerHoverProgrammatic(false);
             titleBar.setSettingsHoverProgrammatic(false);
+        }
+        EliteOverlayTabbedPane tp = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tp != null) {
+            tp.resetPassThroughBioMapControlsHover();
         }
     }
 

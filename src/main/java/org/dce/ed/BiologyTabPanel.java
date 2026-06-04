@@ -10,9 +10,14 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
+import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Rectangle2D;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
@@ -37,8 +42,11 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -56,6 +64,7 @@ import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.logreader.event.TouchdownEvent;
 import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.session.EdoSessionState.BiologyMapBookmarkEntry;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.util.FirstBonusHelper;
@@ -64,6 +73,7 @@ import org.dce.ed.util.SpanshLandmark;
 import org.dce.ed.util.SpanshLandmarkCache;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
+import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
 
 public class BiologyTabPanel extends JPanel {
@@ -79,10 +89,13 @@ public class BiologyTabPanel extends JPanel {
 
     private final BioMapPanel mapPanel = new BioMapPanel();
 
-    private final CenterLayoutPanel center = new CenterLayoutPanel();
+    private final JSplitPane tableMapSplit;
 
     private static final int REQUIRED_SAMPLES = 3;
 
+    /** User bookmark pins on the biology map. */
+    private static final Color BIO_MAP_BOOKMARK_FILL = new Color(255, 210, 50);
+    private static final Color BIO_MAP_BOOKMARK_OUTLINE = new Color(0, 0, 0, 210);
     /** Biology map: lines to the active incomplete species (matches in-game “current scan” emphasis). */
     private static final Color BIO_MAP_ACTIVE_SAMPLE = new Color(0x40, 0xE0, 0x70);
     /** Biology map: parked pins from a species left incomplete after switching genus (in-game purple cue). */
@@ -162,6 +175,12 @@ private Double lastFootTravelUpDeg;
     /** After a Sample scan for this bio, suppress "Entering" until this epoch ms. */
     private final Map<String, Long> suppressEnterUntilMsByBioKey = new HashMap<>();
 
+    private final List<BioMapBookmark> mapBookmarks = new ArrayList<>();
+    private long passThroughBookmarkHoverStartMs = -1L;
+    private long passThroughZoomInHoverStartMs = -1L;
+    private long passThroughZoomOutHoverStartMs = -1L;
+    private static final long PASS_THROUGH_MAP_CONTROL_DWELL_MS = 700L;
+
     public BiologyTabPanel() {
         super(new BorderLayout());
         setOpaque(false);
@@ -200,10 +219,65 @@ private Double lastFootTravelUpDeg;
 
         mapPanel.setOpaque(false);
 
-        center.setOpaque(false);
-        center.setTableAndMap(scroll, mapPanel);
-        add(center, BorderLayout.CENTER);
-setPreferredSize(new Dimension(560, 320));
+        double tableSplitRatio = OverlayPreferences.getBiologyPanelTableSplitRatio();
+        tableMapSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, scroll, mapPanel);
+        EdoMiningSplitPaneUi.install(tableMapSplit);
+        configureBioTableMapSplit(tableMapSplit, tableSplitRatio);
+        tableMapSplit.addPropertyChangeListener(evt -> {
+            if (!JSplitPane.DIVIDER_LOCATION_PROPERTY.equals(evt.getPropertyName())) {
+                return;
+            }
+            saveBioTableMapSplitRatio();
+        });
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (tableMapSplit == null || tableMapSplit.getHeight() < 32) {
+                    return;
+                }
+                double ratio = OverlayPreferences.getBiologyPanelTableSplitRatio();
+                tableMapSplit.setResizeWeight(ratio);
+                tableMapSplit.setDividerLocation(ratio);
+                EdoMiningSplitPaneUi.applyDividerTheme(tableMapSplit);
+            }
+        });
+
+        add(tableMapSplit, BorderLayout.CENTER);
+        setPreferredSize(new Dimension(560, 320));
+    }
+
+    private static void configureBioTableMapSplit(JSplitPane split, double resizeWeight) {
+        split.setOpaque(false);
+        split.setBorder(null);
+        split.setContinuousLayout(true);
+        split.setOneTouchExpandable(false);
+        split.setDividerSize(9);
+        split.setResizeWeight(Math.max(0.05, Math.min(0.95, resizeWeight)));
+        split.setDividerLocation(resizeWeight);
+    }
+
+    private void saveBioTableMapSplitRatio() {
+        if (tableMapSplit == null || tableMapSplit.getHeight() < 32) {
+            return;
+        }
+        double ratio = computeVerticalSplitRatio(tableMapSplit);
+        OverlayPreferences.setBiologyPanelTableSplitRatio(ratio);
+        tableMapSplit.setResizeWeight(ratio);
+    }
+
+    private static double computeVerticalSplitRatio(JSplitPane split) {
+        if (split == null) {
+            return 0.42;
+        }
+        int h = split.getHeight();
+        if (h <= 0) {
+            return 0.42;
+        }
+        int d = split.getDividerSize();
+        int usable = Math.max(1, h - d);
+        int loc = split.getDividerLocation();
+        double r = loc / (double) usable;
+        return Math.max(0.05, Math.min(0.95, r));
     }
 
     public void setSystemTabPanel(SystemTabPanel systemTab) {
@@ -227,6 +301,15 @@ setPreferredSize(new Dimension(560, 320));
         state.setBiologyParkedSrvLat(parkedSrvLat);
         state.setBiologyParkedSrvLon(parkedSrvLon);
         state.setBiologyParkedSrvHeadingDeg(parkedSrvHeadingDeg);
+        if (mapBookmarks.isEmpty()) {
+            state.setBiologyMapBookmarks(null);
+        } else {
+            List<BiologyMapBookmarkEntry> out = new ArrayList<>(mapBookmarks.size());
+            for (BioMapBookmark b : mapBookmarks) {
+                out.add(b.toSessionEntry());
+            }
+            state.setBiologyMapBookmarks(out);
+        }
     }
 
     public void applySessionState(EdoSessionState state) {
@@ -244,6 +327,17 @@ setPreferredSize(new Dimension(560, 320));
         parkedSrvLat = state.getBiologyParkedSrvLat();
         parkedSrvLon = state.getBiologyParkedSrvLon();
         parkedSrvHeadingDeg = state.getBiologyParkedSrvHeadingDeg();
+        mapBookmarks.clear();
+        List<BiologyMapBookmarkEntry> restored = state.getBiologyMapBookmarks();
+        if (restored != null) {
+            for (BiologyMapBookmarkEntry e : restored) {
+                if (e == null) {
+                    continue;
+                }
+                mapBookmarks.add(BioMapBookmark.fromSessionEntry(e));
+            }
+        }
+        syncMapBookmarksToPanel();
         syncMapToPanel();
         tryRestoreParkedShipFromJournal();
         tryRestoreParkedSrvFromJournal();
@@ -254,6 +348,143 @@ setPreferredSize(new Dimension(560, 320));
     private void notifySessionStateChanged() {
         if (sessionStateChangeCallback != null) {
             sessionStateChangeCallback.run();
+        }
+    }
+
+    /**
+     * Pass-through mode: dwell over map controls (bookmark / zoom), same timing as title-bar toggle.
+     *
+     * @return {@code true} while the pointer is over one of those controls
+     */
+    public boolean applyPassThroughMapControlsAtScreen(int screenX, int screenY) {
+        if (!isShowing()) {
+            resetPassThroughMapControlsHover();
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        if (mapPanel.isZoomInButtonAtScreen(screenX, screenY)) {
+            resetPassThroughBookmarkHoverOnly();
+            if (passThroughZoomInHoverStartMs < 0L) {
+                passThroughZoomInHoverStartMs = now;
+            } else if (now - passThroughZoomInHoverStartMs >= PASS_THROUGH_MAP_CONTROL_DWELL_MS) {
+                mapPanel.adjustMapZoom(true);
+                passThroughZoomInHoverStartMs = -1L;
+            }
+            passThroughZoomOutHoverStartMs = -1L;
+            return true;
+        }
+        passThroughZoomInHoverStartMs = -1L;
+        if (mapPanel.isZoomOutButtonAtScreen(screenX, screenY)) {
+            resetPassThroughBookmarkHoverOnly();
+            if (passThroughZoomOutHoverStartMs < 0L) {
+                passThroughZoomOutHoverStartMs = now;
+            } else if (now - passThroughZoomOutHoverStartMs >= PASS_THROUGH_MAP_CONTROL_DWELL_MS) {
+                mapPanel.adjustMapZoom(false);
+                passThroughZoomOutHoverStartMs = -1L;
+            }
+            return true;
+        }
+        passThroughZoomOutHoverStartMs = -1L;
+        if (mapPanel.isBookmarkButtonAtScreen(screenX, screenY)) {
+            mapPanel.setBookmarkButtonHovered(true);
+            if (passThroughBookmarkHoverStartMs < 0L) {
+                passThroughBookmarkHoverStartMs = now;
+            } else if (now - passThroughBookmarkHoverStartMs >= PASS_THROUGH_MAP_CONTROL_DWELL_MS) {
+                addMapBookmarkAtCurrentPosition();
+                passThroughBookmarkHoverStartMs = -1L;
+            }
+            return true;
+        }
+        resetPassThroughMapControlsHover();
+        return false;
+    }
+
+    /**
+     * Pass-through wheel over the biology map (scroll up = zoom in).
+     *
+     * @return {@code true} if the wheel was consumed
+     */
+    public boolean applyPassThroughWheelIfHit(int screenX, int screenY, int wheelRotation) {
+        if (!isShowing() || wheelRotation == 0) {
+            return false;
+        }
+        return mapPanel.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+    }
+
+    public void resetPassThroughMapControlsHover() {
+        passThroughBookmarkHoverStartMs = -1L;
+        passThroughZoomInHoverStartMs = -1L;
+        passThroughZoomOutHoverStartMs = -1L;
+        mapPanel.setBookmarkButtonHovered(false);
+    }
+
+    private void resetPassThroughBookmarkHoverOnly() {
+        passThroughBookmarkHoverStartMs = -1L;
+        mapPanel.setBookmarkButtonHovered(false);
+    }
+
+    private void addMapBookmarkAtCurrentPosition() {
+        double[] anchor = mapPanel.getMapAnchorLatLon();
+        if (anchor == null) {
+            return;
+        }
+        mapBookmarks.add(new BioMapBookmark(
+                currentBodyName,
+                currentBodyId,
+                anchor[0],
+                anchor[1]));
+        syncMapBookmarksToPanel();
+        notifySessionStateChanged();
+    }
+
+    private void syncMapBookmarksToPanel() {
+        mapPanel.setMapBookmarks(bookmarksForCurrentBody());
+    }
+
+    private List<BioMapBookmark> bookmarksForCurrentBody() {
+        if (mapBookmarks.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<BioMapBookmark> out = new ArrayList<>();
+        for (BioMapBookmark b : mapBookmarks) {
+            if (b.matchesBody(currentBodyName, currentBodyId)) {
+                out.add(b);
+            }
+        }
+        return out;
+    }
+
+    private static final class BioMapBookmark {
+        final String bodyName;
+        final Integer bodyId;
+        final double lat;
+        final double lon;
+
+        BioMapBookmark(String bodyName, Integer bodyId, double lat, double lon) {
+            this.bodyName = bodyName;
+            this.bodyId = bodyId;
+            this.lat = lat;
+            this.lon = lon;
+        }
+
+        static BioMapBookmark fromSessionEntry(BiologyMapBookmarkEntry e) {
+            return new BioMapBookmark(e.getBodyName(), e.getBodyId(), e.getLat(), e.getLon());
+        }
+
+        BiologyMapBookmarkEntry toSessionEntry() {
+            return new BiologyMapBookmarkEntry(bodyName, bodyId, lat, lon);
+        }
+
+        boolean matchesBody(String name, Integer id) {
+            if (bodyId != null && id != null) {
+                return bodyId.equals(id);
+            }
+            if (bodyName != null && !bodyName.isBlank() && name != null && !name.isBlank()) {
+                return bodyName.equalsIgnoreCase(name);
+            }
+            return bodyId == null && id == null
+                    && (bodyName == null || bodyName.isBlank())
+                    && (name == null || name.isBlank());
         }
     }
 
@@ -631,6 +862,7 @@ setPreferredSize(new Dimension(560, 320));
                 parkedSrvLat = null;
                 parkedSrvLon = null;
                 parkedSrvHeadingDeg = null;
+                syncMapBookmarksToPanel();
             }
 
             if (shouldUpdateParkedShipPosition(e)
@@ -795,7 +1027,6 @@ setPreferredSize(new Dimension(560, 320));
         mapPanel.setActiveIncompleteBioKey(body.getActiveIncompleteBioKey());
         mapPanel.setShowParkedPins(anyPartialScan || !abandonedPins.isEmpty());
 
-        center.updateFixedTableHeight(table, model);
         if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
             model.updateDistances(currentLat.doubleValue(), currentLon.doubleValue(), currentPlanetRadius.doubleValue());
         }
@@ -806,88 +1037,6 @@ setPreferredSize(new Dimension(560, 320));
         mapPanel.setAbandonedSamplePins(Collections.emptyMap());
         mapPanel.setActiveIncompleteBioKey(null);
         mapPanel.setShowParkedPins(false);
-    }
-
-    
-    private static final class CenterLayoutPanel extends JPanel {
-
-        private static final long serialVersionUID = 1L;
-
-        private JScrollPane scroll;
-        private BioMapPanel map;
-
-        private int fixedTableHeightPx = 0;
-
-        CenterLayoutPanel() {
-            super(null);
-            setBorder(new EmptyBorder(0, 0, 0, 0));
-            setOpaque(false);
-        }
-
-        void setTableAndMap(JScrollPane scroll, BioMapPanel map) {
-            this.scroll = scroll;
-            this.map = map;
-
-            removeAll();
-            if (scroll != null) {
-                add(scroll);
-            }
-            if (map != null) {
-                add(map);
-            }
-        }
-
-        void updateFixedTableHeight(JTable table, BioTableModel model) {
-            if (table == null || model == null) {
-                return;
-            }
-
-            JTableHeader th = table.getTableHeader();
-            int headerH = (th == null) ? 0 : th.getPreferredSize().height;
-
-            // minimum of 6 rows, but never shrink once we've seen more
-            int rows = Math.max(8, model.getMaxRowsSeen());
-            int rowsH = table.getRowHeight() * Math.max(1, rows);
-
-            fixedTableHeightPx = headerH + rowsH;
-            revalidate();
-        }
-
-        @Override
-        public void doLayout() {
-            Insets in = getInsets();
-            int w = Math.max(0, getWidth() - in.left - in.right);
-            int h = Math.max(0, getHeight() - in.top - in.bottom);
-
-            int y = in.top;
-
-            // Keep the map from collapsing completely.
-            int minMapPx = 80;
-
-            // Give the table what it wants (fixedTableHeightPx), but ensure we leave min space for the map.
-            int maxTableH = Math.max(0, h - minMapPx);
-            int tableH = Math.min(Math.max(0, fixedTableHeightPx), maxTableH);
-
-            if (scroll != null) {
-                scroll.setBounds(in.left, y, w, tableH);
-            }
-            y += tableH;
-
-            int remainingH = Math.max(0, h - tableH);
-
-            // Map uses whatever remains. Keep it square and centered.
-            int square = Math.min(w, remainingH);
-
-            // Keep the previous "smaller than full square" look (0.8), but adapt to remaining space.
-            int mapSize = (int) Math.round(square * 0.8);
-            mapSize = Math.max(0, Math.min(mapSize, square));
-
-            if (map != null) {
-                int x = in.left + Math.max(0, (w - mapSize) / 2);
-                int yMap = y + Math.max(0, (remainingH - mapSize) / 2);
-                map.setBounds(x, yMap, mapSize, mapSize);
-            }
-        }
     }
 
 private static List<BioRow> buildRows(BodyInfo body) {
@@ -1316,6 +1465,7 @@ private static List<BioRow> buildRows(BodyInfo body) {
                 th.setFont(font);
             }
         }
+        EdoMiningSplitPaneUi.applyDividerTheme(tableMapSplit);
 
         SwingUtilities.invokeLater(() -> {
             revalidate();
@@ -1846,8 +1996,98 @@ private final class BioMapPanel extends JPanel {
     /** Purple “parked” pins from incomplete genera left behind when switching scans. */
     private boolean showParkedPins;
 
+    private static final double BIO_MAP_ZOOM_MIN = 0.45;
+    private static final double BIO_MAP_ZOOM_MAX = 3.0;
+    private static final double BIO_MAP_ZOOM_STEP = 1.18;
+    private double mapZoomFactor = 1.0;
+    private final Rectangle zoomInHit = new Rectangle();
+    private final Rectangle zoomOutHit = new Rectangle();
+    private final Rectangle bookmarkHit = new Rectangle();
+    private boolean bookmarkButtonHovered;
+    private List<BioMapBookmark> mapBookmarks = Collections.emptyList();
+
     private BioMapPanel() {
         setOpaque(false);
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (bookmarkHit.contains(e.getPoint())) {
+                    BiologyTabPanel.this.addMapBookmarkAtCurrentPosition();
+                } else if (zoomInHit.contains(e.getPoint())) {
+                    adjustMapZoom(true);
+                } else if (zoomOutHit.contains(e.getPoint())) {
+                    adjustMapZoom(false);
+                }
+            }
+        });
+    }
+
+    void setMapBookmarks(List<BioMapBookmark> bookmarks) {
+        if (bookmarks == null || bookmarks.isEmpty()) {
+            mapBookmarks = Collections.emptyList();
+        } else {
+            mapBookmarks = new ArrayList<>(bookmarks);
+        }
+        repaint();
+    }
+
+    void setBookmarkButtonHovered(boolean hovered) {
+        if (this.bookmarkButtonHovered != hovered) {
+            this.bookmarkButtonHovered = hovered;
+            repaint();
+        }
+    }
+
+    boolean isBookmarkButtonAtScreen(int screenX, int screenY) {
+        return isMapControlAtScreen(screenX, screenY, bookmarkHit);
+    }
+
+    boolean isZoomInButtonAtScreen(int screenX, int screenY) {
+        return isMapControlAtScreen(screenX, screenY, zoomInHit);
+    }
+
+    boolean isZoomOutButtonAtScreen(int screenX, int screenY) {
+        return isMapControlAtScreen(screenX, screenY, zoomOutHit);
+    }
+
+    boolean applyPassThroughWheelIfHit(int screenX, int screenY, int wheelRotation) {
+        if (!isShowing() || wheelRotation == 0 || !canPaintMap()) {
+            return false;
+        }
+        Point p = new Point(screenX, screenY);
+        SwingUtilities.convertPointFromScreen(p, this);
+        if (!contains(p)) {
+            return false;
+        }
+        if (wheelRotation < 0) {
+            adjustMapZoom(true);
+        } else {
+            adjustMapZoom(false);
+        }
+        return true;
+    }
+
+    private boolean isMapControlAtScreen(int screenX, int screenY, Rectangle hit) {
+        if (!isShowing() || hit == null || hit.isEmpty()) {
+            return false;
+        }
+        Point p = new Point(screenX, screenY);
+        SwingUtilities.convertPointFromScreen(p, this);
+        return hit.contains(p);
+    }
+
+    /** Map anchor (commander or ship) for a new bookmark; {@code null} if no fix. */
+    double[] getMapAnchorLatLon() {
+        if (!canPaintMap()) {
+            return null;
+        }
+        return new double[] { mapOriginLat(), mapOriginLon() };
+    }
+
+    void adjustMapZoom(boolean zoomIn) {
+        double next = mapZoomFactor * (zoomIn ? BIO_MAP_ZOOM_STEP : 1.0 / BIO_MAP_ZOOM_STEP);
+        mapZoomFactor = Math.max(BIO_MAP_ZOOM_MIN, Math.min(BIO_MAP_ZOOM_MAX, next));
+        repaint();
     }
 
     void setShowParkedPins(boolean show) {
@@ -2017,30 +2257,31 @@ private final class BioMapPanel extends JPanel {
 
             int w = getWidth();
             int h = getHeight();
-            int side = Math.min(w, h);
-            int x0 = (w - side) / 2;
-            int y0 = (h - side) / 2;
+            int plotW = Math.max(1, w);
+            int plotH = Math.max(1, h);
+            int x0 = 0;
+            int y0 = 0;
+            int fit = Math.min(plotW, plotH);
 
             // Border / background
             if (!OverlayPreferences.isOverlayTransparent()) {
                 g2.setColor(EdoUi.Internal.BLACK_ALPHA_80);
-                g2.fillRect(x0, y0, side, side);
+                g2.fillRect(x0, y0, plotW, plotH);
             }
             g2.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_140);
-//            g2.drawRect(x0, y0, side - 1, side - 1);
 
             if (!canPaintMap()) {
                 g2.setColor(Color.WHITE);
                 String msg = "No position";
                 FontMetrics fm = g2.getFontMetrics();
-                int tx = x0 + (side - fm.stringWidth(msg)) / 2;
-                int ty = y0 + (side + fm.getAscent()) / 2;
+                int tx = x0 + (plotW - fm.stringWidth(msg)) / 2;
+                int ty = y0 + (plotH + fm.getAscent()) / 2;
                 g2.drawString(msg, tx, ty);
                 return;
             }
 
-            int cx = x0 + side / 2;
-            int cy = y0 + side / 2;
+            int cx = x0 + plotW / 2;
+            int cy = y0 + plotH / 2;
 
             // Sample pins: parked history first, then active incomplete scans.
             java.util.List<BioRow> rows = model.getRowsSnapshot();
@@ -2069,17 +2310,20 @@ private final class BioMapPanel extends JPanel {
                 g2.setColor(Color.WHITE);
                 String msg = "No specimens detected";
                 FontMetrics fm = g2.getFontMetrics();
-                int tx = x0 + (side - fm.stringWidth(msg)) / 2;
-                int ty = y0 + (side + fm.getAscent()) / 2;
+                int tx = x0 + (plotW - fm.stringWidth(msg)) / 2;
+                int ty = y0 + (plotH + fm.getAscent()) / 2;
                 g2.drawString(msg, tx, ty);
             }
 
             double maxDistM = computeMaxDistM(rows, haveAbandonedPins);
-            double scale = (side * 0.42) / maxDistM;
+            double baseScale = (fit * 0.42) / maxDistM;
+            double scale = baseScale * mapZoomFactor;
+
+            java.util.List<BioMapRayLabel> rayLabels = new ArrayList<>();
 
             java.awt.Shape oldClip = g2.getClip();
-            g2.setClip(x0, y0, side, side);
-            drawLatLonGrid(g2, cx, cy, scale, maxDistM, x0, y0, side);
+            g2.setClip(x0, y0, plotW, plotH);
+            drawLatLonGrid(g2, cx, cy, scale, maxDistM, x0, y0, plotW, plotH);
             g2.setClip(oldClip);
 
             double shipRot = shipGlyphRotationDeg();
@@ -2088,16 +2332,18 @@ private final class BioMapPanel extends JPanel {
             int[] srvPx = null;
             if (commanderCentered && haveShip) {
                 shipPx = worldToMapPx(cx, cy, scale, shipLat, shipLon);
-                drawVehicleRay(
-                        g2, cx, cy, shipPx[0], shipPx[1],
-                        commanderLat, commanderLon, shipLat, shipLon, BIO_MAP_SHIP_RAY);
+                drawVehicleRayLine(g2, cx, cy, shipPx[0], shipPx[1], BIO_MAP_SHIP_RAY);
+                queueVehicleRayLabel(
+                        rayLabels, cx, cy, shipPx[0], shipPx[1],
+                        commanderLat, commanderLon, shipLat, shipLon, 1);
             }
             if (showParkedSrvMarker()) {
                 srvPx = worldToMapPx(cx, cy, scale, srvLat, srvLon);
                 if (commanderCentered) {
-                    drawVehicleRay(
-                            g2, cx, cy, srvPx[0], srvPx[1],
-                            commanderLat, commanderLon, srvLat, srvLon, BIO_MAP_SRV_RAY);
+                    drawVehicleRayLine(g2, cx, cy, srvPx[0], srvPx[1], BIO_MAP_SRV_RAY);
+                    queueVehicleRayLabel(
+                            rayLabels, cx, cy, srvPx[0], srvPx[1],
+                            commanderLat, commanderLon, srvLat, srvLon, 1);
                 }
             }
 
@@ -2112,7 +2358,8 @@ private final class BioMapPanel extends JPanel {
                                 ? BIO_MAP_RESUMED_GENUS_HISTORY
                                 : BIO_MAP_ABANDONED_SAMPLE;
                         for (BodyInfo.BioSamplePoint p : e.getValue()) {
-                            drawBioSampleRay(g2, cx, cy, scale, parkedColor, BIO_MAP_RAY_LABEL, p, e.getKey());
+                            drawBioSampleRayLine(g2, cx, cy, scale, parkedColor, p);
+                            queueBioSampleRayLabel(rayLabels, cx, cy, scale, p, e.getKey(), 2);
                         }
                     }
                 }
@@ -2122,9 +2369,27 @@ private final class BioMapPanel extends JPanel {
                             continue;
                         }
                         for (BodyInfo.BioSamplePoint p : row.points) {
-                            drawBioSampleRay(g2, cx, cy, scale, BIO_MAP_ACTIVE_SAMPLE, BIO_MAP_RAY_LABEL, p, row.displayName);
+                            drawBioSampleRayLine(g2, cx, cy, scale, BIO_MAP_ACTIVE_SAMPLE, p);
+                            queueBioSampleRayLabel(rayLabels, cx, cy, scale, p, row.displayName, 3);
                         }
                     }
+                }
+            }
+
+            if (haveShip && showParkedSrvMarker() && !commanderCentered) {
+                if (srvPx == null) {
+                    srvPx = worldToMapPx(cx, cy, scale, srvLat, srvLon);
+                }
+                drawVehicleRayLine(g2, cx, cy, srvPx[0], srvPx[1], BIO_MAP_SRV_RAY);
+                queueVehicleRayLabel(rayLabels, cx, cy, srvPx[0], srvPx[1], shipLat, shipLon, srvLat, srvLon, 1);
+            }
+
+            deconflictAndDrawRayLabels(g2, rayLabels);
+
+            if (!mapBookmarks.isEmpty()) {
+                for (BioMapBookmark b : mapBookmarks) {
+                    int[] px = worldToMapPx(cx, cy, scale, b.lat, b.lon);
+                    drawMapBookmarkStar(g2, px[0], px[1]);
                 }
             }
 
@@ -2139,13 +2404,7 @@ private final class BioMapPanel extends JPanel {
             } else if (haveShip) {
                 drawShipLocationMarker(g2, cx, cy, shipRot);
                 drawHeadingVNose(g2, cx, cy, shipRot);
-                if (showParkedSrvMarker()) {
-                    if (srvPx == null) {
-                        srvPx = worldToMapPx(cx, cy, scale, srvLat, srvLon);
-                    }
-                    drawVehicleRay(
-                            g2, cx, cy, srvPx[0], srvPx[1],
-                            shipLat, shipLon, srvLat, srvLon, BIO_MAP_SRV_RAY);
+                if (showParkedSrvMarker() && srvPx != null) {
                     drawSrvLocationMarker(g2, srvPx[0], srvPx[1], srvRot);
                 }
             }
@@ -2153,7 +2412,7 @@ private final class BioMapPanel extends JPanel {
             // Compass (upper right)
             int pad = 10;
             int compR = 22;
-            int compCx = x0 + side - pad - compR;
+            int compCx = x0 + plotW - pad - compR;
             int compCy = y0 + pad + compR;
 
             g2.setColor(EdoUi.Internal.BLACK_ALPHA_140);
@@ -2170,6 +2429,10 @@ private final class BioMapPanel extends JPanel {
 
             g2.draw(new Line2D.Double(compCx, compCy, nx2, ny2));
             g2.drawString("N", nx2 - 4, ny2 - 2);
+
+            if (canPaintMap()) {
+                drawMapZoomControls(g2, x0, y0, plotW, plotH);
+            }
         } finally {
             g2.dispose();
         }
@@ -2233,7 +2496,8 @@ private final class BioMapPanel extends JPanel {
             double maxDistM,
             int x0,
             int y0,
-            int side) {
+            int plotW,
+            int plotH) {
         double oLat = mapOriginLat();
         double oLon = mapOriginLon();
         double spacingM = chooseGridSpacingMeters(maxDistM);
@@ -2245,12 +2509,13 @@ private final class BioMapPanel extends JPanel {
 
         int clipX1 = x0;
         int clipY1 = y0;
-        int clipX2 = x0 + side;
-        int clipY2 = y0 + side;
-        int maxSegmentPx = Math.max(48, (int) Math.round(side * 0.55));
-        int stepsAlong = Math.max(32, Math.min(128, side / 3));
+        int clipX2 = x0 + plotW;
+        int clipY2 = y0 + plotH;
+        int fit = Math.min(plotW, plotH);
+        int maxSegmentPx = Math.max(48, (int) Math.round(fit * 0.55));
+        int stepsAlong = Math.max(32, Math.min(128, fit / 3));
 
-        double[] bounds = mapSquareLatLonBounds(cx, cy, scale, x0, y0, side, spacingM);
+        double[] bounds = mapPlotLatLonBounds(cx, cy, scale, x0, y0, plotW, plotH, spacingM);
         double latMin = bounds[0];
         double latMax = bounds[1];
         double lonMin = bounds[2];
@@ -2288,24 +2553,24 @@ private final class BioMapPanel extends JPanel {
         g2.setColor(BIO_MAP_GRID_MAJOR);
         FontMetrics fm = g2.getFontMetrics();
         int lx = x0 + 6;
-        int ly = y0 + side - 6;
+        int ly = y0 + plotH - 6;
         g2.drawString(spacingLabel, lx, ly - fm.getDescent());
         g2.setFont(oldFont);
     }
 
     /**
-     * Lat/lon range that covers the map square in heading-up projection (corners + edge midpoints).
+     * Lat/lon range that covers the map plot in heading-up projection (corners + edge midpoints).
      */
-    private double[] mapSquareLatLonBounds(
-            int cx, int cy, double scale, int x0, int y0, int side, double spacingM) {
+    private double[] mapPlotLatLonBounds(
+            int cx, int cy, double scale, int x0, int y0, int plotW, int plotH, double spacingM) {
         double latMin = Double.POSITIVE_INFINITY;
         double latMax = Double.NEGATIVE_INFINITY;
         double lonMin = Double.POSITIVE_INFINITY;
         double lonMax = Double.NEGATIVE_INFINITY;
         int x1 = x0;
         int y1 = y0;
-        int x2 = x0 + side;
-        int y2 = y0 + side;
+        int x2 = x0 + plotW;
+        int y2 = y0 + plotH;
         int[][] samples = {
                 { x1, y1 },
                 { x2, y1 },
@@ -2573,6 +2838,14 @@ private final class BioMapPanel extends JPanel {
                 }
             }
         }
+        if (!mapBookmarks.isEmpty()) {
+            for (BioMapBookmark b : mapBookmarks) {
+                double d = greatCircleMeters(oLat, oLon, b.lat, b.lon, shipRadiusM);
+                if (d > maxDistM) {
+                    maxDistM = d;
+                }
+            }
+        }
         return maxDistM;
     }
 
@@ -2612,18 +2885,7 @@ private final class BioMapPanel extends JPanel {
         }
     }
 
-    /** Solid line from map anchor to a parked vehicle, with distance/° label along the ray. */
-    private void drawVehicleRay(
-            Graphics2D g2,
-            int cx,
-            int cy,
-            int vx,
-            int vy,
-            double fromLat,
-            double fromLon,
-            double toLat,
-            double toLon,
-            Color lineColor) {
+    private static void drawVehicleRayLine(Graphics2D g2, int cx, int cy, int vx, int vy, Color lineColor) {
         Stroke oldStroke = g2.getStroke();
         try {
             g2.setColor(lineColor);
@@ -2632,10 +2894,317 @@ private final class BioMapPanel extends JPanel {
         } finally {
             g2.setStroke(oldStroke);
         }
+    }
+
+    private void queueVehicleRayLabel(
+            java.util.List<BioMapRayLabel> queue,
+            int cx,
+            int cy,
+            int vx,
+            int vy,
+            double fromLat,
+            double fromLon,
+            double toLat,
+            double toLon,
+            int priority) {
         double d = greatCircleMeters(fromLat, fromLon, toLat, toLon, shipRadiusM);
         double brng = bearingDeg(fromLat, fromLon, toLat, toLon);
-        String meta = mapPinRayMetaLabel(d, brng);
-        drawSplitLabelsAlongRay(g2, cx, cy, vx, vy, "", meta, BIO_MAP_RAY_LABEL);
+        queue.add(new BioMapRayLabel(cx, cy, vx, vy, "", mapPinRayMetaLabel(d, brng), BIO_MAP_RAY_LABEL, priority));
+    }
+
+    private void drawBioSampleRayLine(Graphics2D g2, int cx, int cy, double scale, Color lineColor, BodyInfo.BioSamplePoint p) {
+        if (p == null) {
+            return;
+        }
+        int[] end = sampleRayEndPx(cx, cy, scale, p);
+        g2.setColor(lineColor);
+        g2.draw(new Line2D.Double(cx, cy, end[0], end[1]));
+        int r = 4;
+        g2.fill(new Ellipse2D.Double(end[0] - r, end[1] - r, r * 2, r * 2));
+    }
+
+    private void queueBioSampleRayLabel(
+            java.util.List<BioMapRayLabel> queue,
+            int cx,
+            int cy,
+            double scale,
+            BodyInfo.BioSamplePoint p,
+            String displayNameOrKey,
+            int priority) {
+        if (p == null) {
+            return;
+        }
+        int[] end = sampleRayEndPx(cx, cy, scale, p);
+        double oLat = mapOriginLat();
+        double oLon = mapOriginLon();
+        double d = greatCircleMeters(oLat, oLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+        double brng = bearingDeg(oLat, oLon, p.getLatitude(), p.getLongitude());
+        String genus = BiologyTabPanel.mapPinGenusLabel(displayNameOrKey);
+        String meta = BiologyTabPanel.mapPinRayMetaLabel(d, brng);
+        queue.add(new BioMapRayLabel(cx, cy, end[0], end[1], genus, meta, BIO_MAP_RAY_LABEL, priority));
+    }
+
+    private int[] sampleRayEndPx(int cx, int cy, double scale, BodyInfo.BioSamplePoint p) {
+        double oLat = mapOriginLat();
+        double oLon = mapOriginLon();
+        double d = greatCircleMeters(oLat, oLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+        double brng = bearingDeg(oLat, oLon, p.getLatitude(), p.getLongitude());
+        double rel = Math.toRadians(brng - shipHeadingDeg);
+        int tx = cx + (int) Math.round(Math.sin(rel) * d * scale);
+        int ty = cy + (int) Math.round(-Math.cos(rel) * d * scale);
+        return new int[] { tx, ty };
+    }
+
+    private void drawMapZoomControls(Graphics2D g2, int x0, int y0, int plotW, int plotH) {
+        int pad = 8;
+        int btn = 22;
+        int gap = 3;
+        int bx = x0 + plotW - pad - btn;
+        int byMinus = y0 + plotH - pad - btn;
+        int byPlus = byMinus - gap - btn;
+        int bxBookmark = bx - gap - btn;
+        zoomInHit.setBounds(bx, byPlus, btn, btn);
+        zoomOutHit.setBounds(bx, byMinus, btn, btn);
+        bookmarkHit.setBounds(bxBookmark, byMinus, btn, btn);
+
+        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 14f));
+        FontMetrics fm = g2.getFontMetrics();
+        drawMapControlButton(g2, bookmarkHit, bookmarkButtonHovered);
+        drawBookmarkStarOnButton(g2, bookmarkHit);
+        drawZoomButton(g2, zoomInHit, "+", fm);
+        drawZoomButton(g2, zoomOutHit, "−", fm);
+    }
+
+    private static void drawMapControlButton(Graphics2D g2, Rectangle r, boolean hovered) {
+        g2.setColor(hovered ? new Color(70, 70, 90, 200) : EdoUi.Internal.BLACK_ALPHA_140);
+        g2.fillRoundRect(r.x, r.y, r.width, r.height, 6, 6);
+        g2.setColor(hovered ? new Color(255, 255, 255, 240) : EdoUi.Internal.WHITE_ALPHA_200);
+        g2.drawRoundRect(r.x, r.y, r.width - 1, r.height - 1, 6, 6);
+    }
+
+    private static void drawBookmarkStarOnButton(Graphics2D g2, Rectangle r) {
+        float cx = r.x + r.width * 0.5f;
+        float cy = r.y + r.height * 0.52f;
+        Path2D.Double star = fivePointStarPath(cx, cy, 7.5, 3.2);
+        g2.setColor(BIO_MAP_BOOKMARK_OUTLINE);
+        g2.setStroke(new BasicStroke(1.4f));
+        g2.draw(star);
+        g2.setColor(BIO_MAP_BOOKMARK_FILL);
+        g2.fill(star);
+    }
+
+    private static void drawMapBookmarkStar(Graphics2D g2, int px, int py) {
+        float cx = px;
+        float cy = py;
+        Path2D.Double star = fivePointStarPath(cx, cy, 9.0, 4.0);
+        g2.setColor(BIO_MAP_BOOKMARK_OUTLINE);
+        g2.setStroke(new BasicStroke(1.6f));
+        g2.draw(star);
+        g2.setColor(BIO_MAP_BOOKMARK_FILL);
+        g2.fill(star);
+    }
+
+    private static Path2D.Double fivePointStarPath(double cx, double cy, double outerR, double innerR) {
+        Path2D.Double p = new Path2D.Double();
+        for (int i = 0; i < 10; i++) {
+            double a = Math.toRadians(-90.0 + i * 36.0);
+            double r = (i % 2 == 0) ? outerR : innerR;
+            double x = cx + r * Math.cos(a);
+            double y = cy + r * Math.sin(a);
+            if (i == 0) {
+                p.moveTo(x, y);
+            } else {
+                p.lineTo(x, y);
+            }
+        }
+        p.closePath();
+        return p;
+    }
+
+    private static void drawZoomButton(Graphics2D g2, Rectangle r, String glyph, FontMetrics fm) {
+        drawMapControlButton(g2, r, false);
+        g2.setColor(Color.WHITE);
+        int tx = r.x + (r.width - fm.stringWidth(glyph)) / 2;
+        int ty = r.y + (r.height + fm.getAscent() - fm.getDescent()) / 2;
+        g2.drawString(glyph, tx, ty);
+    }
+
+    private static final class BioMapRayLabel {
+        final int cx;
+        final int cy;
+        final int tx;
+        final int ty;
+        final String genus;
+        final String meta;
+        final Color color;
+        final int priority;
+
+        BioMapRayLabel(int cx, int cy, int tx, int ty, String genus, String meta, Color color, int priority) {
+            this.cx = cx;
+            this.cy = cy;
+            this.tx = tx;
+            this.ty = ty;
+            this.genus = genus != null ? genus : "";
+            this.meta = meta != null ? meta : "";
+            this.color = color;
+            this.priority = priority;
+        }
+    }
+
+    private static final double[] BIO_LABEL_T_SLOTS = {
+            0.50, 0.42, 0.58, 0.35, 0.65, 0.28, 0.72, 0.22, 0.78, 0.15, 0.85
+    };
+    private static final int[] BIO_LABEL_NORMAL_OFFSETS_PX = { 0, 12, -12, 22, -22, 34, -34 };
+
+    private void deconflictAndDrawRayLabels(Graphics2D g2, java.util.List<BioMapRayLabel> labels) {
+        if (labels == null || labels.isEmpty()) {
+            return;
+        }
+        labels.sort(Comparator.comparingInt((BioMapRayLabel l) -> l.priority).reversed());
+        FontMetrics fm = g2.getFontMetrics();
+        java.util.List<Rectangle> placed = new ArrayList<>();
+        for (BioMapRayLabel lab : labels) {
+            LabelPlacement pick = findRayLabelPlacement(lab, fm, placed);
+            if (pick == null) {
+                int mx = (lab.cx + lab.tx) / 2;
+                int my = (lab.cy + lab.ty) / 2;
+                double angleRad = readableRayLabelAngleRad(lab.cx, lab.cy, lab.tx, lab.ty);
+                pick = new LabelPlacement(mx, my, angleRad, labelBlockBounds(mx, my, angleRad, fm, lab.genus, lab.meta));
+            }
+            placed.add(pick.bounds);
+            drawSplitLabelsAt(g2, pick.mx, pick.my, pick.angleRad, lab.genus, lab.meta, lab.color, fm);
+        }
+    }
+
+    private static final class LabelPlacement {
+        final int mx;
+        final int my;
+        final double angleRad;
+        final Rectangle bounds;
+
+        LabelPlacement(int mx, int my, double angleRad, Rectangle bounds) {
+            this.mx = mx;
+            this.my = my;
+            this.angleRad = angleRad;
+            this.bounds = bounds;
+        }
+    }
+
+    private static LabelPlacement findRayLabelPlacement(BioMapRayLabel lab, FontMetrics fm, java.util.List<Rectangle> placed) {
+        double baseAngle = readableRayLabelAngleRad(lab.cx, lab.cy, lab.tx, lab.ty);
+        int dx = lab.tx - lab.cx;
+        int dy = lab.ty - lab.cy;
+        double len = Math.hypot(dx, dy);
+        if (len < 1.0) {
+            return null;
+        }
+        double nx = -dy / len;
+        double ny = dx / len;
+        for (double t : BIO_LABEL_T_SLOTS) {
+            for (int normOff : BIO_LABEL_NORMAL_OFFSETS_PX) {
+                int mx = (int) Math.round(lab.cx + dx * t + nx * normOff);
+                int my = (int) Math.round(lab.cy + dy * t + ny * normOff);
+                Rectangle bounds = labelBlockBounds(mx, my, baseAngle, fm, lab.genus, lab.meta);
+                if (!intersectsAny(bounds, placed)) {
+                    return new LabelPlacement(mx, my, baseAngle, bounds);
+                }
+            }
+        }
+        return null;
+    }
+
+    private static double readableRayLabelAngleRad(int cx, int cy, int tx, int ty) {
+        double angleRad = Math.atan2(ty - cy, tx - cx);
+        if (angleRad > Math.PI / 2.0 || angleRad < -Math.PI / 2.0) {
+            angleRad += Math.PI;
+        }
+        return angleRad;
+    }
+
+    private static Rectangle labelBlockBounds(int mx, int my, double angleRad, FontMetrics fm, String genus, String meta) {
+        boolean haveGenus = genus != null && !genus.isEmpty();
+        boolean haveMeta = meta != null && !meta.isEmpty();
+        if (!haveGenus && !haveMeta) {
+            return new Rectangle(mx, my, 0, 0);
+        }
+        int pad = 4;
+        int blockW = 0;
+        int blockH = pad;
+        if (haveGenus) {
+            blockW = Math.max(blockW, fm.stringWidth(genus));
+            blockH += fm.getHeight();
+        }
+        if (haveMeta) {
+            blockW = Math.max(blockW, fm.stringWidth(meta));
+            blockH += fm.getHeight();
+        }
+        blockW += pad * 2;
+        blockH += pad;
+
+        double cos = Math.cos(angleRad);
+        double sin = Math.sin(angleRad);
+        double hw = blockW * 0.5;
+        double hh = blockH * 0.5;
+        double[][] corners = {
+                { -hw, -hh }, { hw, -hh }, { hw, hh }, { -hw, hh }
+        };
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (double[] c : corners) {
+            int px = (int) Math.round(mx + c[0] * cos - c[1] * sin);
+            int py = (int) Math.round(my + c[0] * sin + c[1] * cos);
+            minX = Math.min(minX, px);
+            minY = Math.min(minY, py);
+            maxX = Math.max(maxX, px);
+            maxY = Math.max(maxY, py);
+        }
+        return new Rectangle(minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY));
+    }
+
+    private static boolean intersectsAny(Rectangle candidate, java.util.List<Rectangle> placed) {
+        for (Rectangle r : placed) {
+            if (r != null && r.intersects(candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void drawSplitLabelsAt(
+            Graphics2D g2,
+            int mx,
+            int my,
+            double angleRad,
+            String genusLabel,
+            String metaLabel,
+            Color color,
+            FontMetrics fm) {
+        boolean haveGenus = genusLabel != null && !genusLabel.isEmpty();
+        boolean haveMeta = metaLabel != null && !metaLabel.isEmpty();
+        if (!haveGenus && !haveMeta) {
+            return;
+        }
+        int pad = 3;
+        int aboveY = -pad - fm.getDescent();
+        int belowY = pad + fm.getAscent();
+        AffineTransform saved = g2.getTransform();
+        try {
+            g2.translate(mx, my);
+            g2.rotate(angleRad);
+            g2.setColor(color);
+            if (haveGenus) {
+                int genusW = fm.stringWidth(genusLabel);
+                g2.drawString(genusLabel, -genusW / 2, aboveY);
+            }
+            if (haveMeta) {
+                int metaW = fm.stringWidth(metaLabel);
+                g2.drawString(metaLabel, -metaW / 2, belowY);
+            }
+        } finally {
+            g2.setTransform(saved);
+        }
     }
 
     /** Blue SRV glyph; {@code rotationDeg} is nose heading relative to map up. */
@@ -2674,86 +3243,6 @@ private final class BioMapPanel extends JPanel {
         }
     }
 
-    private void drawBioSampleRay(
-            Graphics2D g2,
-            int cx,
-            int cy,
-            double scale,
-            Color lineColor,
-            Color labelColor,
-            BodyInfo.BioSamplePoint p,
-            String displayNameOrKey) {
-        if (p == null) {
-            return;
-        }
-        double oLat = mapOriginLat();
-        double oLon = mapOriginLon();
-        double d = greatCircleMeters(oLat, oLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
-        double brng = bearingDeg(oLat, oLon, p.getLatitude(), p.getLongitude());
-        double rel = Math.toRadians(brng - shipHeadingDeg);
-
-        double dx = Math.sin(rel) * d;
-        double dy = -Math.cos(rel) * d;
-
-        int tx = cx + (int) Math.round(dx * scale);
-        int ty = cy + (int) Math.round(dy * scale);
-
-        g2.setColor(lineColor);
-        g2.draw(new Line2D.Double(cx, cy, tx, ty));
-
-        int r = 4;
-        g2.fill(new Ellipse2D.Double(tx - r, ty - r, r * 2, r * 2));
-
-        String genus = BiologyTabPanel.mapPinGenusLabel(displayNameOrKey);
-        String meta = BiologyTabPanel.mapPinRayMetaLabel(d, brng);
-        drawSplitLabelsAlongRay(g2, cx, cy, tx, ty, genus, meta, labelColor);
-    }
-
-    /**
-     * Genus above the ray; distance/heading below — centered on the midpoint, text parallel to the ray.
-     */
-    private static void drawSplitLabelsAlongRay(
-            Graphics2D g2,
-            int cx,
-            int cy,
-            int tx,
-            int ty,
-            String genusLabel,
-            String metaLabel,
-            Color color) {
-        boolean haveGenus = genusLabel != null && !genusLabel.isEmpty();
-        boolean haveMeta = metaLabel != null && !metaLabel.isEmpty();
-        if (!haveGenus && !haveMeta) {
-            return;
-        }
-        double angleRad = Math.atan2(ty - cy, tx - cx);
-        if (angleRad > Math.PI / 2.0 || angleRad < -Math.PI / 2.0) {
-            angleRad += Math.PI;
-        }
-        int mx = (cx + tx) / 2;
-        int my = (cy + ty) / 2;
-
-        AffineTransform saved = g2.getTransform();
-        FontMetrics fm = g2.getFontMetrics();
-        int pad = 3;
-        int aboveY = -pad - fm.getDescent();
-        int belowY = pad + fm.getAscent();
-        try {
-            g2.translate(mx, my);
-            g2.rotate(angleRad);
-            g2.setColor(color);
-            if (haveGenus) {
-                int genusW = fm.stringWidth(genusLabel);
-                g2.drawString(genusLabel, -genusW / 2, aboveY);
-            }
-            if (haveMeta) {
-                int metaW = fm.stringWidth(metaLabel);
-                g2.drawString(metaLabel, -metaW / 2, belowY);
-            }
-        } finally {
-            g2.setTransform(saved);
-        }
-    }
 }
 
 private void recordMovementSample(Instant t, double lat, double lon, double radiusM, boolean onFootOrSrv) {

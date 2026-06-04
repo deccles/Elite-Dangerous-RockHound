@@ -88,6 +88,8 @@ public final class EdoSessionState {
     private Double biologyParkedSrvLat;
     private Double biologyParkedSrvLon;
     private Double biologyParkedSrvHeadingDeg;
+    /** User-placed stars on the biology surface map (per body). */
+    private java.util.List<BiologyMapBookmarkEntry> biologyMapBookmarks;
 
     /** Restart-safe snapshot of transient mining runtime state. */
     public static final class MiningRuntimeState {
@@ -556,5 +558,63 @@ public final class EdoSessionState {
 
     public void setBiologyParkedSrvHeadingDeg(Double biologyParkedSrvHeadingDeg) {
         this.biologyParkedSrvHeadingDeg = biologyParkedSrvHeadingDeg;
+    }
+
+    public java.util.List<BiologyMapBookmarkEntry> getBiologyMapBookmarks() {
+        return biologyMapBookmarks;
+    }
+
+    public void setBiologyMapBookmarks(java.util.List<BiologyMapBookmarkEntry> biologyMapBookmarks) {
+        this.biologyMapBookmarks = biologyMapBookmarks;
+    }
+
+    /** Lat/lon pin on the biology map for a planetary body. */
+    public static final class BiologyMapBookmarkEntry {
+        private String bodyName;
+        private Integer bodyId;
+        private double lat;
+        private double lon;
+
+        public BiologyMapBookmarkEntry() {
+        }
+
+        public BiologyMapBookmarkEntry(String bodyName, Integer bodyId, double lat, double lon) {
+            this.bodyName = bodyName;
+            this.bodyId = bodyId;
+            this.lat = lat;
+            this.lon = lon;
+        }
+
+        public String getBodyName() {
+            return bodyName;
+        }
+
+        public void setBodyName(String bodyName) {
+            this.bodyName = bodyName;
+        }
+
+        public Integer getBodyId() {
+            return bodyId;
+        }
+
+        public void setBodyId(Integer bodyId) {
+            this.bodyId = bodyId;
+        }
+
+        public double getLat() {
+            return lat;
+        }
+
+        public void setLat(double lat) {
+            this.lat = lat;
+        }
+
+        public double getLon() {
+            return lon;
+        }
+
+        public void setLon(double lon) {
+            this.lon = lon;
+        }
     }
 }

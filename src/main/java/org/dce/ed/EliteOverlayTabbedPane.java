@@ -1045,9 +1045,27 @@ public class EliteOverlayTabbedPane extends JPanel {
 			return systemTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
 		case CARD_FLEET_CARRIER:
 			return fleetCarrierTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+		case CARD_BIOLOGY:
+			return biologyTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
 		default:
 			return false;
 		}
+	}
+
+	/**
+	 * Pass-through dwell on biology map controls (bookmark / zoom +/−).
+	 *
+	 * @return {@code true} while the pointer is over one of those controls
+	 */
+	public boolean applyPassThroughBioMapControlsAtScreen(int screenX, int screenY) {
+		if (!isShowing() || !CARD_BIOLOGY.equals(visibleCardName)) {
+			return false;
+		}
+		return biologyTab.applyPassThroughMapControlsAtScreen(screenX, screenY);
+	}
+
+	public void resetPassThroughBioMapControlsHover() {
+		biologyTab.resetPassThroughMapControlsHover();
 	}
 
 	private void applyTabButtonStyle(JButton button) {
