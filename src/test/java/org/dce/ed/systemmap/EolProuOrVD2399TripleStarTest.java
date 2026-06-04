@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 class EolProuOrVD2399TripleStarTest {
 
     private static final double LS = SystemOrbitGeometry.LIGHT_SECOND_METRES;
-    private static final double SCHEMATIC_TRUNK_LS = 7500.0;
+    private static final double DISPLAY_TRUNK_LS = 7500.0;
 
     private static SystemMapFixture fixture;
     private static Map<Integer, BodyInfo> bodies;
@@ -60,13 +60,13 @@ class EolProuOrVD2399TripleStarTest {
     }
 
     @Test
-    void schematicTrunkFromAToBcHub() {
+    void displayTrunkFromAToBcHub() {
         assertTrue(model.hasHierarchicalTripleStarTrunk());
         double d = Math.hypot(model.mapPlaneX(null2Key) - model.mapPlaneX(idA),
                 model.mapPlaneY(null2Key) - model.mapPlaneY(idA)) / LS;
         assertTrue(d >= 40_000.0 && d <= 52_000.0,
                 "A to B+C hub true-scale trunk; was " + d + " Ls");
-        OrbitGeometryTestSupport.assertPrimaryOnSchematicMutualRing(model, idA,
+        OrbitGeometryTestSupport.assertPrimaryOnMutualRing(model, idA,
                 SystemOrbitGeometry.HIERARCHICAL_TRIPLE_STAR_TRUNK_POLYLINE_ID, 0.35);
     }
 
@@ -168,7 +168,7 @@ class EolProuOrVD2399TripleStarTest {
             int idC = OrbitGeometryTestSupport.findByShortName(journalBodies, "C");
             assumeTrue(idB >= 0 && idC >= 0);
             double dBc = distLs(idB, idC);
-            assertTrue(dBc < 200.0, "B and C on tight schematic mutual orbit; dBc=" + dBc + " Ls");
+            assertTrue(dBc < 200.0, "B and C on tight display mutual orbit; dBc=" + dBc + " Ls");
             OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(journalModel, journalBodies, "B", 2, 0.4);
             OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(journalModel, journalBodies, "C", 2, 0.4);
         }

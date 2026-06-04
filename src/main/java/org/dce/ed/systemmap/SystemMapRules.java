@@ -19,7 +19,7 @@ import org.dce.ed.util.SystemOrbitGeometry;
  *   <li><b>R-STELLAR-01</b> — {@link #isMapStellarBody}: journal {@code starType}, primary short name = system name,
  *       or single-letter branch {@code A}/{@code B}.</li>
  *   <li><b>R-STELLAR-02</b> — Sudarsky-tagged gas giants with atmosphere/planet class are never stars.</li>
- *   <li><b>R-LAYOUT-01</b> — {@link SystemLayoutKind#SINGLE_STAR_SCHEMATIC} when exactly one map star and ≥1 orbiting
+ *   <li><b>R-LAYOUT-01</b> — {@link SystemLayoutKind#SINGLE_STAR} when exactly one map star and ≥1 orbiting
  *       body beyond 2 Ls.</li>
  *   <li><b>R-LAYOUT-02</b> — {@link SystemLayoutKind#WIDE_BINARY} when ≥2 barycentric map stars.</li>
  *   <li><b>R-PARENT-01</b> — Wide-binary companion stars parent = barycentre ({@code -1}), not arrival star.</li>
@@ -28,9 +28,9 @@ import org.dce.ed.util.SystemOrbitGeometry;
  *   <li><b>R-RING-01</b> — Barycentric stars do not get per-star giant rings at the origin.</li>
  *   <li><b>R-RING-02</b> — Wide binary: one mutual barycentre ring + concentric rings at each branch star for direct
  *       children.</li>
- *   <li><b>R-RING-03</b> — Moons keep per-parent rings; branch planets use branch schematic rings only.</li>
+ *   <li><b>R-RING-03</b> — Moons keep per-parent rings; branch planets use branch guide rings only.</li>
  *   <li><b>R-POS-01</b> — Single-star: central star at origin; planets on map-plane circles matching rings.</li>
- *   <li><b>R-POS-02</b> — Wide binary: flatten A–B separation, recenter on stellar centroid, then branch schematic
+ *   <li><b>R-POS-02</b> — Wide binary: flatten A–B separation, recenter on stellar centroid, then branch guide
  *       planet placement.</li>
  *   <li><b>R-LABEL-01</b> — At cluster zoom, each branch shows labels for planets under that branch star (not only
  *       hub lump).</li>
@@ -58,21 +58,21 @@ public final class SystemMapRules {
     public static SystemMapClassification classify(Map<Integer, BodyInfo> bodies) {
         int stellar = SystemOrbitGeometry.countMapStellarBodies(bodies);
         int primary = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
-        int central = SystemOrbitGeometry.schematicCentralStarMapKey(bodies);
-        boolean singleSchematic = SystemOrbitGeometry.isSingleStarSchematicMap(bodies);
-        boolean loneStarLayout = SystemOrbitGeometry.shouldApplyLoneStarSchematicLayout(bodies);
+        int central = SystemOrbitGeometry.centralStarMapKey(bodies);
+        boolean singleStar = SystemOrbitGeometry.isSingleStarMap(bodies)
+                || SystemOrbitGeometry.shouldApplySingleStarLayout(bodies);
         List<Integer> baryStars = barycentricMapStellarIds(bodies);
         SystemLayoutKind kind;
         if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
             kind = SystemLayoutKind.WIDE_BINARY;
-        } else if (stellar >= 2 && !loneStarLayout) {
+        } else if (stellar >= 2 && !singleStar) {
             kind = SystemLayoutKind.WIDE_BINARY;
-        } else if (singleSchematic || loneStarLayout) {
-            kind = SystemLayoutKind.SINGLE_STAR_SCHEMATIC;
+        } else if (singleStar) {
+            kind = SystemLayoutKind.SINGLE_STAR;
         } else {
             kind = SystemLayoutKind.GENERIC;
         }
-        return new SystemMapClassification(kind, stellar, primary, central, List.copyOf(baryStars), singleSchematic);
+        return new SystemMapClassification(kind, stellar, primary, central, List.copyOf(baryStars));
     }
 
     public static boolean isMapStellarBody(BodyInfo b) {
@@ -91,8 +91,8 @@ public final class SystemMapRules {
         return SystemOrbitGeometry.resolveOrbitParentBodyId(child, bodies, mapBodyId);
     }
 
-    public static int branchSchematicStarParentId(Map<Integer, BodyInfo> bodies, int parentMapId) {
-        return SystemOrbitGeometry.branchSchematicStarParentId(bodies, parentMapId);
+    public static int branchStarOrbitHubId(Map<Integer, BodyInfo> bodies, int parentMapId) {
+        return SystemOrbitGeometry.branchStarOrbitHubId(bodies, parentMapId);
     }
 
     /** Whether a body belongs on the primary (arrival) wide-binary branch, not the companion cluster. */
@@ -159,8 +159,8 @@ public final class SystemMapRules {
         if (bodies == null || bodies.isEmpty() || resolvedParents == null) {
             return hubs;
         }
-        int loneStarCentral = classification.singleStarSchematicMap()
-                ? classification.schematicCentralStarId()
+        int loneStarCentral = classification.singleStar()
+                ? classification.centralStarId()
                 : -1;
         boolean wideBinary = classification.wideBinary();
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
@@ -215,8 +215,8 @@ public final class SystemMapRules {
         if (starDot) {
             return true;
         }
-        if (clf.singleStarSchematicMap()) {
-            if (mapBodyId != clf.schematicCentralStarId()) {
+        if (clf.singleStar()) {
+            if (mapBodyId != clf.centralStarId()) {
                 return true;
             }
             return false;
@@ -229,7 +229,7 @@ public final class SystemMapRules {
                         && resolveOrbitParentBodyId(parent, bodies, pId) < 0) {
                     return true;
                 }
-                if (branchSchematicStarParentId(bodies, pId) >= 0) {
+                if (branchStarOrbitHubId(bodies, pId) >= 0) {
                     return true;
                 }
             }

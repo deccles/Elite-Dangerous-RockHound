@@ -69,7 +69,7 @@
     }
   ],
   "expect": {
-    "layoutKind": "SINGLE_STAR_SCHEMATIC",
+    "layoutKind": "SINGLE_STAR",
     "mapStellarCount": 1,
     "hasPlanetBinaryMutualRing": true,
     "planetBinaryNullId": 32,

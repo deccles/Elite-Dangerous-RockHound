@@ -1,14 +1,14 @@
 package org.dce.ed.systemmap;
 
 /**
- * High-level schematic layout strategy for the system plan map. Rules that pick among these are documented on
+ * High-level layout strategy for the true-scale system plan map. Rules that pick among these are documented on
  * {@link SystemMapRules} and tested via {@code src/test/resources/systemmap/*.json} fixtures.
  */
 public enum SystemLayoutKind {
-    /** One barycentric star with multiple orbiting bodies — concentric rings at the central star. */
-    SINGLE_STAR_SCHEMATIC,
-    /** Two (or more) stars orbiting the journal barycentre ({@code Parents: Null}) — mutual ring + per-branch rings. */
+    /** One map star with orbiting bodies — central star marker and branch parenting. */
+    SINGLE_STAR,
+    /** Two (or more) stars orbiting the journal barycentre ({@code Parents: Null}) — mutual ring + per-branch orbits. */
     WIDE_BINARY,
-    /** Fallback: raw Kepler / journal placement without branch flatten or single-star schematic circles. */
+    /** Fallback: raw Kepler / journal placement without wide-binary flatten. */
     GENERIC
 }

@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Processor/cache round-trip for Eor Aowsy: journal parents must survive {@link SystemCache#storeSystem} /
- * {@link SystemCache#loadInto} and yield the same schematic layout as the committed fixture.
+ * {@link SystemCache#loadInto} and yield the same map layout as the committed fixture.
  */
 class EorAowsyCacheIntegrationTest {
 
@@ -65,7 +65,7 @@ class EorAowsyCacheIntegrationTest {
         assertEquals(null3Key, model.resolveParentBodyId(5));
         assertNotEquals(idA, model.resolveParentBodyId(4));
         assertNotEquals(idA, model.resolveParentBodyId(5));
-        OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, idA);
+        OrbitGeometryTestSupport.assertHierarchicalBarycentreRing(model, bodies, idA);
         OrbitGeometryTestSupport.assertNoHeliocentricRingAroundPrimaryStar(model, bodies, idA, MAX_PRIMARY_RING_LS);
     }
 

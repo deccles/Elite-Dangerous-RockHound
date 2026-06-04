@@ -9,10 +9,10 @@ import java.awt.geom.Path2D;
 
 import javax.swing.Icon;
 
-/** Small transport glyphs for the System tab schematic orbit toolbar (play, pause, stop, speed chevrons). */
-public final class OrbitSchematicTransportIcons {
+/** Small transport glyphs for the System tab guide orbit toolbar (play, pause, stop, speed chevrons). */
+public final class OrbitPlaybackTransportIcons {
 
-    private OrbitSchematicTransportIcons() {
+    private OrbitPlaybackTransportIcons() {
     }
 
     /** Right-pointing triangle (play). */

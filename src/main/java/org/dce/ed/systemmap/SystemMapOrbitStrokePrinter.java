@@ -16,7 +16,7 @@ import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 
 /**
- * Debug dump: every map body and which orbit polylines are attached (including synthetic schematic rings).
+ * Debug dump: every map body and which orbit polylines are attached (including synthetic guide rings).
  */
 public final class SystemMapOrbitStrokePrinter {
 
@@ -29,16 +29,14 @@ public final class SystemMapOrbitStrokePrinter {
             Map<Integer, BodyInfo> bodies,
             SystemMapModel model,
             List<OrbitPolylineWorldXY> polylines,
-            MapScaleMode scaleMode,
             boolean orbitPlaybackActive) {
-        printToConsole(systemName, bodies, model, polylines, scaleMode, orbitPlaybackActive, System.out);
+        printToConsole(systemName, bodies, model, polylines, orbitPlaybackActive, System.out);
     }
 
     public static void printToConsole(String systemName,
             Map<Integer, BodyInfo> bodies,
             SystemMapModel model,
             List<OrbitPolylineWorldXY> polylines,
-            MapScaleMode scaleMode,
             boolean orbitPlaybackActive,
             PrintStream out) {
         if (out == null) {
@@ -46,8 +44,8 @@ public final class SystemMapOrbitStrokePrinter {
         }
         String name = systemName != null && !systemName.isBlank() ? systemName : "(unknown system)";
         List<OrbitPolylineWorldXY> polys = polylines != null ? polylines : List.of();
-        out.println(String.format(Locale.US, "[EDO][OrbitMap][Print] system=%s scale=%s playback=%s polylines=%d",
-                name, scaleMode != null ? scaleMode : "?", orbitPlaybackActive, polys.size()));
+        out.println(String.format(Locale.US, "[EDO][OrbitMap][Print] system=%s scale=TRUE_SCALE playback=%s polylines=%d",
+                name, orbitPlaybackActive, polys.size()));
         if (bodies == null || bodies.isEmpty()) {
             out.println("  (no bodies — map empty)");
             return;
@@ -103,8 +101,8 @@ public final class SystemMapOrbitStrokePrinter {
         }
         if (model != null) {
             out.println(String.format(Locale.US,
-                    "  model: hasBarycentreMutualRing=%s schematicBranchRings=%d pipelinePolylines=%d",
-                    model.hasBarycentreMutualRing(), model.schematicBranchRingCount(),
+                    "  model: hasBarycentreMutualRing=%s syntheticGuideRings=%d pipelinePolylines=%d",
+                    model.hasBarycentreMutualRing(), model.syntheticGuideRingCount(),
                     model.orbitPolylines().size()));
             if (polys.size() != model.orbitPolylines().size()) {
                 out.println(String.format(Locale.US,
@@ -137,14 +135,14 @@ public final class SystemMapOrbitStrokePrinter {
             collectBodiesWithImmediateParent(bodies, nullId, out);
             return out;
         }
-        if (att.schematicStarId >= 0) {
-            out.add(Integer.valueOf(att.schematicStarId));
+        if (att.syntheticRingStarId >= 0) {
+            out.add(Integer.valueOf(att.syntheticRingStarId));
             return out;
         }
-        if (att.schematicBarycentreMapKey >= 0) {
-            if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(att.schematicBarycentreMapKey)) {
+        if (att.syntheticRingBarycentreMapKey >= 0) {
+            if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(att.syntheticRingBarycentreMapKey)) {
                 int nullId = SystemOrbitGeometry.journalNullIdFromPlanetBinaryBarycentreMapKey(
-                        att.schematicBarycentreMapKey);
+                        att.syntheticRingBarycentreMapKey);
                 collectBodiesWithImmediateParent(bodies, nullId, out);
             }
             return out;
@@ -178,8 +176,8 @@ public final class SystemMapOrbitStrokePrinter {
         }
     }
 
-    /** Matches {@link SystemOrbitGeometry} {@code SINGLE_STAR_SCHEMATIC_RING_ID_BASE} (package-private). */
-    private static final int SCHEMATIC_CONCENTRIC_RING_ID_BASE = -4_000;
+    /** Matches {@link SystemOrbitGeometry} {@code SINGLE_STAR_RING_ID_BASE} (package-private). */
+    private static final int SYNTHETIC_CONCENTRIC_RING_ID_BASE = -4_000;
 
     /**
      * Classification and ids for map click hit logging ({@link org.dce.ed.ui.SystemPlanMapPanel}).
@@ -216,7 +214,7 @@ public final class SystemMapOrbitStrokePrinter {
         att.polylineBodyId = poly.bodyId;
         att.estimated = poly.estimated;
         att.index = index;
-        decodeSchematicRingIds(poly.bodyId, att);
+        decodeSyntheticRingIds(poly.bodyId, att);
         att.type = classifyPolylineType(poly, bodies);
         att.parentBodyId = resolvePolylineParentId(poly, bodies, model, att);
         att.curveKey = curveKeyHint(poly, bodies, att.parentBodyId);
@@ -241,8 +239,8 @@ public final class SystemMapOrbitStrokePrinter {
         if (SystemOrbitGeometry.isPlanetBinaryOuterBarycentreOrbitRingBodyId(id)) {
             return "planet-binary-outer-ring";
         }
-        if (id <= SCHEMATIC_CONCENTRIC_RING_ID_BASE && id > SCHEMATIC_CONCENTRIC_RING_ID_BASE - 50_000) {
-            return "schematic-concentric-ring";
+        if (id <= SYNTHETIC_CONCENTRIC_RING_ID_BASE && id > SYNTHETIC_CONCENTRIC_RING_ID_BASE - 50_000) {
+            return "synthetic-concentric-ring";
         }
         if (id > 0) {
             BodyInfo b = bodies != null ? bodies.get(Integer.valueOf(id)) : null;
@@ -286,18 +284,18 @@ public final class SystemMapOrbitStrokePrinter {
         return maxR > minR * 1.08;
     }
 
-    private static void decodeSchematicRingIds(int ringBodyId, PolylineAttachment att) {
-        if (ringBodyId > SCHEMATIC_CONCENTRIC_RING_ID_BASE
-                || ringBodyId <= SCHEMATIC_CONCENTRIC_RING_ID_BASE - 50_000) {
+    private static void decodeSyntheticRingIds(int ringBodyId, PolylineAttachment att) {
+        if (ringBodyId > SYNTHETIC_CONCENTRIC_RING_ID_BASE
+                || ringBodyId <= SYNTHETIC_CONCENTRIC_RING_ID_BASE - 50_000) {
             return;
         }
-        int encoded = SCHEMATIC_CONCENTRIC_RING_ID_BASE - ringBodyId;
+        int encoded = SYNTHETIC_CONCENTRIC_RING_ID_BASE - ringBodyId;
         int hubOrStar = encoded / 100_000;
-        att.schematicRadiusLs = encoded % 100_000;
+        att.syntheticRingRadiusLs = encoded % 100_000;
         if (hubOrStar > 0) {
-            att.schematicStarId = hubOrStar;
+            att.syntheticRingStarId = hubOrStar;
         } else if (hubOrStar < 0) {
-            att.schematicBarycentreMapKey = -hubOrStar;
+            att.syntheticRingBarycentreMapKey = -hubOrStar;
         }
     }
 
@@ -312,8 +310,8 @@ public final class SystemMapOrbitStrokePrinter {
                 return SystemOrbitGeometry.resolveOrbitParentBodyId(b, bodies, poly.bodyId);
             }
         }
-        if (att.schematicStarId >= 0) {
-            return att.schematicStarId;
+        if (att.syntheticRingStarId >= 0) {
+            return att.syntheticRingStarId;
         }
         if (poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID) {
             return -1;
@@ -416,9 +414,9 @@ public final class SystemMapOrbitStrokePrinter {
         double meanRadiusLs = Double.NaN;
         double minRadiusLs = Double.NaN;
         double maxRadiusLs = Double.NaN;
-        int schematicStarId = -1;
-        int schematicBarycentreMapKey = -1;
-        int schematicRadiusLs = -1;
+        int syntheticRingStarId = -1;
+        int syntheticRingBarycentreMapKey = -1;
+        int syntheticRingRadiusLs = -1;
 
         String formatLine() {
             StringBuilder sb = new StringBuilder();
@@ -437,13 +435,13 @@ public final class SystemMapOrbitStrokePrinter {
                 sb.append(String.format(Locale.US, " radiusLs mean=%.2f min=%.2f max=%.2f",
                         meanRadiusLs, minRadiusLs, maxRadiusLs));
             }
-            if (schematicStarId >= 0) {
-                sb.append(String.format(Locale.US, " schematicAtStarId=%d schematicRadiusLs=%d",
-                        schematicStarId, schematicRadiusLs));
+            if (syntheticRingStarId >= 0) {
+                sb.append(String.format(Locale.US, " syntheticRingAtStarId=%d syntheticRingRadiusLs=%d",
+                        syntheticRingStarId, syntheticRingRadiusLs));
             }
-            if (schematicBarycentreMapKey >= 0) {
-                sb.append(String.format(Locale.US, " schematicAtBarycentreKey=%d schematicRadiusLs=%d",
-                        schematicBarycentreMapKey, schematicRadiusLs));
+            if (syntheticRingBarycentreMapKey >= 0) {
+                sb.append(String.format(Locale.US, " syntheticRingAtBarycentreKey=%d syntheticRingRadiusLs=%d",
+                        syntheticRingBarycentreMapKey, syntheticRingRadiusLs));
             }
             return sb.toString();
         }

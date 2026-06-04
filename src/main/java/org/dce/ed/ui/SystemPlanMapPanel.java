@@ -52,7 +52,6 @@ import javax.swing.border.EmptyBorder;
 
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.state.BodyInfo;
-import org.dce.ed.systemmap.MapScaleMode;
 import org.dce.ed.systemmap.MapViewProjection;
 import org.dce.ed.systemmap.SystemMapClassification;
 import org.dce.ed.systemmap.SystemMapModel;
@@ -66,7 +65,7 @@ import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 
 /**
- * Top-down (X/Y) schematic of approximate body positions from journal orbital geometry,
+ * Top-down (X/Y) plan view of approximate body positions from journal orbital geometry,
  * plus estimated commander position when available.
  */
 public final class SystemPlanMapPanel extends JPanel {
@@ -88,7 +87,7 @@ public final class SystemPlanMapPanel extends JPanel {
      * right-drag pans the view when {@link OverlayPreferences#isOverlayMousePassThroughToGame()} is {@code false}
      * (pass-through mode does not receive drag gestures); no subsystem hub/centroid nudging; no min-zoom resize snap;
      * no proximity hop; no automatic wheel recentre toward system centroid on zoom-out; high-zoom subsystem centre
-     * lock still runs during schematic playback when {@link #zoomFactor} is past {@link #ZOOM_SUBSYSTEM_CENTER_LOCK};
+     * lock still runs during orbit playback when {@link #zoomFactor} is past {@link #ZOOM_SUBSYSTEM_CENTER_LOCK};
      * no {@link #setScene} re-framing when
      * the body set changes (telemetry / new scans); no layout-growth zoom easing; no
      * {@link #inflateLayoutSpansUntilZoomMinFitAtMostOne} during wheel zoom (avoids scale jumping under the pointer).
@@ -169,16 +168,16 @@ public final class SystemPlanMapPanel extends JPanel {
      */
     private static final double ZOOM_MAP_BODY_RINGS = 6.25;
 
-    /** Outer stroke for schematic planetary rings (behind the body dot; above subsystem hub icon rings). */
+    /** Outer stroke for plan-map planetary rings (behind the body dot; above subsystem hub icon rings). */
     private static final Color MAP_PLANETARY_RING_OUTER = new Color(255, 45, 45, 245);
-    /** Inner stroke for schematic planetary rings. */
+    /** Inner stroke for plan-map planetary rings. */
     private static final Color MAP_PLANETARY_RING_INNER = new Color(255, 95, 95, 230);
     /** Earth-like and water-family worlds — saturated FSS blue (same on map as in-game scanner dot). */
     private static final Color MAP_FSS_HABITABLE_BLUE_DOT = new Color(0, 0, 255);
     /** Map star core radius vs {@link #mapBodyDotRadiusPx} base (branch stars still use {@code ×1.85} after this). */
     private static final float MAP_STAR_DOT_RADIUS_SCALE = 0.5f;
 
-    /** Default schematic planet/moon fill — warm brown, distinct from habitables and UI chrome. */
+    /** Default plan-map planet/moon fill — warm brown, distinct from habitables and UI chrome. */
     private static final Color MAP_PLANET_DEFAULT_DOT = new Color(154, 96, 44);
     /** Summary-cluster marker when zoomed out (one small dot at the label centroid). */
     private static final Color MAP_SUMMARY_CLUSTER_DOT = new Color(142, 90, 40);
@@ -240,7 +239,7 @@ public final class SystemPlanMapPanel extends JPanel {
      * while {@code layoutSpanY} ≪ hull span).
      */
     private static final double LAYOUT_MIN_OVER_ALL_DOT_HULL = 1.06;
-    /** Layout span must cover schematic orbit strokes, not only body dot centres (often ~2× parent–child distance). */
+    /** Layout span must cover guide orbit strokes, not only body dot centres (often ~2× parent–child distance). */
     private static final double LAYOUT_MIN_OVER_ORBIT_HULL = 1.10;
 
     /** World half-extent multiplier when picking bodies for hub detection (avoids empty viewport → no pan). */
@@ -304,7 +303,7 @@ public final class SystemPlanMapPanel extends JPanel {
     private static final double HUD_TARGET_SYSTEM_ZOOM_EPS = 0.04;
     /** Tight HUD framing: padding around the dot bbox (ss2-style moon cluster fill). */
     private static final double HUD_TARGET_FIT_MARGIN = 0.03;
-    /** Do not inflate HUD fit to this huge schematic floor — use actual moon spread. */
+    /** Do not inflate HUD fit to this huge display floor — use actual moon spread. */
     private static final double HUD_TARGET_MIN_HALF_SPAN_METRES = 4.0e8;
     /**
      * HUD end zoom: stay near hierarchy subsystem lump scale ({@link #SUBSYSTEM_MOON_LABEL_VISIBLE_LS}), not planet surface.
@@ -333,7 +332,7 @@ public final class SystemPlanMapPanel extends JPanel {
     private long lastOrbitRebuildKey = Long.MIN_VALUE;
     /** Sorted orbiting-body ids for {@link #orbitLines}; used to log once per distinct ring set. */
     private int[] lastLoggedOrbitPolyBodyIds = new int[0];
-    /** One-shot {@code [EDO][OrbitMap][Draw]} trace after the first schematic hub revolution ring stroke. */
+    /** One-shot {@code [EDO][OrbitMap][Draw]} trace after the first display hub revolution ring stroke. */
     private boolean loggedHubRevolutionDrawTrace;
     /** Journal ids of bodies that have at least one moon (subsystem hubs); used for wide-zoom lump markers. */
     private Set<Integer> subsystemHubLumpBodyIds = Collections.emptySet();
@@ -354,9 +353,9 @@ public final class SystemPlanMapPanel extends JPanel {
      */
     private Integer highlightNearBodyId;
 
-    /** When true, schematic orbit playback is running (subsystem hop skipped; view centre snaps to follow hub). */
-    private boolean orbitSchematicPlaybackActive;
-    /** Sim epoch when schematic playback started (T+ base); cleared when playback stops. */
+    /** When true, guide orbit playback is running (subsystem hop skipped; view centre snaps to follow hub). */
+    private boolean orbitPlaybackActive;
+    /** Sim epoch when orbit playback started (T+ base); cleared when playback stops. */
     private Instant orbitPlaybackBaseEpoch;
     /** Latest sim epoch from the System tab fast-forward timer. */
     private Instant orbitPlaybackEpoch;
@@ -366,7 +365,7 @@ public final class SystemPlanMapPanel extends JPanel {
     /**
      * When not {@code -1}, subsystem zoom-lock is active for this hub id; after a wheel nudge the hub still uses the
      * normal transform until within {@link #VIEW_CENTER_HUB_PIN_SCREEN_PX} px, then its marker + label are pinned to
-     * the plot pixel centre. During schematic playback the hub is always snapped and pinned.
+     * the plot pixel centre. During orbit playback the hub is always snapped and pinned.
      */
     private int subsystemScreenLockHubId = -1;
 
@@ -387,22 +386,22 @@ public final class SystemPlanMapPanel extends JPanel {
     private double viewCenterWx;
     private double viewCenterWy;
     /**
-     * Which world axes (0=x,1=y,2=z) feed the schematic horizontal / vertical map coordinates. Picked per scene so
+     * Which world axes (0=x,1=y,2=z) feed the map horizontal / vertical map coordinates. Picked per scene so
      * systems that collapse along Z in raw X/Y still spread on screen; orbit polylines use the same pair.
      */
     private int mapProjA0 = 0;
     private int mapProjA1 = 1;
 
-    /** Wide-binary flatten chord captured at {@link #setScene}; reused during schematic playback ticks. */
+    /** Wide-binary flatten chord captured at {@link #setScene}; reused during orbit playback ticks. */
     private SystemOrbitGeometry.WideBinaryFlattenFrame wideBinaryFlattenFrame;
     /**
-     * Rebuild {@link SystemMapPipeline} once when schematic playback starts so {@link #mapModel} matches the play
+     * Rebuild {@link SystemMapPipeline} once when orbit playback starts so {@link #mapModel} matches the play
      * epoch and {@code freezeBarycentreStars}; cleared on {@link #setScene} / pause.
      */
     private boolean playbackPipelinePrimed;
 
     /**
-     * Schematic topology + layout from {@link SystemMapPipeline}; parent links, hubs, and map-plane positions must
+     * Map topology + layout from {@link SystemMapPipeline}; parent links, hubs, and map-plane positions must
      * come from here — not re-derived in paint code.
      */
     private SystemMapModel mapModel;
@@ -452,7 +451,7 @@ public final class SystemPlanMapPanel extends JPanel {
     private double subHopX2;
     private double subHopY2;
 
-    /** Middle-button drag pans the schematic (wheel still zooms about the pointer). */
+    /** Middle-button drag pans the plan map (wheel still zooms about the pointer). */
     private boolean mapPanDragActive;
     private int mapPanDragLastX;
     private int mapPanDragLastY;
@@ -477,18 +476,9 @@ public final class SystemPlanMapPanel extends JPanel {
     private int measureEndX;
     private int measureEndY;
 
-    public MapScaleMode mapScaleMode() {
-        return MapScaleMode.TRUE_SCALE;
-    }
-
     /** True-scale orbit sim advances wide-binary stars on the mutual barycentre ring. */
     private boolean freezeBarycentreStarsDuringPlayback() {
         return false;
-    }
-
-    /** No-op; map is always true-scale. */
-    public void setMapScaleMode(MapScaleMode mode) {
-        OverlayPreferences.setSystemPlanMapScaleMode(MapScaleMode.TRUE_SCALE);
     }
 
     /** True-scale view tilt 0…90°. */
@@ -705,7 +695,7 @@ public final class SystemPlanMapPanel extends JPanel {
         shipKnown = false;
         anchorBodyId = null;
         highlightNearBodyId = null;
-        orbitSchematicPlaybackActive = false;
+        orbitPlaybackActive = false;
         zoomFactor = 1.0;
         layoutSpanX = 1.0;
         layoutSpanY = 1.0;
@@ -741,7 +731,7 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Picks two distinct world axes for the schematic so the map is not stuck in X/Y when most separation is along Z
+     * Picks two distinct world axes for the map so the map is not stuck in X/Y when most separation is along Z
      * (common with journal inclinations / cache geometry).
      */
     private void chooseMapProjectionAxes(Map<Integer, BodyInfo> bodies, Map<Integer, double[]> positions) {
@@ -825,15 +815,15 @@ public final class SystemPlanMapPanel extends JPanel {
     /**
      * @param positions body centre positions in metres (same frame as {@link org.dce.ed.util.SystemOrbitGeometry})
      * @param shipM       commander position metres, or {@code null} if unknown
-     * @param orbitSchematicPlaybackActive when true, schematic orbit playback is running; subsystem hop is skipped
+     * @param orbitPlaybackActive when true, guide orbit playback is running; subsystem hop is skipped
      */
     public void setScene(Map<Integer, BodyInfo> bodies,
             Map<Integer, double[]> positions,
             double[] shipM,
             Integer anchorBodyId,
             Integer highlightNearBodyId,
-            boolean orbitSchematicPlaybackActive) {
-        setScene(bodies, positions, shipM, anchorBodyId, highlightNearBodyId, orbitSchematicPlaybackActive,
+            boolean orbitPlaybackActive) {
+        setScene(bodies, positions, shipM, anchorBodyId, highlightNearBodyId, orbitPlaybackActive,
                 Instant.now());
     }
 
@@ -842,14 +832,14 @@ public final class SystemPlanMapPanel extends JPanel {
             double[] shipM,
             Integer anchorBodyId,
             Integer highlightNearBodyId,
-            boolean orbitSchematicPlaybackActive,
+            boolean orbitPlaybackActive,
             Instant orbitPositionEpoch) {
 
         dots.clear();
         this.anchorBodyId = anchorBodyId;
         this.highlightNearBodyId = highlightNearBodyId;
-        this.orbitSchematicPlaybackActive = orbitSchematicPlaybackActive;
-        syncOrbitPlaybackEpochTracking(orbitSchematicPlaybackActive, orbitPositionEpoch);
+        this.orbitPlaybackActive = orbitPlaybackActive;
+        syncOrbitPlaybackEpochTracking(orbitPlaybackActive, orbitPositionEpoch);
         lastSceneOrbitEpoch = orbitPositionEpoch != null ? orbitPositionEpoch : Instant.now();
         sceneEmpty = bodies == null || bodies.isEmpty() || positions == null || positions.isEmpty();
         mapModel = null;
@@ -862,22 +852,22 @@ public final class SystemPlanMapPanel extends JPanel {
         if (!sceneEmpty) {
             String mapSystemName = resolveMapSystemName(bodies);
             mapModel = SystemMapPipeline.build(mapSystemName, bodies, orbitPositionEpoch,
-                    freezeBarycentreStarsDuringPlayback(), MapScaleMode.TRUE_SCALE);
+                    freezeBarycentreStarsDuringPlayback());
             positions = new java.util.HashMap<>(mapModel.positionsMetres());
             mapProjA0 = mapModel.projectionAxis0();
             mapProjA1 = mapModel.projectionAxis1();
             wideBinaryFlattenFrame = mapModel.wideBinaryFlattenFrame();
             orbitLines = mapModel.orbitPolylines();
             lastOrbitRebuildKey = orbitRebuildCacheKey();
-            playbackPipelinePrimed = orbitSchematicPlaybackActive;
+            playbackPipelinePrimed = orbitPlaybackActive;
             SystemMapClassification clf = mapModel.classification();
             int primaryAnch = clf.primaryAnchorBodyId() >= 0 ? clf.primaryAnchorBodyId()
                     : SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
-            boolean loneStarLayout = clf.layoutKind() == org.dce.ed.systemmap.SystemLayoutKind.SINGLE_STAR_SCHEMATIC;
+            boolean loneStarLayout = clf.layoutKind() == org.dce.ed.systemmap.SystemLayoutKind.SINGLE_STAR;
             boolean wideBinaryMap = clf.wideBinary();
-            int centralStarId = loneStarLayout && clf.schematicCentralStarId() >= 0
-                    ? clf.schematicCentralStarId()
-                    : SystemOrbitGeometry.schematicCentralStarMapKey(bodies);
+            int centralStarId = loneStarLayout && clf.centralStarId() >= 0
+                    ? clf.centralStarId()
+                    : SystemOrbitGeometry.centralStarMapKey(bodies);
             for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
                 if (e.getKey() == null || e.getValue() == null) {
                     continue;
@@ -1065,7 +1055,7 @@ public final class SystemPlanMapPanel extends JPanel {
         expandLayoutSpansForOrbitPolylines();
         if (!sceneEmpty && !dots.isEmpty() && bodies != null) {
             if (MAP_AUTO_VIEW_PAN) {
-                maybeStartSubsystemProximityHop(highlightNearBodyId, bodies, orbitSchematicPlaybackActive);
+                maybeStartSubsystemProximityHop(highlightNearBodyId, bodies, orbitPlaybackActive);
             }
             prevProximityHighlightBodyId = highlightNearBodyId;
         } else {
@@ -1096,7 +1086,7 @@ public final class SystemPlanMapPanel extends JPanel {
 
     /**
      * Debug: log each drawn orbit ring's polyline centroid and the resolved parent's world position (orbit focus),
-     * in schematic metres (X/Y). Safe from any thread; marshals to the EDT if needed.
+     * in map metres (X/Y). Safe from any thread; marshals to the EDT if needed.
      *
      * @param approachedBodyId journal {@code ApproachBody} body id that triggered this log
      */
@@ -1163,7 +1153,7 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Pan/zoom the schematic toward a journal {@code ApproachBody} world (two-phase ease: brief full-map context,
+     * Pan/zoom the map toward a journal {@code ApproachBody} world (two-phase ease: brief full-map context,
      * then zoom in on the body). Reuses the subsystem hop timer; cancels any in-progress hop.
      */
     public void focusCameraOnApproachedBody(int bodyId) {
@@ -1209,7 +1199,7 @@ public final class SystemPlanMapPanel extends JPanel {
             return;
         }
         final int mapKey = resolveMapKeyForBody(bodyId);
-        if (orbitSchematicPlaybackActive || sceneEmpty || dots.isEmpty() || mapKey < 0) {
+        if (orbitPlaybackActive || sceneEmpty || dots.isEmpty() || mapKey < 0) {
             return;
         }
         if (orbitGeomBodies != null && !orbitGeomBodies.containsKey(Integer.valueOf(mapKey))) {
@@ -1377,7 +1367,7 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Next map key toward the schematic root when walking orbit parents. Skips planet-binary barycentre hubs to
+     * Next map key toward the map root when walking orbit parents. Skips planet-binary barycentre hubs to
      * their moon-host or hierarchy parent (e.g. {@code 7 d} → Null:32 bary → gas giant {@code 7}).
      */
     private static int advanceResolvedOrbitParent(int cur, Map<Integer, BodyInfo> bodies,
@@ -1413,7 +1403,7 @@ public final class SystemPlanMapPanel extends JPanel {
 
     private static boolean orbitSubtreeContainsHub(int bodyId, int hubId, Map<Integer, BodyInfo> bodies,
             Map<Integer, Integer> resolvedParents) {
-        int root = schematicRootBodyId(bodies, resolvedParents);
+        int root = mapRootBodyId(bodies, resolvedParents);
         int cur = bodyId;
         for (int g = 0; g < 64 && cur >= 0; g++) {
             if (cur == hubId) {
@@ -1458,7 +1448,7 @@ public final class SystemPlanMapPanel extends JPanel {
         if (bodies == null || orbitingBodyId == hubId) {
             return false;
         }
-        int root = schematicRootBodyId(bodies, resolvedParents);
+        int root = mapRootBodyId(bodies, resolvedParents);
         int p = resolvedParentFromMap(orbitingBodyId, resolvedParents);
         if (hubId == root) {
             return p == root;
@@ -1652,7 +1642,7 @@ public final class SystemPlanMapPanel extends JPanel {
 
     /**
      * Expand fit half-extents using on-screen orbit strokes near the focus (same coords as {@link #dots}). Only
-     * vertices within a reasonable distance of the cluster are included so schematic parent rings do not pull the
+     * vertices within a reasonable distance of the cluster are included so map parent rings do not pull the
      * frame to empty space.
      */
     private void appendOrbitStrokeExtentsAroundFocus(int frameHub, double focusWx, double focusWy,
@@ -1942,8 +1932,8 @@ public final class SystemPlanMapPanel extends JPanel {
      * @param useScreenChordScaleForSegments when true, pass {@link #computeScalePixelsPerWorldMetre()} into geometry so
      *        per-orbit vertex count tracks screen chord (smoother curves when zoomed). When false (orbit playback
      *        ticks), use {@link Double#NaN} so segment counts stay on the legacy zoom curve only — avoids chord count
-     *        flipping frame-to-frame when schematic fallback radii change.
-     * @param ringRadiusReferencePositions when non-null, schematic ring radii are taken from this snapshot (play T+0
+     *        flipping frame-to-frame when map fallback radii change.
+     * @param ringRadiusReferencePositions when non-null, guide ring radii are taken from this snapshot (play T+0
      *        layout) while centres follow {@link #orbitGeomPositions} so radii do not breathe each tick.
      */
     private void rebuildOrbitPolylines(boolean force, boolean useScreenChordScaleForSegments,
@@ -1960,17 +1950,17 @@ public final class SystemPlanMapPanel extends JPanel {
         lastOrbitRebuildKey = key;
         /*
          * Screen-chord segment count tracks how many pixels each orbit spans at the current zoom. Kepler strokes use
-         * journal SMA/eccentricity (stable during playback). Schematic fallback rings keep a fixed legacy segment
+         * journal SMA/eccentricity (stable during playback). Fallback fallback rings keep a fixed legacy segment
          * count during playback so inferred radii do not reshuffle vertex count each tick.
          */
         boolean screenOrbitScale = useScreenChordScaleForSegments;
         double scalePxPerM = screenOrbitScale ? computeScalePixelsPerWorldMetre() : Double.NaN;
         int legacySeg = orbitSegmentsForZoom(zoomFactor);
         int tiltForRebuild = true ? viewTiltDegrees : 0;
-        Instant strokeEpoch = orbitSchematicPlaybackActive && true ? orbitPlaybackEpoch : null;
+        Instant strokeEpoch = orbitPlaybackActive ? orbitPlaybackEpoch : null;
         orbitLines = mapModel != null
                 ? SystemMapPipeline.rebuildOrbitPolylines(mapModel, orbitGeomPositions, legacySeg, scalePxPerM,
-                        false, ringRadiusReferencePositions, MapScaleMode.TRUE_SCALE, tiltForRebuild, strokeEpoch)
+                        ringRadiusReferencePositions, tiltForRebuild, strokeEpoch)
                 : Collections.emptyList();
         logOrbitLinesIfBodySetChanged(orbitLines);
     }
@@ -2153,8 +2143,8 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     private void maybeStartSubsystemProximityHop(Integer newHighlightId, Map<Integer, BodyInfo> bodies,
-            boolean orbitSchematicPlaybackActive) {
-        if (orbitSchematicPlaybackActive) {
+            boolean orbitPlaybackActive) {
+        if (orbitPlaybackActive) {
             return;
         }
         if (skipProximityHopForHudTarget || hudTargetSubsystemHopActive) {
@@ -2263,15 +2253,15 @@ public final class SystemPlanMapPanel extends JPanel {
     /**
      * Updates dot and ship world positions without resetting zoom or layout spans.
      * Rebuilds orbit polylines from the new positions so rings stay centred on moving parents (e.g. during Play).
-     * Kepler strokes use screen-chord segment counts (journal SMA/ecc are stable). Schematic fallback rings keep a
+     * Kepler strokes use screen-chord segment counts (journal SMA/ecc are stable). Fallback fallback rings keep a
      * fixed legacy segment count during playback so inferred radii do not reshuffle vertex count each tick.
-     * Subsystem follow hub snapping during schematic playback runs on the next {@link #paintComponent}, not here, so
+     * Subsystem follow hub snapping during orbit playback runs on the next {@link #paintComponent}, not here, so
      * this stays cheap. Wheel-driven recentre is applied only in {@link #applyWheelZoomAtComponent}.
      * The “fit all” world span used for scale is not recomputed here (it is refreshed on {@link #setScene} only), so
      * fast-forward animation does not rescale the plot as the bounding box of bodies changes each frame.
      * Used while the System tab runs fast-forward orbit animation with an unchanged body id set.
      * <p>
-     * Each successful call sets {@link #orbitSchematicPlaybackActive} from {@code orbitSchematicPlaybackActive}.
+     * Each successful call sets {@link #orbitPlaybackActive} from {@code orbitPlaybackActive}.
      * That flag is normally refreshed in {@link #setScene}, but the animation path skips {@code setScene} once
      * geometry matches — without this sync, paint-time follow would not snap the camera to the moving hub during
      * playback.
@@ -2284,9 +2274,9 @@ public final class SystemPlanMapPanel extends JPanel {
             double[] shipM,
             Integer anchorBodyId,
             Integer highlightNearBodyId,
-            boolean orbitSchematicPlaybackActive) {
+            boolean orbitPlaybackActive) {
         return tryApplyPositionUpdate(bodies, positions, shipM, anchorBodyId, highlightNearBodyId,
-                orbitSchematicPlaybackActive, Instant.now());
+                orbitPlaybackActive, Instant.now());
     }
 
     public boolean tryApplyPositionUpdate(Map<Integer, BodyInfo> bodies,
@@ -2294,7 +2284,7 @@ public final class SystemPlanMapPanel extends JPanel {
             double[] shipM,
             Integer anchorBodyId,
             Integer highlightNearBodyId,
-            boolean orbitSchematicPlaybackActive,
+            boolean orbitPlaybackActive,
             Instant orbitPositionEpoch) {
         if (sceneEmpty || bodies == null || positions == null || orbitGeomBodies == null) {
             return false;
@@ -2318,21 +2308,21 @@ public final class SystemPlanMapPanel extends JPanel {
                 return false;
             }
         }
-        this.orbitSchematicPlaybackActive = orbitSchematicPlaybackActive;
-        syncOrbitPlaybackEpochTracking(orbitSchematicPlaybackActive, orbitPositionEpoch);
+        this.orbitPlaybackActive = orbitPlaybackActive;
+        syncOrbitPlaybackEpochTracking(orbitPlaybackActive, orbitPositionEpoch);
         this.anchorBodyId = anchorBodyId;
         this.highlightNearBodyId = highlightNearBodyId;
         orbitGeomBodies = bodies;
-        if (orbitSchematicPlaybackActive && !playbackPipelinePrimed && bodies != null && !bodies.isEmpty()) {
+        if (orbitPlaybackActive && !playbackPipelinePrimed && bodies != null && !bodies.isEmpty()) {
             String mapSystemName = resolveMapSystemName(bodies);
             Instant primeEpoch = orbitPlaybackBaseEpoch != null ? orbitPlaybackBaseEpoch : orbitPositionEpoch;
             mapModel = SystemMapPipeline.build(mapSystemName, bodies, primeEpoch,
-                    freezeBarycentreStarsDuringPlayback(), MapScaleMode.TRUE_SCALE);
+                    freezeBarycentreStarsDuringPlayback());
             mapProjA0 = mapModel.projectionAxis0();
             mapProjA1 = mapModel.projectionAxis1();
             wideBinaryFlattenFrame = mapModel.wideBinaryFlattenFrame();
             playbackPipelinePrimed = true;
-        } else if (!orbitSchematicPlaybackActive) {
+        } else if (!orbitPlaybackActive) {
             playbackPipelinePrimed = false;
         }
         if (mapModel != null) {
@@ -2374,7 +2364,7 @@ public final class SystemPlanMapPanel extends JPanel {
             shipWx = 0;
             shipWy = 0;
         }
-        if (orbitSchematicPlaybackActive && zoomFactor >= ZOOM_SUBSYSTEM_CENTER_LOCK - 1e-6) {
+        if (orbitPlaybackActive && zoomFactor >= ZOOM_SUBSYSTEM_CENTER_LOCK - 1e-6) {
             int pw = getWidth();
             int ph = getHeight();
             if (pw > 0 && ph > 0) {
@@ -2392,9 +2382,9 @@ public final class SystemPlanMapPanel extends JPanel {
          * Rings must be rebuilt with current parent centres (e.g. moon paths around a moving giant). Cached strokes
          * from setScene stay fixed in world space and look like stationary breadcrumbs when the camera follows a hub.
          */
-        if (orbitSchematicPlaybackActive) {
+        if (orbitPlaybackActive) {
             /*
-             * Frozen T+0 radii are schematic-only; true-scale playback uses Kepler/fallback radii from live positions
+             * Frozen T+0 radii are map-only; true-scale playback uses Kepler/fallback radii from live positions
              * so elliptical paths stay tied to the moving direct parent.
              */
             Map<Integer, double[]> ringRadiusRef = null;
@@ -2405,7 +2395,7 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * After pausing schematic orbit playback, request that the next paint recentre the zoom focal point on the
+     * After pausing guide orbit playback, request that the next paint recentre the zoom focal point on the
      * subsystem follow hub (or dot centroid when the pause-style fallback applies) using current dot positions so the
      * view matches real-time geometry. The next paint runs {@link #maybeApplySubsystemCenterLock} with
      * {@code pauseResync}; hub follow uses {@link #snapOrSmoothViewCenterToward} once (wheel-only easing is not used).
@@ -2573,11 +2563,11 @@ public final class SystemPlanMapPanel extends JPanel {
             if (hub != null) {
                 nudgeViewCenterTowardSubsystemHubOnWheel(hub, scaleNew);
             }
-        } else if (MAP_AUTO_VIEW_PAN && !orbitSchematicPlaybackActive
+        } else if (MAP_AUTO_VIEW_PAN && !orbitPlaybackActive
                 && zoomFactor < ZOOM_SUBSYSTEM_CENTER_LOCK && zoomFactor < prevZoom) {
             nudgeViewCenterTowardSystemCentroidOnWheel(scaleNew);
         }
-        if (MAP_AUTO_VIEW_PAN && !orbitSchematicPlaybackActive && zoomEssentiallyAtMinFit()) {
+        if (MAP_AUTO_VIEW_PAN && !orbitPlaybackActive && zoomEssentiallyAtMinFit()) {
             snapViewCenterToSystemCentroidWorld();
         }
         // Orbit stroke rebuild runs in paintComponent (one rebuild per visible frame, not per wheel notch).
@@ -2750,7 +2740,7 @@ public final class SystemPlanMapPanel extends JPanel {
             zoomFactor = clamp(zoomFactor, zoomMinFit, ZOOM_MAX);
             double spanX = layoutSpanX;
             double spanY = layoutSpanY;
-            if (MAP_AUTO_VIEW_PAN && !orbitSchematicPlaybackActive && zoomEssentiallyAtMinFit()) {
+            if (MAP_AUTO_VIEW_PAN && !orbitPlaybackActive && zoomEssentiallyAtMinFit()) {
                 if (lastMinZoomSnapPaintW >= 0 && (w != lastMinZoomSnapPaintW || h != lastMinZoomSnapPaintH)) {
                     snapViewCenterToSystemCentroidWorld();
                 }
@@ -2772,7 +2762,7 @@ public final class SystemPlanMapPanel extends JPanel {
             }
             if (subsystemProximityHopActive) {
                 subsystemScreenLockHubId = -1;
-            } else if (orbitSchematicPlaybackActive || MAP_AUTO_VIEW_PAN) {
+            } else if (orbitPlaybackActive || MAP_AUTO_VIEW_PAN) {
                 maybeApplySubsystemCenterLock(availW, availH, scale, pauseResync);
             } else {
                 subsystemScreenLockHubId = -1;
@@ -2815,7 +2805,7 @@ public final class SystemPlanMapPanel extends JPanel {
                     if (skipOrbitPolylineForSubsystemLump(poly, visibleLsMinAxis, showClusterDetail)) {
                         continue;
                     }
-                    if (skipOversizeSchematicRingForDetailView(poly, visibleLsMinAxis, vcx, vcy, scale, availW,
+                    if (skipOversizeGuideRingForDetailView(poly, visibleLsMinAxis, vcx, vcy, scale, availW,
                             availH, detailOrbits)) {
                         continue;
                     }
@@ -3042,7 +3032,7 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Records the synthetic epoch for schematic fast-forward (T+ base on first active tick; cleared when not playing).
+     * Records the synthetic epoch for map fast-forward (T+ base on first active tick; cleared when not playing).
      */
     private void syncOrbitPlaybackEpochTracking(boolean playbackActive, Instant orbitPositionEpoch) {
         if (!playbackActive) {
@@ -3057,7 +3047,7 @@ public final class SystemPlanMapPanel extends JPanel {
         orbitPlaybackEpoch = epoch;
     }
 
-    /** Elapsed schematic time since playback start, e.g. {@code T+42 days} or {@code T+1.6 years}. */
+    /** Elapsed map time since playback start, e.g. {@code T+42 days} or {@code T+1.6 years}. */
     static String formatSimulationElapsedTPlus(Instant baseEpoch, Instant currentEpoch) {
         if (baseEpoch == null || currentEpoch == null) {
             return "";
@@ -3089,7 +3079,7 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     private void drawOrbitPlaybackTimeReadout(Graphics2D g2, FontMetrics fm, double availW, double availH) {
-        if (!orbitSchematicPlaybackActive || orbitPlaybackBaseEpoch == null || orbitPlaybackEpoch == null) {
+        if (!orbitPlaybackActive || orbitPlaybackBaseEpoch == null || orbitPlaybackEpoch == null) {
             return;
         }
         String text = formatSimulationElapsedTPlus(orbitPlaybackBaseEpoch, orbitPlaybackEpoch);
@@ -3310,7 +3300,7 @@ public final class SystemPlanMapPanel extends JPanel {
         return r;
     }
 
-    /** Zoomed-in: two tilted ellipses approximating ring bands in the schematic projection. */
+    /** Zoomed-in: two tilted ellipses approximating ring bands in the map projection. */
     private static void drawPlanetaryRingsDecor(Graphics2D g2, double sx, double sy, float bodyRadiusPx) {
         if (bodyRadiusPx <= 0f || !Double.isFinite(sx) || !Double.isFinite(sy)) {
             return;
@@ -3368,7 +3358,7 @@ public final class SystemPlanMapPanel extends JPanel {
         return p != null ? p.intValue() : -1;
     }
 
-    private static int schematicRootBodyId(Map<Integer, BodyInfo> bodies, Map<Integer, Integer> resolvedParents) {
+    private static int mapRootBodyId(Map<Integer, BodyInfo> bodies, Map<Integer, Integer> resolvedParents) {
         if (resolvedParents != null) {
             for (Map.Entry<Integer, Integer> e : resolvedParents.entrySet()) {
                 if (e.getKey() != null && e.getValue() != null && e.getValue().intValue() < 0) {
@@ -3578,7 +3568,7 @@ public final class SystemPlanMapPanel extends JPanel {
 
     /**
      * Twin thin orbit-blue circles for moon-host hubs in {@link #subsystemHubLump} (zoomed-out lump view). Shown in both
-     * true-scale and schematic maps. Zoomed-in subsystem detail draws per-moon orbit strokes instead.
+     * true-scale and plan maps. Zoomed-in subsystem detail draws per-moon orbit strokes instead.
      */
     private void drawSubsystemMoonHubDoubleRing(Graphics2D g2, double sx, double sy, float bodyRadiusPx) {
         if (bodyRadiusPx <= 0f || !Double.isFinite(sx) || !Double.isFinite(sy)) {
@@ -3949,10 +3939,10 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Drops huge schematic concentric rings (Null:2 hub, A-branch at star A, system barycentre ~3750 Ls) when the
+     * Drops huge synthetic concentric rings (Null:2 hub, A-branch at star A, system barycentre ~3750 Ls) when the
      * viewport is zoomed into a subsystem so B+C+D labels and mutual rings stay readable.
      */
-    private boolean skipOversizeSchematicRingForDetailView(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
+    private boolean skipOversizeGuideRingForDetailView(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
             double viewCenterWx, double viewCenterWy, double scale, double availW, double availH,
             boolean detailOrbits) {
         if (true) {
@@ -3966,12 +3956,12 @@ public final class SystemPlanMapPanel extends JPanel {
             return false;
         }
         double rLs = polylineApproxRadiusLs(poly);
-        if (!Double.isFinite(rLs) || rLs < SystemOrbitGeometry.SCHEMATIC_RING_DETAIL_VIEW_MIN_RADIUS_LS) {
+        if (!Double.isFinite(rLs) || rLs < SystemOrbitGeometry.RING_DETAIL_VIEW_MIN_RADIUS_LS) {
             return false;
         }
-        /* Only cull legacy heliocentric-scale schematic strokes; trunk/mutual rings stay visible at all zoom. */
-        final double giantSchematicRingMinLs = 10_000.0;
-        if (rLs < giantSchematicRingMinLs) {
+        /* Only cull legacy heliocentric-scale map strokes; trunk/mutual rings stay visible at all zoom. */
+        final double giantGuideRingMinLs = 10_000.0;
+        if (rLs < giantGuideRingMinLs) {
             return false;
         }
         if (!Double.isFinite(visibleLsMinAxis) || visibleLsMinAxis < 24.0) {
@@ -3983,7 +3973,7 @@ public final class SystemPlanMapPanel extends JPanel {
         boolean ringLargerThanViewport = visibleLsMinAxis < rLs * 1.05;
         boolean centerFarFromView = Double.isFinite(distCenterLs)
                 && distCenterLs > rLs + visibleLsMinAxis * 0.35;
-        boolean detailZoom = visibleLsMinAxis < rLs * SystemOrbitGeometry.SCHEMATIC_RING_HIDE_WHEN_VIEW_SPAN_FRAC_OF_RADIUS;
+        boolean detailZoom = visibleLsMinAxis < rLs * SystemOrbitGeometry.LARGE_RING_HIDE_WHEN_VIEW_SPAN_FRAC_OF_RADIUS;
         return (ringLargerThanViewport || centerFarFromView) && detailZoom;
     }
 
@@ -4311,7 +4301,7 @@ public final class SystemPlanMapPanel extends JPanel {
     /**
      * Wide-zoom companion lump hides planet-binary mutual strokes only when every body on that ring is merged into
      * the lump (e.g. BCD 2–5 around Null:49). Stellar mutual rings (B+C around Null:3) stay visible because branch
-     * stars are never lump members. Branch / trunk schematic paths must stay visible too.
+     * stars are never lump members. Branch / trunk map paths must stay visible too.
      */
     private boolean skipOrbitPolylineForCompanionLump(OrbitPolylineWorldXY poly, CompanionBranchLump lump,
             boolean detailOrbits) {
@@ -4471,9 +4461,9 @@ public final class SystemPlanMapPanel extends JPanel {
         if (SystemOrbitGeometry.isHierarchicalWideBinary(orbitGeomBodies)) {
             return false;
         }
-        int central = mapModel.classification().schematicCentralStarId();
+        int central = mapModel.classification().centralStarId();
         if (central < 0) {
-            central = SystemOrbitGeometry.schematicCentralStarMapKey(orbitGeomBodies);
+            central = SystemOrbitGeometry.centralStarMapKey(orbitGeomBodies);
         }
         if (central < 0) {
             return false;
@@ -4707,7 +4697,7 @@ public final class SystemPlanMapPanel extends JPanel {
         if (SystemOrbitGeometry.isPlanetBinaryBarycentreMapKey(parent)) {
             return parent;
         }
-        int branchStar = SystemMapRules.branchSchematicStarParentId(orbitGeomBodies, parent);
+        int branchStar = SystemMapRules.branchStarOrbitHubId(orbitGeomBodies, parent);
         if (branchStar >= 0) {
             return branchStar;
         }
@@ -5255,7 +5245,7 @@ public final class SystemPlanMapPanel extends JPanel {
             }
             Map<Integer, Integer> resolvedParents = mapResolvedParents();
             hub = deepestCommonOrbitAncestor(pickedForHub, orbitGeomBodies, resolvedParents);
-            int rootId = schematicRootBodyId(orbitGeomBodies, resolvedParents);
+            int rootId = mapRootBodyId(orbitGeomBodies, resolvedParents);
             if (hub == rootId && pickedForHub.size() > 1) {
                 Set<Integer> withoutStar = new HashSet<>(pickedForHub);
                 withoutStar.remove(Integer.valueOf(rootId));
@@ -5433,11 +5423,11 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Subsystem follow: snap to target while schematic playback is active (no eased lag on a moving hub); otherwise
+     * Subsystem follow: snap to target while orbit playback is active (no eased lag on a moving hub); otherwise
      * {@link #smoothViewCenterToward(double, double, double)}.
      */
     private void snapOrSmoothViewCenterToward(double targetWx, double targetWy, double scale) {
-        if (orbitSchematicPlaybackActive) {
+        if (orbitPlaybackActive) {
             if (Double.isFinite(targetWx) && Double.isFinite(targetWy)) {
                 viewCenterWx = targetWx;
                 viewCenterWy = targetWy;
@@ -5449,7 +5439,7 @@ public final class SystemPlanMapPanel extends JPanel {
 
     /**
      * When zoomed in past {@link #ZOOM_SUBSYSTEM_CENTER_LOCK}, keeps the subsystem hub marker pinned when the view is
-     * already centred; schematic playback snaps the camera to the hub each frame so moons/planets orbit in place.
+     * already centred; orbit playback snaps the camera to the hub each frame so moons/planets orbit in place.
      * Gradual recentre toward the hub on zoom-in is driven by {@link #nudgeViewCenterTowardSubsystemHubOnWheel}.
      * After pausing orbit playback, {@code pauseResync} runs one eased step toward the hub when resolved.
      */
@@ -5462,7 +5452,7 @@ public final class SystemPlanMapPanel extends JPanel {
             subsystemScreenLockHubId = -1;
             return;
         }
-        if (orbitSchematicPlaybackActive) {
+        if (orbitPlaybackActive) {
             followSubsystemHubDuringPlayback(scale);
             return;
         }
@@ -5479,7 +5469,7 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Schematic playback + subsystem zoom: track the hub world position each tick so the cluster stays centred while
+     * Orbit playback + subsystem zoom: track the hub world position each tick so the cluster stays centred while
      * bodies move. When zoomed out below {@link #ZOOM_SUBSYSTEM_CENTER_LOCK}, leaves pan/zoom unchanged.
      */
     private void followSubsystemHubDuringPlayback(double scale) {
@@ -5557,7 +5547,7 @@ public final class SystemPlanMapPanel extends JPanel {
             }
         }
         if (common == null || common.isEmpty()) {
-            return schematicRootBodyId(bodies, resolvedParents);
+            return mapRootBodyId(bodies, resolvedParents);
         }
         int best = -1;
         int bestDepth = -1;
@@ -5579,12 +5569,12 @@ public final class SystemPlanMapPanel extends JPanel {
                 best = p;
             }
         }
-        return best >= 0 ? best : schematicRootBodyId(bodies, resolvedParents);
+        return best >= 0 ? best : mapRootBodyId(bodies, resolvedParents);
     }
 
     private static void addOrbitAncestors(int bodyId, Map<Integer, BodyInfo> bodies, Map<Integer, Integer> resolvedParents,
             Set<Integer> into) {
-        int root = schematicRootBodyId(bodies, resolvedParents);
+        int root = mapRootBodyId(bodies, resolvedParents);
         int cur = bodyId;
         for (int guard = 0; guard < 64 && cur >= 0; guard++) {
             into.add(Integer.valueOf(cur));
@@ -5599,10 +5589,10 @@ public final class SystemPlanMapPanel extends JPanel {
         }
     }
 
-    /** Number of orbit-parent hops from {@code bodyId} up to the schematic root (primary anchor). */
+    /** Number of orbit-parent hops from {@code bodyId} up to the map root (primary anchor). */
     private static int orbitDepthFromStar(int bodyId, Map<Integer, BodyInfo> bodies,
             Map<Integer, Integer> resolvedParents) {
-        int root = schematicRootBodyId(bodies, resolvedParents);
+        int root = mapRootBodyId(bodies, resolvedParents);
         int hops = 0;
         int cur = bodyId;
         for (int guard = 0; guard < 64 && cur >= 0; guard++) {
@@ -5680,7 +5670,7 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Padded bounds from non-star body dots only — binary primaries often sit far outside the schematic planet/moon
+     * Padded bounds from non-star body dots only — binary primaries often sit far outside the map planet/moon
      * cluster; using their separation for {@code scaleFit} makes wheel zoom imperceptible.
      */
     private static Bounds computeBoundsDotsOnlyNonStars(List<BodyDot> dots) {
@@ -5714,7 +5704,7 @@ public final class SystemPlanMapPanel extends JPanel {
     /**
      * {@code [fitSpanX, fitSpanY, rob10x, rob10y, robBlendX, robBlendY, narrowX, narrowY]} for layout scale and logs.
      * {@code robBlend} widens the percentile window when 10–90 collapses so {@link #blendLayoutSpanForFit} can still
-     * separate a distant outlier from a tight schematic core.
+     * separate a distant outlier from a tight map core.
      */
     private static double[] layoutFitSpansAndRobust(List<BodyDot> dots, Bounds bbAll, Bounds bbDots) {
         double fullX = layoutSpanAxisMetres(bbAll.minX, bbAll.maxX);
@@ -5970,7 +5960,7 @@ public final class SystemPlanMapPanel extends JPanel {
         double ncy;
         if (degenerateRob) {
             /*
-             * 10th–90th band has zero width on both axes (many bodies share schematic coordinates) while padded bbox is
+             * 10th–90th band has zero width on both axes (many bodies share map coordinates) while padded bbox is
              * still huge — (min+max)/2 sits in empty space between binary components; use the population mean instead.
              */
             double[] m = dotArithmeticMeanWorldXY(dots);
@@ -6183,7 +6173,7 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * When a click misses {@link #orbitLines}, detect proximity to the paint-only schematic hub circle
+     * When a click misses {@link #orbitLines}, detect proximity to the paint-only display hub circle
      * ({@link #drawSubsystemHubRevolutionPathRing}) so regressions are obvious in true scale.
      */
     private String describeNearUntrackedHubRevolutionRing(int px, int py) {
@@ -6582,7 +6572,7 @@ public final class SystemPlanMapPanel extends JPanel {
             if (skipOrbitPolylineForSubsystemLump(poly, ctx.visibleLsMinAxis, ctx.showClusterDetail)) {
                 continue;
             }
-            if (skipOversizeSchematicRingForDetailView(poly, ctx.visibleLsMinAxis, ctx.vcx, ctx.vcy, ctx.scale,
+            if (skipOversizeGuideRingForDetailView(poly, ctx.visibleLsMinAxis, ctx.vcx, ctx.vcy, ctx.scale,
                     ctx.availW, ctx.availH, detailOrbits)) {
                 continue;
             }
@@ -7139,16 +7129,16 @@ public final class SystemPlanMapPanel extends JPanel {
                 mapShowAllBodyLabels(visible), lump);
     }
 
-    final boolean skipOversizeSchematicRingForTests(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
+    final boolean skipOversizeGuideRingForTests(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
             double viewCenterWx, double viewCenterWy) {
-        return skipOversizeSchematicRingForTests(poly, visibleLsMinAxis, viewCenterWx, viewCenterWy, 0.02, 876.0, 676.0,
+        return skipOversizeGuideRingForTests(poly, visibleLsMinAxis, viewCenterWx, viewCenterWy, 0.02, 876.0, 676.0,
                 true);
     }
 
-    final boolean skipOversizeSchematicRingForTests(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
+    final boolean skipOversizeGuideRingForTests(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
             double viewCenterWx, double viewCenterWy, double scale, double availW, double availH,
             boolean detailOrbits) {
-        return skipOversizeSchematicRingForDetailView(poly, visibleLsMinAxis, viewCenterWx, viewCenterWy, scale, availW,
+        return skipOversizeGuideRingForDetailView(poly, visibleLsMinAxis, viewCenterWx, viewCenterWy, scale, availW,
                 availH, detailOrbits);
     }
 
@@ -7226,7 +7216,7 @@ public final class SystemPlanMapPanel extends JPanel {
         final boolean star;
         /** Short name equals system name — draw {@code *} only (matches System tab). */
         final boolean primaryStarAsterisk;
-        /** Single-star anchor: small schematic dot + {@code *}, not a large branch-star glyph or hub rings. */
+        /** Single-star anchor: small map dot + {@code *}, not a large branch-star glyph or hub rings. */
         final boolean loneCentralPrimary;
 
         final boolean moon;

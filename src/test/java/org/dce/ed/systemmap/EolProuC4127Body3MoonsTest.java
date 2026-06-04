@@ -14,12 +14,12 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Regression for {@code Eol Prou ZH-T c4-127} body 3 moons (journal 2026-05-19): gas-giant satellites must sit on
- * schematic rings around the host, not at raw Kepler SMA which scatters 3 d / 3 e / 3 f far from the inner cluster.
+ * guide rings around the host, not at raw Kepler SMA which scatters 3 d / 3 e / 3 f far from the inner cluster.
  */
 class EolProuC4127Body3MoonsTest {
 
     @Test
-    void singleStarMap_body3Moons_onSchematicRingsNearHost() throws IOException {
+    void singleStarMap_body3Moons_onGuideRingsNearHost() throws IOException {
         SystemMapFixture fixture = SystemMapFixtureLoader.loadClasspath("eol-prou-zh-t-c4-127-body3-moons.json");
         Map<Integer, BodyInfo> bodies = fixture.toBodies();
         SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, true);

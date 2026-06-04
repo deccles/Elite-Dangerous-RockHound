@@ -102,7 +102,7 @@ class EorAowsyRiKC83670SystemMapTest {
             assertEquals(SystemLayoutKind.WIDE_BINARY, clf.layoutKind());
             assertEquals(4, clf.mapStellarCount());
             assertTrue(clf.wideBinary());
-            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, id("A"));
+            OrbitGeometryTestSupport.assertHierarchicalBarycentreRing(model, bodies, id("A"));
         }
 
         @Test
@@ -347,7 +347,7 @@ class EorAowsyRiKC83670SystemMapTest {
             double sep = Math.hypot(model.mapPlaneX(idA3aa) - model.mapPlaneX(idA3a),
                     model.mapPlaneY(idA3aa) - model.mapPlaneY(idA3a)) / ls;
             assertTrue(sep < 25.0,
-                    "A 3 a a should stay near A 3 a, not on the A 3 schematic ring; sep=" + sep + " Ls");
+                    "A 3 a a should stay near A 3 a, not on the A 3 guide ring; sep=" + sep + " Ls");
             OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, "A 3 a a", 5.0);
         }
 
@@ -369,20 +369,20 @@ class EorAowsyRiKC83670SystemMapTest {
     }
 
     @Nested
-    @DisplayName("Schematic GUI layout (barycentre ring, A on rim)")
-    class SchematicGuiLayout {
+    @DisplayName("True-scale GUI layout (barycentre ring, A on rim)")
+    class TrueScaleGuiLayout {
 
         @Test
         void innerStars_notParentedToStarA() {
-            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, primaryId);
+            OrbitGeometryTestSupport.assertHierarchicalBarycentreRing(model, bodies, primaryId);
             for (String label : new String[] { "B", "C", "D" }) {
                 assertNotEquals(primaryId, resolvedParent(label));
             }
         }
 
         @Test
-        void schematicBarycentreRing_atOriginPrimaryOnRim() {
-            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, primaryId);
+        void barycentreRing_atOriginPrimaryOnRim() {
+            OrbitGeometryTestSupport.assertHierarchicalBarycentreRing(model, bodies, primaryId);
         }
 
         @Test
@@ -450,7 +450,7 @@ class EorAowsyRiKC83670SystemMapTest {
     }
 
     @Nested
-    @DisplayName("Map schematic layout")
+    @DisplayName("Map layout")
     class MapLayout {
 
         @Test
@@ -458,7 +458,7 @@ class EorAowsyRiKC83670SystemMapTest {
             int idA2a = id("A 2 a");
             assertEquals(id("A 2"), resolvedParent("A 2 a"));
             assertTrue(model.hasOrbitRingForBody(idA2a),
-                    "moon A 2 a needs a per-parent orbit ring around A 2, not only the A-branch schematic rings");
+                    "moon A 2 a needs a per-parent orbit ring around A 2, not only the A-branch guide rings");
             OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, "A 2 a", 12.0);
         }
 
@@ -474,7 +474,7 @@ class EorAowsyRiKC83670SystemMapTest {
             int idA2 = id("A 2");
             double scalePxPerM = 8.0E-4;
             var polys = SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 256, scalePxPerM,
-                    true);
+                    null, 0);
             OrbitPolylineWorldXY ring = null;
             for (OrbitPolylineWorldXY p : polys) {
                 if (p != null && p.bodyId == idA2a) {
@@ -509,7 +509,7 @@ class EorAowsyRiKC83670SystemMapTest {
         }
 
         @Test
-        void a2_onSchematicRingAtStarA() {
+        void a2_onBranchRingAtStarA() {
             double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
             int idA = id("A");
             int idA2 = id("A 2");
@@ -518,7 +518,7 @@ class EorAowsyRiKC83670SystemMapTest {
                     model.mapPlaneY(idA2) - model.mapPlaneY(idA)) / ls;
             double hint = Math.abs(bodies.get(idA2).getDistanceLs() - bodies.get(idA).getDistanceLs());
             assertTrue(Math.abs(dist - hint) <= hint * 0.06,
-                    "A 2 should sit on branch schematic ring at journal distance from A; dist=" + dist
+                    "A 2 should sit on branch guide ring at journal distance from A; dist=" + dist
                             + " Ls hint=" + hint + " Ls");
         }
 
@@ -635,7 +635,7 @@ class EorAowsyRiKC83670SystemMapTest {
 
         @Test
         void primaryBarycentricStar_onSystemBarycentreRing() {
-            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, id("A"));
+            OrbitGeometryTestSupport.assertHierarchicalBarycentreRing(model, bodies, id("A"));
         }
     }
 

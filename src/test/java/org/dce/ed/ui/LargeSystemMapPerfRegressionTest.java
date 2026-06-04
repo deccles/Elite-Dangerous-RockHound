@@ -11,7 +11,6 @@ import java.time.Instant;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
-import org.dce.ed.systemmap.MapScaleMode;
 import org.dce.ed.systemmap.SystemMapFixture;
 import org.dce.ed.systemmap.SystemMapFixtureLoader;
 import org.dce.ed.systemmap.SystemMapModel;
@@ -108,8 +107,7 @@ class LargeSystemMapPerfRegressionTest {
     @Test
     @DisplayName("Orbit polyline count and vertex budget are within expected range for proxy fixture")
     void orbitGeometry_scaleSanity() {
-        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false);
         assertNotNull(model);
         int ringCount = model.orbitPolylines().size();
         int vertexCount = countOrbitVertices(model.orbitPolylines());
@@ -121,14 +119,13 @@ class LargeSystemMapPerfRegressionTest {
 
     private static void warmPipelineBuild(int iterations) {
         for (int i = 0; i < iterations; i++) {
-            SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false, MapScaleMode.TRUE_SCALE);
+            SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false);
         }
     }
 
     private static long timePipelineBuild() {
         long startNs = System.nanoTime();
-        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false);
         assertNotNull(model);
         return (System.nanoTime() - startNs) / 1_000_000L;
     }

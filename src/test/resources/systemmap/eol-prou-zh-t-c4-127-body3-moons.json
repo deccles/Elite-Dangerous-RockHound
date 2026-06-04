@@ -1,6 +1,6 @@
 {
   "name": "Eol Prou ZH-T c4-127",
-  "notes": "Body 3 gas giant with six moons (journal 2026-05-19). Moons must use journal parent-relative distance on schematic rings, not raw Kepler SMA.",
+  "notes": "Body 3 gas giant with six moons (journal 2026-05-19). Moons must use journal parent-relative distance on guide rings, not raw Kepler SMA.",
   "bodies": [
     {
       "id": 0,
@@ -82,7 +82,7 @@
     }
   ],
   "expect": {
-    "layoutKind": "SINGLE_STAR_SCHEMATIC",
+    "layoutKind": "SINGLE_STAR",
     "mapStellarCount": 1,
     "parents": [
       { "body": "3 a", "resolvesTo": "3" },

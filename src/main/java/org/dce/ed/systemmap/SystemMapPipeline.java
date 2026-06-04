@@ -12,7 +12,7 @@ import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 import org.dce.ed.util.SystemOrbitGeometry.WideBinaryFlattenFrame;
 
 /**
- * Builds a {@link SystemMapModel} from journal/cache {@link BodyInfo} rows. All schematic layout stages and
+ * Builds a {@link SystemMapModel} from journal/cache {@link BodyInfo} rows. True-scale layout stages and
  * resolved topology (parent links, branch hubs, label visibility) are computed here — not in
  * {@link org.dce.ed.ui.SystemPlanMapPanel}.
  */
@@ -29,16 +29,10 @@ public final class SystemMapPipeline {
 
     public static SystemMapModel build(String systemName, Map<Integer, BodyInfo> bodies, Instant epoch,
             boolean freezeBarycentreStars) {
-        return build(systemName, bodies, epoch, freezeBarycentreStars, MapScaleMode.TRUE_SCALE);
-    }
-
-    public static SystemMapModel build(String systemName, Map<Integer, BodyInfo> bodies, Instant epoch,
-            boolean freezeBarycentreStars, MapScaleMode scaleMode) {
         if (bodies == null || bodies.isEmpty()) {
-            return emptyModel(systemName, scaleMode);
+            return emptyModel(systemName);
         }
         SystemMapJournalEnricher.prepareMapBodies(bodies);
-        MapScaleMode mode = MapScaleMode.TRUE_SCALE;
         Instant t = epoch != null ? epoch : Instant.now();
         SystemMapClassification classification = SystemMapRules.classify(bodies);
 
@@ -55,17 +49,9 @@ public final class SystemMapPipeline {
             if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
                 SystemOrbitGeometry.placeTrueScaleHierarchicalScanHubs(positions, bodies, a0, a1);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
-                /*
-                 * Seat B+C at Null:3 and D vs that hub on Null:2 (journal radii). Without this, flatten only shifts
-                 * the cluster rigidly and B/C/D keep raw Kepler phase — B beside D with C far away on the map.
-                 */
                 SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
                         freezeBarycentreStars);
                 SystemOrbitGeometry.restoreTrueScaleHierarchicalOuterCompanionChord(positions, bodies, a0, a1);
-                /*
-                 * Outer-chord restore scales by outermost star; trunk rings use companion centroid — snap cluster onto
-                 * the rim and re-sync scan rows so Null:2/3 crosses are not left at pre-shift map keys.
-                 */
                 SystemOrbitGeometry.snapCompanionClusterOntoTrunkRing(positions, bodies, t, a0, a1,
                         freezeBarycentreStars);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
@@ -78,16 +64,14 @@ public final class SystemMapPipeline {
             SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
             SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
                     freezeBarycentreStars);
-            SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
-                    freezeBarycentreStars);
             SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
         }
 
         Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies);
         boolean includeBinaryBarycentreRing = !SystemOrbitGeometry.isHierarchicalWideBinary(bodies);
         List<OrbitPolylineWorldXY> polylines = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(bodies, positions,
-                DEFAULT_ORBIT_SEGMENTS, Double.NaN, a0, a1, includeBinaryBarycentreRing, resolvedParents, mode,
-                false, null, 0, t);
+                DEFAULT_ORBIT_SEGMENTS, Double.NaN, a0, a1, includeBinaryBarycentreRing, resolvedParents,
+                null, 0, t);
         Map<Integer, Integer> childCounts = buildDirectChildCounts(resolvedParents);
         Set<Integer> hubIds = SystemMapRules.subsystemHubBodyIds(bodies, resolvedParents, classification);
         Set<Integer> revolutionCenters = SystemMapRules.orbitRevolutionCenterBodyIds(bodies, resolvedParents,
@@ -95,107 +79,65 @@ public final class SystemMapPipeline {
         Map<Integer, Boolean> labelVisibility = buildLabelVisibility(bodies, resolvedParents, childCounts,
                 classification);
 
-        return new SystemMapModel(systemName, bodies, mode, classification, a0, a1, positions, polylines, frame,
+        return new SystemMapModel(systemName, bodies, classification, a0, a1, positions, polylines, frame,
                 resolvedParents, childCounts, hubIds, revolutionCenters, labelVisibility);
     }
 
-    /**
-     * Rebuilds orbit polylines for the same bodies/axes as {@code base} using updated schematic positions (e.g. zoom
-     * or playback). Same geometry entry point as initial {@link #build}.
-     */
     public static List<OrbitPolylineWorldXY> rebuildOrbitPolylines(SystemMapModel base,
             Map<Integer, double[]> positionsMetres,
             int segments,
             double scalePixelsPerMetre) {
-        return rebuildOrbitPolylines(base, positionsMetres, segments, scalePixelsPerMetre, false);
-    }
-
-    public static List<OrbitPolylineWorldXY> rebuildOrbitPolylines(SystemMapModel base,
-            Map<Integer, double[]> positionsMetres,
-            int segments,
-            double scalePixelsPerMetre,
-            boolean enforceSchematicMoonMinOrbitRadius) {
-        return rebuildOrbitPolylines(base, positionsMetres, segments, scalePixelsPerMetre,
-                enforceSchematicMoonMinOrbitRadius, null);
+        return rebuildOrbitPolylines(base, positionsMetres, segments, scalePixelsPerMetre, null);
     }
 
     /**
-     * @param ringRadiusReferencePositions when non-null, schematic ring radii are derived from this layout snapshot
-     *        (e.g. play T+0) while stroke centres follow {@code positionsMetres}, so radii stay fixed during playback.
+     * @param ringRadiusReferencePositions when non-null, ring radii are derived from this layout snapshot
+     *        (e.g. play T+0) while stroke centres follow {@code positionsMetres}.
      */
     public static List<OrbitPolylineWorldXY> rebuildOrbitPolylines(SystemMapModel base,
             Map<Integer, double[]> positionsMetres,
             int segments,
             double scalePixelsPerMetre,
-            boolean enforceSchematicMoonMinOrbitRadius,
             Map<Integer, double[]> ringRadiusReferencePositions) {
         return rebuildOrbitPolylines(base, positionsMetres, segments, scalePixelsPerMetre,
-                enforceSchematicMoonMinOrbitRadius, ringRadiusReferencePositions, null);
+                ringRadiusReferencePositions, 0);
     }
 
     /**
-     * @param renderScaleMode when non-null, overrides {@link SystemMapModel#mapScaleMode()} so GUI rebuilds match the
-     *        panel toggle even if {@code base} was primed under a different mode during playback.
+     * @param viewTiltDegrees view tilt 0…90 ({@link MapViewProjection}).
      */
     public static List<OrbitPolylineWorldXY> rebuildOrbitPolylines(SystemMapModel base,
             Map<Integer, double[]> positionsMetres,
             int segments,
             double scalePixelsPerMetre,
-            boolean enforceSchematicMoonMinOrbitRadius,
             Map<Integer, double[]> ringRadiusReferencePositions,
-            MapScaleMode renderScaleMode) {
-        return rebuildOrbitPolylines(base, positionsMetres, segments, scalePixelsPerMetre,
-                enforceSchematicMoonMinOrbitRadius, ringRadiusReferencePositions, renderScaleMode, 0);
-    }
-
-    /**
-     * @param viewTiltDegrees true-scale view tilt 0…90 ({@link MapViewProjection}); ignored when schematic.
-     */
-    public static List<OrbitPolylineWorldXY> rebuildOrbitPolylines(SystemMapModel base,
-            Map<Integer, double[]> positionsMetres,
-            int segments,
-            double scalePixelsPerMetre,
-            boolean enforceSchematicMoonMinOrbitRadius,
-            Map<Integer, double[]> ringRadiusReferencePositions,
-            MapScaleMode renderScaleMode,
             int viewTiltDegrees) {
         return rebuildOrbitPolylines(base, positionsMetres, segments, scalePixelsPerMetre,
-                enforceSchematicMoonMinOrbitRadius, ringRadiusReferencePositions, renderScaleMode, viewTiltDegrees,
-                null);
+                ringRadiusReferencePositions, viewTiltDegrees, null);
     }
 
     /**
-     * @param strokeEpoch sim instant for Kepler stroke sampling during true-scale playback; null uses wall clock.
+     * @param strokeEpoch sim instant for Kepler stroke sampling during orbit playback; null uses wall clock.
      */
     public static List<OrbitPolylineWorldXY> rebuildOrbitPolylines(SystemMapModel base,
             Map<Integer, double[]> positionsMetres,
             int segments,
             double scalePixelsPerMetre,
-            boolean enforceSchematicMoonMinOrbitRadius,
             Map<Integer, double[]> ringRadiusReferencePositions,
-            MapScaleMode renderScaleMode,
             int viewTiltDegrees,
             Instant strokeEpoch) {
         if (base == null || positionsMetres == null || base.bodies().isEmpty()) {
             return List.of();
         }
-        MapScaleMode mode = renderScaleMode != null ? renderScaleMode : base.mapScaleMode();
-        /*
-         * Match {@link #build}: wide-binary (non-hierarchical) A+B mutual ring. Do not use
-         * {@link SystemMapModel#hasBarycentreMutualRing()} — {@link #playbackBase} carries empty polylines.
-         */
         boolean includeBinaryBarycentreRing = !SystemOrbitGeometry.isHierarchicalWideBinary(base.bodies());
         return SystemOrbitGeometry.orbitPolylinesWorldMetresXY(base.bodies(), positionsMetres, segments,
                 scalePixelsPerMetre, base.projectionAxis0(), base.projectionAxis1(), includeBinaryBarycentreRing,
-                base.resolvedParentByBodyId(), mode, enforceSchematicMoonMinOrbitRadius,
-                ringRadiusReferencePositions, viewTiltDegrees, strokeEpoch);
+                base.resolvedParentByBodyId(), ringRadiusReferencePositions, viewTiltDegrees, strokeEpoch);
     }
 
-    private static SystemMapModel emptyModel(String systemName, MapScaleMode scaleMode) {
-        MapScaleMode mode = MapScaleMode.TRUE_SCALE;
-        SystemMapClassification empty = new SystemMapClassification(SystemLayoutKind.GENERIC, 0, -1, -1,
-                List.of(), false);
-        return new SystemMapModel(systemName, Map.of(), mode, empty, 0, 1, Map.of(), List.of(), null, Map.of(),
+    private static SystemMapModel emptyModel(String systemName) {
+        SystemMapClassification empty = new SystemMapClassification(SystemLayoutKind.GENERIC, 0, -1, -1, List.of());
+        return new SystemMapModel(systemName, Map.of(), empty, 0, 1, Map.of(), List.of(), null, Map.of(),
                 Map.of(), Set.of(), Set.of(), Map.of());
     }
 
@@ -255,26 +197,16 @@ public final class SystemMapPipeline {
         return out;
     }
 
-    /**
-     * Re-applies wide-binary flatten + branch schematic positions during orbit playback ticks.
-     */
-    /** Lightweight handle for {@link #refreshPositionsForPlayback} when the GUI already has flatten frame + axes. */
     public static SystemMapModel playbackBase(Map<Integer, BodyInfo> bodies, int projectionAxis0, int projectionAxis1,
-            Map<Integer, double[]> lastPositions, WideBinaryFlattenFrame frame, MapScaleMode scaleMode) {
-        MapScaleMode mode = MapScaleMode.TRUE_SCALE;
+            Map<Integer, double[]> lastPositions, WideBinaryFlattenFrame frame) {
         SystemMapClassification clf = SystemMapRules.classify(bodies);
         Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies);
         Map<Integer, Integer> childCounts = buildDirectChildCounts(resolvedParents);
-        return new SystemMapModel(null, bodies, mode, clf, projectionAxis0, projectionAxis1,
+        return new SystemMapModel(null, bodies, clf, projectionAxis0, projectionAxis1,
                 lastPositions != null ? lastPositions : Map.of(), List.of(), frame, resolvedParents, childCounts,
                 SystemMapRules.subsystemHubBodyIds(bodies, resolvedParents, clf),
                 SystemMapRules.orbitRevolutionCenterBodyIds(bodies, resolvedParents, childCounts),
                 buildLabelVisibility(bodies, resolvedParents, childCounts, clf));
-    }
-
-    public static SystemMapModel playbackBase(Map<Integer, BodyInfo> bodies, int projectionAxis0, int projectionAxis1,
-            Map<Integer, double[]> lastPositions, WideBinaryFlattenFrame frame) {
-        return playbackBase(bodies, projectionAxis0, projectionAxis1, lastPositions, frame, MapScaleMode.TRUE_SCALE);
     }
 
     public static Map<Integer, double[]> refreshPositionsForPlayback(SystemMapModel base,
@@ -315,15 +247,10 @@ public final class SystemMapPipeline {
         SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
         SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
                 freezeBarycentreStars);
-        SystemOrbitGeometry.alignMoonsOnSchematicRingsAroundParents(positions, bodies, t, a0, a1,
-                freezeBarycentreStars);
         SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
         return positions;
     }
 
-    /**
-     * Picks two distinct world axes for the map plane (same logic as the former GUI method).
-     */
     static int[] chooseProjectionAxes(Map<Integer, BodyInfo> bodies, Map<Integer, double[]> positions) {
         int a0 = 0;
         int a1 = 1;

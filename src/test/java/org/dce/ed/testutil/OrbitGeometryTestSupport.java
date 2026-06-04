@@ -20,7 +20,7 @@ import org.dce.ed.systemmap.SystemMapModel;
 import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 
-/** Shared assertions for schematic orbit geometry and map polylines. */
+/** Shared assertions for guide orbit geometry and map polylines. */
 public final class OrbitGeometryTestSupport {
 
     /**
@@ -227,7 +227,7 @@ public final class OrbitGeometryTestSupport {
         double ringRad = meanRadius(ring.wx, ring.wy, cx, cy);
         double bodyRad = distOnAxes(pos, mapPlanePoint(cx, cy, a0, a1), a0, a1);
         double tolM = toleranceLs * ls;
-        /* Polyline mean radius can differ slightly from schematic dot radius (segment count, phase at epoch). */
+        /* Polyline mean radius can differ slightly from map dot radius (segment count, phase at epoch). */
         assertTrue(Math.abs(bodyRad - ringRad) <= Math.max(tolM, ringRad * 0.12),
                 shortName + " should sit on mutual ring (bodyR=" + (bodyRad / ls) + " Ls ringR="
                         + (ringRad / ls) + " Ls)");
@@ -275,7 +275,7 @@ public final class OrbitGeometryTestSupport {
     public static void assertBarycentreFarFromStar(SystemMapModel model, Map<Integer, BodyInfo> bodies,
             int journalNullId, double minDistanceLs) {
         int bKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(journalNullId);
-        int star = SystemOrbitGeometry.schematicCentralStarMapKey(bodies);
+        int star = SystemOrbitGeometry.centralStarMapKey(bodies);
         Map<Integer, double[]> pos = model.positionsMetres();
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
         double d = distOnAxes(pos.get(Integer.valueOf(bKey)), pos.get(Integer.valueOf(star)),
@@ -404,16 +404,16 @@ public final class OrbitGeometryTestSupport {
     }
 
     /** Hierarchical A vs BCD: trunk ring through star A and companion-cluster centroid (not a fixed origin circle). */
-    public static void assertHierarchicalSchematicBarycentreRing(SystemMapModel model, Map<Integer, BodyInfo> bodies,
+    public static void assertHierarchicalBarycentreRing(SystemMapModel model, Map<Integer, BodyInfo> bodies,
             int primaryStarId) {
-        assertTrue(model.hasBarycentreMutualRing(), "expected schematic system barycentre ring");
-        assertPrimaryOnSchematicMutualRing(model, primaryStarId, SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID,
+        assertTrue(model.hasBarycentreMutualRing(), "expected system barycentre ring");
+        assertPrimaryOnMutualRing(model, primaryStarId, SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID,
                 0.12);
         assertCompanionClusterOnTrunkRing(model, bodies, primaryStarId,
                 SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID, 0.15);
     }
 
-    /** Companion trunk centroid (B/C/D cluster) on the schematic A vs BCD ring rim. */
+    /** Companion trunk centroid (B/C/D cluster) on the map A vs BCD ring rim. */
     public static void assertCompanionClusterOnTrunkRing(SystemMapModel model, Map<Integer, BodyInfo> bodies,
             int primaryStarId, int polylineBodyId, double toleranceFrac) {
         int a0 = model.projectionAxis0();
@@ -460,8 +460,8 @@ public final class OrbitGeometryTestSupport {
         fail("missing trunk ring polyline id " + polylineBodyId);
     }
 
-    /** Primary star on the rim of a schematic mutual-orbit polyline (e.g. triple-star A vs B+C trunk ring). */
-    public static void assertPrimaryOnSchematicMutualRing(SystemMapModel model, int primaryStarId, int polylineBodyId,
+    /** Primary star on the rim of a display mutual-orbit polyline (e.g. triple-star A vs B+C trunk ring). */
+    public static void assertPrimaryOnMutualRing(SystemMapModel model, int primaryStarId, int polylineBodyId,
             double toleranceFrac) {
         int a0 = model.projectionAxis0();
         int a1 = model.projectionAxis1();
@@ -479,23 +479,23 @@ public final class OrbitGeometryTestSupport {
             double ringRad = meanRadius(poly.wx, poly.wy, cx, cy);
             double distA = Math.hypot(ax - cx, ay - cy);
             assertTrue(Math.abs(distA - ringRad) <= Math.max(ringRad * toleranceFrac, ls * 50.0),
-                    "primary on schematic ring rim (distA=" + (distA / ls) + " Ls ringR=" + (ringRad / ls) + " Ls)");
+                    "primary on guide ring rim (distA=" + (distA / ls) + " Ls ringR=" + (ringRad / ls) + " Ls)");
             assertTrue(distA >= ringRad * 0.55,
                     "ring centre must not coincide with primary (empty ring around star)");
             return;
         }
-        fail("missing schematic ring polyline id " + polylineBodyId);
+        fail("missing guide ring polyline id " + polylineBodyId);
     }
 
     /**
      * Mirrors the screenshot failure: one light-blue circle centred on the arrival star at heliocentric (~50k Ls)
-     * scale with B/C on its rim — not the schematic ~7k Ls BCD trunk.
+     * scale with B/C on its rim — not the map ~7k Ls BCD trunk.
      */
     /**
-     * Synthetic schematic concentric ring ids from {@code appendSchematicRingsAtStar} / branch-star layout
+     * Synthetic synthetic concentric ring ids from {@code appendGuideRingsAtStar} / branch-star layout
      * ({@code -4000 - starId * 100_000 - ls}). Planet-binary guide rings ({@code -51k}/{@code -52k}) sit below {@code -50k}.
      */
-    public static boolean isSchematicConcentricRingPolylineId(int bodyId) {
+    public static boolean isSyntheticConcentricRingPolylineId(int bodyId) {
         return bodyId <= -4_000 && bodyId > -50_000;
     }
 
@@ -790,17 +790,17 @@ public final class OrbitGeometryTestSupport {
                 "expected elliptical Kepler stroke, apo/peri ratio=" + ratio);
     }
 
-    public static void assertNoSchematicConcentricBranchRings(List<OrbitPolylineWorldXY> polylines) {
+    public static void assertNoSyntheticConcentricBranchRings(List<OrbitPolylineWorldXY> polylines) {
         for (OrbitPolylineWorldXY poly : polylines) {
-            if (poly != null && isSchematicConcentricRingPolylineId(poly.bodyId)) {
-                fail("unexpected schematic concentric ring id " + poly.bodyId);
+            if (poly != null && isSyntheticConcentricRingPolylineId(poly.bodyId)) {
+                fail("unexpected synthetic concentric ring id " + poly.bodyId);
             }
         }
     }
 
     /**
      * Regression for Coeus A-branch screenshot: one Kepler ellipse around the branch star must not stack with a second
-     * journal-radius schematic circle ({@code SINGLE_STAR_SCHEMATIC_RING_ID_BASE} or near-circular fallback).
+     * journal-radius guide circle ({@code SINGLE_STAR_RING_ID_BASE} or near-circular fallback).
      */
     public static void assertNoEllipticalAndCircularOrbitPairNearParent(SystemMapModel model,
             Map<Integer, BodyInfo> bodies,
@@ -842,14 +842,14 @@ public final class OrbitGeometryTestSupport {
             if (offParent > toleranceLs * 3.0 && poly.bodyId != mapKey) {
                 continue;
             }
-            if (poly.bodyId != mapKey && !isSchematicConcentricRingPolylineId(poly.bodyId)) {
+            if (poly.bodyId != mapKey && !isSyntheticConcentricRingPolylineId(poly.bodyId)) {
                 continue;
             }
             if (Math.abs(radM - hintM) > hintM * 0.55) {
                 continue;
             }
-            if (isSchematicConcentricRingPolylineId(poly.bodyId)) {
-                fail(shortName + " must not have schematic branch-star ring id " + poly.bodyId
+            if (isSyntheticConcentricRingPolylineId(poly.bodyId)) {
+                fail(shortName + " must not have synthetic branch-star ring id " + poly.bodyId
                         + " at true scale (journal-radius circle)");
             }
             nearCount++;
@@ -898,7 +898,7 @@ public final class OrbitGeometryTestSupport {
             double ringRad = meanRadius(poly.wx, poly.wy, cx, cy);
             double centreOff = Math.hypot(cx - ax, cy - ay);
             double distAFromRingCentre = centreOff;
-            /* Hierarchical schematic: large ring at barycentre (origin), primary on the ring — not star at centre. */
+            /* Hierarchical guide: large ring at barycentre (origin), primary on the ring — not star at centre. */
             if (poly.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID
                     && ringRad <= maxRadM * 1.5
                     && distAFromRingCentre >= ringRad * 0.55

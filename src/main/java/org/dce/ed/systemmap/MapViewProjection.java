@@ -4,7 +4,7 @@ import org.dce.ed.util.SystemOrbitGeometry;
 
 /**
  * True-scale map view tilt: blends the map-plane vertical axis ({@code proj1}) with the unused world axis so
- * edge-on 3D orbits open on screen. Schematic mode always uses tilt 0.
+ * edge-on 3D orbits open on screen.
  */
 public final class MapViewProjection {
 

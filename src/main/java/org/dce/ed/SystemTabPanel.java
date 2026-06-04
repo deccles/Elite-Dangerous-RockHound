@@ -114,7 +114,7 @@ import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.ui.DistanceToggleIcons;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.HoverClickPoller;
-import org.dce.ed.ui.OrbitSchematicTransportIcons;
+import org.dce.ed.ui.OrbitPlaybackTransportIcons;
 import org.dce.ed.ui.LeafIcon;
 import org.dce.ed.ui.SystemPlanMapPanel;
 /**
@@ -133,7 +133,7 @@ public class SystemTabPanel extends JPanel {
     /**
      * Wall period between orbit-playback ticks; sim advance uses this fixed interval (not variable EDT gaps) so a
      * delayed paint cannot advance many in-game days in one frame at high d/s. Kept well below video frame rate:
-     * schematic positions change slowly on screen and each tick rebuilds orbit polylines.
+     * map positions change slowly on screen and each tick rebuilds orbit polylines.
      */
     private static final int ORBIT_ANIM_TIMER_MS = 150;
 
@@ -178,7 +178,7 @@ public class SystemTabPanel extends JPanel {
     private boolean mapViewTiltPassThroughAdjusting;
     /** Table/map split ratio saved before collapse; restored by expand. */
     private double systemPlanMapSplitRatioBeforeCollapse = OverlayPreferences.getSystemTabPanelTableSplitRatio();
-    /** Bottom panel: top-down schematic of approximate body and ship positions. */
+    /** Bottom panel: top-down plan of approximate body and ship positions. */
     private final SystemPlanMapPanel systemPlanMapPanel = new SystemPlanMapPanel();
     private final JTextField headerLabel;
     private final SystemBodiesTableModel tableModel;
@@ -279,13 +279,13 @@ public class SystemTabPanel extends JPanel {
     private Map<Integer, Double> lastShipCentricDistLsSnapshot = Collections.emptyMap();
 
     /**
-     * When selected, advances a synthetic {@link Instant} for the plan map so schematic orbits move at a visible rate
+     * When selected, advances a synthetic {@link Instant} for the plan map so animated orbits move at a visible rate
      * (journal elements; not real-time flight).
      */
     private Timer orbitAnimDemoTimer;
     private volatile boolean orbitAnimDemoActive;
-    /** Frozen schematic epoch while orbit playback is paused (also used before first Play). */
-    private Instant schematicMapFreezeEpoch;
+    /** Frozen frozen map epoch while orbit playback is paused (also used before first Play). */
+    private Instant orbitAnimFreezeEpoch;
     /** T+0 epoch for the current play session (set on first Play; cleared on Stop). */
     private Instant orbitAnimPlayBaseEpoch;
     private Instant orbitAnimSimInstant;
@@ -894,7 +894,6 @@ public class SystemTabPanel extends JPanel {
         JPanel mapToolbarMain = new JPanel(new FlowLayout(FlowLayout.LEADING, 8, 2));
         mapToolbarMain.setOpaque(false);
         systemPlanMapToolbar = mapToolbar;
-        systemPlanMapPanel.setMapScaleMode(org.dce.ed.systemmap.MapScaleMode.TRUE_SCALE);
         int savedViewTilt = OverlayPreferences.getSystemPlanMapViewTiltDegrees();
         systemPlanMapPanel.setViewTiltDegrees(savedViewTilt, false);
         mapViewTiltLabel = new JLabel("View:");
@@ -971,14 +970,14 @@ public class SystemTabPanel extends JPanel {
             }
             if (ev.getStateChange() == ItemEvent.SELECTED) {
                 orbitAnimDemoActive = true;
-                if (schematicMapFreezeEpoch == null) {
-                    schematicMapFreezeEpoch = Instant.now();
+                if (orbitAnimFreezeEpoch == null) {
+                    orbitAnimFreezeEpoch = Instant.now();
                 }
                 if (orbitAnimPlayBaseEpoch == null) {
-                    orbitAnimPlayBaseEpoch = schematicMapFreezeEpoch;
+                    orbitAnimPlayBaseEpoch = orbitAnimFreezeEpoch;
                 }
                 if (orbitAnimSimInstant == null) {
-                    orbitAnimSimInstant = schematicMapFreezeEpoch;
+                    orbitAnimSimInstant = orbitAnimFreezeEpoch;
                 }
                 orbitAnimDemoTimer.start();
                 refreshPlanMap();
@@ -2122,7 +2121,7 @@ public class SystemTabPanel extends JPanel {
         // Start from a clean state for this system.
         state.setSystemName(systemName);
         state.setSystemAddress(systemAddress);
-        schematicMapFreezeEpoch = null;
+        orbitAnimFreezeEpoch = null;
         orbitAnimPlayBaseEpoch = null;
         orbitAnimSimInstant = null;
         state.resetBodies();
@@ -2353,7 +2352,7 @@ public class SystemTabPanel extends JPanel {
                 orbitAnimDemoTimer.stop();
             }
             orbitAnimDemoActive = false;
-            schematicMapFreezeEpoch = null;
+            orbitAnimFreezeEpoch = null;
             orbitAnimPlayBaseEpoch = null;
             orbitAnimSimInstant = null;
             orbitAnimSuppressPlayToggleHandler = true;
@@ -2371,10 +2370,10 @@ public class SystemTabPanel extends JPanel {
         if (orbitAnimDemoActive) {
             mapEpoch = orbitAnimSimInstant;
         } else {
-            if (schematicMapFreezeEpoch == null) {
-                schematicMapFreezeEpoch = Instant.now();
+            if (orbitAnimFreezeEpoch == null) {
+                orbitAnimFreezeEpoch = Instant.now();
             }
-            mapEpoch = schematicMapFreezeEpoch;
+            mapEpoch = orbitAnimFreezeEpoch;
         }
         Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, mapEpoch,
                 freezeBarycentreStarsDuringOrbitAnim());
@@ -2452,7 +2451,7 @@ public class SystemTabPanel extends JPanel {
             orbitAnimDemoTimer.stop();
         }
         if (orbitAnimSimInstant != null) {
-            schematicMapFreezeEpoch = orbitAnimSimInstant;
+            orbitAnimFreezeEpoch = orbitAnimSimInstant;
         }
         refreshPlanMap();
         systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
@@ -2466,7 +2465,7 @@ public class SystemTabPanel extends JPanel {
         if (orbitAnimDemoTimer != null) {
             orbitAnimDemoTimer.stop();
         }
-        schematicMapFreezeEpoch = null;
+        orbitAnimFreezeEpoch = null;
         orbitAnimPlayBaseEpoch = null;
         orbitAnimSimInstant = null;
         orbitAnimSuppressPlayToggleHandler = true;
@@ -2521,7 +2520,7 @@ public class SystemTabPanel extends JPanel {
     }
 
     /**
-     * Orbit schematic toolbar: scales with {@link #uiFont} (slightly larger than the table), play/pause icons sized
+     * Orbit orbit playback toolbar: scales with {@link #uiFont} (slightly larger than the table), play/pause icons sized
      * to the computed row height.
      */
     private void applyOrbitMapToolbarTypography(String slowerTt, String fasterTt, String speedValueTt) {
@@ -2553,8 +2552,8 @@ public class SystemTabPanel extends JPanel {
 
         orbitAnimPlayButton.setFont(toolbarFont);
         orbitAnimPlayButton.setText(null);
-        orbitAnimPlayButton.setIcon(new OrbitSchematicTransportIcons.PlayTriangleIcon(iconSize));
-        orbitAnimPlayButton.setSelectedIcon(new OrbitSchematicTransportIcons.PauseBarsIcon(iconSize));
+        orbitAnimPlayButton.setIcon(new OrbitPlaybackTransportIcons.PlayTriangleIcon(iconSize));
+        orbitAnimPlayButton.setSelectedIcon(new OrbitPlaybackTransportIcons.PauseBarsIcon(iconSize));
         orbitAnimPlayButton.setHorizontalAlignment(SwingConstants.CENTER);
         orbitAnimPlayButton.setVerticalAlignment(SwingConstants.CENTER);
         orbitAnimPlayButton.setIconTextGap(0);
@@ -2566,7 +2565,7 @@ public class SystemTabPanel extends JPanel {
 
         orbitAnimStopButton.setFont(toolbarFont);
         orbitAnimStopButton.setText(null);
-        orbitAnimStopButton.setIcon(new OrbitSchematicTransportIcons.StopSquareIcon(iconSize));
+        orbitAnimStopButton.setIcon(new OrbitPlaybackTransportIcons.StopSquareIcon(iconSize));
         orbitAnimStopButton.setHorizontalAlignment(SwingConstants.CENTER);
         orbitAnimStopButton.setVerticalAlignment(SwingConstants.CENTER);
         orbitAnimStopButton.setIconTextGap(0);
@@ -2577,8 +2576,8 @@ public class SystemTabPanel extends JPanel {
         orbitAnimSpeedValueLabel.setToolTipText(speedValueTt);
 
         int chevSize = Math.max(12, Math.min(40, Math.round(rowH * 0.88f)));
-        Icon chevL = new OrbitSchematicTransportIcons.DoubleChevronLeftIcon(chevSize);
-        Icon chevR = new OrbitSchematicTransportIcons.DoubleChevronRightIcon(chevSize);
+        Icon chevL = new OrbitPlaybackTransportIcons.DoubleChevronLeftIcon(chevSize);
+        Icon chevR = new OrbitPlaybackTransportIcons.DoubleChevronRightIcon(chevSize);
         orbitAnimSpeedDownButton.setText(null);
         orbitAnimSpeedDownButton.setIcon(chevL);
         orbitAnimSpeedDownButton.setIconTextGap(0);
@@ -2603,8 +2602,8 @@ public class SystemTabPanel extends JPanel {
             return;
         }
         int chevSize = Math.max(12, Math.min(40, Math.round(fm.getHeight() * 0.88f)));
-        Icon down = new OrbitSchematicTransportIcons.ChevronDownIcon(chevSize);
-        Icon up = new OrbitSchematicTransportIcons.ChevronUpIcon(chevSize);
+        Icon down = new OrbitPlaybackTransportIcons.ChevronDownIcon(chevSize);
+        Icon up = new OrbitPlaybackTransportIcons.ChevronUpIcon(chevSize);
         int btnH = iconSize + Math.max(4, (int) Math.ceil(Math.max(2, fm.getDescent())));
         int btnW = chevSize + Math.max(8, (int) Math.round(chevSize * 0.15) + 6);
         int side = Math.max(btnW, btnH);
@@ -5279,7 +5278,7 @@ static class Row {
      * Body whose centre (plus optional Status lat/lon/alt) anchors ship-centric distances and the distance column
      * when “from ship” / targeted mode applies. See {@link SystemTabShipRefMode} (Overlay preferences → System tab).
      * <p>
-     * The orbit schematic map’s ▲ “You” label is {@link #resolvePlanMapTriangleAnchorBodyId()} in
+     * The orbit plan map’s ▲ “You” label is {@link #resolvePlanMapTriangleAnchorBodyId()} in
      * {@link SystemTabShipRefMode#TARGETED_BODY} (HUD navigation target, not FSS destination rows). Ship position on
      * the map still uses {@link #resolvePlanMapShipAnchorBodyId()} (physical anchor only).
      * </p>
@@ -5473,8 +5472,8 @@ static class Row {
         if (orbitAnimDemoActive && orbitAnimSimInstant != null) {
             return orbitAnimSimInstant;
         }
-        if (schematicMapFreezeEpoch != null) {
-            return schematicMapFreezeEpoch;
+        if (orbitAnimFreezeEpoch != null) {
+            return orbitAnimFreezeEpoch;
         }
         return Instant.now();
     }

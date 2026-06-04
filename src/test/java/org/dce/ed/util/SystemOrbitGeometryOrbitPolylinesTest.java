@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
-import org.dce.ed.systemmap.MapScaleMode;
 import org.dce.ed.systemmap.SystemMapFixture;
 import org.dce.ed.systemmap.SystemMapFixtureLoader;
 import org.dce.ed.systemmap.SystemMapModel;
@@ -98,8 +97,7 @@ class SystemOrbitGeometryOrbitPolylinesTest {
         applyCoeusHighInclinationKeplerElements(bodies);
         int idA1 = coeus.bodyIdByLabel("A 1");
         BodyInfo a1 = bodies.get(Integer.valueOf(idA1));
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         OrbitPolylineWorldXY ring = findPolyline(model.orbitPolylines(), idA1);
         assertNotNull(ring, "A 1 Kepler stroke");
         assertTrue(assertKeplerDroppedAxisSpanMetres(a1, model.projectionAxis0(), model.projectionAxis1()) > 1.0e9,
@@ -116,8 +114,7 @@ class SystemOrbitGeometryOrbitPolylinesTest {
         applyCoeusHighInclinationKeplerElements(bodies);
         int idA4 = coeus.bodyIdByLabel("A 4");
         BodyInfo a4 = bodies.get(Integer.valueOf(idA4));
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         OrbitPolylineWorldXY flat = findPolyline(model.orbitPolylines(), idA4);
         assertNotNull(flat);
         double zSpan = assertKeplerDroppedAxisSpanMetres(a4, model.projectionAxis0(), model.projectionAxis1());
@@ -128,7 +125,7 @@ class SystemOrbitGeometryOrbitPolylinesTest {
         List<OrbitPolylineWorldXY> tilted = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(
                 bodies, model.positionsMetres(), 96, Double.NaN, model.projectionAxis0(),
                 model.projectionAxis1(), !SystemOrbitGeometry.isHierarchicalWideBinary(bodies),
-                model.resolvedParentByBodyId(), MapScaleMode.TRUE_SCALE, false, null, 90);
+                model.resolvedParentByBodyId(), null, 90);
         OrbitPolylineWorldXY opened = findPolyline(tilted, idA4);
         assertNotNull(opened);
         assertTrue(maxVertexDeltaMetres(flat, opened) > 1.0e8,
@@ -140,19 +137,18 @@ class SystemOrbitGeometryOrbitPolylinesTest {
     void coeus_trueScale_binaryBarycentreRing_viewTiltContinuous() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
 
         OrbitPolylineWorldXY ring0 = findBinaryBarycentreOrbitRing(
-                SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 96, Double.NaN, false, null,
-                        MapScaleMode.TRUE_SCALE, 0));
+                SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 96, Double.NaN, null,
+                        0));
         OrbitPolylineWorldXY ring1 = findBinaryBarycentreOrbitRing(
-                SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 96, Double.NaN, false, null,
-                        MapScaleMode.TRUE_SCALE, 1));
+                SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 96, Double.NaN, null,
+                        1));
         OrbitPolylineWorldXY ring2 = findBinaryBarycentreOrbitRing(
-                SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 96, Double.NaN, false, null,
-                        MapScaleMode.TRUE_SCALE, 2));
+                SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(), 96, Double.NaN, null,
+                        2));
         assertNotNull(ring0);
         assertNotNull(ring1);
         assertNotNull(ring2);
@@ -174,7 +170,7 @@ class SystemOrbitGeometryOrbitPolylinesTest {
 
         for (int tilt : new int[] { 0, 1, 2, 45, 90 }) {
             List<OrbitPolylineWorldXY> polys = SystemMapPipeline.rebuildOrbitPolylines(model, model.positionsMetres(),
-                    96, Double.NaN, false, null, MapScaleMode.TRUE_SCALE, tilt);
+                    96, Double.NaN, null, tilt);
             assertBodyOnBinaryBarycentreOrbitRingAtViewTilt(model, bodies, polys, "B", tilt, 0.02, 5.0);
         }
     }
@@ -186,8 +182,7 @@ class SystemOrbitGeometryOrbitPolylinesTest {
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         applyCoeusHighInclinationKeplerElements(bodies);
         BodyInfo a4 = bodies.get(Integer.valueOf(coeus.bodyIdByLabel("A 4")));
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         double full3d = assertKeplerDroppedAxisSpanMetres(a4, model.projectionAxis0(), model.projectionAxis1());
         double flattened = keplerDroppedAxisSpanMetres(a4, model.projectionAxis0(), model.projectionAxis1(), 0.0);
         assertTrue(full3d > 1.0e10);
@@ -202,7 +197,7 @@ class SystemOrbitGeometryOrbitPolylinesTest {
         int legacySeg = 96;
         double tinyScalePxPerM = 1e-15;
         var polys = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(bodies, pos, legacySeg, tinyScalePxPerM, 0, 1,
-                false, null, MapScaleMode.TRUE_SCALE);
+                true, null, null, 0);
         int moon = findByShortName(bodies, "2 a");
         OrbitPolylineWorldXY ring = null;
         for (OrbitPolylineWorldXY p : polys) {

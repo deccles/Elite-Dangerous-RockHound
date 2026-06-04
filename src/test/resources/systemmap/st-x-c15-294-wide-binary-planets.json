@@ -1,6 +1,6 @@
 {
   "name": "Byua Aim ST-X c15-294",
-  "notes": "Wide binary with A and B branches and planets. Regression: branch schematic rings, labels, no giant per-star ring at origin.",
+  "notes": "Wide binary with A and B branches and planets. Regression: branch guide rings, labels, no giant per-star ring at origin.",
   "bodies": [
     {
       "id": 0,

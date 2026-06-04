@@ -23,7 +23,7 @@ git submodule add <repo-url> edo-system-model
 The submodule must contain **zero** of the following patterns (verified by grep):
 
 - `infer*` / `backfill*` parent or topology repair
-- `pseudoOffset` / schematic layout compression
+- `pseudoOffset` / map layout compression
 - designation override beyond journal `Parents[]` rules
 
 **Allowed journal-only rules:**
@@ -35,7 +35,7 @@ The submodule must contain **zero** of the following patterns (verified by grep)
 Run audit:
 
 ```bash
-rg -i "infer|backfill|pseudoOffset|schematic" src/main/java
+rg -i "infer|backfill|pseudoOffset|MapScaleMode" src/main/java
 ```
 
 ## Tests

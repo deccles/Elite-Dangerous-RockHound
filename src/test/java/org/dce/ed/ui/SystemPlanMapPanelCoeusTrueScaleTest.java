@@ -11,7 +11,6 @@ import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.testutil.OrbitGeometryTestSupport;
-import org.dce.ed.systemmap.MapScaleMode;
 import org.dce.ed.systemmap.SystemMapFixture;
 import org.dce.ed.systemmap.SystemMapFixtureLoader;
 import org.dce.ed.systemmap.SystemMapModel;
@@ -21,33 +20,31 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Coeus wide-binary true scale: only model Kepler polylines draw blue orbit strokes — no schematic hub circles.
+ * Coeus wide-binary true scale: only model Kepler polylines draw blue orbit strokes — no display hub circles.
  */
 class SystemPlanMapPanelCoeusTrueScaleTest {
 
     private static final double DETAIL_VISIBLE_LS = 80.0;
 
     @Test
-    @DisplayName("True scale: no schematic journal-radius circle at star A for star-hosted majors")
+    @DisplayName("True scale: no display journal-radius circle at star A for star-hosted majors")
     void coeus_trueScale_noSubsystemHubRevolutionRing() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         int idA4 = coeus.bodyIdByLabel("A 4");
         assertTrue(model.isOrbitRevolutionCenter(idA4), "A 4 is a star-hosted revolution centre");
 
         SystemPlanMapPanel panel = new SystemPlanMapPanel();
         panel.setSize(900, 700);
-        panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
         panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
         panel.zoomFactorForTests(12.0);
 
         assertTrue(panel.subsystemHubRevolutionPathRingEligibleForTests(idA4, DETAIL_VISIBLE_LS),
-                "schematic paint loop would draw hub revolution ring for A 4");
+                "playback paint loop would draw hub revolution ring for A 4");
         assertFalse(panel.subsystemHubRevolutionPathRingDrawnForTests(idA4, DETAIL_VISIBLE_LS),
-                "true scale must not draw journal-radius schematic circle at star A");
+                "true scale must not draw journal-radius guide circle at star A");
         OrbitGeometryTestSupport.assertExactlyOneDirectParentOrbitStroke(panel.mapModelForTests(), bodies, "A 4",
                 panel.orbitLinesForTests(), 200.0);
     }
@@ -62,7 +59,6 @@ class SystemPlanMapPanelCoeusTrueScaleTest {
 
         SystemPlanMapPanel panel = new SystemPlanMapPanel();
         panel.setSize(900, 700);
-        panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
         Instant t0 = Instant.EPOCH;
         Instant t1 = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(402));
         Map<Integer, double[]> pos0 = SystemOrbitGeometry.bodyPositionsMetres(bodies, t0, false);
@@ -70,7 +66,7 @@ class SystemPlanMapPanelCoeusTrueScaleTest {
         panel.zoomFactorForTests(12.0);
 
         assertTrue(panel.subsystemHubRevolutionPathRingEligibleForTests(idA1, DETAIL_VISIBLE_LS),
-                "A 1 is star-hosted and eligible for hub ring in schematic");
+                "A 1 is star-hosted and eligible for hub ring in playback");
         assertFalse(panel.subsystemHubRevolutionPathRingDrawnForTests(idA1, DETAIL_VISIBLE_LS));
         double r0 = panel.hubRevolutionRingRadiusLsForTests(idA1);
         assertTrue(Double.isFinite(r0) && r0 > 100.0);
@@ -81,7 +77,7 @@ class SystemPlanMapPanelCoeusTrueScaleTest {
         assertTrue(Double.isFinite(r1) && r1 > 100.0);
         assertNotEquals(r0, r1, 0.5, "ellipse motion changes live hub-ring radius each tick");
         assertFalse(panel.subsystemHubRevolutionPathRingDrawnForTests(idA1, DETAIL_VISIBLE_LS),
-                "true-scale playback must not paint the breathing schematic circle");
+                "true-scale playback must not paint the breathing guide circle");
     }
 
     @Test
@@ -89,8 +85,7 @@ class SystemPlanMapPanelCoeusTrueScaleTest {
     void coeus_trueScale_companionB_onBinaryBarycentreRing() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         OrbitGeometryTestSupport.assertBodyOnBinaryBarycentreOrbitRing(model, bodies, "B", 0.02, 5.0);
         OrbitGeometryTestSupport.assertNoPerBodyOrbitRing(model, coeus.bodyIdByLabel("B"));
     }
@@ -103,7 +98,6 @@ class SystemPlanMapPanelCoeusTrueScaleTest {
         Instant t1 = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(402));
         SystemPlanMapPanel panel = new SystemPlanMapPanel();
         panel.setSize(900, 700);
-        panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
         Map<Integer, double[]> pos0 = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
         panel.setScene(bodies, pos0, null, null, null, false, Instant.EPOCH);
         Map<Integer, double[]> pos1 = SystemOrbitGeometry.bodyPositionsMetres(bodies, t1, false);

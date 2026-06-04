@@ -12,17 +12,16 @@ import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 import org.dce.ed.util.SystemOrbitGeometry.WideBinaryFlattenFrame;
 
 /**
- * Immutable schematic map state for one system: classified layout, projected body positions, orbit strokes,
+ * Immutable true-scale map state for one system: classified layout, projected body positions, orbit strokes,
  * and resolved topology used by the map panel.
  * <p>
  * Built only through {@link SystemMapPipeline}. {@link org.dce.ed.ui.SystemPlanMapPanel} must read parent links,
- * branch assignment, rings, and schematic positions from this model — do not re-derive layout rules in paint code.
+ * branch assignment, rings, and positions from this model — do not re-derive layout rules in paint code.
  */
 public final class SystemMapModel {
 
     private final String systemName;
     private final Map<Integer, BodyInfo> bodies;
-    private final MapScaleMode mapScaleMode;
     private final SystemMapClassification classification;
     private final int projectionAxis0;
     private final int projectionAxis1;
@@ -37,7 +36,6 @@ public final class SystemMapModel {
 
     SystemMapModel(String systemName,
             Map<Integer, BodyInfo> bodies,
-            MapScaleMode mapScaleMode,
             SystemMapClassification classification,
             int projectionAxis0,
             int projectionAxis1,
@@ -51,7 +49,6 @@ public final class SystemMapModel {
             Map<Integer, Boolean> labelVisibleWhenZoomedOut) {
         this.systemName = systemName;
         this.bodies = Collections.unmodifiableMap(bodies);
-        this.mapScaleMode = MapScaleMode.TRUE_SCALE;
         this.classification = classification;
         this.projectionAxis0 = projectionAxis0;
         this.projectionAxis1 = projectionAxis1;
@@ -71,14 +68,6 @@ public final class SystemMapModel {
 
     public Map<Integer, BodyInfo> bodies() {
         return bodies;
-    }
-
-    public MapScaleMode mapScaleMode() {
-        return mapScaleMode;
-    }
-
-    public boolean trueScale() {
-        return mapScaleMode.trueScale();
     }
 
     public SystemMapClassification classification() {
@@ -105,7 +94,6 @@ public final class SystemMapModel {
         return wideBinaryFlattenFrame;
     }
 
-    /** Resolved orbit parent map key ({@link SystemMapRules#resolveOrbitParentBodyId}), shared by GUI and tests. */
     public int resolveParentBodyId(int bodyId) {
         Integer p = resolvedParentByBodyId.get(Integer.valueOf(bodyId));
         return p != null ? p.intValue() : -1;
@@ -127,7 +115,6 @@ public final class SystemMapModel {
         return subsystemHubBodyIds;
     }
 
-    /** Major orbit anchor (star, giant host, planet-binary pair member) — not moons. */
     public boolean isOrbitRevolutionCenter(int bodyId) {
         return orbitRevolutionCenterBodyIds.contains(Integer.valueOf(bodyId));
     }
@@ -203,8 +190,8 @@ public final class SystemMapModel {
         return false;
     }
 
-    /** Count of schematic branch rings (synthetic negative body ids from {@link SystemOrbitGeometry}). */
-    public int schematicBranchRingCount() {
+    /** Count of synthetic guide rings (negative body ids). */
+    public int syntheticGuideRingCount() {
         int n = 0;
         for (OrbitPolylineWorldXY poly : orbitPolylines) {
             if (poly != null && poly.bodyId < -2) {
@@ -214,7 +201,6 @@ public final class SystemMapModel {
         return n;
     }
 
-    /** Barycentric wide-binary stars only (system barycentre, not inner ScanBaryCentre rows). */
     public Set<Integer> wideBinarySystemBarycentreStarIds() {
         Set<Integer> ids = new HashSet<>();
         if (!classification.wideBinary()) {

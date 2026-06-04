@@ -272,7 +272,7 @@ public final class SystemMapTreePrinter {
         sb.append(String.format("%n--- mapPlane footer ---%n"));
         sb.append("hasBarycentreMutualRing=").append(model.hasBarycentreMutualRing()).append('\n');
         sb.append("orbitPolylines=").append(model.orbitPolylines().size()).append('\n');
-        sb.append("schematicBranchRings=").append(model.schematicBranchRingCount()).append('\n');
+        sb.append("syntheticGuideRings=").append(model.syntheticGuideRingCount()).append('\n');
         if (arrivalStar >= 0) {
             int bId = findShortName(bodies, "B");
             if (bId >= 0) {

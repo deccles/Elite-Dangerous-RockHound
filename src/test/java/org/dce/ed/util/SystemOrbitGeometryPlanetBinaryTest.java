@@ -45,7 +45,7 @@ class SystemOrbitGeometryPlanetBinaryTest {
         Map<Integer, BodyInfo> bodies = c15210PlanetBinaryPair();
         int p8 = findByShortName(bodies, "8");
         int p9 = findByShortName(bodies, "9");
-        int star = SystemOrbitGeometry.schematicCentralStarMapKey(bodies);
+        int star = SystemOrbitGeometry.centralStarMapKey(bodies);
 
         int parent8 = SystemOrbitGeometry.resolveOrbitParentBodyId(bodies.get(Integer.valueOf(p8)), bodies, p8);
         int parent9 = SystemOrbitGeometry.resolveOrbitParentBodyId(bodies.get(Integer.valueOf(p9)), bodies, p9);
@@ -77,8 +77,8 @@ class SystemOrbitGeometryPlanetBinaryTest {
         int p8 = findByShortName(bodies, "8");
         int bKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(13);
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
-        Map<Integer, double[]> pos0 = SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(bodies, t0, 0, 1, false);
-        Map<Integer, double[]> pos1 = SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(bodies, t1, 0, 1, false);
+        Map<Integer, double[]> pos0 = SystemOrbitGeometry.bodyPositionsMetres(bodies, t0, false);
+        Map<Integer, double[]> pos1 = SystemOrbitGeometry.bodyPositionsMetres(bodies, t1, false);
         double r0 = distOnAxes(pos0.get(Integer.valueOf(p8)), pos0.get(Integer.valueOf(bKey)), 0, 1) / ls;
         double r1 = distOnAxes(pos1.get(Integer.valueOf(p8)), pos1.get(Integer.valueOf(bKey)), 0, 1) / ls;
         assertTrue(r0 > 0.5, "body 8 should sit on mutual ring, not at barycentre");
@@ -90,8 +90,8 @@ class SystemOrbitGeometryPlanetBinaryTest {
         Map<Integer, BodyInfo> bodies = c15210PlanetBinaryPairFssDistances();
         Instant t0 = Instant.parse("2020-01-01T00:00:00Z");
         Instant t1 = t0.plusSeconds(2_000_000);
-        Map<Integer, double[]> pos0 = SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(bodies, t0, 0, 1, true);
-        Map<Integer, double[]> pos1 = SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(bodies, t1, 0, 1, true);
+        Map<Integer, double[]> pos0 = SystemOrbitGeometry.bodyPositionsMetres(bodies, t0, true);
+        Map<Integer, double[]> pos1 = SystemOrbitGeometry.bodyPositionsMetres(bodies, t1, true);
         int p8 = findByShortName(bodies, "8");
         int p9 = findByShortName(bodies, "9");
         double sep0 = distOnAxes(pos0.get(Integer.valueOf(p8)), pos0.get(Integer.valueOf(p9)), 0, 1);
@@ -101,7 +101,7 @@ class SystemOrbitGeometryPlanetBinaryTest {
         double moved = Math.hypot(dx, dy);
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
         assertTrue(sep0 > ls, "pair should stay separated on mutual orbit");
-        assertTrue(moved > ls * 0.5, "body 8 should move along mutual orbit during schematic playback");
+        assertTrue(moved > ls * 0.5, "body 8 should move along mutual orbit during orbit playback");
         assertEquals(sep0, sep1, sep0 * 0.08 + ls * 0.5,
                 "mutual separation should stay ~constant while revolving");
     }
@@ -233,13 +233,11 @@ class SystemOrbitGeometryPlanetBinaryTest {
         Instant t = C15210_EPOCH.plusSeconds(1_000_000);
         var model = SystemMapPipeline.build("Byua Aim TT-X c15-210", bodies, C15210_EPOCH, true);
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, t, true);
-        Map<Integer, double[]> refined = SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(
-                bodies, t, model.projectionAxis0(), model.projectionAxis1(), true);
         Map<Integer, double[]> playback = SystemMapPipeline.refreshPositionsForPlayback(model, kepler, t, true);
         int p8 = findByShortName(bodies, "8");
         int bKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(13);
         assertEquals(
-                distOnAxes(refined.get(Integer.valueOf(p8)), refined.get(Integer.valueOf(bKey)),
+                distOnAxes(playback.get(Integer.valueOf(p8)), playback.get(Integer.valueOf(bKey)),
                         model.projectionAxis0(), model.projectionAxis1()),
                 distOnAxes(playback.get(Integer.valueOf(p8)), playback.get(Integer.valueOf(bKey)),
                         model.projectionAxis0(), model.projectionAxis1()),
@@ -284,7 +282,7 @@ class SystemOrbitGeometryPlanetBinaryTest {
         Map<Integer, double[]> pos = model.positionsMetres();
         assertNotNull(pos.get(Integer.valueOf(bKey)),
                 "barycentre map key missing from positions; keys=" + pos.keySet());
-        int star = SystemOrbitGeometry.schematicCentralStarMapKey(bodies);
+        int star = SystemOrbitGeometry.centralStarMapKey(bodies);
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
         double dBaryStar = distOnAxes(pos.get(Integer.valueOf(bKey)), pos.get(Integer.valueOf(star)),
                 model.projectionAxis0(), model.projectionAxis1()) / ls;
@@ -312,7 +310,7 @@ class SystemOrbitGeometryPlanetBinaryTest {
         int p9 = findByShortName(bodies, "9");
         int bKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(13);
 
-        double[] star = pos.get(Integer.valueOf(SystemOrbitGeometry.schematicCentralStarMapKey(bodies)));
+        double[] star = pos.get(Integer.valueOf(SystemOrbitGeometry.centralStarMapKey(bodies)));
         double[] bary = pos.get(Integer.valueOf(bKey));
         double[] pos8 = pos.get(Integer.valueOf(p8));
         double[] pos9 = pos.get(Integer.valueOf(p9));
@@ -536,14 +534,14 @@ class SystemOrbitGeometryPlanetBinaryTest {
         return mutualAngleRad8FromPositions(guiPlaybackPositions(bodies, when), bodies);
     }
 
-    /** Same as {@code SystemPlanMapPanel.refineSingleStarMapPositions} during schematic playback. */
+    /** Same as {@code SystemPlanMapPanel.refineSingleStarMapPositions} during orbit playback. */
     private static Map<Integer, double[]> guiPlaybackPositions(Map<Integer, BodyInfo> bodies, Instant when) {
         return bodyPositionsSingleStarMap(bodies, when, true);
     }
 
     private static Map<Integer, double[]> bodyPositionsSingleStarMap(Map<Integer, BodyInfo> bodies, Instant when,
             boolean freeze) {
-        return SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(bodies, when, 0, 1, freeze);
+        return SystemOrbitGeometry.bodyPositionsMetres(bodies, when, freeze);
     }
 
     private static double[] sampleMutualAngleRad8GuiPlayback(Map<Integer, BodyInfo> bodies, Instant t0,
@@ -568,8 +566,8 @@ class SystemOrbitGeometryPlanetBinaryTest {
 
     private static double baryHeliocentricAngleRad(Map<Integer, BodyInfo> bodies, Instant when) {
         int bKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(13);
-        int starKey = SystemOrbitGeometry.schematicCentralStarMapKey(bodies);
-        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetresForSingleStarMap(bodies, when, 0, 1, false);
+        int starKey = SystemOrbitGeometry.centralStarMapKey(bodies);
+        Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, when, false);
         double[] star = pos.get(Integer.valueOf(starKey));
         double[] bary = pos.get(Integer.valueOf(bKey));
         return Math.atan2(

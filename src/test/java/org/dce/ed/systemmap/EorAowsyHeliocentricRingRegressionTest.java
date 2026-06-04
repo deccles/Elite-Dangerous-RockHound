@@ -43,7 +43,7 @@ class EorAowsyHeliocentricRingRegressionTest {
     }
 
     @Test
-    @DisplayName("RockHound-style cache: B/C/D parented to A with planet class still schematic layout")
+    @DisplayName("RockHound-style cache: B/C/D parented to A with planet class still map layout")
     void noHeliocentricRing_whenCompanionsWronglyParentedToArrivalStar() throws IOException {
         Map<Integer, BodyInfo> copy = fixture.toBodies();
         int aId = fixture.bodyIdByLabel("A");
@@ -61,7 +61,7 @@ class EorAowsyHeliocentricRingRegressionTest {
         assertEquals(null3, broken.resolveParentBodyId(fixture.bodyIdByLabel("C")));
         assertEquals(SystemOrbitGeometry.planetBinaryBarycentreMapKey(2),
                 broken.resolveParentBodyId(fixture.bodyIdByLabel("D")));
-        OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(broken, copy, idA);
+        OrbitGeometryTestSupport.assertHierarchicalBarycentreRing(broken, copy, idA);
         OrbitGeometryTestSupport.assertNoHeliocentricRingAroundPrimaryStar(broken, copy, idA, MAX_PRIMARY_RING_LS);
         assertFalse(SystemOrbitGeometry.isHierarchicalTripleStarMap(copy), "four-star, not triple");
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
@@ -81,7 +81,7 @@ class EorAowsyHeliocentricRingRegressionTest {
     }
 
     @Test
-    @DisplayName("live cache: B/C/D with planet class still use wide-binary schematic trunk")
+    @DisplayName("live cache: B/C/D with planet class still use wide-binary display trunk")
     void noHeliocentricRing_whenCompanionStarsExcludedFromMapStellarCount() {
         Map<Integer, BodyInfo> copy = fixture.toBodies();
         for (String label : new String[] { "B", "C", "D" }) {
@@ -96,7 +96,7 @@ class EorAowsyHeliocentricRingRegressionTest {
                 liveLike.classification().layoutKind());
         OrbitGeometryTestSupport.assertNoHeliocentricRingAroundPrimaryStar(liveLike, copy, idA,
                 MAX_PRIMARY_RING_LS);
-        OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(liveLike, copy, idA);
+        OrbitGeometryTestSupport.assertHierarchicalBarycentreRing(liveLike, copy, idA);
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
         int idB = fixture.bodyIdByLabel("B");
         double distBa = Math.hypot(liveLike.mapPlaneX(idB) - liveLike.mapPlaneX(idA),
@@ -127,12 +127,12 @@ class EorAowsyHeliocentricRingRegressionTest {
         OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(liveLike, copy, "C", 3, 2.5);
         OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(liveLike, copy, "D", 2, 3.5);
         assertTrue(liveLike.orbitPolylines().size() >= 26,
-                "hierarchical companion needs schematic + mutual rings; had " + liveLike.orbitPolylines().size());
+                "hierarchical companion needs barycentre + mutual rings; had " + liveLike.orbitPolylines().size());
     }
 
     @Test
-    @DisplayName("GUI rebuild path (SystemPlanMapPanel.rebuildOrbitPolylines) — schematic barycentre ring")
-    void rebuildOrbitPolylines_schematicBarycentreRing() {
+    @DisplayName("GUI rebuild path (SystemPlanMapPanel.rebuildOrbitPolylines) — system barycentre ring")
+    void rebuildOrbitPolylines_barycentreRing() {
         var rebuilt = SystemMapPipeline.rebuildOrbitPolylines(model,
                 new HashMap<>(model.positionsMetres()), 96, Double.NaN);
         assertFalse(rebuilt.isEmpty());
@@ -144,6 +144,6 @@ class EorAowsyHeliocentricRingRegressionTest {
                 hasBaryRing = true;
             }
         }
-        assertTrue(hasBaryRing, "rebuild should keep schematic system barycentre ring");
+        assertTrue(hasBaryRing, "rebuild should keep system barycentre ring");
     }
 }

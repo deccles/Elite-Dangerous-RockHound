@@ -69,7 +69,7 @@ class EorAowsyPanelPlaybackRegressionTest {
                 SystemOrbitGeometry.worldAxisMetres(after.get(Integer.valueOf(idB)), 1)
                         - SystemOrbitGeometry.worldAxisMetres(after.get(Integer.valueOf(idC)), 1))
                 / LS;
-        assertTrue(dBc < 500.0, "refresh should re-apply schematic B+C; dBc=" + dBc + " Ls");
+        assertTrue(dBc < 500.0, "refresh should re-apply B+C layout; dBc=" + dBc + " Ls");
     }
 
     @Test

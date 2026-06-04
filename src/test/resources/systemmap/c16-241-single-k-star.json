@@ -1,6 +1,6 @@
 {
   "name": "Byua Aim WZ-V c16-241",
-  "notes": "Single K star with multiple planets — concentric schematic rings at central star.",
+  "notes": "Single K star with multiple planets — concentric guide rings at central star.",
   "bodies": [
     {
       "id": 0,
@@ -36,7 +36,7 @@
     }
   ],
   "expect": {
-    "layoutKind": "SINGLE_STAR_SCHEMATIC",
+    "layoutKind": "SINGLE_STAR",
     "mapStellarCount": 1,
     "planetsRequiringRings": ["A 1", "A 2", "A 3"],
     "parents": [

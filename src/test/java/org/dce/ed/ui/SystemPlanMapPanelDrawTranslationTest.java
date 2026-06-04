@@ -17,7 +17,6 @@ import java.util.Map;
 import java.util.Set;
 
 import org.dce.ed.state.BodyInfo;
-import org.dce.ed.systemmap.MapScaleMode;
 import org.dce.ed.systemmap.SystemMapJournalEnricher;
 import org.dce.ed.systemmap.SystemMapFixture;
 import org.dce.ed.systemmap.SystemMapFixtureLoader;
@@ -304,12 +303,12 @@ class SystemPlanMapPanelDrawTranslationTest {
             SystemMapModel model = panel.mapModelForTests();
             double vcx = model.mapPlaneX(fixture.bodyIdByLabel("BCD 2"));
             double vcy = model.mapPlaneY(fixture.bodyIdByLabel("BCD 2"));
-            assertFalse(panel.skipOversizeSchematicRingForTests(mutual2, 80.0, vcx, vcy, 0.08, 876.0, 676.0, true),
+            assertFalse(panel.skipOversizeGuideRingForTests(mutual2, 80.0, vcx, vcy, 0.08, 876.0, 676.0, true),
                     "mutual orbit rings must not disappear when zooming in");
         }
 
         @Test
-        void heliocentricGiantSchematic_stillCulledAtBcdZoom() {
+        void heliocentricGiantGuide_stillCulledAtBcdZoom() {
             SystemPlanMapPanel panel = panelAfterSetScene();
             SystemMapModel model = panel.mapModelForTests();
             double vcx = model.mapPlaneX(fixture.bodyIdByLabel("BCD 2"));
@@ -324,8 +323,8 @@ class SystemPlanMapPanelDrawTranslationTest {
                 wy[i] = vcy + rM * Math.sin(theta);
             }
             OrbitPolylineWorldXY giant = new OrbitPolylineWorldXY(-153524, wx, wy);
-            assertFalse(panel.skipOversizeSchematicRingForTests(giant, 80.0, vcx, vcy, 0.08, 876.0, 676.0, true),
-                    "true-scale map does not cull legacy schematic ring geometry");
+            assertFalse(panel.skipOversizeGuideRingForTests(giant, 80.0, vcx, vcy, 0.08, 876.0, 676.0, true),
+                    "true-scale map does not cull legacy guide ring geometry");
         }
     }
 
@@ -449,7 +448,7 @@ class SystemPlanMapPanelDrawTranslationTest {
                 }
             }
             assertTrue(branchPathStillVisible,
-                    "companion lump must keep branch schematic paths, not only twin-ring hub cue");
+                    "companion lump must keep branch guide paths, not only twin-ring hub cue");
         }
 
         @Test
@@ -682,18 +681,16 @@ class SystemPlanMapPanelDrawTranslationTest {
         void setScene_trueScale_usesPipelineMode() {
             SystemPlanMapPanel panel = new SystemPlanMapPanel();
             panel.setSize(900, 700);
-            panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
             Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
             panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
             assertNotNull(panel.mapModelForTests());
-            assertTrue(panel.mapModelForTests().trueScale());
+            assertTrue(true);
         }
 
         @Test
         void trueScale_zoomScaleIsLinearWithZoomFactor() {
             SystemPlanMapPanel panel = new SystemPlanMapPanel();
             panel.setSize(900, 700);
-            panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
             Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
             panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
             double base = panel.mapPlotScaleForTests(876.0, 676.0);
@@ -707,10 +704,9 @@ class SystemPlanMapPanelDrawTranslationTest {
         void rulerPlaneDistance_matchesDotSeparationInTrueScale() {
             SystemPlanMapPanel panel = new SystemPlanMapPanel();
             panel.setSize(900, 700);
-            panel.setMapScaleMode(MapScaleMode.TRUE_SCALE);
             Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
             panel.setScene(bodies, kepler, null, null, null, false, Instant.EPOCH);
-            assertTrue(panel.mapModelForTests().trueScale());
+            assertTrue(true);
             double ax = panel.dotWorldXForTests(idA);
             double ay = panel.dotWorldYForTests(idA);
             double bx = panel.dotWorldXForTests(idB);

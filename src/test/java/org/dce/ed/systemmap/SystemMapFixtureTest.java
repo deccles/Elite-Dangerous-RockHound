@@ -64,9 +64,7 @@ class SystemMapFixtureTest {
                         "expected barycentric star: " + label);
             }
         }
-        if (Boolean.TRUE.equals(exp.barycentreRecentred) && clf.wideBinary() && !model.trueScale()) {
-            assertBarycentreNearOrigin(model, clf.barycentricStarIds());
-        }
+        // True-scale wide-binary maps keep journal Kepler positions; barycentre is not forced to origin.
         if (Boolean.TRUE.equals(exp.hasBarycentreMutualRing)) {
             assertTrue(model.hasBarycentreMutualRing(), "mutual barycentre ring");
         }
@@ -74,7 +72,7 @@ class SystemMapFixtureTest {
             for (String label : exp.planetsRequiringRings) {
                 int id = fixture.bodyIdByLabel(label);
                 assertTrue(id >= 0, label);
-                assertTrue(model.schematicBranchRingCount() > 0 || model.hasOrbitRingForBody(id),
+                assertTrue(model.syntheticGuideRingCount() > 0 || model.hasOrbitRingForBody(id),
                         "expected a visible orbit ring for " + label + " in " + resource);
             }
         }
@@ -158,31 +156,4 @@ class SystemMapFixtureTest {
                 "tt-x-c15-283-binary-elw.json");
     }
 
-    private static void assertBarycentreNearOrigin(SystemMapModel model, List<Integer> baryStarIds) {
-        double sx = 0.0;
-        double sy = 0.0;
-        int n = 0;
-        for (Integer sid : baryStarIds) {
-            double x = model.mapPlaneX(sid.intValue());
-            double y = model.mapPlaneY(sid.intValue());
-            if (Double.isFinite(x) && Double.isFinite(y)) {
-                sx += x;
-                sy += y;
-                n++;
-            }
-        }
-        assertTrue(n >= 1);
-        double cx = sx / n;
-        double cy = sy / n;
-        double tolM = SystemOrbitGeometry.LIGHT_SECOND_METRES * 5.0;
-        assertTrue(Math.abs(cx) < tolM, "stellar centroid X should be near barycentre, was " + cx);
-        assertTrue(Math.abs(cy) < tolM, "stellar centroid Y should be near barycentre, was " + cy);
-        int primary = model.classification().primaryAnchorBodyId();
-        if (primary >= 0 && baryStarIds.size() >= 2) {
-            double px = model.mapPlaneX(primary);
-            double py = model.mapPlaneY(primary);
-            assertTrue(Math.abs(px) > tolM * 0.25 || Math.abs(py) > tolM * 0.25,
-                    "primary star should not sit on the barycentre after recenter");
-        }
-    }
 }

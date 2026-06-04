@@ -303,8 +303,7 @@ class SystemMapHierarchyBuilderTest {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         int idA = coeus.bodyIdByLabel("A");
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         int ringId = SystemOrbitGeometry.PLANET_BINARY_OUTER_ORBIT_RING_ID_BASE - 14;
         double starX = model.mapPlaneX(idA);
         double starY = model.mapPlaneY(idA);
@@ -332,8 +331,7 @@ class SystemMapHierarchyBuilderTest {
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         int idA = coeus.bodyIdByLabel("A");
         int idB = coeus.bodyIdByLabel("B");
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         assertFalse(model.hasOrbitRingForBody(idA), "star A should not have heliocentric per-star ring");
         assertFalse(model.hasOrbitRingForBody(idB), "star B should not have heliocentric per-star ring");
         assertTrue(model.hasBarycentreMutualRing(), "A and B should share one mutual barycentre ring");
@@ -342,8 +340,7 @@ class SystemMapHierarchyBuilderTest {
     static Stream<String> coeusPrimaryBranchDirectStarChildren() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         return OrbitGeometryTestSupport.directResolvedMajorChildrenOfStar(model, bodies, "A").stream();
     }
 
@@ -354,8 +351,7 @@ class SystemMapHierarchyBuilderTest {
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         int idA = coeus.bodyIdByLabel("A");
         int bodyId = coeus.bodyIdByLabel(label);
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         assertEquals(idA, model.resolveParentBodyId(bodyId), label + " should orbit star A directly");
         OrbitGeometryTestSupport.assertPerBodyOrbitRingCentredOnResolvedParent(model, bodies, label,
                 model.orbitPolylines(), 200.0);
@@ -364,26 +360,25 @@ class SystemMapHierarchyBuilderTest {
     }
 
     @Test
-    void coeus_trueScale_a1_singleStroke_noSchematicCircle() throws IOException {
+    void coeus_trueScale_a1_singleStroke_noSyntheticGuideCircle() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         BodyInfo a1 = bodies.get(Integer.valueOf(coeus.bodyIdByLabel("A 1")));
         a1.setJournalParentRefs(java.util.List.of("Star:0", "Null:0"));
         applyCoeusHighInclinationKeplerElements(bodies);
         Instant t11 = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(402));
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, t11, false, MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, t11, false);
         List<SystemOrbitGeometry.OrbitPolylineWorldXY> polys = model.orbitPolylines();
-        OrbitGeometryTestSupport.assertNoSchematicConcentricBranchRings(polys);
+        OrbitGeometryTestSupport.assertNoSyntheticConcentricBranchRings(polys);
         OrbitGeometryTestSupport.assertExactlyOneDirectParentOrbitStroke(model, bodies, "A 1", polys, 200.0);
         OrbitGeometryTestSupport.assertNoEllipticalAndCircularOrbitPairNearParent(model, bodies, "A 1", polys,
                 200.0);
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, t11, false);
         Map<Integer, double[]> playback = SystemMapPipeline.refreshPositionsForPlayback(model, kepler, t11, false);
         SystemMapModel playModel = SystemMapPipeline.playbackBase(bodies, model.projectionAxis0(),
-                model.projectionAxis1(), playback, model.wideBinaryFlattenFrame(), MapScaleMode.TRUE_SCALE);
-        var rebuilt = SystemMapPipeline.rebuildOrbitPolylines(playModel, playback, 96, Double.NaN, false, null,
-                MapScaleMode.TRUE_SCALE);
-        OrbitGeometryTestSupport.assertNoSchematicConcentricBranchRings(rebuilt);
+                model.projectionAxis1(), playback, model.wideBinaryFlattenFrame());
+        var rebuilt = SystemMapPipeline.rebuildOrbitPolylines(playModel, playback, 96, Double.NaN, null);
+        OrbitGeometryTestSupport.assertNoSyntheticConcentricBranchRings(rebuilt);
         OrbitGeometryTestSupport.assertExactlyOneDirectParentOrbitStroke(playModel, bodies, "A 1", rebuilt, 200.0);
         OrbitGeometryTestSupport.assertNoEllipticalAndCircularOrbitPairNearParent(playModel, bodies, "A 1", rebuilt,
                 200.0);
@@ -395,8 +390,7 @@ class SystemMapHierarchyBuilderTest {
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         applyCoeusHighInclinationKeplerElements(bodies);
         int idA1 = coeus.bodyIdByLabel("A 1");
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         SystemOrbitGeometry.OrbitPolylineWorldXY ring = null;
         for (SystemOrbitGeometry.OrbitPolylineWorldXY p : model.orbitPolylines()) {
             if (p != null && p.bodyId == idA1) {
@@ -420,8 +414,7 @@ class SystemMapHierarchyBuilderTest {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         applyCoeusHighInclinationKeplerElements(bodies);
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         int idA4 = coeus.bodyIdByLabel("A 4");
         SystemOrbitGeometry.OrbitPolylineWorldXY ring = null;
         for (SystemOrbitGeometry.OrbitPolylineWorldXY p : model.orbitPolylines()) {
@@ -450,8 +443,7 @@ class SystemMapHierarchyBuilderTest {
         a5.setImmediateParentBodyId(idA);
         bodies.put(Integer.valueOf(idA5), a5);
         applyCoeusHighInclinationKeplerElements(bodies);
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         assertEquals(idA, model.resolveParentBodyId(idA5));
         OrbitGeometryTestSupport.assertExactlyOneDirectParentOrbitStroke(model, bodies, "A 5",
                 model.orbitPolylines(), 200.0);
@@ -471,8 +463,7 @@ class SystemMapHierarchyBuilderTest {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         applyCoeusHighInclinationKeplerElements(bodies);
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         OrbitGeometryTestSupport.assertDirectPrimaryBranchPlanetOrbitsNotSquished(model, bodies,
                 OrbitGeometryTestSupport.directResolvedMajorChildrenOfStar(model, bodies, "A"),
                 model.orbitPolylines(), 12.0, 200.0);
@@ -483,8 +474,7 @@ class SystemMapHierarchyBuilderTest {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         applyCoeusHighInclinationKeplerElements(bodies);
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         int idA4 = coeus.bodyIdByLabel("A 4");
         SystemOrbitGeometry.OrbitPolylineWorldXY flat = findPolyline(model.orbitPolylines(), idA4);
         assertNotNull(flat);
@@ -493,7 +483,7 @@ class SystemMapHierarchyBuilderTest {
         java.util.List<SystemOrbitGeometry.OrbitPolylineWorldXY> tilted = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(
                 bodies, model.positionsMetres(), 96, Double.NaN, model.projectionAxis0(), model.projectionAxis1(),
                 !SystemOrbitGeometry.isHierarchicalWideBinary(bodies), model.resolvedParentByBodyId(),
-                MapScaleMode.TRUE_SCALE, false, null, 90);
+                null, 90);
         SystemOrbitGeometry.OrbitPolylineWorldXY opened = findPolyline(tilted, idA4);
         assertNotNull(opened);
         double openRatio = orbitPolylineApoPeriRatio(opened);
@@ -586,8 +576,7 @@ class SystemMapHierarchyBuilderTest {
         starB.setOrbitalInclination(0.0);
         starB.setAscendingNode(0.0);
         starB.setPeriapsis(0.0);
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         Instant tHalfYear = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(183));
         Map<Integer, double[]> kepler0 = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, false);
         Map<Integer, double[]> kepler1 = SystemOrbitGeometry.bodyPositionsMetres(bodies, tHalfYear, false);
@@ -613,25 +602,24 @@ class SystemMapHierarchyBuilderTest {
         Map<Integer, double[]> keplerFrozenEpoch = SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH,
                 true);
         assertEquals(mapPlaneCoord(keplerFrozenEpoch, idB, 0), mapPlaneCoord(keplerFrozenYear, idB, 0), 1e-6,
-                "freezeBarycentreStars should hold B fixed in Kepler space (schematic behaviour)");
+                "freezeBarycentreStars should hold B fixed in Kepler space (expected behaviour)");
         assertNotEquals(mapPlaneCoord(keplerFrozenYear, idB, 0), mapPlaneCoord(kepler1, idB, 0), 1e-6,
                 "unfrozen Kepler should advance B over half a sim year");
     }
 
     @Test
-    void coeus_trueScale_playbackRebuild_noSchematicBranchRings() throws IOException {
+    void coeus_trueScale_playbackRebuild_noSyntheticBranchRings() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
         applyCoeusHighInclinationKeplerElements(bodies);
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         Instant t12 = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(365));
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, t12, false);
         Map<Integer, double[]> playback = SystemMapPipeline.refreshPositionsForPlayback(model, kepler, t12, false);
         SystemMapModel playModel = SystemMapPipeline.playbackBase(bodies, model.projectionAxis0(),
-                model.projectionAxis1(), playback, model.wideBinaryFlattenFrame(), MapScaleMode.TRUE_SCALE);
+                model.projectionAxis1(), playback, model.wideBinaryFlattenFrame());
         var polys = SystemMapPipeline.rebuildOrbitPolylines(playModel, playback, 96, Double.NaN);
-        OrbitGeometryTestSupport.assertNoSchematicConcentricBranchRings(polys);
+        OrbitGeometryTestSupport.assertNoSyntheticConcentricBranchRings(polys);
         assertTrue(polys.stream().anyMatch(
                 p -> p != null && p.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID),
                 "playback rebuild should keep A/B mutual ring");
@@ -656,8 +644,7 @@ class SystemMapHierarchyBuilderTest {
         int idA2 = coeus.bodyIdByLabel("A 2");
         int null14Hub = SystemOrbitGeometry.planetBinaryBarycentreMapKey(14);
         int scan14 = coeus.bodyIdByLabel("Null:14");
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
         Instant tYear = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(365));
         Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(bodies, tYear, false);
@@ -679,7 +666,7 @@ class SystemMapHierarchyBuilderTest {
         assertTrue(refreshHubFromA > 1200.0 && refreshHubFromA < 2100.0,
                 "after refresh hub from A; was " + refreshHubFromA + " Ls");
         SystemMapModel playModel = SystemMapPipeline.playbackBase(bodies, model.projectionAxis0(),
-                model.projectionAxis1(), playback, model.wideBinaryFlattenFrame(), MapScaleMode.TRUE_SCALE);
+                model.projectionAxis1(), playback, model.wideBinaryFlattenFrame());
         double hubFromA = Math.hypot(playModel.mapPlaneX(null14Hub) - playModel.mapPlaneX(idA),
                 playModel.mapPlaneY(null14Hub) - playModel.mapPlaneY(idA)) / ls;
         assertTrue(hubFromA > 1200.0 && hubFromA < 2100.0,
@@ -688,8 +675,8 @@ class SystemMapHierarchyBuilderTest {
                 playModel.mapPlaneY(idA2) - playModel.mapPlaneY(idA)) / ls;
         assertTrue(a2FromA > 1200.0 && a2FromA < 2200.0,
                 "A 2 should stay near star A after playback refresh; was " + a2FromA + " Ls");
-        var polys = SystemMapPipeline.rebuildOrbitPolylines(playModel, playback, 96, Double.NaN, false, null,
-                MapScaleMode.TRUE_SCALE, 0, tYear);
+        var polys = SystemMapPipeline.rebuildOrbitPolylines(playModel, playback, 96, Double.NaN, null,
+                0, tYear);
         int mutualId = SystemOrbitGeometry.PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - 14;
         int outerId = SystemOrbitGeometry.PLANET_BINARY_OUTER_ORBIT_RING_ID_BASE - 14;
         double mutualR = Double.NaN;
@@ -734,8 +721,7 @@ class SystemMapHierarchyBuilderTest {
         int idA5 = coeus.bodyIdByLabel("A 5");
         bodies.get(Integer.valueOf(idA4)).setOrbitalPeriod(null);
         bodies.get(Integer.valueOf(idA5)).setOrbitalPeriod(null);
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, true,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, true);
         Instant tLater = Instant.EPOCH.plus(java.time.temporal.ChronoUnit.DAYS.getDuration().multipliedBy(365));
         Map<Integer, double[]> pos0 = SystemMapPipeline.refreshPositionsForPlayback(model,
                 SystemOrbitGeometry.bodyPositionsMetres(bodies, Instant.EPOCH, true), Instant.EPOCH, true);
@@ -758,8 +744,7 @@ class SystemMapHierarchyBuilderTest {
         int idA = coeus.bodyIdByLabel("A");
         int idA2 = coeus.bodyIdByLabel("A 2");
         int idB = coeus.bodyIdByLabel("B");
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, false);
         double distA2 = Math.hypot(model.mapPlaneX(idA2) - model.mapPlaneX(idA),
                 model.mapPlaneY(idA2) - model.mapPlaneY(idA))
                 / SystemOrbitGeometry.LIGHT_SECOND_METRES;

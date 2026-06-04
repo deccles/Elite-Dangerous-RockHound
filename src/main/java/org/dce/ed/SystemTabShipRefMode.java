@@ -2,7 +2,7 @@ package org.dce.ed;
 
 /**
  * How the System tab picks the commander reference body for ship-centric distances, plan-map “You” highlight,
- * and ship position on the schematic (see {@link org.dce.ed.SystemTabPanel}).
+ * and ship position on the plan map (see {@link org.dce.ed.SystemTabPanel}).
  */
 public enum SystemTabShipRefMode {
 

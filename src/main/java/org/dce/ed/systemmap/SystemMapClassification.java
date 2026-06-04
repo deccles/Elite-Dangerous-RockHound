@@ -9,11 +9,14 @@ public record SystemMapClassification(
         SystemLayoutKind layoutKind,
         int mapStellarCount,
         int primaryAnchorBodyId,
-        int schematicCentralStarId,
-        List<Integer> barycentricStarIds,
-        boolean singleStarSchematicMap) {
+        int centralStarId,
+        List<Integer> barycentricStarIds) {
 
     public boolean wideBinary() {
         return layoutKind == SystemLayoutKind.WIDE_BINARY;
+    }
+
+    public boolean singleStar() {
+        return layoutKind == SystemLayoutKind.SINGLE_STAR;
     }
 }

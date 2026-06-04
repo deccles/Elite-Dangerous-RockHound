@@ -303,7 +303,7 @@ final class BioTableBuilder {
     }
 
     static List<Row> buildRows(java.util.Collection<BodyInfo> bodies) {
-        return buildRows(bodies, false, null);
+        return buildRows(bodies, false);
     }
 
     static List<Row> buildRows(java.util.Collection<BodyInfo> bodies, boolean shouldCollapse) {
@@ -342,7 +342,7 @@ final class BioTableBuilder {
             java.util.Map<Integer, Double> shipCentricDistLs,
             boolean shipCentricAnchorMissing) {
         return buildRows(bodyMapFromCollection(bodies), shouldCollapse, hideBioDetailRowsForBodyIds,
-                distanceFromShipMode, shipCentricDistLs, shipCentricAnchorMissing, false, null);
+                distanceFromShipMode, shipCentricDistLs, shipCentricAnchorMissing, null);
     }
 
     private static LinkedHashMap<Integer, BodyInfo> bodyMapFromCollection(java.util.Collection<BodyInfo> bodies) {

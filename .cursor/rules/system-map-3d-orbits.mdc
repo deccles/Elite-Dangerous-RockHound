@@ -17,9 +17,9 @@ alwaysApply: false
 
 ## Allowed exceptions (document in code if you add more)
 
-- **Schematic / trunk rings** — `fillMapPlaneCircleVertices`, branch-star schematic rings, planet-binary mutual rings, binary barycentre mutual ring: intentionally 2D in the map plane.
+- **Guide / trunk rings** — `fillMapPlaneCircleVertices`, branch-star guide rings, planet-binary mutual rings, binary barycentre mutual ring: intentionally 2D in the map plane.
 - **i = 0 fallback** — Only when `viewTiltDeg <= 0` and `keplerMapPlaneProjectionTooFlat` for true-scale branch-star planets (edge-on needle avoidance), not for all bodies globally.
-- **Schematic mode** — Planets/moons use journal-radius circles; true-scale Kepler strokes are separate.
+- **Journal-radius fallback strokes** — Sparse bodies may use parent-relative circle guides when Kepler data is incomplete; full 3D Kepler strokes are preferred when journal fields allow.
 
 ## Before merging map/orbit changes
 

@@ -9,7 +9,6 @@ import java.time.Instant;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
-import org.dce.ed.systemmap.MapScaleMode;
 import org.dce.ed.systemmap.SystemMapFixture;
 import org.dce.ed.systemmap.SystemMapFixtureLoader;
 import org.dce.ed.util.SystemOrbitGeometry;

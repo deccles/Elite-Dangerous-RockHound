@@ -3,6 +3,7 @@ package org.dce.ed;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Container;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -84,7 +85,19 @@ public class BiologyTabPanel extends JPanel {
 
     private final JLabel header = new JLabel("Biology");
     private final BioTableModel model = new BioTableModel();
-    private final JTable table = new JTable(model);
+    private final JTable table = new JTable(model) {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        protected void configureEnclosingScrollPane() {
+            super.configureEnclosingScrollPane();
+            Container p = SwingUtilities.getAncestorOfClass(JScrollPane.class, this);
+            if (p instanceof JScrollPane sp) {
+                sp.setBorder(null);
+                sp.setViewportBorder(null);
+            }
+        }
+    };
     private final JScrollPane scroll = new JScrollPane(table);
 
     private final BioMapPanel mapPanel = new BioMapPanel();
@@ -192,6 +205,7 @@ private Double lastFootTravelUpDeg;
         table.setFillsViewportHeight(true);
         table.setRowHeight(24);
         table.setShowGrid(false);
+        table.setBorder(null);
 
         table.setOpaque(false);
         table.setBackground(EdoUi.Internal.TRANSPARENT);
@@ -208,10 +222,12 @@ private Double lastFootTravelUpDeg;
         styleHeader(table);
 
         scroll.setBorder(null);
+        scroll.setViewportBorder(null);
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
         scroll.getViewport().setBackground(EdoUi.Internal.TRANSPARENT);
         if (scroll.getColumnHeader() != null) {
+            scroll.getColumnHeader().setBorder(null);
             scroll.getColumnHeader().setOpaque(false);
             scroll.getColumnHeader().setBackground(EdoUi.Internal.TRANSPARENT);
             scroll.getColumnHeader().setUI(org.dce.ed.ui.TransparentViewportUI.createUI(scroll.getColumnHeader()));
@@ -1483,6 +1499,7 @@ private static List<BioRow> buildRows(BodyInfo body) {
         th.setOpaque(false);
         th.setForeground(EdoUi.User.MAIN_TEXT);
         th.setBackground(EdoUi.User.BACKGROUND);
+        th.setBorder(null);
 
         th.setDefaultRenderer(new DefaultTableCellRenderer() {
 

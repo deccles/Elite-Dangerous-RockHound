@@ -20,11 +20,10 @@ class SystemMapOrbitStrokePrinterTest {
     void printDump_trueScaleSingleStar_listsBodies() throws IOException {
         SystemMapFixture fixture = SystemMapFixtureLoader.loadClasspath("c16-241-single-k-star.json");
         Map<Integer, BodyInfo> bodies = fixture.toBodies();
-        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false,
-                MapScaleMode.TRUE_SCALE);
+        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false);
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         SystemMapOrbitStrokePrinter.printToConsole(fixture.name, bodies, model, model.orbitPolylines(),
-                MapScaleMode.TRUE_SCALE, false, new PrintStream(buf, true, StandardCharsets.UTF_8));
+                false, new PrintStream(buf, true, StandardCharsets.UTF_8));
         String out = buf.toString(StandardCharsets.UTF_8);
         assertTrue(out.contains("[EDO][OrbitMap][Print]"), out);
         assertTrue(out.contains("system=" + fixture.name), out);

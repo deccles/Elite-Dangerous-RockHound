@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Ground-truth validation for {@code Eor Aowsy RI-K c8-3670}: journal hierarchy vs {@link SystemMapModel} topology
- * and schematic positions. Encodes screenshot + journal negatives explicitly (B/C/D must not orbit star A).
+ * and map positions. Encodes screenshot + journal negatives explicitly (B/C/D must not orbit star A).
  */
 class EorAowsySystemMapValidationTest {
 
@@ -62,7 +62,7 @@ class EorAowsySystemMapValidationTest {
 
     private static int branchStarForBody(String label) {
         int p = parent(label);
-        return SystemMapRules.branchSchematicStarParentId(bodies, p);
+        return SystemMapRules.branchStarOrbitHubId(bodies, p);
     }
 
     @Nested
@@ -144,7 +144,7 @@ class EorAowsySystemMapValidationTest {
         void branchStar_forBcdBodies_notA() {
             for (String label : List.of("B", "C", "D", "BCD 1", "BCD 4", "BCD 5")) {
                 int bs = branchStarForBody(label);
-                assertNotEquals(idA, bs, label + " branch schematic must not be A");
+                assertNotEquals(idA, bs, label + " branch guide must not be A");
             }
         }
 
@@ -192,7 +192,7 @@ class EorAowsySystemMapValidationTest {
             double dB = distLs(idA, id("B"));
             double dA1 = distLs(idA, id("A 1"));
             assertTrue(dB > dA1 + 1000.0, "BCD trunk must be outside A inner planets; dB=" + dB);
-            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, idA);
+            OrbitGeometryTestSupport.assertHierarchicalBarycentreRing(model, bodies, idA);
         }
     }
 
@@ -201,8 +201,8 @@ class EorAowsySystemMapValidationTest {
     class OrbitStrokes {
 
         @Test
-        void schematicSystemBarycentreRing_primaryOnRim() {
-            OrbitGeometryTestSupport.assertHierarchicalSchematicBarycentreRing(model, bodies, idA);
+        void systemBarycentreRing_primaryOnRim() {
+            OrbitGeometryTestSupport.assertHierarchicalBarycentreRing(model, bodies, idA);
         }
 
         @Test
@@ -216,9 +216,9 @@ class EorAowsySystemMapValidationTest {
         }
 
         @Test
-        void branchSchematicRings_atLeastA_andBcdHub() {
-            assertTrue(model.schematicBranchRingCount() >= 1,
-                    "Expect concentric branch rings at A; count=" + model.schematicBranchRingCount());
+        void branchGuideRings_atLeastA_andBcdHub() {
+            assertTrue(model.syntheticGuideRingCount() >= 1,
+                    "Expect concentric branch rings at A; count=" + model.syntheticGuideRingCount());
         }
 
         @Test
@@ -274,12 +274,12 @@ class EorAowsySystemMapValidationTest {
         }
 
         @Test
-        void bcdStars_onSchematicTrunkRing_withoutBaryRows() {
+        void bcdStars_onDisplayTrunkRing_withoutBaryRows() {
             double distBa = Math.hypot(partialModel.mapPlaneX(id("B")) - partialModel.mapPlaneX(idA),
                     partialModel.mapPlaneY(id("B")) - partialModel.mapPlaneY(idA)) / LS;
             assertTrue(distBa >= 40_000.0 && distBa <= 52_000.0,
                     "B on true-scale trunk from A; distBa=" + distBa + " Ls");
-            assertTrue(partialModel.hasBarycentreMutualRing(), "expected schematic system barycentre ring");
+            assertTrue(partialModel.hasBarycentreMutualRing(), "expected system barycentre ring");
             /*
              * Without ScanBaryCentre rows, companion-cluster snap onto the trunk ring is weaker; full journal fixture
              * still validates rim placement in {@link MapPlaneLayout}.
@@ -292,7 +292,7 @@ class EorAowsySystemMapValidationTest {
                     "Null:2 should be D vs B+C hub even without ScanBaryCentre rows");
             double mutual2 = SystemOrbitGeometry.planetBinaryMutualOrbitRadiusLsPublic(2, partialBodies);
             assertTrue(mutual2 >= 170.0 && mutual2 < 250.0,
-                    "Null:2 mutual radius should be schematic D–BC sep, not BCD giants; was " + mutual2);
+                    "Null:2 mutual radius should be display D–BC sep, not BCD giants; was " + mutual2);
             int null3Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(3);
             double distDbc = Math.hypot(
                     partialModel.mapPlaneX(id("D")) - partialModel.mapPlaneX(null3Key),

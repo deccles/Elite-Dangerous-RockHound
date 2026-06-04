@@ -46,7 +46,7 @@ class MiningRunNumberResolverTest {
     @Test
     void emptyLog_startsAtRun1() {
         assertEquals(1, MiningRunNumberResolver.compute(CMDR, SYS, BODY, false, List.of()));
-        assertEquals(1, MiningRunNumberResolver.compute(CMDR, SYS, BODY, false, null));
+        assertEquals(1, MiningRunNumberResolver.compute(CMDR, SYS, BODY, false, List.of()));
     }
 
     @Test

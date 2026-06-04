@@ -53,7 +53,7 @@ class EolProuUpND7288TripleStarTest {
     void notTightTriple_wideBcSpacing() {
         assertTrue(SystemOrbitGeometry.isHierarchicalWideBinary(bodies));
         assertFalse(SystemOrbitGeometry.isHierarchicalTripleStarMap(bodies),
-                "B ~2k Ls and C ~21k Ls must not use tight B+C schematic cluster");
+                "B ~2k Ls and C ~21k Ls must not use tight B+C display cluster");
     }
 
     @Test
