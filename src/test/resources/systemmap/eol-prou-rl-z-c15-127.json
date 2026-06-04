@@ -1,0 +1,24 @@
+{
+  "name": "Eol Prou RL-Z c15-127",
+  "notes": "Single K star + distant gas giant (19312 Ls). FSS often lists barycentric/high-e Kepler elements that draw spokes through the star unless scaled to journal parent-relative distance.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Eol Prou RL-Z c15-127",
+      "shortName": "Eol Prou RL-Z c15-127",
+      "distanceLs": 0,
+      "starType": "K"
+    },
+    {
+      "id": 1,
+      "bodyName": "Eol Prou RL-Z c15-127 1",
+      "shortName": "1",
+      "distanceLs": 19312,
+      "planetClass": "Gas giant with ammonia based life",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 5.8e12,
+      "eccentricity": 0.92,
+      "orbitalPeriod": 1.5e9
+    }
+  ]
+}

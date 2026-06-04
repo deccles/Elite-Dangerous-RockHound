@@ -195,6 +195,12 @@ public final class SystemModelBuilder {
                 return new ParentRef(ParentRef.ParentType.PLANET, planetHost);
             }
         }
+        if (hasStellarMembers(memberIds)) {
+            ParentRef starParent = inferCoOrbitBaryOrbitParent(memberIds);
+            if (starParent != null) {
+                return starParent;
+            }
+        }
         if (b.parents() != null && !b.parents().isEmpty()) {
             ParentRef fromJournal = OrbitParentSelector.select(
                     BodyKind.BARYCENTRE, null, b.parents(), knownNullIds, membersByNullId, scans);

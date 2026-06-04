@@ -1490,7 +1490,11 @@ public final class SystemOrbitGeometry {
             if (!trueScale) {
                 haveKepler = isMapStellarBody(b) && haveKepler;
             }
-            if (haveKepler && isMoonSatelliteBody(b, bodies) && pId >= 0
+            if (haveKepler && !isMapStellarBody(b) && loneStarHighEccentricityUseSchematicCircle(b, bodies)) {
+                haveKepler = false;
+            }
+            if (haveKepler && !isMapStellarBody(b) && pId >= 0
+                    && (!trueScale || isMoonSatelliteBody(b, bodies))
                     && !keplerOrbitPolylineMatchesSchematicPlacement(b, pId, bodies, bodyId, bodyPos, parentPos, p0,
                             p1)) {
                 haveKepler = false;
@@ -1536,17 +1540,8 @@ public final class SystemOrbitGeometry {
                 boolean keplerOk = true;
                 for (int i = 0; i < n; i++) {
                     double M = (Math.PI * 2.0 * i) / n;
-                    double[] rel;
-                    if (trueScale && !isMapStellarBody(b)
-                            && isTrueScaleBranchStarPlanetStroke(b, pId, bodies)) {
-                        rel = trueScaleBranchPlanetKeplerDisplacementMetres(b, pId, bodies, bodyId, M, strokeNow,
-                                p0, p1, parentPos, bodyWorldPositions, viewTilt);
-                    } else {
-                        rel = keplerDisplacementMetres(b, M);
-                        if (pId < 0) {
-                            rel = reconcileOrbitalDisplacementWithJournalHint(b, pId, bodies, bodyId, rel, strokeNow);
-                        }
-                    }
+                    double[] rel = mapStrokeKeplerDisplacementMetres(b, pId, bodies, bodyId, M, strokeNow, p0, p1,
+                            parentPos, bodyWorldPositions, viewTilt, trueScale);
                     if (rel == null || rel.length < (viewTilt > 0 ? 3 : needLen)) {
                         keplerOk = false;
                         break;
@@ -1556,6 +1551,13 @@ public final class SystemOrbitGeometry {
                 if (!keplerOk) {
                     wx = null;
                     wy = null;
+                } else if (trueScale && !isMapStellarBody(b) && pId >= 0
+                        && !isTrueScaleBranchStarPlanetStroke(b, pId, bodies)
+                        && !trueScalePlanetKeplerStrokePlausible(b, pId, bodies, bodyId, parentPos, wx, wy,
+                                bodyWorldPositions, p0, p1)) {
+                    wx = null;
+                    wy = null;
+                    haveKepler = false;
                 }
             }
             if (wx == null && trueScale && haveKepler) {
@@ -1564,13 +1566,8 @@ public final class SystemOrbitGeometry {
                 boolean keplerOk = true;
                 for (int i = 0; i < n; i++) {
                     double M = (Math.PI * 2.0 * i) / n;
-                    double[] rel;
-                    if (isTrueScaleBranchStarPlanetStroke(b, pId, bodies)) {
-                        rel = trueScaleBranchPlanetKeplerDisplacementMetres(b, pId, bodies, bodyId, M, strokeNow,
-                                p0, p1, parentPos, bodyWorldPositions, viewTilt);
-                    } else {
-                        rel = keplerDisplacementMetres(b, M);
-                    }
+                    double[] rel = mapStrokeKeplerDisplacementMetres(b, pId, bodies, bodyId, M, strokeNow, p0, p1,
+                            parentPos, bodyWorldPositions, viewTilt, true);
                     if (rel == null || rel.length < (viewTilt > 0 ? 3 : needLen)) {
                         keplerOk = false;
                         break;
@@ -1580,6 +1577,12 @@ public final class SystemOrbitGeometry {
                 if (!keplerOk) {
                     wx = null;
                     wy = null;
+                } else if (!isTrueScaleBranchStarPlanetStroke(b, pId, bodies)
+                        && !trueScalePlanetKeplerStrokePlausible(b, pId, bodies, bodyId, parentPos, wx, wy,
+                                bodyWorldPositions, p0, p1)) {
+                    wx = null;
+                    wy = null;
+                    haveKepler = false;
                 } else {
                     estimatedOrbit = false;
                 }
@@ -6035,6 +6038,44 @@ public final class SystemOrbitGeometry {
     }
 
     /**
+     * Lone-star systems: very high eccentricity FSS elements draw through the star; use journal-radius circles.
+     */
+    private static boolean loneStarHighEccentricityUseSchematicCircle(BodyInfo child, Map<Integer, BodyInfo> bodies) {
+        if (child == null || bodies == null || countMapStellarBodies(bodies) != 1) {
+            return false;
+        }
+        if (child.getEccentricity() == null || Double.isNaN(child.getEccentricity().doubleValue())) {
+            return false;
+        }
+        return child.getEccentricity().doubleValue() > 0.75;
+    }
+
+    /**
+     * Kepler sample for an orbit-stroke vertex: parent-relative scaling for star-hosted planets at true scale,
+     * barycentre reconciliation for free-floating stellar offsets, else raw journal elements.
+     */
+    private static double[] mapStrokeKeplerDisplacementMetres(BodyInfo child, int parentMapId,
+            Map<Integer, BodyInfo> bodies, int mapBodyId, double meanAnomalyRad, Instant strokeNow, int p0, int p1,
+            double[] parentPos, Map<Integer, double[]> bodyWorldPositions, int viewTiltDeg, boolean trueScale) {
+        if (child == null) {
+            return null;
+        }
+        if (trueScale && !isMapStellarBody(child) && parentMapId >= 0 && bodies != null) {
+            BodyInfo parent = bodies.get(Integer.valueOf(parentMapId));
+            if (parent != null && isMapStellarBody(parent)) {
+                return trueScaleBranchPlanetKeplerDisplacementMetres(child, parentMapId, bodies, mapBodyId,
+                        meanAnomalyRad, strokeNow, p0, p1, parentPos, bodyWorldPositions, viewTiltDeg);
+            }
+        }
+        double[] rel = keplerDisplacementMetres(child, meanAnomalyRad);
+        if (parentMapId < 0) {
+            rel = reconcileOrbitalDisplacementWithJournalHint(child, parentMapId, bodies, mapBodyId, rel,
+                    strokeNow);
+        }
+        return rel;
+    }
+
+    /**
      * True-scale majors orbiting a wide-binary branch star directly (A, B, …) — use parent-relative Kepler, not
      * schematic journal-radius circles.
      */
@@ -6133,6 +6174,31 @@ public final class SystemOrbitGeometry {
         double hintM = hintLs * LIGHT_SECOND_METRES;
         double pcx = worldAxisMetres(parentPos, p0);
         double pcy = worldAxisMetres(parentPos, p1);
+        double minR = Double.POSITIVE_INFINITY;
+        double maxR = 0.0;
+        for (int i = 0; i < wx.length; i++) {
+            double r = Math.hypot(wx[i] - pcx, wy[i] - pcy);
+            if (!Double.isFinite(r)) {
+                continue;
+            }
+            minR = Math.min(minR, r);
+            maxR = Math.max(maxR, r);
+        }
+        if (!Double.isFinite(minR) || minR >= Double.POSITIVE_INFINITY) {
+            return true;
+        }
+        if (maxR > hintM * KEPLER_MAX_OVER_HINT_RATIO) {
+            return false;
+        }
+        double spreadFloor = Math.max(1.0, hintM * 0.02);
+        double spreadRatio = maxR / Math.max(minR, spreadFloor);
+        /*
+         * Reject only when the stroke dives near the parent and swings back out (star polygon / spirograph).
+         * High-inclination ellipses can project with a small map-plane periapsis but modest apo/peri ratio.
+         */
+        if (minR < hintM * 0.12 && spreadRatio > KEPLER_STROKE_MAX_PROJ_SPREAD_RATIO) {
+            return false;
+        }
         double sumCx = 0.0;
         double sumCy = 0.0;
         for (int i = 0; i < wx.length; i++) {
@@ -6141,17 +6207,6 @@ public final class SystemOrbitGeometry {
         }
         double cx = sumCx / wx.length;
         double cy = sumCy / wx.length;
-        double minR = Double.POSITIVE_INFINITY;
-        double maxR = 0.0;
-        for (int i = 0; i < wx.length; i++) {
-            double r = Math.hypot(wx[i] - cx, wy[i] - cy);
-            minR = Math.min(minR, r);
-            maxR = Math.max(maxR, r);
-        }
-        double spreadFloor = Math.max(1.0, hintM * 0.02);
-        if (maxR / Math.max(minR, spreadFloor) > TRUE_SCALE_ORBIT_STROKE_MAX_PROJ_SPREAD_RATIO) {
-            return false;
-        }
         double offParent = Math.hypot(cx - pcx, cy - pcy);
         if (offParent > hintM * TRUE_SCALE_ORBIT_STROKE_MAX_PARENT_CENTRE_FRAC) {
             return false;
@@ -8168,6 +8223,11 @@ public final class SystemOrbitGeometry {
             placeHierarchicalTripleStarCluster(positions, bodies, mapProjA0, mapProjA1);
             return;
         }
+        if (!hierarchicalCompanionBranchStarsCohesive(bodies)
+                && countNonPrimaryHierarchicalBranchStars(bodies) == 2) {
+            placeHierarchicalWideBinaryInnerOuterPair(positions, bodies, mapProjA0, mapProjA1);
+            return;
+        }
         int a0 = clampWorldAxisIndex(mapProjA0);
         int a1 = clampWorldAxisIndex(mapProjA1);
         if (a0 == a1) {
@@ -8204,6 +8264,292 @@ public final class SystemOrbitGeometry {
         shiftMapPlaneBranch(positions, bodies, primaryId, primaryId, targetAx - ax, targetAy - ay, a0, a1);
         shiftMapPlaneBranch(positions, bodies, primaryId, -1, targetBx - refBx, targetBy - refBy, a0, a1);
         syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+    }
+
+    /**
+     * Three stars when B is near A and C is far (e.g. Eol Prou UP-N d7-288): do not shift B and C as one centroid —
+     * inner B (+ inner Null hub) on a short A–bary trunk, outer C on the wide companion chord.
+     */
+    private static void placeHierarchicalWideBinaryInnerOuterPair(Map<Integer, double[]> positions,
+            Map<Integer, BodyInfo> bodies,
+            int mapProjA0,
+            int mapProjA1) {
+        int a0 = clampWorldAxisIndex(mapProjA0);
+        int a1 = clampWorldAxisIndex(mapProjA1);
+        if (a0 == a1) {
+            return;
+        }
+        int primaryId = primaryAnchorBodyMapKey(bodies);
+        int outerId = hierarchicalOuterBranchStarIdByHelio(bodies, primaryId);
+        int innerId = hierarchicalInnerBranchStarIdByHelio(bodies, primaryId, outerId);
+        if (primaryId < 0 || outerId < 0 || innerId < 0) {
+            return;
+        }
+        double[] pA = positions.get(Integer.valueOf(primaryId));
+        double[] pOuter = positions.get(Integer.valueOf(outerId));
+        if (pA == null || pOuter == null || pA.length < 3 || pOuter.length < 3) {
+            return;
+        }
+        double ax = worldAxisMetres(pA, a0);
+        double ay = worldAxisMetres(pA, a1);
+        double ox = worldAxisMetres(pOuter, a0);
+        double oy = worldAxisMetres(pOuter, a1);
+        double dx = ox - ax;
+        double dy = oy - ay;
+        double journalSep = Math.hypot(dx, dy);
+        double ux = journalSep > LIGHT_SECOND_METRES ? dx / journalSep : 1.0;
+        double uy = journalSep > LIGHT_SECOND_METRES ? dy / journalSep : 0.0;
+        double[] innerCentroid = hierarchicalInnerCompanionCentroidExcludingOuter(
+                positions, bodies, primaryId, outerId, a0, a1);
+        double refBx = innerCentroid != null ? innerCentroid[0] : ox;
+        double refBy = innerCentroid != null ? innerCentroid[1] : oy;
+        BodyInfo primary = bodies.get(Integer.valueOf(primaryId));
+        BodyInfo innerStar = bodies.get(Integer.valueOf(innerId));
+        BodyInfo outerStar = bodies.get(Integer.valueOf(outerId));
+        double dP = primary != null ? primary.getDistanceLs() : 0.0;
+        double innerHelioLs = innerStar != null && Double.isFinite(innerStar.getDistanceLs())
+                ? Math.abs(innerStar.getDistanceLs() - dP)
+                : HIERARCHICAL_INNER_STELLAR_PAIR_SCHEMATIC_MIN_LS;
+        double outerHelioLs = outerStar != null && Double.isFinite(outerStar.getDistanceLs())
+                ? Math.abs(outerStar.getDistanceLs() - dP)
+                : HIERARCHICAL_WIDE_BINARY_SCHEMATIC_SEP_LS;
+        double innerTargetM = Math.max(
+                HIERARCHICAL_INNER_STELLAR_PAIR_SCHEMATIC_MIN_LS * LIGHT_SECOND_METRES * 0.5,
+                Math.min(innerHelioLs * LIGHT_SECOND_METRES,
+                        HIERARCHICAL_WIDE_BINARY_SCHEMATIC_SEP_LS * LIGHT_SECOND_METRES * 0.35));
+        double outerTargetM = Math.max(
+                innerTargetM * 4.0,
+                Math.min(outerHelioLs * LIGHT_SECOND_METRES,
+                        HIERARCHICAL_WIDE_BINARY_SCHEMATIC_SEP_LS * LIGHT_SECOND_METRES));
+        double targetAx = -ux * innerTargetM * 0.15;
+        double targetAy = -uy * innerTargetM * 0.15;
+        double targetInnerBx = ax + ux * innerTargetM;
+        double targetInnerBy = ay + uy * innerTargetM;
+        double targetOuterBx = ax + ux * outerTargetM;
+        double targetOuterBy = ay + uy * outerTargetM;
+        shiftMapPlaneBranch(positions, bodies, primaryId, primaryId, targetAx - ax, targetAy - ay, a0, a1);
+        shiftHierarchicalInnerCompanionBranch(positions, bodies, primaryId, outerId, innerId,
+                targetInnerBx - refBx, targetInnerBy - refBy, a0, a1);
+        shiftSingleBodyOnMapPlane(positions, outerId, targetOuterBx - ox, targetOuterBy - oy, a0, a1);
+        syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+    }
+
+    private static int hierarchicalOuterBranchStarIdByHelio(Map<Integer, BodyInfo> bodies, int primaryId) {
+        if (bodies == null || primaryId < 0) {
+            return -1;
+        }
+        BodyInfo primary = bodies.get(Integer.valueOf(primaryId));
+        double dP = primary != null ? primary.getDistanceLs() : 0.0;
+        int bestId = -1;
+        double bestHelio = -1.0;
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            int id = e.getKey().intValue();
+            if (id == primaryId) {
+                continue;
+            }
+            String letter = stellarBranchLetter(e.getValue());
+            if (letter == null || "A".equals(letter)) {
+                continue;
+            }
+            if (!isMapStellarBody(e.getValue()) && !isStellarBody(e.getValue())) {
+                continue;
+            }
+            double helio = Math.abs(e.getValue().getDistanceLs() - dP);
+            if (helio > bestHelio) {
+                bestHelio = helio;
+                bestId = id;
+            }
+        }
+        return bestId;
+    }
+
+    private static int hierarchicalInnerBranchStarIdByHelio(
+            Map<Integer, BodyInfo> bodies, int primaryId, int outerId) {
+        if (bodies == null || primaryId < 0) {
+            return -1;
+        }
+        BodyInfo primary = bodies.get(Integer.valueOf(primaryId));
+        double dP = primary != null ? primary.getDistanceLs() : 0.0;
+        int bestId = -1;
+        double bestHelio = Double.POSITIVE_INFINITY;
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            int id = e.getKey().intValue();
+            if (id == primaryId || id == outerId) {
+                continue;
+            }
+            String letter = stellarBranchLetter(e.getValue());
+            if (letter == null || "A".equals(letter)) {
+                continue;
+            }
+            if (!isMapStellarBody(e.getValue()) && !isStellarBody(e.getValue())) {
+                continue;
+            }
+            double helio = Math.abs(e.getValue().getDistanceLs() - dP);
+            if (helio < bestHelio) {
+                bestHelio = helio;
+                bestId = id;
+            }
+        }
+        return bestId;
+    }
+
+    private static double[] hierarchicalInnerCompanionCentroidExcludingOuter(
+            Map<Integer, double[]> positions,
+            Map<Integer, BodyInfo> bodies,
+            int primaryId,
+            int outerId,
+            int a0,
+            int a1) {
+        if (positions == null || bodies == null || primaryId < 0) {
+            return null;
+        }
+        double sumX = 0.0;
+        double sumY = 0.0;
+        int n = 0;
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            int id = e.getKey().intValue();
+            if (id == outerId || id == primaryId) {
+                continue;
+            }
+            if (!isHierarchicalInnerPlacementMember(id, e.getValue(), primaryId, outerId, bodies)) {
+                continue;
+            }
+            double[] p = positions.get(e.getKey());
+            if (p == null || p.length <= Math.max(a0, a1)) {
+                continue;
+            }
+            sumX += worldAxisMetres(p, a0);
+            sumY += worldAxisMetres(p, a1);
+            n++;
+        }
+        for (Map.Entry<Integer, double[]> e : positions.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || !isPlanetBinaryBarycentreMapKey(e.getKey().intValue())) {
+                continue;
+            }
+            int nullId = journalNullIdFromPlanetBinaryBarycentreMapKey(e.getKey().intValue());
+            if (isHierarchicalOuterStellarNullPair(nullId, bodies)) {
+                continue;
+            }
+            BodyInfo scanRow = bodies.get(Integer.valueOf(nullId));
+            if (scanRow != null && scanRow.isScanBarycentreRow()) {
+                double d = scanRow.getDistanceLs();
+                BodyInfo primary = bodies.get(Integer.valueOf(primaryId));
+                BodyInfo outer = bodies.get(Integer.valueOf(outerId));
+                double dP = primary != null ? primary.getDistanceLs() : 0.0;
+                double dO = outer != null ? outer.getDistanceLs() : dP;
+                if (Double.isFinite(d) && Double.isFinite(dO) && Math.abs(d - dP) >= Math.abs(dO - dP) * 0.55) {
+                    continue;
+                }
+            }
+            double[] p = e.getValue();
+            if (p.length <= Math.max(a0, a1)) {
+                continue;
+            }
+            sumX += worldAxisMetres(p, a0);
+            sumY += worldAxisMetres(p, a1);
+            n++;
+        }
+        return n > 0 ? new double[] { sumX / n, sumY / n } : null;
+    }
+
+    private static boolean isHierarchicalInnerPlacementMember(
+            int id, BodyInfo b, int primaryId, int outerId, Map<Integer, BodyInfo> bodies) {
+        if (b == null || bodies == null || id == primaryId || id == outerId) {
+            return false;
+        }
+        if (b.isScanBarycentreRow()) {
+            return !isHierarchicalOuterStellarNullPair(id, bodies);
+        }
+        if (!isMapStellarBody(b) && !isStellarBody(b)) {
+            return false;
+        }
+        String letter = stellarBranchLetter(b);
+        if (letter == null || "A".equals(letter)) {
+            return false;
+        }
+        int ip = b.getImmediateParentBodyId();
+        if (ip == primaryId) {
+            return true;
+        }
+        if (ip > 0) {
+            BodyInfo par = bodies.get(Integer.valueOf(ip));
+            if (par != null && par.isScanBarycentreRow() && !isHierarchicalOuterStellarNullPair(ip, bodies)) {
+                return true;
+            }
+        }
+        return id != outerId;
+    }
+
+    private static void shiftHierarchicalInnerCompanionBranch(Map<Integer, double[]> positions,
+            Map<Integer, BodyInfo> bodies,
+            int primaryId,
+            int outerId,
+            int innerId,
+            double dPlane0,
+            double dPlane1,
+            int a0,
+            int a1) {
+        if (positions == null || bodies == null) {
+            return;
+        }
+        if (!Double.isFinite(dPlane0) || !Double.isFinite(dPlane1)) {
+            return;
+        }
+        if (Math.abs(dPlane0) < 1.0 && Math.abs(dPlane1) < 1.0) {
+            return;
+        }
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            int id = e.getKey().intValue();
+            if (!isHierarchicalInnerPlacementMember(id, e.getValue(), primaryId, outerId, bodies)) {
+                continue;
+            }
+            shiftSingleBodyOnMapPlane(positions, id, dPlane0, dPlane1, a0, a1);
+        }
+        for (Map.Entry<Integer, double[]> e : positions.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || !isPlanetBinaryBarycentreMapKey(e.getKey().intValue())) {
+                continue;
+            }
+            int nullId = journalNullIdFromPlanetBinaryBarycentreMapKey(e.getKey().intValue());
+            if (isHierarchicalOuterStellarNullPair(nullId, bodies)) {
+                continue;
+            }
+            shiftSingleBodyOnMapPlane(positions, e.getKey().intValue(), dPlane0, dPlane1, a0, a1);
+            BodyInfo scanRow = bodies.get(Integer.valueOf(nullId));
+            if (scanRow != null) {
+                shiftSingleBodyOnMapPlane(positions, nullId, dPlane0, dPlane1, a0, a1);
+            }
+        }
+    }
+
+    private static void shiftSingleBodyOnMapPlane(Map<Integer, double[]> positions,
+            int bodyId,
+            double dPlane0,
+            double dPlane1,
+            int a0,
+            int a1) {
+        if (positions == null || bodyId == Integer.MIN_VALUE) {
+            return;
+        }
+        double[] p = positions.get(Integer.valueOf(bodyId));
+        if (p == null || p.length < 3) {
+            return;
+        }
+        double[] shifted = Arrays.copyOf(p, Math.max(3, p.length));
+        shifted[a0] = worldAxisMetres(p, a0) + dPlane0;
+        shifted[a1] = worldAxisMetres(p, a1) + dPlane1;
+        positions.put(Integer.valueOf(bodyId), shifted);
     }
 
     /**

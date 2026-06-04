@@ -1,0 +1,51 @@
+{
+  "name": "Eol Prou UP-N d7-288",
+  "notes": "Triple F+K+G: A 0 Ls, inner ScanBaryCentre 2, B 1957 Ls, outer C 21067 Ls (wide B–C spacing, not tight triple).",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Eol Prou UP-N d7-288 A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "F",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 1.0E12
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou UP-N d7-288 barycentre 2",
+      "shortName": "bary 2",
+      "distanceLs": 1200.0,
+      "scanBarycentreRow": true,
+      "semiMajorAxisM": 5.9E11
+    },
+    {
+      "id": 3,
+      "bodyName": "Eol Prou UP-N d7-288 B",
+      "shortName": "B",
+      "distanceLs": 1957.0,
+      "starType": "K",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 5.87E11
+    },
+    {
+      "id": 4,
+      "bodyName": "Eol Prou UP-N d7-288 C",
+      "shortName": "C",
+      "distanceLs": 21067.0,
+      "starType": "G",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 6.32E12
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 3,
+    "barycentricStarLabels": ["A"],
+    "hasBarycentreMutualRing": false,
+    "parents": [
+      { "body": "B", "resolvesTo": "planetBinary:2" },
+      { "body": "C", "resolvesTo": "barycentre" }
+    ]
+  }
+}

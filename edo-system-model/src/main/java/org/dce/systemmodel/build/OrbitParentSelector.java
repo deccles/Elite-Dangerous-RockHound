@@ -55,7 +55,7 @@ public final class OrbitParentSelector {
         }
         if (innermostNull != null && knownNullBarycentreIds.contains(innermostNull.bodyId())) {
             int nullId = innermostNull.bodyId();
-            if (sharedNullHub(nullId, members, scanIndex)) {
+            if (sharedNullHub(nullId, members, scanIndex) || stellarSharedNullHub(nullId, members, scanIndex)) {
                 if (parentsToCoOrbitNullHub(kind, self, nullId, members, scanIndex)) {
                     return innermostNull;
                 }
@@ -92,6 +92,27 @@ public final class OrbitParentSelector {
      * {@code Null:N} is a hierarchy hub when two or more moons share it (planet-hosted binary) or two or more
      * non-moon members co-orbit (stellar/planetary pair).
      */
+    /**
+     * One branch star plus a {@link ScanBaryCentreRecord} at the same {@code Null:N} (inner pair in a triple).
+     */
+    private static boolean stellarSharedNullHub(
+            int nullId, Map<Integer, List<Integer>> membersByNullId, Map<Integer, ScanRecord> scans) {
+        List<Integer> memberIds = membersByNullId.get(nullId);
+        if (memberIds == null || memberIds.isEmpty()) {
+            return false;
+        }
+        for (int id : memberIds) {
+            ScanRecord scan = scans.get(id);
+            if (scan == null || isMoonScan(scan) || ScanBodyClassification.isRing(scan)) {
+                continue;
+            }
+            if ("Star".equalsIgnoreCase(scan.bodyType())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static boolean sharedNullHub(
             int nullId, Map<Integer, List<Integer>> membersByNullId, Map<Integer, ScanRecord> scans) {
         List<Integer> memberIds = membersByNullId.get(nullId);

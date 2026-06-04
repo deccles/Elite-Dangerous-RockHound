@@ -323,18 +323,25 @@ public final class SystemModelHierarchyBuilder {
             }
             attachIfHierarchyRoot(hg, root, built, b.bodyId());
         }
+        for (int journalNullId : model.barycentres().keySet()) {
+            int mapKey = HierarchyKeys.baryMapKey(journalNullId);
+            Integer parent = hg.parentOf(mapKey);
+            if (parent != null && orbitsSystemBarycentre(parent)) {
+                attachIfHierarchyRoot(hg, root, built, mapKey);
+            }
+        }
     }
 
     private static void attachIfHierarchyRoot(
             HierarchyGraph hg,
             SystemMapHierarchyBuilder.Node root,
             Map<Integer, SystemMapHierarchyBuilder.Node> built,
-            int bodyId) {
-        Integer parent = hg.parentOf(bodyId);
+            int mapKey) {
+        Integer parent = hg.parentOf(mapKey);
         if (parent != null && !orbitsSystemBarycentre(parent)) {
             return;
         }
-        SystemMapHierarchyBuilder.Node node = built.get(Integer.valueOf(bodyId));
+        SystemMapHierarchyBuilder.Node node = built.get(Integer.valueOf(mapKey));
         if (node == null || node.parentKey != Integer.MIN_VALUE) {
             return;
         }
