@@ -1,0 +1,91 @@
+{
+  "name": "Eol Prou VK-N d7-1976",
+  "notes": "Gas giant 8 + Y dwarf 9 co-orbit at Null:35 (planet-stellar binary, not wide-binary hierarchy).",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Eol Prou VK-N d7-1976",
+      "shortName": "Eol Prou VK-N d7-1976",
+      "distanceLs": 0,
+      "starType": "F",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 35,
+      "bodyName": "Eol Prou VK-N d7-1976 barycentre 35",
+      "shortName": "Null:35",
+      "distanceLs": 1963.0,
+      "scanBarycentreRow": true,
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 588432419300.079346,
+      "eccentricity": 0.002477,
+      "orbitalInclination": 0.422843,
+      "periapsis": 165.047102,
+      "ascendingNode": -29.294514,
+      "meanAnomaly": 204.143749,
+      "orbitalPeriod": 198798322.677612
+    },
+    {
+      "id": 36,
+      "bodyName": "Eol Prou VK-N d7-1976 8",
+      "shortName": "8",
+      "distanceLs": 1980.848349,
+      "planetClass": "Sudarsky class IV gas giant",
+      "immediateParentBodyId": 35,
+      "journalParents": ["Null:35", "Star:0"],
+      "semiMajorAxisM": 18895846605.300903,
+      "eccentricity": 0.196028,
+      "orbitalInclination": 7.735826,
+      "periapsis": 22.536144,
+      "ascendingNode": 151.674166,
+      "meanAnomaly": 319.466581,
+      "orbitalPeriod": 10997765.064240
+    },
+    {
+      "id": 42,
+      "bodyName": "Eol Prou VK-N d7-1976 9",
+      "shortName": "9",
+      "distanceLs": 1963.442840,
+      "starType": "Y",
+      "immediateParentBodyId": 35,
+      "journalParents": ["Null:35", "Star:0"],
+      "semiMajorAxisM": 5659855008.125305,
+      "eccentricity": 0.196028,
+      "orbitalInclination": 7.735826,
+      "periapsis": 202.536129,
+      "ascendingNode": 151.674166,
+      "meanAnomaly": 319.461721,
+      "orbitalPeriod": 10997765.064240
+    },
+    {
+      "id": 38,
+      "bodyName": "Eol Prou VK-N d7-1976 8 a",
+      "shortName": "8 a",
+      "distanceLs": 1979.269882,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 36,
+      "journalParents": ["Planet:36", "Null:35", "Star:0"]
+    },
+    {
+      "id": 45,
+      "bodyName": "Eol Prou VK-N d7-1976 9 a",
+      "shortName": "9 a",
+      "distanceLs": 1962.489121,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 42,
+      "journalParents": ["Star:42", "Null:35", "Star:0"]
+    }
+  ],
+  "expect": {
+    "layoutKind": "GENERIC",
+    "hasPlanetBinaryMutualRing": true,
+    "planetBinaryNullId": 35,
+    "bodiesOnMutualRing": ["8", "9"],
+    "parents": [
+      { "body": "8", "resolvesTo": "planetBinary:35" },
+      { "body": "9", "resolvesTo": "planetBinary:35" },
+      { "body": "8 a", "resolvesTo": "8" },
+      { "body": "9 a", "resolvesTo": "9" }
+    ]
+  }
+}

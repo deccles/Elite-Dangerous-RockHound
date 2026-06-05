@@ -27,7 +27,9 @@ import org.dce.ed.state.BodyInfo;
 import org.dce.ed.testutil.OrbitGeometryTestSupport;
 
 import org.dce.ed.util.SystemOrbitGeometry;
+import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 
 import org.junit.jupiter.api.Test;
@@ -129,6 +131,46 @@ class EolProuNnYB3107MoonsTest {
     void moon7a_onOrbitRingAroundPlanet7() {
 
         OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, "7 a", 0.5);
+
+    }
+
+
+
+    @Test
+
+    void withSystemSession_guideRingsMatchAlignedDots() {
+
+        SystemSession session = SystemSessionFactory.open(new SystemMapSystemLoader.Loaded(
+
+                fixture.name, bodies, "cache"));
+
+        Assumptions.assumeTrue(session.hasModel(), "journal-backed model from fixture bodies");
+
+        SystemMapModel sessionModel = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, true, session);
+
+        OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(sessionModel, bodies, "7 a", 0.5);
+
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(sessionModel, bodies, "7 d", 32, 0.5);
+
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(sessionModel, bodies, "7 e", 32, 0.5);
+
+        int baryKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(32);
+
+        OrbitPolylineWorldXY mutual = OrbitGeometryTestSupport.findPlanetBinaryMutualRing(sessionModel, 32);
+
+        assertNotNull(mutual);
+
+        double bx = sessionModel.mapPlaneX(baryKey);
+
+        double by = sessionModel.mapPlaneY(baryKey);
+
+        double cx = OrbitGeometryTestSupport.ringCentroid(mutual.wx);
+
+        double cy = OrbitGeometryTestSupport.ringCentroid(mutual.wy);
+
+        double miss = Math.hypot(bx - cx, by - cy) / LS;
+
+        assertTrue(miss < 2.0, "Null:32 barycentre on mutual ring centre; missLs=" + miss);
 
     }
 

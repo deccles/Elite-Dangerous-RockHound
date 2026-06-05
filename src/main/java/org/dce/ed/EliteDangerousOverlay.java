@@ -71,13 +71,9 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         this.prefs = Preferences.userNodeForPackage(EliteDangerousOverlay.class);
         this.passThroughMode = prefs.getBoolean(PREF_START_IN_PASSTHROUGH, false);
         OverlayPreferences.setPassThroughWindowActive(this.passThroughMode);
-        this.contentPanel = new OverlayContentPanel(() -> passThroughMode);
+        this.contentPanel = new OverlayContentPanel(OverlayPreferences::isOverlayMousePassThroughToGame);
 
         this.passThroughFrame = new OverlayFrame(contentPanel);
-        boolean initialMousePassThrough = this.passThroughMode
-                ? OverlayPreferences.getOverlayMousePassThroughToGamePersisted(true)
-                : false;
-        this.passThroughFrame.setPassThroughEnabled(initialMousePassThrough, false);
 
         this.decoratedDialog = new DecoratedOverlayDialog(passThroughFrame, contentPanel, clientKey);
         this.decoratedDialog.setPersistenceDelegate(passThroughFrame);
@@ -187,6 +183,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     private void start() {
         if (passThroughMode) {
             // Start directly in pass-through frame mode.
+            passThroughFrame.prepareForShow(true);
             passThroughFrame.showOverlay();
             prewarmDecoratedDialog();
             StartupSplashOverlay.install(passThroughFrame);
@@ -285,8 +282,6 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     		passThroughFrame.setBounds(outerBounds);
     		// Add content before pass-through styling so layout / background apply to the full hierarchy.
     		passThroughFrame.add(contentPanel, java.awt.BorderLayout.CENTER);
-    		passThroughFrame.setPassThroughEnabled(
-    				OverlayPreferences.getOverlayMousePassThroughToGamePersisted(true), false);
     		passThroughFrame.prepareForShow(true);
     		passThroughFrame.setRightStatusListener(null);
     		passThroughFrame.refreshRightStatusDisplay();

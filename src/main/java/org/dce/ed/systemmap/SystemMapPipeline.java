@@ -7,7 +7,9 @@ import java.util.Map;
 import java.util.Set;
 
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.systemmodel.SystemModelService.ModelHandle;
 import org.dce.ed.util.SystemOrbitGeometry;
+import org.dce.systemmodel.model.SystemModel;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 import org.dce.ed.util.SystemOrbitGeometry.WideBinaryFlattenFrame;
 
@@ -29,15 +31,26 @@ public final class SystemMapPipeline {
 
     public static SystemMapModel build(String systemName, Map<Integer, BodyInfo> bodies, Instant epoch,
             boolean freezeBarycentreStars) {
+        return build(systemName, bodies, epoch, freezeBarycentreStars, null);
+    }
+
+    public static SystemMapModel build(
+            String systemName,
+            Map<Integer, BodyInfo> bodies,
+            Instant epoch,
+            boolean freezeBarycentreStars,
+            SystemSession session) {
         if (bodies == null || bodies.isEmpty()) {
             return emptyModel(systemName);
         }
         SystemMapJournalEnricher.prepareMapBodies(bodies);
         Instant t = epoch != null ? epoch : Instant.now();
-        SystemMapClassification classification = SystemMapRules.classify(bodies);
+        SystemModel model = session != null ? session.model() : null;
+        ModelHandle handle = session != null ? session.handle() : null;
+        SystemMapClassification classification = SystemMapRules.classify(bodies, model);
+        ModelLayoutHints layoutHints = model != null ? ModelLayoutHints.from(model, bodies) : null;
 
-        Map<Integer, double[]> positions = new HashMap<>(
-                SystemOrbitGeometry.bodyPositionsMetres(bodies, t, freezeBarycentreStars));
+        Map<Integer, double[]> positions = initialPositionsMetres(bodies, t, freezeBarycentreStars);
 
         int[] axes = chooseProjectionAxes(bodies, positions);
         int a0 = axes[0];
@@ -46,7 +59,7 @@ public final class SystemMapPipeline {
         WideBinaryFlattenFrame frame = null;
         if (classification.layoutKind() == SystemLayoutKind.WIDE_BINARY) {
             SystemOrbitGeometry.flattenWideBinaryIntoMapPlane(positions, bodies, a0, a1, true);
-            if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+            if (useHierarchicalLayoutPasses(bodies, layoutHints)) {
                 SystemOrbitGeometry.placeTrueScaleHierarchicalScanHubs(positions, bodies, a0, a1);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
                 SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
@@ -56,22 +69,28 @@ public final class SystemMapPipeline {
                         freezeBarycentreStars);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
             } else {
+                SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
+                SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
                 SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
                         freezeBarycentreStars);
+                SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
             }
             frame = SystemOrbitGeometry.captureWideBinaryFlattenFrame(positions, bodies, a0, a1);
         } else {
             SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
             SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
                     freezeBarycentreStars);
+            /* Co-orbit majors (e.g. 5+6 at Null:20): seat the hub on its heliocentric ring around the star. */
+            SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
             SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
         }
 
-        Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies);
-        boolean includeBinaryBarycentreRing = !SystemOrbitGeometry.isHierarchicalWideBinary(bodies);
-        List<OrbitPolylineWorldXY> polylines = SystemOrbitGeometry.orbitPolylinesWorldMetresXY(bodies, positions,
-                DEFAULT_ORBIT_SEGMENTS, Double.NaN, a0, a1, includeBinaryBarycentreRing, resolvedParents,
-                null, 0, t);
+        Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies, model);
+        boolean includeBinaryBarycentreRing = !useHierarchicalLayoutPasses(bodies, layoutHints);
+        List<OrbitPolylineWorldXY> polylines = orbitPolylinesForBuild(
+                bodies, positions, resolvedParents, a0, a1, includeBinaryBarycentreRing, t);
         Map<Integer, Integer> childCounts = buildDirectChildCounts(resolvedParents);
         Set<Integer> hubIds = SystemMapRules.subsystemHubBodyIds(bodies, resolvedParents, classification);
         Set<Integer> revolutionCenters = SystemMapRules.orbitRevolutionCenterBodyIds(bodies, resolvedParents,
@@ -142,6 +161,13 @@ public final class SystemMapPipeline {
     }
 
     private static Map<Integer, Integer> buildResolvedParents(Map<Integer, BodyInfo> bodies) {
+        return buildResolvedParents(bodies, null);
+    }
+
+    private static Map<Integer, Integer> buildResolvedParents(Map<Integer, BodyInfo> bodies, SystemModel model) {
+        if (model != null) {
+            return ModelMapTopology.resolvedParents(model, bodies);
+        }
         Map<Integer, Integer> resolved = new HashMap<>();
         if (bodies == null) {
             return resolved;
@@ -155,6 +181,43 @@ public final class SystemMapPipeline {
                     SystemMapRules.resolveOrbitParentBodyId(e.getValue(), bodies, id)));
         }
         return resolved;
+    }
+
+    private static Map<Integer, double[]> initialPositionsMetres(
+            Map<Integer, BodyInfo> bodies,
+            Instant t,
+            boolean freezeBarycentreStars) {
+        /*
+         * Map-plane layout (mutual-orbit circles, binary-moon seating, wide-binary flatten) runs in
+         * {@link SystemOrbitGeometry} and must not be pre-empted by raw {@link ModelMapScene#positionsMetres}
+         * heliocentric samples. {@link SystemModel} still drives {@link ModelMapTopology} parent edges.
+         */
+        return new HashMap<>(SystemOrbitGeometry.bodyPositionsMetres(bodies, t, freezeBarycentreStars));
+    }
+
+    private static boolean useHierarchicalLayoutPasses(Map<Integer, BodyInfo> bodies, ModelLayoutHints hints) {
+        if (hints != null && hints.hierarchicalWide) {
+            return true;
+        }
+        return SystemOrbitGeometry.isHierarchicalWideBinary(bodies);
+    }
+
+    private static List<OrbitPolylineWorldXY> orbitPolylinesForBuild(
+            Map<Integer, BodyInfo> bodies,
+            Map<Integer, double[]> positions,
+            Map<Integer, Integer> resolvedParents,
+            int a0,
+            int a1,
+            boolean includeBinaryBarycentreRing,
+            Instant t) {
+        /*
+         * Guide rings must follow the same layout snapshot as body dots ({@code positions} after
+         * alignPlanetBinaryGroupsOnMapPlane / wide-binary flatten). {@link ModelMapScene#orbitPolylines}
+         * samples raw journal Kepler paths and drifts from reshaped map-plane placement.
+         */
+        return SystemOrbitGeometry.orbitPolylinesWorldMetresXY(bodies, positions,
+                DEFAULT_ORBIT_SEGMENTS, Double.NaN, a0, a1, includeBinaryBarycentreRing, resolvedParents,
+                null, 0, t);
     }
 
     private static Map<Integer, Integer> buildDirectChildCounts(Map<Integer, Integer> resolvedParents) {
@@ -234,6 +297,9 @@ public final class SystemMapPipeline {
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
             } else {
                 Instant t = epoch != null ? epoch : Instant.now();
+                SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
+                SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
                 SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
                         freezeBarycentreStars);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
@@ -246,6 +312,8 @@ public final class SystemMapPipeline {
         Instant t = epoch != null ? epoch : Instant.now();
         SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
         SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
+                freezeBarycentreStars);
+        SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
                 freezeBarycentreStars);
         SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
         return positions;

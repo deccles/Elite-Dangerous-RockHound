@@ -600,7 +600,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         }
         add(this.contentPanel, BorderLayout.CENTER);
 
-        applyOverlayBackgroundFromPreferences(false);
+        applyOverlayBackgroundFromPreferences(OverlayPreferences.isPassThroughWindowActive());
 
         Rectangle passThroughRect = readPassThroughStoredBounds();
         setBounds(passThroughRect.x, passThroughRect.y, passThroughRect.width, passThroughRect.height);
@@ -666,6 +666,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     /** Rebind session + mission board after {@link OverlayContentPanel#rebuildTabbedPane()}. */
     public void onTabbedPaneRebuilt() {
         installSessionPersistence();
+        if (titleBar != null) {
+            titleBar.setPassThrough(passThroughEnabled);
+        }
         reapplyNativeMousePassThroughIfEnabled();
     }
 
@@ -1388,6 +1391,12 @@ private void refreshPassThroughUnifiedStatus() {
         setVisible(true);
 
         reapplyNativeMousePassThroughIfEnabled();
+        SwingUtilities.invokeLater(() -> {
+            reapplyNativeMousePassThroughIfEnabled();
+            if (titleBar != null) {
+                titleBar.setPassThrough(passThroughEnabled);
+            }
+        });
         System.out.println(
                 "Overlay size: " + getWidth() + "x" + getHeight()
                         + " at (" + getX() + "," + getY() + ")"
@@ -1446,7 +1455,7 @@ private void refreshPassThroughUnifiedStatus() {
                 stopMousePassThroughNativeStyleTimer();
                 return;
             }
-            applyPassThrough(true);
+            stampNativeMousePassThrough(true);
         });
         mousePassThroughNativeStyleTimer.setRepeats(true);
         mousePassThroughNativeStyleTimer.start();
@@ -1476,7 +1485,7 @@ private void refreshPassThroughUnifiedStatus() {
         }
         if (stateChanged) {
             resetPassThroughCloseHoverState();
-            applyOverlayBackgroundFromPreferences(this.passThroughEnabled);
+            applyOverlayBackgroundFromPreferences(OverlayPreferences.isPassThroughWindowActive());
             System.out.println("Pass-through " + (this.passThroughEnabled ? "ENABLED" : "DISABLED"));
         }
         // Always push Win32 extended style (setBounds / re-show can clear WS_EX_TRANSPARENT).
@@ -1492,7 +1501,7 @@ private void refreshPassThroughUnifiedStatus() {
      */
     public void reapplyNativeMousePassThroughIfEnabled() {
         if (passThroughEnabled) {
-            applyPassThrough(true);
+            stampNativeMousePassThrough(true);
         }
     }
 
@@ -1510,7 +1519,9 @@ private void refreshPassThroughUnifiedStatus() {
         nativePassThroughReapplyScheduled = true;
         SwingUtilities.invokeLater(() -> {
             nativePassThroughReapplyScheduled = false;
-            applyPassThrough(true);
+            if (passThroughEnabled) {
+                stampNativeMousePassThrough(true);
+            }
         });
     }
 
@@ -1553,6 +1564,9 @@ private void refreshPassThroughUnifiedStatus() {
             contentPanel.rebuildTabbedPane();
         }
 
+        if (titleBar != null) {
+            titleBar.setPassThrough(passThroughEnabled);
+        }
         reapplyNativeMousePassThroughIfEnabled();
         repaint();
     }
@@ -1655,15 +1669,51 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
 
-    private void applyPassThrough(boolean enable) {
+    /**
+     * Win32 {@link WinUser#WS_EX_TRANSPARENT} stamp only — no {@code revalidate}. Safe to call at crosshair poll
+     * rate while layered map repaints run; full {@link #applyPassThrough} with layout must not run that often.
+     */
+    /**
+     * While mouse pass-through is on, temporarily clear {@code WS_EX_TRANSPARENT} when the cursor is over
+     * title-bar / menu chrome so toggle, close, and settings remain clickable (Win32 is per-HWND).
+     */
+    private void stampNativeMousePassThrough(boolean enable) {
         if (!tryAcquireHwnd()) {
             return;
         }
-
-        if (!WindowsNativeMousePassThrough.applyToWindowTree(this, enable)) {
+        boolean stampEnable = enable && !isPointerOverInteractiveChrome();
+        if (!WindowsNativeMousePassThrough.applyToWindowTree(this, stampEnable)) {
             System.err.println("Failed to apply native mouse pass-through to overlay window.");
-            return;
         }
+    }
+
+    private boolean isPointerOverInteractiveChrome() {
+        PointerInfo pi = MouseInfo.getPointerInfo();
+        if (pi == null || !isShowing()) {
+            return false;
+        }
+        Point mouse = pi.getLocation();
+        if (containsScreenPoint(titleBar, mouse)) {
+            return true;
+        }
+        return containsScreenPoint(passThroughMenuBar, mouse);
+    }
+
+    private static boolean containsScreenPoint(Component component, Point screenPoint) {
+        if (component == null || !component.isShowing() || screenPoint == null) {
+            return false;
+        }
+        try {
+            Point origin = component.getLocationOnScreen();
+            return new Rectangle(origin.x, origin.y, component.getWidth(), component.getHeight())
+                    .contains(screenPoint);
+        } catch (IllegalComponentStateException ex) {
+            return false;
+        }
+    }
+
+    private void applyPassThrough(boolean enable) {
+        stampNativeMousePassThrough(enable);
 
         if (enable) {
             getRootPane().setBorder(null);
@@ -1676,7 +1726,10 @@ private void refreshPassThroughUnifiedStatus() {
     public void prepareForShow(boolean passThroughAppearanceMode) {
         // Make sure we have the right background color/alpha set BEFORE first paint
         applyOverlayBackgroundFromPreferences(passThroughAppearanceMode);
-        if (titleBar != null) {
+        if (passThroughAppearanceMode) {
+            // Transparent overlay window implies clicks pass through to the game (title-bar toggle can disable).
+            setPassThroughEnabled(true, true);
+        } else if (titleBar != null) {
             titleBar.setPassThrough(this.passThroughEnabled);
         }
 
@@ -2072,6 +2125,23 @@ private void refreshPassThroughUnifiedStatus() {
             return;
         }
 
+        PointerInfo pi = MouseInfo.getPointerInfo();
+        if (pi != null) {
+            Point mouseOnScreen = pi.getLocation();
+            try {
+                Rectangle frameBounds = new Rectangle(getLocationOnScreen(), getSize());
+                if (frameBounds.contains(mouseOnScreen)) {
+                    updatePassThroughHoverClose(mouseOnScreen);
+                } else {
+                    resetPassThroughCloseHoverState();
+                }
+            } catch (IllegalComponentStateException ex) {
+                resetPassThroughCloseHoverState();
+            }
+        } else {
+            resetPassThroughCloseHoverState();
+        }
+
         if (!passThroughEnabled) {
             crosshairSmoothX = Double.NaN;
             crosshairSmoothY = Double.NaN;
@@ -2080,13 +2150,11 @@ private void refreshPassThroughUnifiedStatus() {
             return;
         }
 
-        PointerInfo pi = MouseInfo.getPointerInfo();
         if (pi == null) {
             crosshairSmoothX = Double.NaN;
             crosshairSmoothY = Double.NaN;
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
-            resetPassThroughCloseHoverState();
             return;
         }
 
@@ -2099,7 +2167,6 @@ private void refreshPassThroughUnifiedStatus() {
             crosshairSmoothY = Double.NaN;
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
-            resetPassThroughCloseHoverState();
             return;
         }
 
@@ -2112,13 +2179,11 @@ private void refreshPassThroughUnifiedStatus() {
             if (!crosshairOverlay.isVisible()) {
                 crosshairOverlay.setVisible(true);
             }
-            updatePassThroughHoverClose(mouseOnScreen);
         } else {
             crosshairSmoothX = Double.NaN;
             crosshairSmoothY = Double.NaN;
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
-            resetPassThroughCloseHoverState();
         }
 
     }
@@ -2148,7 +2213,7 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
     private void updatePassThroughHoverClose(Point mouseOnScreen) {
-        if (!passThroughEnabled || titleBar == null || mouseOnScreen == null) {
+        if (titleBar == null || mouseOnScreen == null) {
             resetPassThroughCloseHoverState();
             return;
         }
@@ -2166,12 +2231,26 @@ private void refreshPassThroughUnifiedStatus() {
         boolean hHammer = hammerRect.contains(mouseOnScreen);
         boolean hSettings = settingsRect.contains(mouseOnScreen);
 
+        long now = System.currentTimeMillis();
+
+        if (!passThroughEnabled) {
+            if (hToggle) {
+                if (passThroughToggleHoverStartMs < 0L) {
+                    passThroughToggleHoverStartMs = now;
+                } else if (now - passThroughToggleHoverStartMs >= PASS_THROUGH_TOGGLE_DWELL_MS) {
+                    setPassThroughEnabled(true, false);
+                    passThroughToggleHoverStartMs = -1L;
+                }
+            } else {
+                passThroughToggleHoverStartMs = -1L;
+            }
+            return;
+        }
+
         titleBar.setCloseHoverProgrammatic(hClose);
         titleBar.setToggleHoverProgrammatic(hToggle);
         titleBar.setHammerHoverProgrammatic(hHammer);
         titleBar.setSettingsHoverProgrammatic(hSettings);
-
-        long now = System.currentTimeMillis();
 
         if (hClose) {
             passThroughToggleHoverStartMs = -1L;
@@ -2192,7 +2271,8 @@ private void refreshPassThroughUnifiedStatus() {
             if (passThroughToggleHoverStartMs < 0L) {
                 passThroughToggleHoverStartMs = now;
             } else if (now - passThroughToggleHoverStartMs >= PASS_THROUGH_TOGGLE_DWELL_MS) {
-                setPassThroughEnabled(false, true);
+                setPassThroughEnabled(!passThroughEnabled, false);
+                passThroughToggleHoverStartMs = -1L;
             }
             return;
         }

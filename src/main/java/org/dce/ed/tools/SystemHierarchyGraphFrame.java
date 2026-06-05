@@ -43,6 +43,8 @@ import org.dce.ed.systemmap.SystemMapSystemLoader;
 import org.dce.ed.systemmap.SystemMapSystemLoader.Loaded;
 import org.dce.ed.systemmap.SystemMapSystemLoader.Source;
 import org.dce.ed.systemmap.SystemModelHierarchyBuilder;
+import org.dce.ed.systemmap.SystemSession;
+import org.dce.ed.systemmap.SystemSessionRegistry;
 import org.dce.ed.systemmap.SystemVisitNav;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.SystemHierarchyGraphPanel;
@@ -481,7 +483,11 @@ public final class SystemHierarchyGraphFrame extends JFrame {
                     Loaded loaded = SystemMapSystemLoader.load(trimmed, loadSource);
                     loadedResult = loaded;
 
-                    Graph graph = SystemModelHierarchyBuilder.buildForLoaded(loaded);
+                    SystemSession tabSession = SystemSessionRegistry.lookup(trimmed);
+                    Graph graph = SystemModelHierarchyBuilder.buildForSession(tabSession);
+                    if (graph == null) {
+                        graph = SystemModelHierarchyBuilder.buildForLoaded(loaded);
+                    }
                     if (graph == null && loadSource != Source.CACHE) {
                         SystemState journalState = JournalSystemMapLoader.loadFromJournal(
                                 JournalSystemMapLoader.defaultJournalDirectory(), trimmed);

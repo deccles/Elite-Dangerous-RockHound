@@ -1,0 +1,70 @@
+{
+  "name": "Eol Prou VK-N d7-1828",
+  "notes": "Wide binary A+B only; B hosts B 1 / B 2. Regression: companion star must not draw a per-body Kepler ring around A.",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Eol Prou VK-N d7-1828 A",
+      "shortName": "A",
+      "distanceLs": 0,
+      "starType": "F",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 1260163307189.941406,
+      "eccentricity": 0.326062,
+      "orbitalInclination": -41.832426,
+      "periapsis": 102.21597,
+      "ascendingNode": -81.137757,
+      "meanAnomaly": 61.394875,
+      "orbitalPeriod": 2356888711.452484
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou VK-N d7-1828 B",
+      "shortName": "B",
+      "distanceLs": 10640.571835,
+      "starType": "K",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 2125670373439.788818,
+      "eccentricity": 0.326062,
+      "orbitalInclination": -41.832426,
+      "periapsis": 282.215965,
+      "ascendingNode": -81.137757,
+      "meanAnomaly": 61.394878,
+      "orbitalPeriod": 2356888711.452484
+    },
+    {
+      "id": 7,
+      "bodyName": "Eol Prou VK-N d7-1828 B 1",
+      "shortName": "B 1",
+      "distanceLs": 10632.541753,
+      "planetClass": "Metal rich body",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 2914087653.160095,
+      "eccentricity": 0.000045,
+      "orbitalPeriod": 97547.007203
+    },
+    {
+      "id": 8,
+      "bodyName": "Eol Prou VK-N d7-1828 B 2",
+      "shortName": "B 2",
+      "distanceLs": 10642.265092,
+      "planetClass": "High metal content body",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 5123982489.109039,
+      "eccentricity": 0.000026,
+      "orbitalPeriod": 227442.413568
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 2,
+    "barycentricStarLabels": ["A", "B"],
+    "hasBarycentreMutualRing": true,
+    "parents": [
+      { "body": "A", "resolvesTo": "barycentre" },
+      { "body": "B", "resolvesTo": "barycentre" },
+      { "body": "B 1", "resolvesTo": "B" },
+      { "body": "B 2", "resolvesTo": "B" }
+    ]
+  }
+}

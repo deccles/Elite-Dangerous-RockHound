@@ -10,8 +10,9 @@ import org.dce.ed.state.BodyInfo;
 import org.dce.ed.util.SystemOrbitGeometry;
 
 /**
- * Testable rules for classifying a system and resolving map topology. Implementation delegates to
- * {@link SystemOrbitGeometry} while the map GUI ({@link org.dce.ed.ui.SystemPlanMapPanel}) consumes
+ * Testable rules for classifying a system and resolving map layout. Topology (parent links) comes from
+ * {@link ModelMapTopology} / {@link SystemModel} when a {@link SystemSession} is present; legacy
+ * {@link #resolveOrbitParentBodyId} remains for tests without a model. The map GUI consumes
  * {@link SystemMapModel} built by {@link SystemMapPipeline}.
  * <p>
  * Rule catalogue (each should have a fixture assertion):
@@ -56,6 +57,11 @@ public final class SystemMapRules {
     }
 
     public static SystemMapClassification classify(Map<Integer, BodyInfo> bodies) {
+        return classify(bodies, null);
+    }
+
+    public static SystemMapClassification classify(Map<Integer, BodyInfo> bodies,
+            org.dce.systemmodel.model.SystemModel model) {
         int stellar = SystemOrbitGeometry.countMapStellarBodies(bodies);
         int primary = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
         int central = SystemOrbitGeometry.centralStarMapKey(bodies);
@@ -63,9 +69,12 @@ public final class SystemMapRules {
                 || SystemOrbitGeometry.shouldApplySingleStarLayout(bodies);
         List<Integer> baryStars = barycentricMapStellarIds(bodies);
         SystemLayoutKind kind;
-        if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+        ModelLayoutHints hints = model != null ? ModelLayoutHints.from(model, bodies) : null;
+        if (hints != null && hints.hierarchicalWide) {
             kind = SystemLayoutKind.WIDE_BINARY;
-        } else if (stellar >= 2 && !singleStar) {
+        } else if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+            kind = SystemLayoutKind.WIDE_BINARY;
+        } else if (baryStars.size() >= 2 && !singleStar) {
             kind = SystemLayoutKind.WIDE_BINARY;
         } else if (singleStar) {
             kind = SystemLayoutKind.SINGLE_STAR;

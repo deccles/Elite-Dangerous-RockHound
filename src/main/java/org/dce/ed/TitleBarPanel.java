@@ -392,6 +392,7 @@ public class TitleBarPanel extends JPanel {
         public void setPassThroughActive(boolean passThroughActive) {
             this.passThroughActive = passThroughActive;
             refreshToolTipText();
+            repaint();
         }
 
         @Override

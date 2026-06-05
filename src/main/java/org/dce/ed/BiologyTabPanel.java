@@ -2453,6 +2453,10 @@ private final class BioMapPanel extends JPanel {
         } finally {
             g2.dispose();
         }
+        OverlayFrame frame = OverlayFrame.overlayFrame;
+        if (frame != null) {
+            frame.scheduleNativePassThroughReapplyAfterPaint();
+        }
     }
 
     /**

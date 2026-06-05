@@ -11,8 +11,10 @@ import java.util.List;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
+import org.dce.ed.testutil.OrbitGeometryTestSupport;
 import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -51,8 +53,35 @@ class EolProuNnYB310CoOrbitMapTest {
     @Test
     @DisplayName("Null:20 detected from journal refs even when cache parents planets to star")
     void null20_detectedFromJournalRefs() {
+        assertTrue(SystemOrbitGeometry.isCoOrbitMajorSharedNullHub(20, bodies));
         assertTrue(SystemOrbitGeometry.isPlanetBinaryNullParentId(20, bodies));
         assertTrue(SystemOrbitGeometry.isSharedNullBarycentreId(20, bodies));
+    }
+
+    @Test
+    @DisplayName("Null:20 stays co-orbit majors when moons 5 a/5 b also reference the null")
+    void null20_coOrbitNotBinaryMoonWhenMoonsShareNull() {
+        BodyInfo b = bodies.get(Integer.valueOf(fixture.bodyIdByLabel("5 b")));
+        if (b != null) {
+            b.setJournalParentRefs(java.util.List.of("Null:20", "Planet:21", "Star:0"));
+        }
+        assertTrue(SystemOrbitGeometry.isCoOrbitMajorSharedNullHub(20, bodies));
+        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false);
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "5", 20, 1.0);
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "6", 20, 1.0);
+        int outerRingId = SystemOrbitGeometry.PLANET_BINARY_OUTER_ORBIT_RING_ID_BASE - 20;
+        assertNotNull(findOrbitPolyline(model.orbitPolylines(), outerRingId),
+                "dashed heliocentric hub ring around primary");
+        int baryKey = SystemOrbitGeometry.planetBinaryBarycentreMapKey(20);
+        int starId = SystemOrbitGeometry.centralStarMapKey(bodies);
+        double hubFromStar = Math.hypot(model.mapPlaneX(baryKey) - model.mapPlaneX(starId),
+                model.mapPlaneY(baryKey) - model.mapPlaneY(starId)) / LS;
+        OrbitPolylineWorldXY outer = findOrbitPolyline(model.orbitPolylines(), outerRingId);
+        double ringR = OrbitGeometryTestSupport.meanRadius(outer.wx, outer.wy,
+                OrbitGeometryTestSupport.ringCentroid(outer.wx),
+                OrbitGeometryTestSupport.ringCentroid(outer.wy));
+        assertTrue(Math.abs(hubFromStar - ringR / LS) < 3.0,
+                "hub on dashed ring radius; hubLs=" + hubFromStar + " ringR=" + (ringR / LS));
     }
 
     @Test
@@ -79,6 +108,10 @@ class EolProuNnYB310CoOrbitMapTest {
             }
         }
         assertTrue(mutualRing, "Null:20 mutual orbit ring should be drawn");
+
+        int outerRingId = SystemOrbitGeometry.PLANET_BINARY_OUTER_ORBIT_RING_ID_BASE - 20;
+        assertNotNull(findOrbitPolyline(model.orbitPolylines(), outerRingId),
+                "Null:20 heliocentric hub ring around primary star");
 
         assertNull(findOrbitPolyline(model.orbitPolylines(), idRing),
                 "planetary ring scan row must not get its own orbit stroke");
@@ -112,6 +145,33 @@ class EolProuNnYB310CoOrbitMapTest {
             }
         }
         assertTrue(moonRingAroundHost, "5 a orbit stroke should be centred on planet 5");
+
+        int starId = SystemOrbitGeometry.centralStarMapKey(bodies);
+        double hubFromStar = Math.hypot(model.mapPlaneX(baryKey20) - model.mapPlaneX(starId),
+                model.mapPlaneY(baryKey20) - model.mapPlaneY(starId)) / LS;
+        double expectHub = bodies.get(Integer.valueOf(20)).getDistanceLs();
+        assertTrue(Math.abs(hubFromStar - expectHub) < Math.max(5.0, expectHub * 0.08),
+                "Null:20 hub on heliocentric ring around star; hubLs=" + hubFromStar + " expect=" + expectHub);
+    }
+
+    @Test
+    @DisplayName("With SystemModel session, co-orbit dots and guide rings stay aligned")
+    void withSystemSession_coOrbitRingsAndMoonsAligned() {
+        SystemSession session = SystemSessionFactory.open(new SystemMapSystemLoader.Loaded(
+                fixture.name, bodies, "cache"));
+        Assumptions.assumeTrue(session.hasModel(), "journal-backed model from fixture bodies");
+        SystemMapModel model = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false, session);
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "5", 20, 1.0);
+        OrbitGeometryTestSupport.assertBodyOnMutualOrbitRing(model, bodies, "6", 20, 1.0);
+        OrbitGeometryTestSupport.assertBodyOnPerBodyOrbitRing(model, bodies, "5 a", 1.0);
+        double baryX = model.mapPlaneX(baryKey20);
+        double baryY = model.mapPlaneY(baryKey20);
+        OrbitPolylineWorldXY mutual = OrbitGeometryTestSupport.findPlanetBinaryMutualRing(model, 20);
+        assertNotNull(mutual);
+        double cx = OrbitGeometryTestSupport.ringCentroid(mutual.wx);
+        double cy = OrbitGeometryTestSupport.ringCentroid(mutual.wy);
+        double miss = Math.hypot(baryX - cx, baryY - cy) / LS;
+        assertTrue(miss < 2.0, "Null:20 barycentre on mutual ring; missLs=" + miss);
     }
 
     @Test

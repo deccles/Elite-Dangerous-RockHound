@@ -9,6 +9,7 @@ import java.util.Map;
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
+import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.systemmap.SystemMapSystemLoader.Loaded;
 import org.dce.ed.systemmodel.SystemModelService;
 import org.dce.systemmodel.journal.JournalRecord;
@@ -42,36 +43,20 @@ public final class SystemModelHierarchyBuilder {
      * {@link #buildForCachedSystem(String)} so SQLite body rows are not ignored.
      */
     public static SystemMapHierarchyBuilder.Graph buildForLoaded(Loaded loaded) {
-        if (loaded == null || loaded.bodies == null || loaded.bodies.isEmpty()) {
+        SystemSession session = SystemSessionFactory.open(loaded);
+        if (!session.hasModel()) {
             return null;
         }
-        String name = loaded.systemName != null ? loaded.systemName.trim() : "";
-        if (name.isEmpty()) {
+        Map<Integer, BodyInfo> bodies = session.state() != null ? session.state().getBodies() : null;
+        return buildGraph(session.systemName(), session.model(), session.model().hierarchy(), bodies);
+    }
+
+    public static SystemMapHierarchyBuilder.Graph buildForSession(SystemSession session) {
+        if (session == null || !session.hasModel()) {
             return null;
         }
-        CachedSystem cs = SystemHierarchyAvailability.resolveRichestCachedSystem(name);
-        SystemState state = new SystemState();
-        state.setSystemName(name);
-        if (cs != null && cs.systemAddress != 0L) {
-            state.setSystemAddress(cs.systemAddress);
-        }
-        List<JournalRecord> normalized = List.of();
-        if (cs != null) {
-            SystemState fromCache = stateWithJournalLogFromCache(name, cs);
-            if (fromCache != null && !fromCache.getJournalEventLog().isEmpty()) {
-                normalized = JournalEventLogUtil.normalizeForSystemBuild(name, fromCache.getJournalEventLog());
-                if (fromCache.getSystemAddress() != 0L) {
-                    state.setSystemAddress(fromCache.getSystemAddress());
-                }
-            }
-        }
-        List<JournalRecord> merged = CachedBodyJournalBridge.mergeMissingFromBodyInfo(name, normalized, loaded.bodies);
-        merged = JournalEventLogUtil.dedupeScansByDesignation(name, merged);
-        if (merged.isEmpty()) {
-            return null;
-        }
-        state.setJournalEventLog(merged);
-        return buildFromState(state);
+        Map<Integer, BodyInfo> bodies = session.state() != null ? session.state().getBodies() : null;
+        return buildGraph(session.systemName(), session.model(), session.model().hierarchy(), bodies);
     }
 
     /**
@@ -114,7 +99,7 @@ public final class SystemModelHierarchyBuilder {
             return null;
         }
         HierarchyGraph hg = handle.model().hierarchy();
-        return buildGraph(state.getSystemName(), handle.model(), hg);
+        return buildGraph(state.getSystemName(), handle.model(), hg, state.getBodies());
     }
 
     /** Rejects graphs where unresolved barycentres were parked on the synthetic root. */
@@ -131,7 +116,7 @@ public final class SystemModelHierarchyBuilder {
         return baryAtRoot <= MAX_BARYCENTRES_AT_ROOT;
     }
 
-    private static SystemState stateWithJournalLogFromCache(String systemName, CachedSystem cs) {
+    static SystemState stateWithJournalLogFromCache(String systemName, CachedSystem cs) {
         SystemState state = new SystemState();
         state.setSystemName(systemName);
         if (cs == null) {
@@ -164,18 +149,26 @@ public final class SystemModelHierarchyBuilder {
     public static SystemMapHierarchyBuilder.Graph buildFromSnapshot(String json) {
         SystemSnapshot snap = SystemSnapshot.fromJson(json);
         SystemModel model = snap.toModel();
-        return buildGraph(snap.systemName(), model, model.hierarchy());
+        return buildGraph(snap.systemName(), model, model.hierarchy(), null);
     }
 
     static SystemMapHierarchyBuilder.Graph buildGraph(
             String systemName, SystemModel model, HierarchyGraph hg) {
+        return buildGraph(systemName, model, hg, null);
+    }
+
+    static SystemMapHierarchyBuilder.Graph buildGraph(
+            String systemName,
+            SystemModel model,
+            HierarchyGraph hg,
+            Map<Integer, BodyInfo> tableBodies) {
         Map<Integer, SystemMapHierarchyBuilder.Node> built = new HashMap<>();
         SystemMapHierarchyBuilder.Node root = new SystemMapHierarchyBuilder.Node(
                 ROOT_KEY, "Null:0", "system barycentre", null, SystemMapHierarchyBuilder.NodeKind.SYSTEM_BARYCENTRE);
         built.put(Integer.valueOf(ROOT_KEY), root);
 
         for (BodyNode b : model.bodies().values()) {
-            built.put(Integer.valueOf(b.bodyId()), bodyNode(b));
+            built.put(Integer.valueOf(b.bodyId()), bodyNode(b, systemName, tableBodies));
         }
         for (int baryId : model.barycentres().keySet()) {
             int mapKey = HierarchyKeys.baryMapKey(baryId);
@@ -358,9 +351,10 @@ public final class SystemModelHierarchyBuilder {
         }
     }
 
-    private static SystemMapHierarchyBuilder.Node bodyNode(BodyNode b) {
+    private static SystemMapHierarchyBuilder.Node bodyNode(
+            BodyNode b, String systemName, Map<Integer, BodyInfo> tableBodies) {
         SystemMapHierarchyBuilder.NodeKind kind = toKind(b.kind());
-        String label = shortLabel(b.bodyName());
+        String label = hierarchyBodyLabel(b, systemName, tableBodies);
         String subtitle = b.subType() != null && !b.subType().isBlank() ? b.subType() : b.bodyType();
         if (b.orbitParent() != null) {
             subtitle = subtitle + " · orbit: " + b.orbitParent().format();
@@ -398,6 +392,25 @@ public final class SystemModelHierarchyBuilder {
             case BARYCENTRE -> SystemMapHierarchyBuilder.NodeKind.SCAN_BARYCENTRE;
             default -> SystemMapHierarchyBuilder.NodeKind.OTHER;
         };
+    }
+
+    /**
+     * Display-only label (graph edges use {@link SystemMapHierarchyBuilder.Node#mapKey}, not this string).
+     */
+    private static String hierarchyBodyLabel(BodyNode b, String systemName, Map<Integer, BodyInfo> tableBodies) {
+        if (b != null && b.kind() == BodyKind.STAR) {
+            if (tableBodies != null) {
+                BodyInfo row = tableBodies.get(Integer.valueOf(b.bodyId()));
+                if (row != null && SystemOrbitGeometry.isPrimaryStarBodyByName(row)) {
+                    return "*";
+                }
+            }
+            if (systemName != null && !systemName.isBlank() && b.bodyName() != null
+                    && b.bodyName().trim().equalsIgnoreCase(systemName.trim())) {
+                return "*";
+            }
+        }
+        return shortLabel(b != null ? b.bodyName() : null);
     }
 
     private static String shortLabel(String bodyName) {

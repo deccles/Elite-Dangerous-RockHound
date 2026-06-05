@@ -108,6 +108,8 @@ import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.systemmap.SystemMapRules;
+import org.dce.ed.systemmap.SystemSession;
+import org.dce.ed.systemmap.SystemSessionFactory;
 import org.dce.ed.systemmodel.SystemModelService;
 import org.dce.ed.util.SystemOrbitGeometry;
 
@@ -193,6 +195,7 @@ public class SystemTabPanel extends JPanel {
     private static final int SYSTEM_TABLE_DIST_COL_MIN_PX = 56;
 
     private final SystemState state = new SystemState();
+    private volatile SystemSession systemSession;
     private final SystemEventProcessor processor = new SystemEventProcessor(EliteDangerousOverlay.clientKey, state, new EdsmClient());
 
     private final EdsmClient edsmClient = new EdsmClient();
@@ -2230,6 +2233,7 @@ public class SystemTabPanel extends JPanel {
     }
 
     private void rebuildTable() {
+        systemSession = SystemSessionFactory.open(state);
         dedupeBodiesByName();
         updateHeaderLabel();
 
@@ -2337,11 +2341,20 @@ public class SystemTabPanel extends JPanel {
     }
 
     private void updateSystemModelStatus() {
+        if (systemSession != null) {
+            updateSystemModelStatus(systemSession.handle());
+            return;
+        }
         if (state == null) {
             updateSystemModelStatus(null);
             return;
         }
         updateSystemModelStatus(SystemModelService.rebuild(state, false));
+    }
+
+    /** Latest journal-authoritative session for this tab (shared with hierarchy graph via registry). */
+    public SystemSession getSystemSession() {
+        return systemSession;
     }
 
     /** Updates the orbital plan map (journal-derived X/Y projection). */
@@ -2377,7 +2390,7 @@ public class SystemTabPanel extends JPanel {
         }
         Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, mapEpoch,
                 freezeBarycentreStarsDuringOrbitAnim());
-        updateSystemModelStatus(SystemModelService.rebuild(state, false));
+        updateSystemModelStatus();
         Integer shipAnchorMap = resolvePlanMapShipAnchorBodyId();
         double[] ship = null;
         if (shipAnchorMap != null) {
@@ -2411,7 +2424,7 @@ public class SystemTabPanel extends JPanel {
             boolean hudZoomPending = pendingHudTargetMapZoomBodyId != null;
             systemPlanMapPanel.setSkipProximityHopForHudTarget(hudZoomPending);
             systemPlanMapPanel.setScene(bodies, pos, ship, planMapTriangleAnchor, proximityHighlight,
-                    orbitAnimDemoActive, mapEpoch);
+                    orbitAnimDemoActive, mapEpoch, systemSession);
             systemPlanMapPanel.setSkipProximityHopForHudTarget(false);
             systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
             finishPendingHudTargetMapZoom();
@@ -2420,7 +2433,7 @@ public class SystemTabPanel extends JPanel {
         boolean hudZoomPending = pendingHudTargetMapZoomBodyId != null;
         systemPlanMapPanel.setSkipProximityHopForHudTarget(hudZoomPending);
         systemPlanMapPanel.setScene(bodies, pos, ship, planMapTriangleAnchor, proximityHighlight,
-                orbitAnimDemoActive, mapEpoch);
+                orbitAnimDemoActive, mapEpoch, systemSession);
         systemPlanMapPanel.setSkipProximityHopForHudTarget(false);
         finishPendingHudTargetMapZoom();
     }

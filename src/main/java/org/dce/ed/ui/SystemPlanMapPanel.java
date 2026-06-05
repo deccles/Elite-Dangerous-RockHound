@@ -50,6 +50,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 
+import org.dce.ed.OverlayFrame;
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.systemmap.MapViewProjection;
@@ -59,6 +60,7 @@ import org.dce.ed.systemmap.SystemMapOrbitStrokePrinter;
 import org.dce.ed.systemmap.SystemMapOrbitStrokePrinter.OrbitStrokeHitInfo;
 import org.dce.ed.systemmap.SystemMapPipeline;
 import org.dce.ed.systemmap.SystemMapRules;
+import org.dce.ed.systemmap.SystemSession;
 import org.dce.ed.util.ExplorationBodyCredits;
 import org.dce.ed.util.ExplorationBodyCredits.SystemMapDotKind;
 import org.dce.ed.util.SystemOrbitGeometry;
@@ -405,6 +407,9 @@ public final class SystemPlanMapPanel extends JPanel {
      * come from here — not re-derived in paint code.
      */
     private SystemMapModel mapModel;
+
+    /** Journal-authoritative session from {@link org.dce.ed.SystemTabPanel}; drives topology and Kepler positions. */
+    private SystemSession mapSession;
 
     /** True-scale view tilt 0…90° ({@link MapViewProjection}). */
     private int viewTiltDegrees;
@@ -824,7 +829,7 @@ public final class SystemPlanMapPanel extends JPanel {
             Integer highlightNearBodyId,
             boolean orbitPlaybackActive) {
         setScene(bodies, positions, shipM, anchorBodyId, highlightNearBodyId, orbitPlaybackActive,
-                Instant.now());
+                Instant.now(), null);
     }
 
     public void setScene(Map<Integer, BodyInfo> bodies,
@@ -834,6 +839,19 @@ public final class SystemPlanMapPanel extends JPanel {
             Integer highlightNearBodyId,
             boolean orbitPlaybackActive,
             Instant orbitPositionEpoch) {
+        setScene(bodies, positions, shipM, anchorBodyId, highlightNearBodyId, orbitPlaybackActive,
+                orbitPositionEpoch, null);
+    }
+
+    public void setScene(Map<Integer, BodyInfo> bodies,
+            Map<Integer, double[]> positions,
+            double[] shipM,
+            Integer anchorBodyId,
+            Integer highlightNearBodyId,
+            boolean orbitPlaybackActive,
+            Instant orbitPositionEpoch,
+            SystemSession session) {
+        mapSession = session;
 
         dots.clear();
         this.anchorBodyId = anchorBodyId;
@@ -852,7 +870,7 @@ public final class SystemPlanMapPanel extends JPanel {
         if (!sceneEmpty) {
             String mapSystemName = resolveMapSystemName(bodies);
             mapModel = SystemMapPipeline.build(mapSystemName, bodies, orbitPositionEpoch,
-                    freezeBarycentreStarsDuringPlayback());
+                    freezeBarycentreStarsDuringPlayback(), mapSession);
             positions = new java.util.HashMap<>(mapModel.positionsMetres());
             mapProjA0 = mapModel.projectionAxis0();
             mapProjA1 = mapModel.projectionAxis1();
@@ -2317,7 +2335,7 @@ public final class SystemPlanMapPanel extends JPanel {
             String mapSystemName = resolveMapSystemName(bodies);
             Instant primeEpoch = orbitPlaybackBaseEpoch != null ? orbitPlaybackBaseEpoch : orbitPositionEpoch;
             mapModel = SystemMapPipeline.build(mapSystemName, bodies, primeEpoch,
-                    freezeBarycentreStarsDuringPlayback());
+                    freezeBarycentreStarsDuringPlayback(), mapSession);
             mapProjA0 = mapModel.projectionAxis0();
             mapProjA1 = mapModel.projectionAxis1();
             wideBinaryFlattenFrame = mapModel.wideBinaryFlattenFrame();
@@ -2812,7 +2830,8 @@ public final class SystemPlanMapPanel extends JPanel {
                     BasicStroke orbitStroke = detailOrbits && poly.bodyId > 0 && isMoonOrbitPolyline(poly.bodyId)
                             ? orbitStrokeMoon
                             : orbitStrokeThin;
-                    if (poly.estimated) {
+                    if (poly.estimated
+                            || SystemOrbitGeometry.isBarycentreAssociatedOrbitRingBodyId(poly.bodyId)) {
                         orbitStroke = new BasicStroke(orbitStroke.getLineWidth(), BasicStroke.CAP_ROUND,
                                 BasicStroke.JOIN_ROUND, 10f, new float[] { 4f, 5f }, 0f);
                     }
@@ -3028,6 +3047,10 @@ public final class SystemPlanMapPanel extends JPanel {
 
         } finally {
             g2.dispose();
+        }
+        OverlayFrame frame = OverlayFrame.overlayFrame;
+        if (frame != null) {
+            frame.scheduleNativePassThroughReapplyAfterPaint();
         }
     }
 
