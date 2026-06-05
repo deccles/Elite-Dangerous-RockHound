@@ -83,7 +83,7 @@ import java.util.function.Consumer;
  * Custom transparent "tabbed pane" for the overlay.
  * Does not extend JTabbedPane to avoid opaque background painting.
  *
- * Main tabs: Route, System, Biology, Mining, Fleet Carrier (visibility from preferences). Nearby panel is kept in the card stack but has no tab button.
+ * Main tabs: Route, System, ExoBio, Mining, Fleet Carrier (visibility from preferences). Nearby panel is kept in the card stack but has no tab button.
  */
 public class EliteOverlayTabbedPane extends JPanel {
 
@@ -172,7 +172,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		routeButton = createTabButton("Route");
 		systemButton = createTabButton("System");
-		biologyButton = createTabButton("Biology");
+		biologyButton = createTabButton("ExoBio");
 		miningButton = createTabButton("Mining");
 		missionsButton = createTabButton("Missions");
 		nearbyButton = null;
@@ -1288,7 +1288,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	/**
 	 * Cycles to the next visible tab (skips tabs hidden in Preferences → Overlay → Visible tabs).
-	 * Order: Route → System → Biology → Mining → Fleet Carrier.
+	 * Order: Route → System → ExoBio → Mining → Fleet Carrier.
 	 */
 	public void selectNextVisibleTab() {
 		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton, fleetCarrierButton };

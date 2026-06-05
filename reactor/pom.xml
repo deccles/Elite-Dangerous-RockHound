@@ -6,7 +6,7 @@
 
     <groupId>org.dce</groupId>
     <artifactId>elite-dangerous-overlay-parent</artifactId>
-    <version>1.2.50</version>
+    <version>1.3.0</version>
     <packaging>pom</packaging>
 
     <name>Elite Dangerous Overlay (parent)</name>
@@ -20,6 +20,7 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <edo-system-model.version>1.0.0</edo-system-model.version>
+        <!-- Bump when edo-system-model changes; see edo-system-model/README.md § Versioning -->
+        <edo-system-model.version>1.0.1</edo-system-model.version>
     </properties>
 </project>

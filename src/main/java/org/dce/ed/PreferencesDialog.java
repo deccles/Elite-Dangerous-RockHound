@@ -466,7 +466,7 @@ public class PreferencesDialog extends JDialog {
 		tabsPanel.add(overlayTabSystemVisibleCheckBox, tgc);
 
 		tgc.gridy++;
-		overlayTabBiologyVisibleCheckBox = new JCheckBox("Biology");
+		overlayTabBiologyVisibleCheckBox = new JCheckBox("ExoBio");
 		overlayTabBiologyVisibleCheckBox.setOpaque(false);
 		overlayTabBiologyVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabBiologyVisible());
 		tabsPanel.add(overlayTabBiologyVisibleCheckBox, tgc);

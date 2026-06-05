@@ -8,7 +8,18 @@ Journal-authoritative Elite Dangerous system topology and Kepler positions for E
 mvn install
 ```
 
-EDO depends on `org.dce:edo-system-model:1.0.0` from the local Maven repository.
+EDO depends on `org.dce:edo-system-model:1.0.1` from the local Maven repository.
+
+## Versioning
+
+Bump `edo-system-model.version` in `reactor/pom.xml` whenever this module changes (not when only the overlay app changes).
+
+| Change | Bump |
+|--------|------|
+| Hierarchy / orbit-parent rules, Kepler or position behaviour, public model API | **Patch** (`1.0.x`) unless breaking |
+| Breaking API or semantics for `org.dce.systemmodel.*` consumers | **Minor** or **major** as appropriate |
+
+The overlay app version (`elite-dangerous-overlay-parent`, e.g. `1.3.0`) is separate from this library version.
 
 ## Submodule
 

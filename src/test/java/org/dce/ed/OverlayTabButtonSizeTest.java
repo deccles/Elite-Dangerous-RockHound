@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
  */
 class OverlayTabButtonSizeTest {
 
-	private static final Set<String> TAB_LABELS = Set.of("Route", "System", "Biology", "Mining", "Fleet Carrier");
+	private static final Set<String> TAB_LABELS = Set.of("Route", "System", "ExoBio", "Mining", "Fleet Carrier");
 
 	@Test
 	void tabButtons_preferredSizeFitsFullLabel() throws Exception {

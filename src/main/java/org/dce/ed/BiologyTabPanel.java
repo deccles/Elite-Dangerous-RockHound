@@ -83,7 +83,7 @@ public class BiologyTabPanel extends JPanel {
 
 
 
-    private final JLabel header = new JLabel("Biology");
+    private final JLabel header = new JLabel("ExoBio");
     private final BioTableModel model = new BioTableModel();
     private final JTable table = new JTable(model) {
         private static final long serialVersionUID = 1L;
@@ -113,6 +113,9 @@ public class BiologyTabPanel extends JPanel {
     private static final Color BIO_MAP_ACTIVE_SAMPLE = new Color(0x40, 0xE0, 0x70);
     /** Biology map: parked pins from a species left incomplete after switching genus (in-game purple cue). */
     private static final Color BIO_MAP_ABANDONED_SAMPLE = new Color(0xB8, 0x70, 0xE8);
+    /** Fully sampled species (3/3): small light gray triangles on the map, no emphasis rays. */
+    private static final Color BIO_MAP_COMPLETE_SAMPLE = new Color(200, 200, 205);
+    private static final Color BIO_MAP_COMPLETE_SAMPLE_OUTLINE = new Color(150, 150, 158, 200);
     /** Parked pins for the genus currently being sampled again: useful history, but not current progress. */
     private static final Color BIO_MAP_RESUMED_GENUS_HISTORY = EdoUi.Internal.GRAY_180;
     /** Biology map: commander ship cue (heading-relative radar, points up). */
@@ -2364,6 +2367,18 @@ private final class BioMapPanel extends JPanel {
                 }
             }
 
+            if (rows != null) {
+                for (BioRow row : rows) {
+                    if (row == null || row.sampleCount < REQUIRED_SAMPLES || row.points == null || row.points.isEmpty()) {
+                        continue;
+                    }
+                    for (BodyInfo.BioSamplePoint p : row.points) {
+                        int[] end = sampleRayEndPx(cx, cy, scale, p);
+                        drawBioSampleCompleteMarker(g2, end[0], end[1]);
+                    }
+                }
+            }
+
             if (haveSamplePins) {
                 g2.setStroke(new BasicStroke(2f));
                 if (showParkedPins && abandonedByKey != null) {
@@ -2845,7 +2860,7 @@ private final class BioMapPanel extends JPanel {
         }
         if (rows != null) {
             for (BioRow row : rows) {
-                if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null) {
+                if (row == null || row.points == null) {
                     continue;
                 }
                 for (BodyInfo.BioSamplePoint p : row.points) {
@@ -2942,6 +2957,23 @@ private final class BioMapPanel extends JPanel {
         g2.draw(new Line2D.Double(cx, cy, end[0], end[1]));
         int r = 4;
         g2.fill(new Ellipse2D.Double(end[0] - r, end[1] - r, r * 2, r * 2));
+    }
+
+    /** Small upward triangle for a species completed to 3/3 samples (no ray from map centre). */
+    private static void drawBioSampleCompleteMarker(Graphics2D g2, int px, int py) {
+        float halfW = 3.5f;
+        float top = py - 4.5f;
+        float base = py + 2.5f;
+        Path2D.Float tri = new Path2D.Float();
+        tri.moveTo(px, top);
+        tri.lineTo(px + halfW, base);
+        tri.lineTo(px - halfW, base);
+        tri.closePath();
+        g2.setColor(BIO_MAP_COMPLETE_SAMPLE);
+        g2.fill(tri);
+        g2.setColor(BIO_MAP_COMPLETE_SAMPLE_OUTLINE);
+        g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2.draw(tri);
     }
 
     private void queueBioSampleRayLabel(
