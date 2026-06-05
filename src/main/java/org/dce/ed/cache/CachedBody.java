@@ -83,6 +83,9 @@ public class CachedBody {
     /** Parked pins when the player switched away from an incomplete species (shown e.g. purple on the bio map). */
     public Map<String, List<BioSamplePoint>> abandonedBioSamplePointsByDisplayName;
 
+    /** Species display name key for the genus currently being sampled (1/3 or 2/3), if any. */
+    public String activeIncompleteBioKey;
+
     public static class BioSamplePoint {
         public double latitude;
         public double longitude;
@@ -105,6 +108,9 @@ public class CachedBody {
     
     // Full "truth" names like "Bacterium Nebulus", "Stratum Tectonicas", etc.
     public Set<String> observedBioDisplayNames;  // may be null
+
+    /** Species that received ScanOrganic Analyse on this body. */
+    public Set<String> analysedBioDisplayNames;
 	public Boolean wasMapped;
 	public Boolean wasDiscovered;
 	public Boolean wasFootfalled;

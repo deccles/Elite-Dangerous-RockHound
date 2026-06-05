@@ -88,6 +88,8 @@ public final class EdoSessionState {
     private Double biologyParkedSrvLat;
     private Double biologyParkedSrvLon;
     private Double biologyParkedSrvHeadingDeg;
+    /** Parked SRV surface fixes keyed by body (survives body hops and restart). */
+    private java.util.List<BiologySrvMarkerEntry> biologyParkedSrvMarkers;
     /** User-placed stars on the biology surface map (per body). */
     private java.util.List<BiologyMapBookmarkEntry> biologyMapBookmarks;
 
@@ -566,6 +568,74 @@ public final class EdoSessionState {
 
     public void setBiologyMapBookmarks(java.util.List<BiologyMapBookmarkEntry> biologyMapBookmarks) {
         this.biologyMapBookmarks = biologyMapBookmarks;
+    }
+
+    public java.util.List<BiologySrvMarkerEntry> getBiologyParkedSrvMarkers() {
+        return biologyParkedSrvMarkers;
+    }
+
+    public void setBiologyParkedSrvMarkers(java.util.List<BiologySrvMarkerEntry> biologyParkedSrvMarkers) {
+        this.biologyParkedSrvMarkers = biologyParkedSrvMarkers;
+    }
+
+    /** Parked SRV position on a planetary body. */
+    public static final class BiologySrvMarkerEntry {
+        private String bodyName;
+        private Integer bodyId;
+        private double lat;
+        private double lon;
+        private Double headingDeg;
+
+        public BiologySrvMarkerEntry() {
+        }
+
+        public BiologySrvMarkerEntry(String bodyName, Integer bodyId, double lat, double lon, Double headingDeg) {
+            this.bodyName = bodyName;
+            this.bodyId = bodyId;
+            this.lat = lat;
+            this.lon = lon;
+            this.headingDeg = headingDeg;
+        }
+
+        public String getBodyName() {
+            return bodyName;
+        }
+
+        public void setBodyName(String bodyName) {
+            this.bodyName = bodyName;
+        }
+
+        public Integer getBodyId() {
+            return bodyId;
+        }
+
+        public void setBodyId(Integer bodyId) {
+            this.bodyId = bodyId;
+        }
+
+        public double getLat() {
+            return lat;
+        }
+
+        public void setLat(double lat) {
+            this.lat = lat;
+        }
+
+        public double getLon() {
+            return lon;
+        }
+
+        public void setLon(double lon) {
+            this.lon = lon;
+        }
+
+        public Double getHeadingDeg() {
+            return headingDeg;
+        }
+
+        public void setHeadingDeg(Double headingDeg) {
+            this.headingDeg = headingDeg;
+        }
     }
 
     /** Lat/lon pin on the biology map for a planetary body. */

@@ -1363,14 +1363,14 @@ public class SystemTabPanel extends JPanel {
             IFsdJump e = (IFsdJump) event;
             if (event instanceof CarrierLocationEvent && !state.isCommanderAboardFleetCarrier()) {
                 requestRebuild();
-                persistIfPossible();
+                persistSystemStateIfPossible();
                 return;
             }
             if (event instanceof CarrierJumpEvent cj
                     && !cj.isDocked()
                     && !cj.isOnFoot()) {
                 requestRebuild();
-                persistIfPossible();
+                persistSystemStateIfPossible();
                 return;
             }
             new Thread(() -> {
@@ -1400,7 +1400,7 @@ public class SystemTabPanel extends JPanel {
                         fireSessionStateChanged();
                     }
                     requestRebuild();
-                    persistIfPossible();
+                    persistSystemStateIfPossible();
                 });
             }, "SystemTabPanel-loadSystem").start();
 
@@ -1409,7 +1409,7 @@ public class SystemTabPanel extends JPanel {
 
         // 3) Normal events: just refresh UI on EDT
             requestRebuild();
-            persistIfPossible();
+            persistSystemStateIfPossible();
     }
 
     private void handleFirstDiscoveredSystemAnnouncement(ScanEvent e) {
@@ -2181,7 +2181,7 @@ public class SystemTabPanel extends JPanel {
 
         // 3) Refresh UI and persist merged result
         rebuildTable();
-        persistIfPossible();
+        persistSystemStateIfPossible();
         System.out.println("[EDO][Cache] loadSystem lookup+hydrate for " + systemName + " took " + (System.currentTimeMillis() - startedAtMs) + "ms");
     }
 
@@ -2834,7 +2834,7 @@ public class SystemTabPanel extends JPanel {
         headerSummaryLabel.setText(sb.toString());
     }
     public static boolean bodyIssues = false;
-    private void persistIfPossible() {
+    public void persistSystemStateIfPossible() {
         if (state.getSystemName() == null
                 || state.getSystemAddress() == 0L
                 || state.getBodies().isEmpty()) {

@@ -17,6 +17,7 @@ import java.awt.RenderingHints;
 import java.awt.Stroke;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.Ellipse2D;
@@ -64,8 +65,10 @@ import org.dce.ed.logreader.event.SaasignalsFoundEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.logreader.event.TouchdownEvent;
+import org.dce.ed.exobiology.BioGenusSwitchRestorer;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.EdoSessionState.BiologyMapBookmarkEntry;
+import org.dce.ed.session.EdoSessionState.BiologySrvMarkerEntry;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.util.FirstBonusHelper;
@@ -172,6 +175,9 @@ private Double lastFootTravelUpDeg;
     private Double currentPlanetRadius;
     private String currentBodyName;
     private Integer currentBodyId;
+    /** Last commander mode from {@link StatusEvent} — classifies {@code Touchdown} when {@code PlayerControlled:false}. */
+    private boolean commanderInSrv;
+    private boolean lastCommanderAwayFromShip;
 
     /** Last surface fix while in the main ship (not on foot / SRV); map anchor when away from ship. */
     private Double parkedShipLat;
@@ -180,10 +186,15 @@ private Double lastFootTravelUpDeg;
     /** Ship nose heading (degrees, 0=N clockwise) when parked; Status {@code Heading} is radians. */
     private Double parkedShipHeadingDeg;
 
+    /** Bodies for which genus-switch parking was replayed from journal this session. */
+    private final java.util.Set<String> genusSwitchReplayBodies = new java.util.HashSet<>();
+
     /** Last surface fix while in the SRV; map anchor when back in ship or on foot. */
     private Double parkedSrvLat;
     private Double parkedSrvLon;
     private Double parkedSrvHeadingDeg;
+    /** Per-body parked SRV markers (persisted in session). */
+    private final java.util.Map<String, BioSrvMarker> parkedSrvByBodyToken = new java.util.LinkedHashMap<>();
 
     private final Map<String, Boolean> insideStateByBioKey = new HashMap<>();
     /** Previous great-circle distance (m) to the active row's last sample — for sudden-collapse detection. */
@@ -317,9 +328,22 @@ private Double lastFootTravelUpDeg;
         state.setBiologyParkedShipHeadingDeg(parkedShipHeadingDeg);
         state.setBiologyParkedShipBodyName(currentBodyName);
         state.setBiologyParkedShipBodyId(currentBodyId);
-        state.setBiologyParkedSrvLat(parkedSrvLat);
-        state.setBiologyParkedSrvLon(parkedSrvLon);
-        state.setBiologyParkedSrvHeadingDeg(parkedSrvHeadingDeg);
+        saveSrvMarkerForBody(currentBodyName, currentBodyId);
+        if (parkedSrvByBodyToken.isEmpty()) {
+            state.setBiologyParkedSrvMarkers(null);
+            state.setBiologyParkedSrvLat(null);
+            state.setBiologyParkedSrvLon(null);
+            state.setBiologyParkedSrvHeadingDeg(null);
+        } else {
+            List<BiologySrvMarkerEntry> srvOut = new ArrayList<>(parkedSrvByBodyToken.size());
+            for (BioSrvMarker m : parkedSrvByBodyToken.values()) {
+                srvOut.add(m.toSessionEntry());
+            }
+            state.setBiologyParkedSrvMarkers(srvOut);
+            state.setBiologyParkedSrvLat(parkedSrvLat);
+            state.setBiologyParkedSrvLon(parkedSrvLon);
+            state.setBiologyParkedSrvHeadingDeg(parkedSrvHeadingDeg);
+        }
         if (mapBookmarks.isEmpty()) {
             state.setBiologyMapBookmarks(null);
         } else {
@@ -343,9 +367,31 @@ private Double lastFootTravelUpDeg;
             currentBodyName = state.getBiologyParkedShipBodyName();
         }
         currentBodyId = state.getBiologyParkedShipBodyId();
-        parkedSrvLat = state.getBiologyParkedSrvLat();
-        parkedSrvLon = state.getBiologyParkedSrvLon();
-        parkedSrvHeadingDeg = state.getBiologyParkedSrvHeadingDeg();
+        parkedSrvByBodyToken.clear();
+        List<BiologySrvMarkerEntry> srvMarkers = state.getBiologyParkedSrvMarkers();
+        if (srvMarkers != null) {
+            for (BiologySrvMarkerEntry e : srvMarkers) {
+                if (e == null) {
+                    continue;
+                }
+                BioSrvMarker m = BioSrvMarker.fromSessionEntry(e);
+                parkedSrvByBodyToken.put(bodyToken(m.bodyName, m.bodyId), m);
+            }
+        }
+        if (parkedSrvByBodyToken.isEmpty()
+                && state.getBiologyParkedSrvLat() != null
+                && state.getBiologyParkedSrvLon() != null) {
+            String legacyBody = state.getBiologyParkedShipBodyName();
+            Integer legacyBodyId = state.getBiologyParkedShipBodyId();
+            BioSrvMarker legacy = new BioSrvMarker(
+                    legacyBody,
+                    legacyBodyId,
+                    state.getBiologyParkedSrvLat().doubleValue(),
+                    state.getBiologyParkedSrvLon().doubleValue(),
+                    state.getBiologyParkedSrvHeadingDeg());
+            parkedSrvByBodyToken.put(bodyToken(legacyBody, legacyBodyId), legacy);
+        }
+        loadSrvMarkerForBody(currentBodyName, currentBodyId);
         mapBookmarks.clear();
         List<BiologyMapBookmarkEntry> restored = state.getBiologyMapBookmarks();
         if (restored != null) {
@@ -360,7 +406,6 @@ private Double lastFootTravelUpDeg;
         syncMapToPanel();
         tryRestoreParkedShipFromJournal();
         tryRestoreParkedSrvFromJournal();
-        clearParkedSrvIfEmbarkedFromStatusSnapshot();
         refreshTableForCurrentBody(false);
     }
 
@@ -507,6 +552,35 @@ private Double lastFootTravelUpDeg;
         }
     }
 
+    private static final class BioSrvMarker {
+        final String bodyName;
+        final Integer bodyId;
+        final double lat;
+        final double lon;
+        final Double headingDeg;
+
+        BioSrvMarker(String bodyName, Integer bodyId, double lat, double lon, Double headingDeg) {
+            this.bodyName = bodyName;
+            this.bodyId = bodyId;
+            this.lat = lat;
+            this.lon = lon;
+            this.headingDeg = headingDeg;
+        }
+
+        static BioSrvMarker fromSessionEntry(BiologySrvMarkerEntry e) {
+            return new BioSrvMarker(
+                    e.getBodyName(),
+                    e.getBodyId(),
+                    e.getLat(),
+                    e.getLon(),
+                    e.getHeadingDeg());
+        }
+
+        BiologySrvMarkerEntry toSessionEntry() {
+            return new BiologySrvMarkerEntry(bodyName, bodyId, lat, lon, headingDeg);
+        }
+    }
+
     private void applyParkedShipSurfaceFix(
             double lat,
             double lon,
@@ -539,6 +613,7 @@ private Double lastFootTravelUpDeg;
         if (headingDeg != null) {
             parkedSrvHeadingDeg = headingDeg;
         }
+        saveSrvMarkerForBody(currentBodyName, currentBodyId);
         syncMapToPanel();
         notifySessionStateChanged();
     }
@@ -550,27 +625,45 @@ private Double lastFootTravelUpDeg;
         parkedSrvLat = null;
         parkedSrvLon = null;
         parkedSrvHeadingDeg = null;
+        removeSrvMarkerForBody(currentBodyName, currentBodyId);
         syncMapToPanel();
         notifySessionStateChanged();
     }
 
-    /** After session restore, drop a stowed SRV fix if Status already shows the commander in the ship. */
-    private void clearParkedSrvIfEmbarkedFromStatusSnapshot() {
-        if (parkedSrvLat == null && parkedSrvLon == null) {
+    private static String bodyToken(String bodyName, Integer bodyId) {
+        if (bodyId != null) {
+            return "id:" + bodyId;
+        }
+        if (bodyName != null && !bodyName.isBlank()) {
+            return "name:" + bodyName.toLowerCase(java.util.Locale.ROOT);
+        }
+        return "unknown";
+    }
+
+    private void saveSrvMarkerForBody(String bodyName, Integer bodyId) {
+        if (parkedSrvLat == null || parkedSrvLon == null) {
             return;
         }
-        try {
-            String home = System.getProperty("user.home");
-            Path p = Path.of(home, "Saved Games", "Frontier Developments", "Elite Dangerous", "Status.json");
-            if (!Files.exists(p)) {
-                return;
-            }
-            StatusEvent se = STATUS_SNAPSHOT_PARSER.parseStatusJsonFile(p);
-            if (shouldClearParkedSrvPosition(se)) {
-                clearParkedSrvSurfaceFix();
-            }
-        } catch (IOException ignored) {
+        parkedSrvByBodyToken.put(
+                bodyToken(bodyName, bodyId),
+                new BioSrvMarker(bodyName, bodyId, parkedSrvLat, parkedSrvLon, parkedSrvHeadingDeg));
+    }
+
+    private void removeSrvMarkerForBody(String bodyName, Integer bodyId) {
+        parkedSrvByBodyToken.remove(bodyToken(bodyName, bodyId));
+    }
+
+    private void loadSrvMarkerForBody(String bodyName, Integer bodyId) {
+        BioSrvMarker m = parkedSrvByBodyToken.get(bodyToken(bodyName, bodyId));
+        if (m == null) {
+            parkedSrvLat = null;
+            parkedSrvLon = null;
+            parkedSrvHeadingDeg = null;
+            return;
         }
+        parkedSrvLat = m.lat;
+        parkedSrvLon = m.lon;
+        parkedSrvHeadingDeg = m.headingDeg;
     }
 
     /**
@@ -592,12 +685,23 @@ private Double lastFootTravelUpDeg;
                 return;
             }
             TouchdownEvent td = (TouchdownEvent) raw;
-            if (!td.isPlayerControlled() || !td.isOnPlanet()) {
+            if (!td.isOnPlanet()) {
                 return;
             }
             Double lat = td.getLatitude();
             Double lon = td.getLongitude();
             if (lat == null || lon == null) {
+                return;
+            }
+            if (!td.isPlayerControlled()
+                    && !isUnoccupiedShipTouchdown(
+                            lastCommanderAwayFromShip,
+                            commanderInSrv,
+                            currentLat,
+                            currentLon,
+                            lat.doubleValue(),
+                            lon.doubleValue(),
+                            currentPlanetRadius != null ? currentPlanetRadius.doubleValue() : 0.0)) {
                 return;
             }
             String bodyName = td.getBodyName();
@@ -684,13 +788,6 @@ private Double lastFootTravelUpDeg;
         return e.isInSrv() && !e.isOnFoot();
     }
 
-    /** SRV stowed on the ship — remove the parked SRV map marker (keep it while on foot near a deployed SRV). */
-    private static boolean shouldClearParkedSrvPosition(StatusEvent e) {
-        if (e == null || e.getDecodedFlags() == null) {
-            return false;
-        }
-        return e.getDecodedFlags().inMainShip && !e.isInSrv() && !e.isOnFoot();
-    }
 
     /**
      * Status.json {@code Heading}: usually radians (0=north, clockwise). Values outside
@@ -726,8 +823,42 @@ private Double lastFootTravelUpDeg;
     }
 
     /**
-     * Journal {@code Touchdown} with {@code PlayerControlled:true} — authoritative ship surface fix
-     * (e.g. after landing or relanding). SRV touchdowns often use {@code PlayerControlled:false}.
+     * Minimum separation (m) between commander and {@code PlayerControlled:false} touchdown to treat it as
+     * recalled ship rather than SRV surface contact while driving.
+     */
+    static final double SHIP_RECALL_TOUCHDOWN_MIN_SEPARATION_M = 75.0;
+
+    /**
+     * {@code PlayerControlled:false} touchdowns are SRV contacts or unoccupied ship recall/dismiss landings.
+     */
+    static boolean isUnoccupiedShipTouchdown(
+            boolean commanderAwayFromShip,
+            boolean commanderInSrv,
+            Double commanderLat,
+            Double commanderLon,
+            double touchdownLat,
+            double touchdownLon,
+            double planetRadiusM) {
+        if (!commanderInSrv && commanderAwayFromShip) {
+            return true;
+        }
+        if (commanderInSrv
+                && commanderLat != null
+                && commanderLon != null
+                && planetRadiusM > 1.0) {
+            double d = greatCircleMeters(
+                    commanderLat.doubleValue(),
+                    commanderLon.doubleValue(),
+                    touchdownLat,
+                    touchdownLon,
+                    planetRadiusM);
+            return d > SHIP_RECALL_TOUCHDOWN_MIN_SEPARATION_M;
+        }
+        return false;
+    }
+
+    /**
+     * Journal {@code Touchdown} — authoritative surface fix for ship (player landing or recall) or SRV.
      */
     private void handleTouchdown(TouchdownEvent e) {
         if (e == null || !e.isOnPlanet()) {
@@ -743,30 +874,56 @@ private Double lastFootTravelUpDeg;
         Integer bodyId = e.getBodyId() >= 0 ? Integer.valueOf(e.getBodyId()) : null;
         boolean bodyChanged = surfaceBodyChanged(bodyName, bodyId);
         if (bodyChanged) {
+            saveSrvMarkerForBody(currentBodyName, currentBodyId);
             parkedShipHeadingDeg = null;
             parkedSrvHeadingDeg = null;
+            if (bodyName != null && !bodyName.isBlank()) {
+                currentBodyName = bodyName;
+            }
+            if (bodyId != null) {
+                currentBodyId = bodyId;
+            }
+            loadSrvMarkerForBody(currentBodyName, currentBodyId);
         }
 
-        if (e.isPlayerControlled()) {
+        boolean shipTouchdown = e.isPlayerControlled();
+        if (!shipTouchdown) {
+            Double radiusM = resolvePlanetRadiusMetres(bodyName, e.getBodyId());
+            double radius = radiusM != null && radiusM.doubleValue() > 1.0
+                    ? radiusM.doubleValue()
+                    : (currentPlanetRadius != null ? currentPlanetRadius.doubleValue() : 0.0);
+            shipTouchdown = isUnoccupiedShipTouchdown(
+                    lastCommanderAwayFromShip,
+                    commanderInSrv,
+                    currentLat,
+                    currentLon,
+                    lat.doubleValue(),
+                    lon.doubleValue(),
+                    radius);
+        }
+
+        if (shipTouchdown) {
             if (bodyChanged) {
                 parkedShipHeadingDeg = null;
             }
-            currentLat = lat;
-            currentLon = lon;
+            if (e.isPlayerControlled()) {
+                currentLat = lat;
+                currentLon = lon;
+            }
             Double radiusM = resolvePlanetRadiusMetres(bodyName, e.getBodyId());
             applyParkedShipSurfaceFix(lat, lon, radiusM, null, bodyName, bodyId);
-        } else {
-            applyParkedSrvSurfaceFix(lat.doubleValue(), lon.doubleValue(), null);
-            if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
-                model.updateDistances(
-                        currentLat.doubleValue(),
-                        currentLon.doubleValue(),
-                        currentPlanetRadius.doubleValue());
-                table.repaint();
-            }
+            refreshCommanderDistancesAndRepaint(bodyChanged, false);
             return;
         }
-        refreshCommanderDistancesAndRepaint(bodyChanged, false);
+
+        applyParkedSrvSurfaceFix(lat.doubleValue(), lon.doubleValue(), null);
+        if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
+            model.updateDistances(
+                    currentLat.doubleValue(),
+                    currentLon.doubleValue(),
+                    currentPlanetRadius.doubleValue());
+            table.repaint();
+        }
     }
 
     /**
@@ -824,15 +981,26 @@ private Double lastFootTravelUpDeg;
         } else {
             mapPanel.clearShipPosition();
         }
-        if (parkedSrvLat != null && parkedSrvLon != null && parkedShipRadiusM != null) {
+        Double srvRadiusM = resolveSrvMapRadiusMetres();
+        if (parkedSrvLat != null && parkedSrvLon != null && srvRadiusM != null) {
             mapPanel.setSrvLatLon(
                     parkedSrvLat.doubleValue(),
                     parkedSrvLon.doubleValue(),
-                    parkedShipRadiusM.doubleValue());
+                    srvRadiusM.doubleValue());
             mapPanel.setSrvGlyphHeadingDeg(parkedSrvHeadingDeg);
         } else {
             mapPanel.clearSrvPosition();
         }
+    }
+
+    private Double resolveSrvMapRadiusMetres() {
+        if (parkedShipRadiusM != null && parkedShipRadiusM.doubleValue() > 1.0) {
+            return parkedShipRadiusM;
+        }
+        if (currentPlanetRadius != null && currentPlanetRadius.doubleValue() > 1.0) {
+            return currentPlanetRadius;
+        }
+        return resolvePlanetRadiusMetres(currentBodyName, currentBodyId != null ? currentBodyId.intValue() : -1);
     }
 
     public void handleLogEvent(EliteLogEvent event) {
@@ -852,6 +1020,10 @@ private Double lastFootTravelUpDeg;
             boolean bodyChanged = surfaceBodyChanged(newBodyName, newBodyId);
             boolean bodyNameFirstLock = (currentBodyName == null || currentBodyName.isBlank())
                     && newBodyName != null && !newBodyName.isBlank();
+
+            if (bodyChanged) {
+                saveSrvMarkerForBody(currentBodyName, currentBodyId);
+            }
 
             if (newLat != null) {
                 currentLat = newLat;
@@ -878,10 +1050,9 @@ private Double lastFootTravelUpDeg;
                 parkedShipLon = null;
                 parkedShipRadiusM = null;
                 parkedShipHeadingDeg = null;
-                parkedSrvLat = null;
-                parkedSrvLon = null;
-                parkedSrvHeadingDeg = null;
+                loadSrvMarkerForBody(currentBodyName, currentBodyId);
                 syncMapBookmarksToPanel();
+                syncMapToPanel();
             }
 
             if (shouldUpdateParkedShipPosition(e)
@@ -902,14 +1073,16 @@ private Double lastFootTravelUpDeg;
                         newLat.doubleValue(),
                         newLon.doubleValue(),
                         statusHeadingToDegrees(e.getHeading()));
-            } else if (shouldClearParkedSrvPosition(e)) {
-                clearParkedSrvSurfaceFix();
-            } else if (e.isOnFoot() && !e.isInSrv() && parkedSrvLat == null) {
+            } else if ((e.isOnFoot()
+                    || (e.getDecodedFlags() != null && e.getDecodedFlags().inMainShip))
+                    && !e.isInSrv() && parkedSrvLat == null) {
                 tryRestoreParkedSrvFromJournal();
             }
 
-            boolean awayFromShip = isCommanderAwayFromShip(e);
-            boolean commanderInSrv = e.isInSrv() && !e.isOnFoot();
+            commanderInSrv = e.isInSrv() && !e.isOnFoot();
+            lastCommanderAwayFromShip = isCommanderAwayFromShip(e);
+
+            boolean awayFromShip = lastCommanderAwayFromShip;
             if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
                 recordMovementSample(
                         e.getTimestamp(),
@@ -1032,10 +1205,12 @@ private Double lastFootTravelUpDeg;
             return;
         }
 
+        maybeReplayGenusSwitchParkingFromJournal(body);
+        syncMapBookmarksToPanel();
         List<BioRow> rows = buildRows(body);
         boolean anyPartialScan = false;
         for (BioRow r : rows) {
-            if (r != null && r.sampleCount > 0 && r.sampleCount < REQUIRED_SAMPLES) {
+            if (r != null && !r.analysed && r.sampleCount > 0) {
                 anyPartialScan = true;
                 break;
             }
@@ -1056,6 +1231,20 @@ private Double lastFootTravelUpDeg;
         mapPanel.setAbandonedSamplePins(Collections.emptyMap());
         mapPanel.setActiveIncompleteBioKey(null);
         mapPanel.setShowParkedPins(false);
+    }
+
+    private void maybeReplayGenusSwitchParkingFromJournal(BodyInfo body) {
+        if (body == null) {
+            return;
+        }
+        String token = body.getStarSystem() + "\0"
+                + (body.getBodyId() > 0 ? Integer.toString(body.getBodyId()) : currentBodyName);
+        if (!genusSwitchReplayBodies.add(token)) {
+            return;
+        }
+        if (BioGenusSwitchRestorer.replayFromJournal(body) && systemTab != null) {
+            systemTab.persistSystemStateIfPossible();
+        }
     }
 
 private static List<BioRow> buildRows(BodyInfo body) {
@@ -1136,6 +1325,12 @@ private static List<BioRow> buildRows(BodyInfo body) {
         }
         boolean firstBonus = FirstBonusHelper.firstBonusApplies(body);
 
+        body.reconcileStalePartialBioState();
+        body.sanitizeInflatedBioSampleCounts();
+        body.inferLegacyAnalysedFromFullPins();
+        counts = body.getBioSampleCountsSnapshot();
+        points = body.getBioSamplePointsSnapshot();
+
         for (BioRow r : rows) {
 
             // Elite only tracks ONE active genus at a time; journal counts can reset when switching.
@@ -1144,18 +1339,17 @@ private static List<BioRow> buildRows(BodyInfo body) {
             int ptsCount = (pts == null) ? 0 : pts.size();
             int countFromSnapshot = lookupCount(counts, r.displayName);
 
-            if (ptsCount > 0) {
-                r.points = new ArrayList<>(pts);
-
-                // If the player finished (Analyse) but we didn't record a 3rd point (common),
-                // let the snapshot promote completion, otherwise drive progress from points.
-                if (countFromSnapshot >= REQUIRED_SAMPLES) {
-                    r.sampleCount = REQUIRED_SAMPLES;
-                } else {
-                    r.sampleCount = Math.min(ptsCount, REQUIRED_SAMPLES);
+            r.analysed = body.isBioSpeciesAnalysed(r.displayName);
+            if (r.analysed) {
+                r.sampleCount = REQUIRED_SAMPLES;
+                if (ptsCount > 0) {
+                    r.points = new ArrayList<>(pts);
                 }
             } else {
-                r.sampleCount = Math.min(Math.max(countFromSnapshot, 0), REQUIRED_SAMPLES);
+                r.sampleCount = Math.min(REQUIRED_SAMPLES, Math.max(0, countFromSnapshot));
+                if (ptsCount > 0) {
+                    r.points = new ArrayList<>(pts);
+                }
             }
 
             BioCandidate cand = candByKey.get(canonicalBioKey(r.displayName));
@@ -1179,8 +1373,8 @@ private static List<BioRow> buildRows(BodyInfo body) {
         Collections.sort(rows, new Comparator<BioRow>() {
             @Override
             public int compare(BioRow a, BioRow b) {
-                int ra = rank(a.sampleCount);
-                int rb = rank(b.sampleCount);
+                int ra = rank(a);
+                int rb = rank(b);
                 if (ra != rb) {
                     return Integer.compare(ra, rb);
                 }
@@ -1193,11 +1387,11 @@ private static List<BioRow> buildRows(BodyInfo body) {
                 return a.displayName.compareToIgnoreCase(b.displayName);
             }
 
-            private int rank(int cnt) {
-                if (cnt >= REQUIRED_SAMPLES) {
+            private int rank(BioRow row) {
+                if (row != null && row.analysed) {
                     return 0;
                 }
-                if (cnt > 0) {
+                if (row != null && row.sampleCount > 0) {
                     return 1;
                 }
                 return 2;
@@ -1528,11 +1722,11 @@ private static List<BioRow> buildRows(BodyInfo body) {
         });
     }
 
-    private static Color colorForSamples(int samples) {
-        if (samples >= 3) {
+    private static Color colorForSamples(BioRow row) {
+        if (row != null && row.analysed) {
             return EdoUi.User.PRIMARY_HIGHLIGHT;
         }
-        if (samples > 0) {
+        if (row != null && row.sampleCount > 0) {
             return EdoUi.User.SECONDARY_HIGHLIGHT;
         }
         return EdoUi.User.MAIN_TEXT;
@@ -1545,6 +1739,7 @@ private static List<BioRow> buildRows(BodyInfo body) {
     private static final class BioRow {
         private final String displayName;
         private int sampleCount;
+        private boolean analysed;
         private String creditsText = "";
         private String genusKey = "";
         private int requiredMeters;
@@ -1559,7 +1754,7 @@ private static List<BioRow> buildRows(BodyInfo body) {
             distancesM.clear();
 
             // Complete: don’t track distances anymore
-            if (sampleCount >= 3) {
+            if (analysed) {
                 return;
             }
 
@@ -1703,7 +1898,7 @@ private static List<BioRow> buildRows(BodyInfo body) {
             if (r != null) {
                 // Color Bio, Credits, Min columns by status.
                 if (column == 0 || column == 1 || column == 2) {
-                    label.setForeground(colorForSamples(r.sampleCount));
+                    label.setForeground(colorForSamples(r));
                 } else {
                     label.setForeground(EdoUi.User.MAIN_TEXT);
                 }
@@ -1777,11 +1972,10 @@ private static List<BioRow> buildRows(BodyInfo body) {
                 int y = yMid - (bubbleH / 2);
                 int gap = 8;
 
-                Color c = colorForSamples(row.sampleCount);
+                Color c = colorForSamples(row);
 
-                // Complete: show checkmarks only and no distances.
-             // Complete: show checkmarks only and no distances.
-                if (row.sampleCount >= 3) {
+                // Complete (Analyse): show checkmarks only and no distances.
+                if (row.analysed) {
                     g2.setColor(c);
 
                     Font oldFont = g2.getFont();
@@ -1909,7 +2103,7 @@ private static List<BioRow> buildRows(BodyInfo body) {
             if (r == null) {
                 continue;
             }
-            if (r.sampleCount <= 0 || r.sampleCount >= 3) {
+            if (r.analysed || r.sampleCount <= 0) {
                 continue;
             }
             if (r.points == null || r.points.isEmpty()) {
@@ -2017,7 +2211,8 @@ private final class BioMapPanel extends JPanel {
     private boolean showParkedPins;
 
     private static final double BIO_MAP_ZOOM_MIN = 0.45;
-    private static final double BIO_MAP_ZOOM_MAX = 3.0;
+    /** Deep zoom for tight sample clusters when a far pin/ship/bookmark sets the auto-fit span. */
+    private static final double BIO_MAP_ZOOM_MAX = 48.0;
     private static final double BIO_MAP_ZOOM_STEP = 1.18;
     private double mapZoomFactor = 1.0;
     private final Rectangle zoomInHit = new Rectangle();
@@ -2040,6 +2235,19 @@ private final class BioMapPanel extends JPanel {
                 }
             }
         });
+        addMouseWheelListener(this::handleMouseWheel);
+    }
+
+    private void handleMouseWheel(MouseWheelEvent e) {
+        if (!canPaintMap()) {
+            return;
+        }
+        int rot = e.getWheelRotation();
+        if (rot == 0) {
+            return;
+        }
+        adjustMapZoom(rot < 0);
+        e.consume();
     }
 
     void setMapBookmarks(List<BioMapBookmark> bookmarks) {
@@ -2217,6 +2425,11 @@ private final class BioMapPanel extends JPanel {
         return haveSrv && !commanderInSrv;
     }
 
+    /** True when the commander is driving the SRV at map center (blue hull under the white V). */
+    private boolean showDrivingSrvAtCenter() {
+        return commanderCentered && commanderInSrv && haveSrv;
+    }
+
     /** White V rotation at map center — player true heading on the heading-up map. */
     private double playerVNoseRotationDeg() {
         if (playerHeadingDeg == null) {
@@ -2318,7 +2531,7 @@ private final class BioMapPanel extends JPanel {
             boolean haveActivePins = false;
             if (rows != null) {
                 for (BioRow row : rows) {
-                    if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null || row.points.isEmpty()) {
+                    if (row == null || row.analysed || row.points == null || row.points.isEmpty()) {
                         continue;
                     }
                     haveActivePins = true;
@@ -2336,14 +2549,14 @@ private final class BioMapPanel extends JPanel {
             }
 
             double maxDistM = computeMaxDistM(rows, haveAbandonedPins);
-            double baseScale = (fit * 0.42) / maxDistM;
-            double scale = baseScale * mapZoomFactor;
+            double fitSpanM = Math.max(25.0, maxDistM / mapZoomFactor);
+            double scale = (fit * 0.42) / fitSpanM;
 
             java.util.List<BioMapRayLabel> rayLabels = new ArrayList<>();
 
             java.awt.Shape oldClip = g2.getClip();
             g2.setClip(x0, y0, plotW, plotH);
-            drawLatLonGrid(g2, cx, cy, scale, maxDistM, x0, y0, plotW, plotH);
+            drawLatLonGrid(g2, cx, cy, scale, fitSpanM, x0, y0, plotW, plotH);
             g2.setClip(oldClip);
 
             double shipRot = shipGlyphRotationDeg();
@@ -2369,7 +2582,7 @@ private final class BioMapPanel extends JPanel {
 
             if (rows != null) {
                 for (BioRow row : rows) {
-                    if (row == null || row.sampleCount < REQUIRED_SAMPLES || row.points == null || row.points.isEmpty()) {
+                    if (row == null || !row.analysed || row.points == null || row.points.isEmpty()) {
                         continue;
                     }
                     for (BodyInfo.BioSamplePoint p : row.points) {
@@ -2397,7 +2610,7 @@ private final class BioMapPanel extends JPanel {
                 }
                 if (rows != null) {
                     for (BioRow row : rows) {
-                        if (row == null || row.sampleCount >= REQUIRED_SAMPLES || row.points == null || row.points.isEmpty()) {
+                        if (row == null || row.analysed || row.points == null || row.points.isEmpty()) {
                             continue;
                         }
                         for (BodyInfo.BioSamplePoint p : row.points) {
@@ -2431,6 +2644,8 @@ private final class BioMapPanel extends JPanel {
                 }
                 if (srvPx != null) {
                     drawSrvLocationMarker(g2, srvPx[0], srvPx[1], srvRot);
+                } else if (showDrivingSrvAtCenter()) {
+                    drawSrvLocationMarker(g2, cx, cy, playerVNoseRotationDeg());
                 }
                 drawHeadingVNose(g2, cx, cy, playerVNoseRotationDeg());
             } else if (haveShip) {

@@ -6,16 +6,37 @@ import java.nio.file.Path;
 import java.time.Instant;
 
 /**
- * Persists the last processed Elite journal timestamp.
+ * Persists the last processed Elite journal position.
  *
- * Shared by BOTH RescanJournalsMain and LiveJournalMonitor so that events
- * processed live will not be re-processed on the next startup rescan.
+ * <p>Shared by {@link RescanJournalsMain} and {@link LiveJournalMonitor}. The live monitor also
+ * stores the tailed journal file name and byte offset so events in the same UTC second are not
+ * replayed on restart (second-precision timestamps alone are not enough).</p>
  */
 public final class JournalImportCursor {
 
     private static final String LAST_IMPORT_FILENAME = "edo-cache.lastRescanTimestamp";
 
     private JournalImportCursor() {
+    }
+
+    /** Live tail checkpoint: timestamp plus exact file offset in the tailed journal. */
+    public static final class TailPosition {
+        public final Instant instant;
+        public final String journalFileName;
+        public final long byteOffset;
+
+        public TailPosition(Instant instant, String journalFileName, long byteOffset) {
+            this.instant = instant;
+            this.journalFileName = journalFileName;
+            this.byteOffset = Math.max(0L, byteOffset);
+        }
+
+        boolean matchesFile(Path journalFile) {
+            if (journalFile == null || journalFileName == null || journalFileName.isBlank()) {
+                return false;
+            }
+            return journalFileName.equals(journalFile.getFileName().toString());
+        }
     }
 
     public static Path getCursorFile(Path journalDirectory) {
@@ -26,6 +47,11 @@ public final class JournalImportCursor {
     }
 
     public static Instant read(Path journalDirectory) {
+        TailPosition pos = readTailPosition(journalDirectory);
+        return pos != null ? pos.instant : null;
+    }
+
+    public static TailPosition readTailPosition(Path journalDirectory) {
         Path cursor = getCursorFile(journalDirectory);
         if (cursor == null || !Files.isRegularFile(cursor)) {
             return null;
@@ -35,7 +61,14 @@ public final class JournalImportCursor {
             if (text.isEmpty()) {
                 return null;
             }
-            return Instant.parse(text);
+            String[] lines = text.split("\\R");
+            Instant instant = Instant.parse(lines[0].trim());
+            if (lines.length >= 3) {
+                String fileName = lines[1].trim();
+                long offset = Long.parseLong(lines[2].trim());
+                return new TailPosition(instant, fileName, offset);
+            }
+            return new TailPosition(instant, null, 0L);
         } catch (Exception ex) {
             System.err.println("Failed to read last journal timestamp from " + cursor + ": " + ex.getMessage());
             return null;
@@ -43,7 +76,11 @@ public final class JournalImportCursor {
     }
 
     public static void write(Path journalDirectory, Instant instant) {
-        if (instant == null) {
+        write(journalDirectory, new TailPosition(instant, null, 0L));
+    }
+
+    public static void write(Path journalDirectory, TailPosition position) {
+        if (position == null || position.instant == null) {
             return;
         }
         Path cursor = getCursorFile(journalDirectory);
@@ -51,7 +88,11 @@ public final class JournalImportCursor {
             return;
         }
         try {
-            Files.writeString(cursor, instant.toString(), StandardCharsets.UTF_8);
+            String fileName = position.journalFileName == null ? "" : position.journalFileName;
+            String payload = position.instant.toString() + System.lineSeparator()
+                    + fileName + System.lineSeparator()
+                    + position.byteOffset;
+            Files.writeString(cursor, payload, StandardCharsets.UTF_8);
         } catch (Exception ex) {
             System.err.println("Failed to write last journal timestamp to " + cursor + ": " + ex.getMessage());
         }

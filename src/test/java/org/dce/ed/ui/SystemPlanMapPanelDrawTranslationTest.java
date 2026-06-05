@@ -671,6 +671,65 @@ class SystemPlanMapPanelDrawTranslationTest {
             assertEquals(frameHost[0], frameD[0], Math.max(1.0, Math.abs(hostCx) * 0.05));
             assertEquals(frameHost[1], frameD[1], Math.max(1.0, Math.abs(hostCy) * 0.05));
         }
+
+        @Test
+        void wideBinaryMoon_framesBranchStarNotMoonHost() throws IOException {
+            SystemMapFixture wb = SystemMapFixtureLoader.loadClasspath("eol-prou-rn-i-c10-276-wide-binary.json");
+            Map<Integer, BodyInfo> wbBodies = wb.toBodies();
+            SystemMapJournalEnricher.prepareMapBodies(wbBodies);
+            int starA = wb.bodyIdByLabel("A");
+            int giantA3 = wb.bodyIdByLabel("A 3");
+            int moonA3a = wb.bodyIdByLabel("A 3 a");
+            int planetB1 = wb.bodyIdByLabel("B 1");
+            SystemPlanMapPanel panel = new SystemPlanMapPanel();
+            panel.setSize(900, 700);
+            Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(wbBodies, Instant.EPOCH, false);
+            panel.setScene(wbBodies, kepler, null, null, null, false, Instant.EPOCH);
+
+            assertEquals(starA, panel.hudTargetSubsystemHubForTests(moonA3a));
+            assertEquals(starA, panel.hudTargetSubsystemHubForTests(giantA3));
+            var members = panel.hudTargetSubsystemMemberIdsForTests(moonA3a);
+            assertTrue(members.contains(Integer.valueOf(starA)));
+            assertTrue(members.contains(Integer.valueOf(giantA3)));
+            assertTrue(members.contains(Integer.valueOf(moonA3a)));
+            assertFalse(members.contains(Integer.valueOf(planetB1)));
+        }
+
+        @Test
+        void wideBinaryBranch_framesTightlyInPlot() throws IOException {
+            SystemMapFixture wb = SystemMapFixtureLoader.loadClasspath("eol-prou-rn-i-c10-276-wide-binary.json");
+            Map<Integer, BodyInfo> wbBodies = wb.toBodies();
+            SystemMapJournalEnricher.prepareMapBodies(wbBodies);
+            int planetB6 = wb.bodyIdByLabel("B 6");
+            SystemPlanMapPanel panel = new SystemPlanMapPanel();
+            panel.setSize(900, 700);
+            Map<Integer, double[]> kepler = SystemOrbitGeometry.bodyPositionsMetres(wbBodies, Instant.EPOCH, false);
+            panel.setScene(wbBodies, kepler, null, null, null, false, Instant.EPOCH);
+
+            double[] frame = panel.hudTargetSubsystemFrameForTests(planetB6);
+            assertNotNull(frame);
+            double availW = 900.0 - 32.0;
+            double availH = 700.0 - 88.0 - 32.0;
+            double visibleLs = panel.visibleLsMinAxisAtZoomForTests(frame[2], availW, availH);
+            double minX = Double.POSITIVE_INFINITY;
+            double maxX = Double.NEGATIVE_INFINITY;
+            double minY = Double.POSITIVE_INFINITY;
+            double maxY = Double.NEGATIVE_INFINITY;
+            for (Integer id : panel.hudTargetSubsystemMemberIdsForTests(planetB6)) {
+                if (panel.hasBodyDotForTests(id.intValue())) {
+                    minX = Math.min(minX, panel.dotWorldXForTests(id.intValue()));
+                    maxX = Math.max(maxX, panel.dotWorldXForTests(id.intValue()));
+                    minY = Math.min(minY, panel.dotWorldYForTests(id.intValue()));
+                    maxY = Math.max(maxY, panel.dotWorldYForTests(id.intValue()));
+                }
+            }
+            double clusterSpanLs = Math.max(maxX - minX, maxY - minY)
+                    / SystemOrbitGeometry.LIGHT_SECOND_METRES * 1.06;
+            assertTrue(visibleLs >= clusterSpanLs * 0.95,
+                    "visible span should cover the branch cluster");
+            assertTrue(visibleLs <= clusterSpanLs * 2.5,
+                    "HUD zoom should fill the plot, not leave most of it empty");
+        }
     }
 
     @Nested

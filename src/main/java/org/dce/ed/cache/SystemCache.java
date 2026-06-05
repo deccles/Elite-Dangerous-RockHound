@@ -435,11 +435,42 @@ public final class SystemCache implements SystemStore {
             if (cb.spanshExcludeFromExobiology != null) {
                 info.setSpanshExcludeFromExobiology(cb.spanshExcludeFromExobiology);
             }
-            if (cb.bioSampleCountsByDisplayName != null && !cb.bioSampleCountsByDisplayName.isEmpty()) {
-                info.setBioSampleCounts(cb.bioSampleCountsByDisplayName);
+            if (cb.analysedBioDisplayNames != null && !cb.analysedBioDisplayNames.isEmpty()) {
+                info.setAnalysedBioDisplayNames(new java.util.HashSet<>(cb.analysedBioDisplayNames));
+            }
+            boolean hasBioProgress = (cb.bioSampleCountsByDisplayName != null
+                    && !cb.bioSampleCountsByDisplayName.isEmpty())
+                    || (cb.abandonedBioSamplePointsByDisplayName != null
+                    && !cb.abandonedBioSamplePointsByDisplayName.isEmpty());
+            if (hasBioProgress) {
+                if (cb.bioSampleCountsByDisplayName != null && !cb.bioSampleCountsByDisplayName.isEmpty()) {
+                    info.setBioSampleCounts(cb.bioSampleCountsByDisplayName);
+                }
+                if (cb.abandonedBioSamplePointsByDisplayName != null
+                        && !cb.abandonedBioSamplePointsByDisplayName.isEmpty()) {
+                    Map<String, List<BodyInfo.BioSamplePoint>> ab = new HashMap<>();
+                    for (Map.Entry<String, List<CachedBody.BioSamplePoint>> e
+                            : cb.abandonedBioSamplePointsByDisplayName.entrySet()) {
+                        if (e.getValue() == null || e.getValue().isEmpty()) {
+                            continue;
+                        }
+                        List<BodyInfo.BioSamplePoint> out = new ArrayList<>();
+                        for (CachedBody.BioSamplePoint p : e.getValue()) {
+                            out.add(new BodyInfo.BioSamplePoint(p.latitude, p.longitude));
+                        }
+                        ab.put(e.getKey(), out);
+                    }
+                    if (!ab.isEmpty()) {
+                        info.setAbandonedBioSamplePoints(ab);
+                    }
+                }
+                if (cb.activeIncompleteBioKey != null && !cb.activeIncompleteBioKey.isBlank()) {
+                    info.setActiveIncompleteBioKey(cb.activeIncompleteBioKey);
+                }
                 if (cb.bioSamplePointsByDisplayName != null && !cb.bioSamplePointsByDisplayName.isEmpty()) {
                     Map<String, List<BodyInfo.BioSamplePoint>> pts = new HashMap<>();
-                    for (Map.Entry<String, List<CachedBody.BioSamplePoint>> e : cb.bioSamplePointsByDisplayName.entrySet()) {
+                    for (Map.Entry<String, List<CachedBody.BioSamplePoint>> e
+                            : cb.bioSamplePointsByDisplayName.entrySet()) {
                         if (e.getValue() == null || e.getValue().isEmpty()) {
                             continue;
                         }
@@ -451,22 +482,10 @@ public final class SystemCache implements SystemStore {
                     }
                     info.setBioSamplePoints(pts);
                 }
-            }
-            if (cb.abandonedBioSamplePointsByDisplayName != null && !cb.abandonedBioSamplePointsByDisplayName.isEmpty()) {
-                Map<String, List<BodyInfo.BioSamplePoint>> ab = new HashMap<>();
-                for (Map.Entry<String, List<CachedBody.BioSamplePoint>> e : cb.abandonedBioSamplePointsByDisplayName.entrySet()) {
-                    if (e.getValue() == null || e.getValue().isEmpty()) {
-                        continue;
-                    }
-                    List<BodyInfo.BioSamplePoint> out = new ArrayList<>();
-                    for (CachedBody.BioSamplePoint p : e.getValue()) {
-                        out.add(new BodyInfo.BioSamplePoint(p.latitude, p.longitude));
-                    }
-                    ab.put(e.getKey(), out);
-                }
-                if (!ab.isEmpty()) {
-                    info.setAbandonedBioSamplePoints(ab);
-                }
+                org.dce.ed.exobiology.BioGenusSwitchRestorer.replayFromJournal(info);
+                info.reconcileStalePartialBioState();
+                info.sanitizeInflatedBioSampleCounts();
+                info.inferLegacyAnalysedFromFullPins();
             }
 
             if (cb.predictions != null && !cb.predictions.isEmpty()) {
@@ -1030,6 +1049,11 @@ public final class SystemCache implements SystemStore {
                 cb.abandonedBioSamplePointsByDisplayName = null;
             }
 
+            String activeIncomplete = b.getActiveIncompleteBioKey();
+            cb.activeIncompleteBioKey = (activeIncomplete == null || activeIncomplete.isBlank())
+                    ? null
+                    : activeIncomplete;
+
             if (b.getObservedGenusPrefixes() != null && !b.getObservedGenusPrefixes().isEmpty()) {
                 cb.observedGenusPrefixes = new java.util.HashSet<>(b.getObservedGenusPrefixes());
             } else {
@@ -1040,6 +1064,12 @@ public final class SystemCache implements SystemStore {
                 cb.observedBioDisplayNames = new java.util.HashSet<>(b.getObservedBioDisplayNames());
             } else {
                 cb.observedBioDisplayNames = null;
+            }
+
+            if (b.getAnalysedBioDisplayNames() != null && !b.getAnalysedBioDisplayNames().isEmpty()) {
+                cb.analysedBioDisplayNames = new java.util.HashSet<>(b.getAnalysedBioDisplayNames());
+            } else {
+                cb.analysedBioDisplayNames = null;
             }
 
             if (b.isHighValue()) {

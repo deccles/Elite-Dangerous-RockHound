@@ -22,7 +22,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.dce.ed.OverlayPreferences;
-import org.dce.ed.ExceptionReporting;
 import org.dce.ed.logreader.event.StatusEvent;
 
 import com.google.gson.JsonArray;
@@ -69,6 +68,7 @@ public final class LiveJournalMonitor {
     private Thread workerThread;
 
     private Instant lastJournalIoErrorLog;
+    private Instant lastListenerErrorLog;
 
     private String clientKey;
 
@@ -153,9 +153,10 @@ public final class LiveJournalMonitor {
 
 
         journalDirectory = journalDir;
-        lastProcessedJournalTimestamp = JournalImportCursor.read(journalDirectory);
-        if (lastProcessedJournalTimestamp != null) {
-            System.err.println("[EDO] LiveJournalMonitor: last journal timestamp (UTC): " + lastProcessedJournalTimestamp);
+        JournalImportCursor.TailPosition tailCheckpoint = JournalImportCursor.readTailPosition(journalDirectory);
+        if (tailCheckpoint != null) {
+            lastProcessedJournalTimestamp = tailCheckpoint.instant;
+            System.err.println("[EDO] LiveJournalMonitor: last journal timestamp (UTC): " + tailCheckpoint.instant);
         }
         // watch Status.json for immediate updates
         startStatusWatcher(journalDir);
@@ -165,6 +166,8 @@ public final class LiveJournalMonitor {
 
         Path currentFile = null;
         long filePointer = 0L;
+        boolean resumeFromTailCheckpoint = tailCheckpoint != null;
+        boolean skipTimestampFilterOnce = false;
 
         while (running) {
             try {
@@ -177,16 +180,23 @@ public final class LiveJournalMonitor {
                         System.err.println("[EDO] LiveJournalMonitor: tailing journal file \""
                                 + currentFile.toAbsolutePath() + "\"");
 
-                        // IMPORTANT: when the journal rotates while we're running, start at 0
-                        // so we don't miss initial events that were written before our next poll.
-                        filePointer = 0L;
+                        if (resumeFromTailCheckpoint && tailCheckpoint.matchesFile(currentFile)) {
+                            filePointer = tailCheckpoint.byteOffset;
+                            resumeFromTailCheckpoint = false;
+                            skipTimestampFilterOnce = filePointer > 0L;
+                        } else {
+                            // IMPORTANT: when the journal rotates while we're running, start at 0
+                            // so we don't miss initial events that were written before our next poll.
+                            filePointer = 0L;
+                        }
                     } else {
                         filePointer = 0L;
                     }
                 }
 
                 if (currentFile != null) {
-                    filePointer = readFromFile(currentFile, filePointer);
+                    filePointer = readFromFile(currentFile, filePointer, skipTimestampFilterOnce);
+                    skipTimestampFilterOnce = false;
                 }
 
                 if (statusWatcherThread == null || !statusWatcherThread.isAlive()) {
@@ -591,6 +601,10 @@ public final class LiveJournalMonitor {
     }
 
     private long readFromFile(Path file, long startPos) {
+        return readFromFile(file, startPos, false);
+    }
+
+    private long readFromFile(Path file, long startPos, boolean skipTimestampFilter) {
         if (!Files.isRegularFile(file)) {
             return startPos;
         }
@@ -615,11 +629,14 @@ public final class LiveJournalMonitor {
                     EliteLogEvent event = parser.parseRecord(line);
                     if (event != null) {
                         Instant ts = event.getTimestamp();
-                        if (ts != null && lastProcessedJournalTimestamp != null && ts.isBefore(lastProcessedJournalTimestamp)) {
+                        if (!skipTimestampFilter
+                                && ts != null
+                                && lastProcessedJournalTimestamp != null
+                                && ts.isBefore(lastProcessedJournalTimestamp)) {
                             continue;
                         }
                         dispatch(event);
-                        updateCursorIfNeeded(ts);
+                        updateCursorIfNeeded(ts, file, newPos);
                     }
                 } catch (JsonSyntaxException | IllegalStateException ex) {
                     // malformed line – skip
@@ -633,7 +650,7 @@ public final class LiveJournalMonitor {
         return newPos;
     }
 
-    private void updateCursorIfNeeded(Instant eventTimestamp) {
+    private void updateCursorIfNeeded(Instant eventTimestamp, Path journalFile, long byteOffset) {
         if (eventTimestamp == null) {
             return;
         }
@@ -646,7 +663,11 @@ public final class LiveJournalMonitor {
             return;
         }
         lastCursorPersistAt = now;
-        JournalImportCursor.write(journalDirectory, lastProcessedJournalTimestamp);
+        String fileName = journalFile != null && journalFile.getFileName() != null
+                ? journalFile.getFileName().toString()
+                : null;
+        JournalImportCursor.write(journalDirectory,
+                new JournalImportCursor.TailPosition(lastProcessedJournalTimestamp, fileName, byteOffset));
     }
 
     private void maybeLogJournalIoError(Path file, IOException ex) {
@@ -665,13 +686,27 @@ public final class LiveJournalMonitor {
                 + file.toAbsolutePath() + "\": " + msg);
     }
 
+    private void maybeLogListenerError(RuntimeException ex) {
+        Instant now = Instant.now();
+        if (lastListenerErrorLog != null && Duration.between(lastListenerErrorLog, now).getSeconds() < 30) {
+            return;
+        }
+        lastListenerErrorLog = now;
+
+        String msg = ex.getMessage();
+        if (msg == null) {
+            msg = ex.getClass().getSimpleName();
+        }
+        System.err.println("[EDO] LiveJournalMonitor: listener failed: " + msg);
+    }
+
     public void dispatch(EliteLogEvent event) {
         for (Consumer<EliteLogEvent> l : listeners) {
             try {
                 l.accept(event);
             } catch (RuntimeException ex) {
-                // don't let one bad listener break the others, but make the failure visible
-                ExceptionReporting.report(ex, "LiveJournalMonitor listener");
+                // don't let one bad listener break the others
+                maybeLogListenerError(ex);
             }
         }
     }

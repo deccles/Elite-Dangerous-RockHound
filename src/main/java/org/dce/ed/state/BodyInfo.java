@@ -189,6 +189,8 @@ public class BodyInfo {
 	private int numberOfBioSignals;
 
 	private java.util.Set<String> observedBioDisplayNames;
+	/** Species that received ScanOrganic {@code Analyse} on this body (true 3/3 completion). */
+	private Set<String> analysedBioDisplayNames;
 	// Observed genera from DSS or ScanOrganic
 	private Set<String> observedGenusPrefixes;
 	private String parentStar;
@@ -272,6 +274,51 @@ public class BodyInfo {
 		}
 		getObservedBioDisplayNames().add(name);
 	}
+
+	private void markBioSpeciesAnalysed(String canonicalDisplayName) {
+		if (canonicalDisplayName == null || canonicalDisplayName.isBlank()) {
+			return;
+		}
+		if (analysedBioDisplayNames == null) {
+			analysedBioDisplayNames = new HashSet<>();
+		}
+		analysedBioDisplayNames.add(canonicalDisplayName);
+	}
+
+	public boolean isBioSpeciesAnalysed(String displayName) {
+		if (displayName == null || displayName.isBlank() || analysedBioDisplayNames == null) {
+			return false;
+		}
+		String key = canonBioName(displayName);
+		if (analysedBioDisplayNames.contains(key)) {
+			return true;
+		}
+		for (String analysed : analysedBioDisplayNames) {
+			if (analysed != null && canonBioName(analysed).equals(key)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public Set<String> getAnalysedBioDisplayNames() {
+		return analysedBioDisplayNames;
+	}
+
+	public void setAnalysedBioDisplayNames(Set<String> names) {
+		if (names == null || names.isEmpty()) {
+			analysedBioDisplayNames = null;
+			return;
+		}
+		analysedBioDisplayNames = new HashSet<>();
+		for (String n : names) {
+			if (n == null || n.isBlank()) {
+				continue;
+			}
+			analysedBioDisplayNames.add(canonBioName(n));
+		}
+	}
+
 	public void addObservedGenus(String genusPrefix) {
 		if (genusPrefix == null || genusPrefix.isEmpty()) {
 			return;
@@ -680,6 +727,7 @@ public class BodyInfo {
 	        if (st.equals("analyse") || st.equals("analyze")) {
 	            bioSampleCountsByDisplayName.put(key, Integer.valueOf(3));
 	            addObservedBioDisplayName(displayName);
+	            markBioSpeciesAnalysed(key);
 	            if (activeIncompleteBioKey != null
 	            		&& canonBioGenusKey(activeIncompleteBioKey).equals(canonBioGenusKey(key))) {
 	            	activeIncompleteBioKey = null;
@@ -696,7 +744,131 @@ public class BodyInfo {
 	        next = 3;
 	    }
 
+	    parkPreviousIncompleteIfSwitchingTo(key);
+
 	    bioSampleCountsByDisplayName.put(key, Integer.valueOf(next));
+
+	    if (next < 3) {
+	    	activeIncompleteBioKey = key;
+	    }
+	}
+
+	/**
+	 * Elite allows only one incomplete genus at a time. When switching, park sample pins and clear the old count.
+	 */
+	private void parkPreviousIncompleteIfSwitchingTo(String newKey) {
+		if (newKey == null || newKey.isBlank()) {
+			return;
+		}
+		if (activeIncompleteBioKey == null || activeIncompleteBioKey.equals(newKey)) {
+			return;
+		}
+		parkAbandonedSpecies(activeIncompleteBioKey);
+		activeIncompleteBioKey = newKey;
+	}
+
+	private void parkAbandonedSpecies(String key) {
+		if (key == null || key.isBlank()) {
+			return;
+		}
+		List<BioSamplePoint> parked = bioSamplePointsByDisplayName.remove(key);
+		if (parked != null && !parked.isEmpty()) {
+			abandonedBioSamplePointsByDisplayName.put(key, new ArrayList<>(parked));
+		}
+		int oldCnt = bioSampleCountsByDisplayName.getOrDefault(key, 0);
+		if (oldCnt > 0 && oldCnt < 3) {
+			bioSampleCountsByDisplayName.remove(key);
+		}
+	}
+
+	/**
+	 * After cache load or journal replay without lat/lon, partial counts for non-active species are stale:
+	 * park their pins (purple) and clear counts so the table matches in-game genus switching.
+	 */
+	public void reconcileStalePartialBioState() {
+		List<String> partial = new ArrayList<>();
+		for (Map.Entry<String, Integer> e : bioSampleCountsByDisplayName.entrySet()) {
+			String key = e.getKey();
+			if (key == null || key.isBlank() || isBioSpeciesAnalysed(key)) {
+				continue;
+			}
+			int cnt = e.getValue() == null ? 0 : e.getValue().intValue();
+			if (cnt > 0 && cnt < 3) {
+				partial.add(key);
+			}
+		}
+		if (partial.isEmpty()) {
+			if (activeIncompleteBioKey != null) {
+				int c = bioSampleCountsByDisplayName.getOrDefault(activeIncompleteBioKey, 0);
+				if (c <= 0 || c >= 3 || isBioSpeciesAnalysed(activeIncompleteBioKey)) {
+					activeIncompleteBioKey = null;
+				}
+			}
+			return;
+		}
+		if (partial.size() > 1 && activeIncompleteBioKey == null) {
+			for (String key : partial) {
+				parkAbandonedSpecies(key);
+			}
+			return;
+		}
+		if (partial.size() == 1 && activeIncompleteBioKey == null) {
+			activeIncompleteBioKey = partial.get(0);
+			return;
+		}
+		String active = activeIncompleteBioKey;
+		for (String key : partial) {
+			if (active != null && active.equals(key)) {
+				continue;
+			}
+			parkAbandonedSpecies(key);
+		}
+	}
+
+	/**
+	 * Correct cached counts that reached 3/3 without a journal {@code Analyse} (replay/cache inflation).
+	 * Three map pins without Analyse are kept — the player may still need to analyse at Vista.
+	 */
+	public void sanitizeInflatedBioSampleCounts() {
+		for (String key : new ArrayList<>(bioSampleCountsByDisplayName.keySet())) {
+			if (key == null || key.isBlank() || isBioSpeciesAnalysed(key)) {
+				continue;
+			}
+			int count = bioSampleCountsByDisplayName.getOrDefault(key, 0);
+			if (count < 3) {
+				continue;
+			}
+			List<BioSamplePoint> pts = bioSamplePointsByDisplayName.get(key);
+			int pinCount = pts == null ? 0 : pts.size();
+			if (pinCount >= 3) {
+				continue;
+			}
+			int corrected;
+			if (pinCount > 0) {
+				corrected = Math.min(2, Math.max(pinCount, Math.min(count, pinCount + 1)));
+			} else {
+				corrected = 2;
+			}
+			bioSampleCountsByDisplayName.put(key, Integer.valueOf(corrected));
+		}
+	}
+
+	/**
+	 * Bodies completed before {@link #analysedBioDisplayNames} existed: three recorded pins implies Analyse done.
+	 */
+	public void inferLegacyAnalysedFromFullPins() {
+		for (String key : new ArrayList<>(bioSampleCountsByDisplayName.keySet())) {
+			if (key == null || key.isBlank() || isBioSpeciesAnalysed(key)) {
+				continue;
+			}
+			if (bioSampleCountsByDisplayName.getOrDefault(key, 0) < 3) {
+				continue;
+			}
+			List<BioSamplePoint> pts = bioSamplePointsByDisplayName.get(key);
+			if (pts != null && pts.size() >= 3) {
+				markBioSpeciesAnalysed(key);
+			}
+		}
 	}
 
 	/**
@@ -735,6 +907,69 @@ public class BodyInfo {
 		return activeIncompleteBioKey;
 	}
 
+	public void setActiveIncompleteBioKey(String key) {
+		activeIncompleteBioKey = (key == null || key.isBlank()) ? null : canonBioName(key);
+	}
+
+	public static final class BioScanReplayEntry {
+		public final String displayName;
+		public final String scanType;
+
+		public BioScanReplayEntry(String displayName, String scanType) {
+			this.displayName = displayName;
+			this.scanType = scanType;
+		}
+
+		boolean isAnalyse() {
+			if (scanType == null) {
+				return false;
+			}
+			String st = scanType.trim().toLowerCase(Locale.ROOT);
+			return "analyse".equals(st) || "analyze".equals(st);
+		}
+	}
+
+	/**
+	 * Re-apply genus-switch parking from journal {@code ScanOrganic} order (no count changes).
+	 * Fixes stale partial counts when replay did not have commander lat/lon for sample points.
+	 */
+	public void replayGenusSwitchParkingFromJournal(List<BioScanReplayEntry> entries) {
+		if (entries == null || entries.isEmpty()) {
+			return;
+		}
+		String simActive = null;
+		for (BioScanReplayEntry entry : entries) {
+			if (entry == null || entry.displayName == null || entry.displayName.isBlank()) {
+				continue;
+			}
+			String key = resolveBioKeyForSample(entry.displayName);
+			if (key.isBlank()) {
+				continue;
+			}
+			if (entry.isAnalyse()) {
+				if (simActive != null
+						&& canonBioGenusKey(simActive).equals(canonBioGenusKey(key))) {
+					simActive = null;
+				}
+				continue;
+			}
+			if (simActive != null && !simActive.equals(key)) {
+				parkAbandonedSpecies(simActive);
+			}
+			simActive = key;
+		}
+		if (simActive != null) {
+			int c = bioSampleCountsByDisplayName.getOrDefault(simActive, 0);
+			if (c > 0 && c < 3 && !isBioSpeciesAnalysed(simActive)) {
+				activeIncompleteBioKey = simActive;
+			} else {
+				activeIncompleteBioKey = null;
+			}
+		} else {
+			activeIncompleteBioKey = null;
+		}
+	}
+
 	/**
 	 * Drop parked (purple) pins and the active-incomplete marker when nothing is mid-scan (no 1/3 or 2/3).
 	 * Prevents stale purple rays when the table shows only complete or untouched species.
@@ -771,7 +1006,6 @@ public class BodyInfo {
 	 */
 	public void setBioSamplePoints(Map<String, List<BioSamplePoint>> pointsByDisplayName) {
 		bioSamplePointsByDisplayName.clear();
-		activeIncompleteBioKey = null;
 
 		if (pointsByDisplayName == null || pointsByDisplayName.isEmpty()) {
 			return;
@@ -788,11 +1022,6 @@ public class BodyInfo {
 				copy = copy.subList(0, 3);
 			}
 			bioSamplePointsByDisplayName.put(key, copy);
-
-			int cnt = bioSampleCountsByDisplayName.getOrDefault(key, 0);
-			if (cnt > 0 && cnt < 3) {
-				activeIncompleteBioKey = key;
-			}
 		}
 	}
 
@@ -814,20 +1043,7 @@ public class BodyInfo {
 		// If the player begins sampling a different species while incomplete, discard the old incomplete samples.
 		int currentCount = bioSampleCountsByDisplayName.getOrDefault(key, 0);
 		if (currentCount < 3) {
-			if (activeIncompleteBioKey != null && !activeIncompleteBioKey.equals(key)) {
-				List<BioSamplePoint> parked = bioSamplePointsByDisplayName.get(activeIncompleteBioKey);
-				if (parked != null && !parked.isEmpty()) {
-					abandonedBioSamplePointsByDisplayName.put(
-							activeIncompleteBioKey,
-							new ArrayList<>(parked));
-				}
-				bioSamplePointsByDisplayName.remove(activeIncompleteBioKey);
-				// also clear the old sample count if it wasn't complete
-				int oldCnt = bioSampleCountsByDisplayName.getOrDefault(activeIncompleteBioKey, 0);
-				if (oldCnt > 0 && oldCnt < 3) {
-					bioSampleCountsByDisplayName.remove(activeIncompleteBioKey);
-				}
-			}
+			parkPreviousIncompleteIfSwitchingTo(key);
 			activeIncompleteBioKey = key;
 		}
 

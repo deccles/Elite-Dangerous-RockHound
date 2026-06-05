@@ -1270,14 +1270,18 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Hierarchy subsystem for HUD auto-zoom: the orbit parent cluster (moon host or common parent of the target),
-     * matching zoomed-out lump / hierarchy framing — not the individual planet surface.
+     * Hierarchy subsystem for HUD auto-zoom: wide-binary branch star (e.g. {@code B} for {@code B 4 a}), else the moon
+     * host or common parent of the target — matching zoomed-out lump / hierarchy framing, not planet surface.
      */
     private int resolveHudTargetSubsystemHub(int bodyId) {
         Map<Integer, BodyInfo> bodies = orbitGeomBodies;
         Map<Integer, Integer> resolvedParents = mapResolvedParents();
         if (bodies == null || bodyId < 0 || !bodies.containsKey(Integer.valueOf(bodyId))) {
             return -1;
+        }
+        int wideBinaryBranchStar = resolveWideBinaryBranchStarHubForHud(bodyId, bodies, resolvedParents);
+        if (wideBinaryBranchStar >= 0) {
+            return wideBinaryBranchStar;
         }
         if (subsystemHubLumpBodyIds.contains(Integer.valueOf(bodyId))) {
             return bodyId;
@@ -1298,6 +1302,31 @@ public final class SystemPlanMapPanel extends JPanel {
             }
         }
         return approachFrameHubId(bodyId, bodies, resolvedParents);
+    }
+
+    /**
+     * In a wide binary, the branch star that owns the target’s orbit subtree (e.g. {@code B} for a moon of {@code B 4}).
+     * Single-star systems return {@code -1} so moon-host framing is unchanged.
+     */
+    private static int resolveWideBinaryBranchStarHubForHud(int bodyId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        if (bodies == null || bodyId < 0 || SystemOrbitGeometry.countMapStellarBodies(bodies) < 2) {
+            return -1;
+        }
+        int cur = bodyId;
+        for (int guard = 0; guard < 64 && cur >= 0; guard++) {
+            BodyInfo b = bodies.get(Integer.valueOf(cur));
+            if (b != null && SystemMapRules.isMapStellarBody(b)
+                    && SystemOrbitGeometry.orbitsWideBinarySystemBarycentre(b, bodies, cur)) {
+                return cur;
+            }
+            int next = advanceResolvedOrbitParent(cur, bodies, resolvedParents);
+            if (next < 0 || next == cur) {
+                break;
+            }
+            cur = next;
+        }
+        return -1;
     }
 
     private static boolean bodyHostsDirectOrbitChildren(int bodyId, Map<Integer, Integer> resolvedParents) {
@@ -1593,8 +1622,8 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Do not zoom in past hierarchy subsystem lump scale ({@link #HUD_TARGET_MAX_VISIBLE_LS}); still honour
-     * {@link #capZoomFactorToVisibleWorldSpan} so the cluster remains visible.
+     * Maximize HUD zoom-in while the framed cluster remains fully visible. Small moon clusters also stay at or below
+     * {@link #HUD_TARGET_MAX_VISIBLE_LS}; large subsystems (wider than that) fill the plot without a 40 Ls ceiling.
      */
     private double capHudZoomToSubsystemVisibleSpan(double zoomCandidate, double clusterSpanM, double availW,
             double availH, double spanX, double spanY, double fitMargin) {
@@ -1602,23 +1631,22 @@ public final class SystemPlanMapPanel extends JPanel {
         if (!Double.isFinite(needLs) || needLs <= 0.0) {
             return zoomCandidate;
         }
+        double maxVisLs = Math.max(needLs, HUD_TARGET_MAX_VISIBLE_LS);
         double lo = zoomMinFit;
         double hi = zoomCandidate;
-        double best = hi;
         for (int i = 0; i < 52; i++) {
             double mid = (lo + hi) * 0.5;
             double scale = mapPlotScaleForZoom(mid, availW, availH, spanX, spanY);
             double vis = estimateVisibleLightSecondsAcrossMinPlotAxis(availW, availH, scale);
             if (!Double.isFinite(vis) || vis < needLs) {
                 hi = mid;
-            } else if (vis > HUD_TARGET_MAX_VISIBLE_LS) {
+            } else if (vis > maxVisLs) {
                 lo = mid;
             } else {
-                best = mid;
                 lo = mid;
             }
         }
-        return clamp(best, zoomMinFit, zoomCandidate);
+        return clamp(lo, zoomMinFit, zoomCandidate);
     }
 
     /**
@@ -7219,6 +7247,11 @@ public final class SystemPlanMapPanel extends JPanel {
 
     final double mapPlotScaleForTests(double availW, double availH) {
         return computeMapPlotScale(availW, availH, layoutSpanX, layoutSpanY);
+    }
+
+    final double visibleLsMinAxisAtZoomForTests(double zoom, double availW, double availH) {
+        double scale = mapPlotScaleForZoom(zoom, availW, availH, layoutSpanX, layoutSpanY);
+        return estimateVisibleLightSecondsAcrossMinPlotAxis(availW, availH, scale);
     }
 
     final MapLabelDrawPlan labelDrawPlanForTests(List<BodyDot> dots, double visibleLsMinAxis, FontMetrics fm,
