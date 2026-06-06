@@ -15,9 +15,6 @@ import org.dce.ed.util.SystemOrbitGeometry;
  */
 public final class ScanParents {
 
-    private static final Pattern TRAILING_STAR_BODY_DESIGNATION = Pattern
-            .compile("(?<![A-Za-z])([A-Za-z])\\s+(\\d+)(?:\\s+([a-z]+))?\\s*$");
-
     private ScanParents() {
     }
 
@@ -77,12 +74,8 @@ public final class ScanParents {
             return false;
         }
         String trimmed = name.trim();
-        Matcher trailing = TRAILING_STAR_BODY_DESIGNATION.matcher(trimmed);
-        if (trailing.find()) {
-            String moon = trailing.group(3);
-            if (moon != null && !moon.isEmpty()) {
-                return true;
-            }
+        if (SystemOrbitGeometry.hasTrailingStarBodyMoonSuffix(trimmed)) {
+            return true;
         }
         if (!SystemOrbitGeometry.hasEliteMoonDesignationInName(trimmed)) {
             return false;

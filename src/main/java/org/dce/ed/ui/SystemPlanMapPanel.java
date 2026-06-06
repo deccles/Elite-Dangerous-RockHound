@@ -144,9 +144,6 @@ public final class SystemPlanMapPanel extends JPanel {
 
     /** Trailing stellar branch letter on full body names ({@code … B}, not {@code B 3}). */
     private static final Pattern STAR_BRANCH_LETTER_TAIL = Pattern.compile(" ([A-Za-z])\\s*$");
-    private static final Pattern TRAILING_STAR_BODY_DESIGNATION = Pattern
-            .compile("([A-Za-z]+)\\s+(\\d+)(?:\\s+([a-z]+))?\\s*$");
-
     /**
      * Legacy alias for {@link #ZOOM_SHOW_MOON_LABELS} (subsystem hub “detail” zoom); kept for config parity with
      * centre-lock / moon-label thresholds.
@@ -3725,16 +3722,13 @@ public final class SystemPlanMapPanel extends JPanel {
         String s = firstNonBlankName(b.getShortName(), b.getBodyName());
         if (s != null && !s.isBlank()) {
             s = s.trim();
-            Matcher desig = TRAILING_STAR_BODY_DESIGNATION.matcher(s);
-            if (desig.find()) {
-                StringBuilder label = new StringBuilder();
-                label.append(desig.group(1).toUpperCase(Locale.ROOT));
-                label.append(' ').append(desig.group(2));
-                String moon = desig.group(3);
-                if (moon != null && !moon.isEmpty()) {
-                    label.append(' ').append(moon);
-                }
-                return label.toString();
+            String desig = SystemOrbitGeometry.eliteTrailingBodyDesignationLabel(s);
+            if (desig != null) {
+                return desig;
+            }
+            String multiToken = SystemOrbitGeometry.multiTokenDesignationMapLabel(s);
+            if (multiToken != null) {
+                return multiToken;
             }
             Matcher tailNum = Pattern.compile("\\s+(\\d+)\\s*$").matcher(s);
             if (tailNum.find()) {
@@ -3756,7 +3750,7 @@ public final class SystemPlanMapPanel extends JPanel {
             return null;
         }
         s = s.trim();
-        if (TRAILING_STAR_BODY_DESIGNATION.matcher(s).find()) {
+        if (SystemOrbitGeometry.hasTrailingStarBodyDesignationInName(s)) {
             return null;
         }
         Matcher m = STAR_BRANCH_LETTER_TAIL.matcher(s);

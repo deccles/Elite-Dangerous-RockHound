@@ -11,6 +11,7 @@ import java.awt.geom.Line2D;
 import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.Frame;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.IllegalComponentStateException;
@@ -107,6 +108,12 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private static final String PREF_KEY_DECORATED_Y = "overlay.decorated.y";
     private static final String PREF_KEY_DECORATED_WIDTH = "overlay.decorated.width";
     private static final String PREF_KEY_DECORATED_HEIGHT = "overlay.decorated.height";
+
+    private static final String PREF_KEY_DECORATED_MAXIMIZED = "overlay.decorated.maximized";
+    private static final String PREF_KEY_PT_MAXIMIZED = "overlay.pt.maximized";
+
+    /** Tolerance (px) when comparing a window's outer bounds to a monitor's screen bounds. */
+    private static final int FULL_SCREEN_BOUNDS_TOLERANCE_PX = 8;
 
     private static final String DEFAULT_TITLE_BAR_TITLE = "Elite Dangerous RockHound";
 
@@ -1840,6 +1847,100 @@ private void refreshPassThroughUnifiedStatus() {
             p.flush();
         } catch (Exception ignored) {
         }
+    }
+
+    public static boolean isDecoratedMaximizedStored() {
+        return Preferences.userNodeForPackage(OverlayFrame.class).getBoolean(PREF_KEY_DECORATED_MAXIMIZED, false);
+    }
+
+    public static void setDecoratedMaximizedStored(boolean maximized) {
+        Preferences p = Preferences.userNodeForPackage(OverlayFrame.class);
+        p.putBoolean(PREF_KEY_DECORATED_MAXIMIZED, maximized);
+        flushOverlayPrefs(p);
+    }
+
+    public static boolean isPassThroughMaximizedStored() {
+        return Preferences.userNodeForPackage(OverlayFrame.class).getBoolean(PREF_KEY_PT_MAXIMIZED, false);
+    }
+
+    public static void setPassThroughMaximizedStored(boolean maximized) {
+        Preferences p = Preferences.userNodeForPackage(OverlayFrame.class);
+        p.putBoolean(PREF_KEY_PT_MAXIMIZED, maximized);
+        flushOverlayPrefs(p);
+    }
+
+    /**
+     * True when a decorated {@link Frame} is OS-maximized, or when an undecorated pass-through frame fills its
+     * monitor (manual resize to screen edges).
+     */
+    public static boolean isWindowMaximizedOrFullScreen(Window w) {
+        if (w == null) {
+            return false;
+        }
+        if (w instanceof Frame frame) {
+            if ((frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+                return true;
+            }
+        }
+        if (!w.isShowing()) {
+            return false;
+        }
+        Rectangle outer = windowOuterRectangle(w);
+        Rectangle screen = monitorBoundsForWindow(w);
+        return screen != null && rectanglesApproxEqual(outer, screen, FULL_SCREEN_BOUNDS_TOLERANCE_PX);
+    }
+
+    /** Screen bounds of the monitor that contains most of {@code w}'s outer rectangle. */
+    public static Rectangle monitorBoundsForWindow(Window w) {
+        if (w == null) {
+            return null;
+        }
+        Rectangle frameRect = windowOuterRectangle(w);
+        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        GraphicsDevice[] devices = ge.getScreenDevices();
+        if (devices == null || devices.length == 0) {
+            return ge.getDefaultScreenDevice().getDefaultConfiguration().getBounds();
+        }
+        Point center = new Point(frameRect.x + frameRect.width / 2, frameRect.y + frameRect.height / 2);
+        for (GraphicsDevice gd : devices) {
+            Rectangle screen = gd.getDefaultConfiguration().getBounds();
+            if (screen.contains(center)) {
+                return new Rectangle(screen);
+            }
+        }
+        GraphicsDevice best = null;
+        long bestArea = 0L;
+        for (GraphicsDevice gd : devices) {
+            Rectangle screen = gd.getDefaultConfiguration().getBounds();
+            long area = intersectionArea(frameRect, screen);
+            if (area > bestArea) {
+                bestArea = area;
+                best = gd;
+            }
+        }
+        if (best != null) {
+            return new Rectangle(best.getDefaultConfiguration().getBounds());
+        }
+        return new Rectangle(ge.getDefaultScreenDevice().getDefaultConfiguration().getBounds());
+    }
+
+    private static long intersectionArea(Rectangle a, Rectangle b) {
+        Rectangle inter = a.intersection(b);
+        if (inter.width <= 0 || inter.height <= 0) {
+            return 0L;
+        }
+        return (long) inter.width * inter.height;
+    }
+
+    private static boolean rectanglesApproxEqual(Rectangle a, Rectangle b, int tolerancePx) {
+        if (a == null || b == null) {
+            return false;
+        }
+        int tol = Math.max(0, tolerancePx);
+        return Math.abs(a.x - b.x) <= tol
+                && Math.abs(a.y - b.y) <= tol
+                && Math.abs(a.width - b.width) <= tol
+                && Math.abs(a.height - b.height) <= tol;
     }
 
     /** Persists pass-through outer bounds and mirrors to legacy {@code overlay.*} keys. */

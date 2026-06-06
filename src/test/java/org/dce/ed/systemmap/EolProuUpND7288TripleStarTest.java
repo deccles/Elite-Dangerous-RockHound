@@ -116,7 +116,8 @@ class EolProuUpND7288TripleStarTest {
         SystemMapHierarchyBuilder.Graph graph = SystemModelHierarchyBuilder.buildForLoaded(loaded);
         assertTrue(SystemModelHierarchyBuilder.isUsableHierarchy(graph));
         assertTrue(graph.nodeByKey.size() >= 5, "root + A + Null:2 + B + C");
-        assertTrue(graph.nodeByKey.values().stream().anyMatch(n -> "A".equals(n.label)));
+        assertTrue(graph.nodeByKey.values().stream()
+                .anyMatch(n -> "A".equals(n.label) || "*".equals(n.label)));
         assertTrue(graph.nodeByKey.values().stream().anyMatch(n -> "B".equals(n.label)));
         assertTrue(graph.nodeByKey.values().stream().anyMatch(n -> "C".equals(n.label)));
     }

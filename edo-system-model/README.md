@@ -19,7 +19,7 @@ Bump `edo-system-model.version` in `reactor/pom.xml` whenever this module change
 | Hierarchy / orbit-parent rules, Kepler or position behaviour, public model API | **Patch** (`1.0.x`) unless breaking |
 | Breaking API or semantics for `org.dce.systemmodel.*` consumers | **Minor** or **major** as appropriate |
 
-The overlay app version (`elite-dangerous-overlay-parent`, e.g. `1.3.0`) is separate from this library version.
+The overlay app version (`elite-dangerous-overlay-parent`, e.g. `1.4.0`) is separate from this library version.
 
 ## Submodule
 

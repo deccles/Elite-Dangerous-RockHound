@@ -419,32 +419,15 @@ public final class OrbitGeometryTestSupport {
         int a0 = model.projectionAxis0();
         int a1 = model.projectionAxis1();
         double ls = SystemOrbitGeometry.LIGHT_SECOND_METRES;
-        double sumX = 0.0;
-        double sumY = 0.0;
-        int n = 0;
-        for (String label : new String[] { "B", "C", "D" }) {
-            int id = findByShortName(bodies, label);
-            if (id < 0) {
-                continue;
-            }
-            double[] p = model.positionsMetres().get(Integer.valueOf(id));
-            if (p == null) {
-                continue;
-            }
-            sumX += axisCoord(p, a0);
-            sumY += axisCoord(p, a1);
-            n++;
+        int primaryId = findByShortName(bodies, "A");
+        if (primaryId < 0) {
+            primaryId = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
         }
-        int null3Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(3);
-        double[] hub3 = model.positionsMetres().get(Integer.valueOf(null3Key));
-        if (hub3 != null) {
-            sumX += axisCoord(hub3, a0);
-            sumY += axisCoord(hub3, a1);
-            n++;
-        }
-        assertTrue(n > 0, "companion cluster anchors for trunk ring");
-        double cx = sumX / n;
-        double cy = sumY / n;
+        double[] cluster = SystemOrbitGeometry.companionClusterCentroidMapPlane(
+                model.positionsMetres(), bodies, primaryId, a0, a1);
+        assertNotNull(cluster, "companion cluster anchors for trunk ring");
+        double cx = cluster[0];
+        double cy = cluster[1];
         for (OrbitPolylineWorldXY poly : model.orbitPolylines()) {
             if (poly == null || poly.bodyId != polylineBodyId) {
                 continue;

@@ -2,6 +2,7 @@ package org.dce.ed;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Frame;
 import java.awt.HeadlessException;
 import java.awt.IllegalComponentStateException;
 import java.awt.MouseInfo;
@@ -60,6 +61,9 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     private final DecoratedOverlayDialog decoratedDialog;
 
     private volatile boolean passThroughMode;
+
+    /** Carries maximized / monitor-filling presentation across pass-through ↔ decorated toggles. */
+    private boolean overlayWindowMaximized;
 
     private static final String PREF_START_IN_PASSTHROUGH = "overlay.startInPassThrough";
 
@@ -183,12 +187,17 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     private void start() {
         if (passThroughMode) {
             // Start directly in pass-through frame mode.
+            overlayWindowMaximized = OverlayFrame.isPassThroughMaximizedStored();
             passThroughFrame.prepareForShow(true);
             passThroughFrame.showOverlay();
+            if (overlayWindowMaximized) {
+                applyOverlayWindowMaximized(passThroughFrame);
+            }
             prewarmDecoratedDialog();
             StartupSplashOverlay.install(passThroughFrame);
         } else {
             // Start directly in decorated non-pass-through mode (no startup mode flip).
+            overlayWindowMaximized = OverlayFrame.isDecoratedMaximizedStored();
             Rectangle bounds = OverlayFrame.readDecoratedStoredBounds();
             passThroughFrame.setPassThroughEnabled(false);
             passThroughFrame.setVisible(false);
@@ -199,6 +208,9 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
             passThroughFrame.refreshRightStatusDisplay();
             decoratedDialog.applyOverlayBackgroundFromPreferences(false);
             decoratedDialog.setVisible(true);
+            if (overlayWindowMaximized) {
+                applyOverlayWindowMaximized(decoratedDialog);
+            }
             decoratedDialog.toFront();
             StartupSplashOverlay.install(decoratedDialog);
         }
@@ -255,19 +267,34 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     	java.awt.Window fromWindow = this.passThroughMode ? passThroughFrame : decoratedDialog;
     	java.awt.Window toWindow = enablePassThrough ? passThroughFrame : decoratedDialog;
 
+    	overlayWindowMaximized = OverlayFrame.isWindowMaximizedOrFullScreen(fromWindow);
+
     	Rectangle captured = captureWindowOuterRect(fromWindow);
     	if (captured == null) {
     		captured = new Rectangle(fromWindow.getBounds());
     	}
+    	if (overlayWindowMaximized) {
+    		Rectangle screen = OverlayFrame.monitorBoundsForWindow(fromWindow);
+    		if (screen != null) {
+    			captured = new Rectangle(screen);
+    		}
+    	}
     	if (this.passThroughMode) {
-    		OverlayFrame.persistPassThroughBoundsRectangle(captured);
+    		OverlayFrame.setPassThroughMaximizedStored(overlayWindowMaximized);
+    		if (!overlayWindowMaximized) {
+    			OverlayFrame.persistPassThroughBoundsRectangle(captured);
+    		}
     	} else {
-    		OverlayFrame.persistDecoratedBoundsRectangle(captured);
+    		OverlayFrame.setDecoratedMaximizedStored(overlayWindowMaximized);
+    		if (!overlayWindowMaximized) {
+    			OverlayFrame.persistDecoratedBoundsRectangle(captured);
+    		}
     	}
     	// Always take outer size from the window we are leaving. Merging with a stored size could keep an
     	// inflated getBounds() from the other host (pass-through often reports slightly larger on Windows).
     	final Rectangle outerBounds = new Rectangle(captured);
     	final Point sourceWindowTopLeft = new Point(outerBounds.x, outerBounds.y);
+    	final boolean switchingToMaximized = overlayWindowMaximized;
 
     	// Horizontal: align shared content. Vertical: pin to source window top (content-based dy is unreliable
     	// across decorated caption+menu vs undecorated custom title bar — fixes pass-through "dropping" down).
@@ -293,7 +320,8 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     		passThroughFrame.toFront();
     		passThroughFrame.requestFocus();
     		fromWindow.setVisible(false);
-    		scheduleStabilizeWindowBounds(passThroughFrame, outerBounds, contentScreenBefore, sourceWindowTopLeft);
+    		scheduleStabilizeWindowBounds(
+                    passThroughFrame, outerBounds, contentScreenBefore, sourceWindowTopLeft, switchingToMaximized);
     	} else {
     		// Prepare decorated dialog fully while hidden, then show once.
     		passThroughFrame.setPassThroughEnabled(false);
@@ -312,6 +340,12 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
                 decoratedDialog.toFront();
                 decoratedDialog.requestFocus();
                 fromWindow.setVisible(false);
+                if (switchingToMaximized) {
+                    applyOverlayWindowMaximized(decoratedDialog);
+                    decoratedDialog.hideTransitionShield();
+                    OverlayFrame.setDecoratedMaximizedStored(true);
+                    return;
+                }
                 Rectangle applied = stabilizeOverlayWindowBounds(
                         decoratedDialog, outerBounds, contentScreenBefore, sourceWindowTopLeft);
                 javax.swing.SwingUtilities.invokeLater(() -> {
@@ -321,6 +355,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
                     reapplyFixedOverlayBounds(decoratedDialog, finalRect);
                     decoratedDialog.hideTransitionShield();
                     OverlayFrame.persistDecoratedBoundsRectangle(OverlayFrame.windowOuterRectangle(decoratedDialog));
+                    OverlayFrame.setDecoratedMaximizedStored(false);
                 });
     		});
     	}
@@ -481,7 +516,18 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
             Window w,
             Rectangle outerBounds,
             Rectangle contentBefore,
-            Point sourceWindowTopLeft) {
+            Point sourceWindowTopLeft,
+            boolean maximized) {
+        if (maximized) {
+            SwingUtilities.invokeLater(() -> {
+                applyOverlayWindowMaximized(w);
+                if (w instanceof OverlayFrame pt) {
+                    pt.reapplyNativeMousePassThroughIfEnabled();
+                    OverlayFrame.setPassThroughMaximizedStored(true);
+                }
+            });
+            return;
+        }
         SwingUtilities.invokeLater(() -> {
             Rectangle applied = stabilizeOverlayWindowBounds(w, outerBounds, contentBefore, sourceWindowTopLeft);
             if (applied == null) {
@@ -498,12 +544,31 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
                     if (w instanceof OverlayFrame pt) {
                         pt.reapplyNativeMousePassThroughIfEnabled();
                         OverlayFrame.persistPassThroughBoundsRectangle(OverlayFrame.windowOuterRectangle(pt));
+                        OverlayFrame.setPassThroughMaximizedStored(false);
                     }
                 });
                 t.setRepeats(false);
                 t.start();
             });
         });
+    }
+
+    /**
+     * Restores OS maximized state on the decorated window, or fills the monitor for the undecorated pass-through
+     * frame (which has no maximize button).
+     */
+    private void applyOverlayWindowMaximized(Window w) {
+        if (w == null || !overlayWindowMaximized) {
+            return;
+        }
+        if (w instanceof DecoratedOverlayDialog decorated) {
+            decorated.setExtendedState((decorated.getExtendedState() & ~Frame.ICONIFIED) | Frame.MAXIMIZED_BOTH);
+            return;
+        }
+        Rectangle screen = OverlayFrame.monitorBoundsForWindow(w);
+        if (screen != null) {
+            w.setBounds(screen);
+        }
     }
 
     //
