@@ -213,7 +213,15 @@ public final class OverlayToolsLaunchers {
     }
 
     public static void launchSystemHierarchyGraphForSystem(Component parent, String systemName) {
-        SystemHierarchyGraphFrame.showForSystem(parent, systemName);
+        org.dce.ed.systemmap.SystemSession tabSession = null;
+        if (parent instanceof SystemTabPanel tab) {
+            String tabName = tab.getState().getSystemName();
+            String requested = systemName != null ? systemName.trim() : "";
+            if (!requested.isEmpty() && tabName != null && tabName.trim().equalsIgnoreCase(requested)) {
+                tabSession = org.dce.ed.systemmap.SystemSessionFactory.open(tab.getState());
+            }
+        }
+        SystemHierarchyGraphFrame.showForSystem(parent, systemName, tabSession);
     }
 
     public static void launchExoPredictionDebugger(Component parent) {

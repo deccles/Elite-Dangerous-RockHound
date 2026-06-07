@@ -66,4 +66,120 @@ class CachedBodyJournalBridgeTest {
         assertEquals(ParentRef.ParentType.NULL, scan.parents().get(0).type());
         assertEquals(0, scan.parents().get(0).bodyId());
     }
+
+    @Test
+    void mergeMissingFromBodyInfo_refreshesStaleNullParentOnExistingJournalScan() {
+        org.dce.ed.state.BodyInfo starB = new org.dce.ed.state.BodyInfo();
+        starB.setBodyId(2);
+        starB.setBodyName("Eol Prou SV-A c15-56 B");
+        starB.setStarType("K");
+        starB.setImmediateParentBodyId(0);
+        org.dce.ed.state.BodyInfo b1 = new org.dce.ed.state.BodyInfo();
+        b1.setBodyId(19);
+        b1.setBodyName("Eol Prou SV-A c15-56 B 1");
+        b1.setPlanetClass("Sudarsky class II gas giant");
+        b1.setImmediateParentBodyId(2);
+        java.util.Map<Integer, org.dce.ed.state.BodyInfo> bodies = java.util.Map.of(
+                Integer.valueOf(2), starB, Integer.valueOf(19), b1);
+        ScanRecord stale = new ScanRecord(
+                java.time.Instant.EPOCH,
+                19,
+                b1.getBodyName(),
+                "Planet",
+                "Sudarsky class II gas giant",
+                163373.0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                java.util.List.of(new ParentRef(ParentRef.ParentType.NULL, 2)),
+                null,
+                true,
+                false);
+        java.util.List<org.dce.systemmodel.journal.JournalRecord> merged =
+                CachedBodyJournalBridge.mergeMissingFromBodyInfo(
+                        "Eol Prou SV-A c15-56", java.util.List.of(stale), bodies);
+        assertEquals(2, merged.size());
+        ScanRecord out = merged.stream()
+                .filter(r -> r instanceof ScanRecord s && s.bodyId() == 19)
+                .map(r -> (ScanRecord) r)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(ParentRef.ParentType.STAR, out.parents().get(0).type());
+        assertEquals(2, out.parents().get(0).bodyId());
+    }
+
+    @Test
+    void parentsFromCache_wrongJournalNullParentRef_correctsToStar() {
+        CachedBody starB = new CachedBody();
+        starB.bodyId = 2;
+        starB.bodyName = "Eol Prou SV-A c15-56 B";
+        starB.starType = "K";
+        starB.immediateParentBodyId = 0;
+        CachedBody b1 = new CachedBody();
+        b1.bodyId = 19;
+        b1.bodyName = "Eol Prou SV-A c15-56 B 1";
+        b1.planetClass = "Sudarsky class II gas giant";
+        b1.immediateParentBodyId = 2;
+        b1.journalParentRefs = List.of("Null:2", "Null:0");
+        java.util.Map<Integer, CachedBody> cacheById = java.util.Map.of(
+                Integer.valueOf(2), starB, Integer.valueOf(19), b1);
+        ScanRecord scan = CachedBodyJournalBridge.toScanRecord(b1, null, cacheById);
+        assertEquals(ParentRef.ParentType.STAR, scan.parents().get(0).type());
+        assertEquals(2, scan.parents().get(0).bodyId());
+    }
+
+    @Test
+    void mergeMissingFromBodyInfo_wrongJournalRefsOnBodyInfo_refreshesStaleNullScan() {
+        BodyInfo starB = new BodyInfo();
+        starB.setBodyId(2);
+        starB.setBodyName("Eol Prou SV-A c15-56 B");
+        starB.setStarType("K");
+        starB.setImmediateParentBodyId(0);
+        BodyInfo b1 = new BodyInfo();
+        b1.setBodyId(19);
+        b1.setBodyName("Eol Prou SV-A c15-56 B 1");
+        b1.setPlanetClass("Sudarsky class II gas giant");
+        b1.setImmediateParentBodyId(2);
+        b1.setJournalParentRefs(List.of("Null:2", "Null:0"));
+        java.util.Map<Integer, BodyInfo> bodies = java.util.Map.of(
+                Integer.valueOf(2), starB, Integer.valueOf(19), b1);
+        ScanRecord stale = new ScanRecord(
+                java.time.Instant.EPOCH,
+                19,
+                b1.getBodyName(),
+                "Planet",
+                "Sudarsky class II gas giant",
+                163373.0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                java.util.List.of(new ParentRef(ParentRef.ParentType.NULL, 2)),
+                null,
+                true,
+                false);
+        List<JournalRecord> merged = CachedBodyJournalBridge.mergeMissingFromBodyInfo(
+                "Eol Prou SV-A c15-56", List.of(stale), bodies);
+        ScanRecord out = merged.stream()
+                .filter(r -> r instanceof ScanRecord s && s.bodyId() == 19)
+                .map(r -> (ScanRecord) r)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(ParentRef.ParentType.STAR, out.parents().get(0).type());
+        assertEquals(2, out.parents().get(0).bodyId());
+    }
+
+    @Test
+    void parentsFromCache_planetUnderStar_usesStarNotNull() {
+        CachedBody starB = new CachedBody();
+        starB.bodyId = 2;
+        starB.bodyName = "Eol Prou SV-A c15-56 B";
+        starB.starType = "K";
+        starB.immediateParentBodyId = 0;
+        CachedBody b1 = new CachedBody();
+        b1.bodyId = 19;
+        b1.bodyName = "Eol Prou SV-A c15-56 B 1";
+        b1.planetClass = "Sudarsky class II gas giant";
+        b1.immediateParentBodyId = 2;
+        java.util.Map<Integer, CachedBody> cacheById = java.util.Map.of(
+                Integer.valueOf(2), starB, Integer.valueOf(19), b1);
+        ScanRecord scan = CachedBodyJournalBridge.toScanRecord(b1, null, cacheById);
+        assertEquals(ParentRef.ParentType.STAR, scan.parents().get(0).type());
+        assertEquals(2, scan.parents().get(0).bodyId());
+    }
 }

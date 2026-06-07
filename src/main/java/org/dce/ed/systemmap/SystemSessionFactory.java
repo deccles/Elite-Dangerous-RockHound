@@ -95,7 +95,12 @@ public final class SystemSessionFactory {
         List<JournalRecord> merged = normalized != null ? normalized : List.of();
         if (cs != null) {
             merged = CachedBodyJournalBridge.mergeMissingFromCache(systemName, merged, cs);
-        } else if (bodies != null && !bodies.isEmpty()) {
+        }
+        /*
+         * Always reconcile from live {@link BodyInfo} when available — fixes stale journal rows that still carry
+         * mistaken {@code Null:N} parents while the map table already has {@code Star:N}/{@code Planet:N}.
+         */
+        if (bodies != null && !bodies.isEmpty()) {
             merged = CachedBodyJournalBridge.mergeMissingFromBodyInfo(systemName, merged, bodies);
         }
         return JournalEventLogUtil.dedupeScansByDesignation(systemName, merged);

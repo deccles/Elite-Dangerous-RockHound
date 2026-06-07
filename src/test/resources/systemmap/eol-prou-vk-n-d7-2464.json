@@ -1,0 +1,241 @@
+{
+  "name": "Eol Prou VK-N d7-2464",
+  "notes": "Auto-exported from journal Scan events",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Eol Prou VK-N d7-2464 barycentre 1",
+      "shortName": "bary 1",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 1.4803301095962524E11,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou VK-N d7-2464 A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "G",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 4.63597798347473E8
+    },
+    {
+      "id": 3,
+      "bodyName": "Eol Prou VK-N d7-2464 B",
+      "shortName": "B",
+      "distanceLs": 5.969968,
+      "starType": "M",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.2696732878685E9
+    },
+    {
+      "id": 4,
+      "bodyName": "Eol Prou VK-N d7-2464 C",
+      "shortName": "C",
+      "distanceLs": 1824.47032,
+      "starType": "K",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 4.015291452407837E11
+    },
+    {
+      "id": 5,
+      "bodyName": "Eol Prou VK-N d7-2464 AB 1",
+      "shortName": "AB 1",
+      "distanceLs": 35.132714,
+      "planetClass": "Metal rich body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.0764549374580383E10
+    },
+    {
+      "id": 6,
+      "bodyName": "Eol Prou VK-N d7-2464 AB 1 a",
+      "shortName": "AB 1 a",
+      "distanceLs": 35.212264,
+      "planetClass": "Metal rich body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 5,
+      "semiMajorAxisM": 3.46991533041E7
+    },
+    {
+      "id": 7,
+      "bodyName": "Eol Prou VK-N d7-2464 AB 2",
+      "shortName": "AB 2",
+      "distanceLs": 55.243474,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.6772185564041138E10
+    },
+    {
+      "id": 8,
+      "bodyName": "Eol Prou VK-N d7-2464 AB 3",
+      "shortName": "AB 3",
+      "distanceLs": 105.674823,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 3.2035850882530212E10
+    },
+    {
+      "id": 9,
+      "bodyName": "Eol Prou VK-N d7-2464 AB 4",
+      "shortName": "AB 4",
+      "distanceLs": 184.134639,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 5.5665231347084045E10
+    },
+    {
+      "id": 10,
+      "bodyName": "Eol Prou VK-N d7-2464 AB 4 a",
+      "shortName": "AB 4 a",
+      "distanceLs": 183.811243,
+      "planetClass": "Rocky body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 9,
+      "semiMajorAxisM": 1.13344621658325E8
+    },
+    {
+      "id": 11,
+      "bodyName": "Eol Prou VK-N d7-2464 C 1",
+      "shortName": "C 1",
+      "distanceLs": 1820.049658,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 8.989911317825317E9
+    },
+    {
+      "id": 12,
+      "bodyName": "Eol Prou VK-N d7-2464 barycentre 12",
+      "shortName": "bary 12",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 1.1910883784294128E10,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 13,
+      "bodyName": "Eol Prou VK-N d7-2464 C 2",
+      "shortName": "C 2",
+      "distanceLs": 1815.134334,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 12,
+      "semiMajorAxisM": 6511813.759804
+    },
+    {
+      "id": 14,
+      "bodyName": "Eol Prou VK-N d7-2464 C 3",
+      "shortName": "C 3",
+      "distanceLs": 1815.16482,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 12,
+      "semiMajorAxisM": 8513763.546944
+    },
+    {
+      "id": 15,
+      "bodyName": "Eol Prou VK-N d7-2464 barycentre 15",
+      "shortName": "bary 15",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 1.58253675699234E10,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 16,
+      "bodyName": "Eol Prou VK-N d7-2464 C 4",
+      "shortName": "C 4",
+      "distanceLs": 1874.146398,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 15,
+      "semiMajorAxisM": 8293260.574341
+    },
+    {
+      "id": 17,
+      "bodyName": "Eol Prou VK-N d7-2464 C 5",
+      "shortName": "C 5",
+      "distanceLs": 1874.208379,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 15,
+      "semiMajorAxisM": 1.3317357301712E7
+    },
+    {
+      "id": 18,
+      "bodyName": "Eol Prou VK-N d7-2464 C 6",
+      "shortName": "C 6",
+      "distanceLs": 1890.658841,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 2.018895387649536E10
+    },
+    {
+      "id": 19,
+      "bodyName": "Eol Prou VK-N d7-2464 barycentre 19",
+      "shortName": "bary 19",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 3.0161036252975464E10,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 20,
+      "bodyName": "Eol Prou VK-N d7-2464 C 7",
+      "shortName": "C 7",
+      "distanceLs": 1867.923568,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 19,
+      "semiMajorAxisM": 1.3594951033592E7
+    },
+    {
+      "id": 21,
+      "bodyName": "Eol Prou VK-N d7-2464 C 8",
+      "shortName": "C 8",
+      "distanceLs": 1867.798877,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 19,
+      "semiMajorAxisM": 2.3769478797913E7
+    },
+    {
+      "id": 22,
+      "bodyName": "Eol Prou VK-N d7-2464 C 9",
+      "shortName": "C 9",
+      "distanceLs": 1790.959606,
+      "planetClass": "High metal content body",
+      "atmoOrType": "sulfur dioxide atmosphere",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 3.813024044036865E10
+    },
+    {
+      "id": 23,
+      "bodyName": "Eol Prou VK-N d7-2464 C 10",
+      "shortName": "C 10",
+      "distanceLs": 1989.422083,
+      "planetClass": "High metal content body",
+      "atmoOrType": "sulfur dioxide atmosphere",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 4.994164705276489E10
+    },
+    {
+      "id": 24,
+      "bodyName": "Eol Prou VK-N d7-2464 ABC 1",
+      "shortName": "ABC 1",
+      "distanceLs": 7993.429541,
+      "planetClass": "Sudarsky class I gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 2.864679455757141E12
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 3,
+    "barycentreRecentred": true,
+    "hasBarycentreMutualRing": false
+  }
+}

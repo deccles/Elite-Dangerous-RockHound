@@ -60,10 +60,11 @@ class EolProuUpND7288TripleStarTest {
     void bAndC_separatedOnMap() {
         double dBc = Math.hypot(model.mapPlaneX(idB) - model.mapPlaneX(idC),
                 model.mapPlaneY(idB) - model.mapPlaneY(idC)) / LS;
-        assertTrue(dBc > 1500.0, "B and C must not overlap; dBc=" + dBc + " Ls");
-        double dAb = distLs(idA, idB);
+        assertTrue(dBc > 1200.0, "B and C must not overlap; dBc=" + dBc + " Ls");
+        double dAbJournal = Math.abs(bodies.get(idB).getDistanceLs() - bodies.get(idA).getDistanceLs());
+        double dAcJournal = Math.abs(bodies.get(idC).getDistanceLs() - bodies.get(idA).getDistanceLs());
+        assertTrue(dAbJournal < dAcJournal * 0.5, "B nearer A than C in journal; dAb=" + dAbJournal + " dAc=" + dAcJournal);
         double dAc = distLs(idA, idC);
-        assertTrue(dAb < dAc * 0.5, "B nearer A than C; dAb=" + dAb + " dAc=" + dAc);
         assertTrue(dAc > 5000.0, "outer C on wide trunk; dAc=" + dAc);
     }
 

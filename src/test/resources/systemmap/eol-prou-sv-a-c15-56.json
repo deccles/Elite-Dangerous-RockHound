@@ -1,0 +1,296 @@
+{
+  "name": "Eol Prou SV-A c15-56",
+  "notes": "Auto-exported from journal Scan events",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Eol Prou SV-A c15-56 A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "G",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 1.4801865220069885E13
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou SV-A c15-56 B",
+      "shortName": "B",
+      "distanceLs": 163152.920743,
+      "starType": "K",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 2.366555690765381E13
+    },
+    {
+      "id": 8,
+      "bodyName": "Eol Prou SV-A c15-56 A 1",
+      "shortName": "A 1",
+      "distanceLs": 1914.02043,
+      "planetClass": "Sudarsky class II gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 5.731568932533264E11
+    },
+    {
+      "id": 9,
+      "bodyName": "Eol Prou SV-A c15-56 A 1 a",
+      "shortName": "A 1 a",
+      "distanceLs": 1915.949151,
+      "planetClass": "Rocky body",
+      "atmoOrType": "carbon dioxide atmosphere",
+      "immediateParentBodyId": 8,
+      "semiMajorAxisM": 8.91786915063858E8
+    },
+    {
+      "id": 10,
+      "bodyName": "Eol Prou SV-A c15-56 A 1 b",
+      "shortName": "A 1 b",
+      "distanceLs": 1914.626813,
+      "planetClass": "Rocky body",
+      "atmoOrType": "thin carbon dioxide atmosphere",
+      "immediateParentBodyId": 8,
+      "semiMajorAxisM": 1.597088277339935E9
+    },
+    {
+      "id": 11,
+      "bodyName": "Eol Prou SV-A c15-56 A 1 c",
+      "shortName": "A 1 c",
+      "distanceLs": 1906.089326,
+      "planetClass": "Rocky body",
+      "atmoOrType": "thin carbon dioxide atmosphere",
+      "immediateParentBodyId": 8,
+      "semiMajorAxisM": 4.098957479000092E9
+    },
+    {
+      "id": 12,
+      "bodyName": "Eol Prou SV-A c15-56 A 2",
+      "shortName": "A 2",
+      "distanceLs": 2656.553337,
+      "planetClass": "Sudarsky class I gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 7.977209687232971E11
+    },
+    {
+      "id": 14,
+      "bodyName": "Eol Prou SV-A c15-56 A 2 a",
+      "shortName": "A 2 a",
+      "distanceLs": 2657.332592,
+      "planetClass": "Icy body",
+      "atmoOrType": "thick nitrogen atmosphere",
+      "immediateParentBodyId": 12,
+      "semiMajorAxisM": 3.818389236927032E9
+    },
+    {
+      "id": 19,
+      "bodyName": "Eol Prou SV-A c15-56 B 1",
+      "shortName": "B 1",
+      "distanceLs": 163373.202202,
+      "planetClass": "Sudarsky class II gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 1.0012899041175842E11
+    },
+    {
+      "id": 21,
+      "bodyName": "Eol Prou SV-A c15-56 B 1 a",
+      "shortName": "B 1 a",
+      "distanceLs": 163374.468697,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 19,
+      "semiMajorAxisM": 3.84043514728546E8
+    },
+    {
+      "id": 22,
+      "bodyName": "Eol Prou SV-A c15-56 B 2",
+      "shortName": "B 2",
+      "distanceLs": 162730.709207,
+      "planetClass": "Sudarsky class III gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 1.4909226298332214E11
+    },
+    {
+      "id": 24,
+      "bodyName": "Eol Prou SV-A c15-56 B 2 a",
+      "shortName": "B 2 a",
+      "distanceLs": 162731.71153,
+      "planetClass": "Rocky body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 22,
+      "semiMajorAxisM": 4.38310134410858E8
+    },
+    {
+      "id": 25,
+      "bodyName": "Eol Prou SV-A c15-56 barycentre 25",
+      "shortName": "bary 25",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 1.893899381160736E9,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 26,
+      "bodyName": "Eol Prou SV-A c15-56 B 2 b",
+      "shortName": "B 2 b",
+      "distanceLs": 162726.436367,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 25,
+      "semiMajorAxisM": 4552296.757698
+    },
+    {
+      "id": 27,
+      "bodyName": "Eol Prou SV-A c15-56 B 2 c",
+      "shortName": "B 2 c",
+      "distanceLs": 162726.41147,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 25,
+      "semiMajorAxisM": 9357291.460037
+    },
+    {
+      "id": 28,
+      "bodyName": "Eol Prou SV-A c15-56 B 2 d",
+      "shortName": "B 2 d",
+      "distanceLs": 162729.984152,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 22,
+      "semiMajorAxisM": 2.782664775848389E9
+    },
+    {
+      "id": 29,
+      "bodyName": "Eol Prou SV-A c15-56 B 2 e",
+      "shortName": "B 2 e",
+      "distanceLs": 162724.660751,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 22,
+      "semiMajorAxisM": 3.347866475582123E9
+    },
+    {
+      "id": 30,
+      "bodyName": "Eol Prou SV-A c15-56 B 2 f",
+      "shortName": "B 2 f",
+      "distanceLs": 162741.768506,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 22,
+      "semiMajorAxisM": 4.93440580368042E9
+    },
+    {
+      "id": 31,
+      "bodyName": "Eol Prou SV-A c15-56 B 3",
+      "shortName": "B 3",
+      "distanceLs": 162534.701224,
+      "planetClass": "Gas giant with ammonia based life",
+      "atmoOrType": "",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 1.9061357378959656E11
+    },
+    {
+      "id": 33,
+      "bodyName": "Eol Prou SV-A c15-56 B 3 a",
+      "shortName": "B 3 a",
+      "distanceLs": 162534.136106,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 31,
+      "semiMajorAxisM": 1.80268901586533E8
+    },
+    {
+      "id": 34,
+      "bodyName": "Eol Prou SV-A c15-56 B 3 b",
+      "shortName": "B 3 b",
+      "distanceLs": 162534.053093,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 31,
+      "semiMajorAxisM": 3.12273865938187E8
+    },
+    {
+      "id": 35,
+      "bodyName": "Eol Prou SV-A c15-56 B 3 c",
+      "shortName": "B 3 c",
+      "distanceLs": 162530.893527,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 31,
+      "semiMajorAxisM": 1.318789005279541E9
+    },
+    {
+      "id": 36,
+      "bodyName": "Eol Prou SV-A c15-56 B 3 d",
+      "shortName": "B 3 d",
+      "distanceLs": 162539.956362,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 31,
+      "semiMajorAxisM": 1.819990932941437E9
+    },
+    {
+      "id": 37,
+      "bodyName": "Eol Prou SV-A c15-56 B 4",
+      "shortName": "B 4",
+      "distanceLs": 163583.441018,
+      "planetClass": "Sudarsky class I gas giant",
+      "atmoOrType": "",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 2.5351420044898987E11
+    },
+    {
+      "id": 38,
+      "bodyName": "Eol Prou SV-A c15-56 barycentre 38",
+      "shortName": "bary 38",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 2.18078285455704E8,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 39,
+      "bodyName": "Eol Prou SV-A c15-56 B 4 a",
+      "shortName": "B 4 a",
+      "distanceLs": 163582.712409,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 38,
+      "semiMajorAxisM": 711966.621876
+    },
+    {
+      "id": 40,
+      "bodyName": "Eol Prou SV-A c15-56 B 4 b",
+      "shortName": "B 4 b",
+      "distanceLs": 163582.719951,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 38,
+      "semiMajorAxisM": 2475864.768028
+    },
+    {
+      "id": 41,
+      "bodyName": "Eol Prou SV-A c15-56 B 4 c",
+      "shortName": "B 4 c",
+      "distanceLs": 163582.762578,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 37,
+      "semiMajorAxisM": 3.85349386930466E8
+    },
+    {
+      "id": 42,
+      "bodyName": "Eol Prou SV-A c15-56 B 4 d",
+      "shortName": "B 4 d",
+      "distanceLs": 163581.641991,
+      "planetClass": "Icy body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 37,
+      "semiMajorAxisM": 6.83312922716141E8
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 2,
+    "barycentreRecentred": true,
+    "hasBarycentreMutualRing": true
+  }
+}

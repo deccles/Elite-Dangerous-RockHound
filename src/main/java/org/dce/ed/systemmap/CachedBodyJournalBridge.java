@@ -41,11 +41,12 @@ public final class CachedBodyJournalBridge {
             }
         }
         int added = 0;
+        Map<Integer, CachedBody> cacheById = indexCachedBodies(cs.bodies);
         for (CachedBody cb : cs.bodies) {
             if (cb == null || !cb.scanBarycentreRow) {
                 continue;
             }
-            JournalRecord bary = toBarycentreRecord(cb, systemName);
+            JournalRecord bary = toBarycentreRecord(cb, systemName, null);
             if (bary == null) {
                 continue;
             }
@@ -62,7 +63,7 @@ public final class CachedBodyJournalBridge {
             if (!belongsToSystem(cb, systemName)) {
                 continue;
             }
-            ScanRecord scan = toScanRecord(cb);
+            ScanRecord scan = toScanRecord(cb, null, cacheById);
             if (scan == null) {
                 continue;
             }
@@ -90,13 +91,14 @@ public final class CachedBodyJournalBridge {
                 }
             }
         }
+        Map<Integer, CachedBody> cacheById = indexCachedBodiesFromBodyInfo(bodies);
         for (BodyInfo body : bodies.values()) {
             if (body == null) {
                 continue;
             }
             CachedBody cb = cachedBodyFromBodyInfo(body);
             if (body.isScanBarycentreRow()) {
-                JournalRecord bary = toBarycentreRecord(cb, systemName);
+                JournalRecord bary = toBarycentreRecord(cb, systemName, bodies);
                 if (bary == null) {
                     continue;
                 }
@@ -106,16 +108,91 @@ public final class CachedBodyJournalBridge {
                 }
                 continue;
             }
-            ScanRecord scan = toScanRecord(cb);
-            if (scan == null) {
+            ScanRecord fromBody = toScanRecord(cb, bodies, cacheById);
+            if (fromBody == null) {
                 continue;
             }
-            String key = "scan:" + scan.bodyId();
-            if (!byKey.containsKey(key)) {
-                byKey.put(key, scan);
+            String key = "scan:" + fromBody.bodyId();
+            JournalRecord existing = byKey.get(key);
+            if (existing instanceof ScanRecord incumbent) {
+                byKey.put(key, reconcileScanParents(incumbent, fromBody));
+            } else {
+                byKey.put(key, fromBody);
             }
         }
         return List.copyOf(byKey.values());
+    }
+
+    /**
+     * Live {@link BodyInfo} rows often carry correct {@code Star:N}/{@code Planet:N} refs while an older journal log
+     * entry still has the mistaken {@code Null:N} synthesis from cache-only parent ids.
+     */
+    static ScanRecord reconcileScanParents(ScanRecord incumbent, ScanRecord fromBodyInfo) {
+        if (fromBodyInfo == null) {
+            return incumbent;
+        }
+        if (incumbent == null) {
+            return fromBodyInfo;
+        }
+        if (!shouldRefreshParentsFromBodyInfo(incumbent.parents(), fromBodyInfo.parents())) {
+            return incumbent;
+        }
+        return new ScanRecord(
+                incumbent.timestamp(),
+                incumbent.bodyId(),
+                incumbent.bodyName(),
+                incumbent.bodyType(),
+                incumbent.subType(),
+                incumbent.distanceFromArrivalLs(),
+                incumbent.stellarMass(),
+                incumbent.radius(),
+                incumbent.surfaceGravity(),
+                incumbent.surfaceTemperature(),
+                incumbent.rotationalPeriod(),
+                incumbent.rotationalPeriodTidallyLocked(),
+                incumbent.axialTilt(),
+                incumbent.terraformState(),
+                List.copyOf(fromBodyInfo.parents()),
+                incumbent.orbit() != null ? incumbent.orbit() : fromBodyInfo.orbit(),
+                incumbent.wasDiscovered(),
+                incumbent.wasMapped());
+    }
+
+    private static boolean shouldRefreshParentsFromBodyInfo(
+            List<ParentRef> journalParents, List<ParentRef> bodyInfoParents) {
+        if (bodyInfoParents == null || bodyInfoParents.isEmpty()) {
+            return false;
+        }
+        if (journalParents == null || journalParents.isEmpty()) {
+            return true;
+        }
+        ParentRef journalFirst = journalParents.getFirst();
+        ParentRef bodyFirst = bodyInfoParents.getFirst();
+        if (journalFirst.type() == ParentRef.ParentType.NULL && journalFirst.bodyId() > 0
+                && (bodyFirst.type() == ParentRef.ParentType.STAR
+                        || bodyFirst.type() == ParentRef.ParentType.PLANET)) {
+            return true;
+        }
+        if (!bodyInfoParents.equals(journalParents)
+                && bodyInfoParents.size() >= journalParents.size()
+                && bodyFirst.type() != ParentRef.ParentType.NULL) {
+            return journalParents.stream().noneMatch(p -> p.type() == ParentRef.ParentType.STAR
+                    || p.type() == ParentRef.ParentType.PLANET);
+        }
+        return false;
+    }
+
+    private static Map<Integer, CachedBody> indexCachedBodiesFromBodyInfo(Map<Integer, BodyInfo> bodies) {
+        Map<Integer, CachedBody> out = new LinkedHashMap<>();
+        if (bodies == null) {
+            return out;
+        }
+        for (BodyInfo body : bodies.values()) {
+            if (body != null && body.getBodyId() >= 0) {
+                out.put(Integer.valueOf(body.getBodyId()), cachedBodyFromBodyInfo(body));
+            }
+        }
+        return out;
     }
 
     private static CachedBody cachedBodyFromBodyInfo(BodyInfo body) {
@@ -168,6 +245,10 @@ public final class CachedBodyJournalBridge {
     }
 
     static ScanRecord toScanRecord(CachedBody cb) {
+        return toScanRecord(cb, null, null);
+    }
+
+    static ScanRecord toScanRecord(CachedBody cb, Map<Integer, BodyInfo> liveBodies, Map<Integer, CachedBody> cacheById) {
         if (cb.bodyId < 0) {
             return null;
         }
@@ -200,7 +281,7 @@ public final class CachedBodyJournalBridge {
                 0,
                 0,
                 0,
-                parentsFromCache(cb),
+                parentsFromCache(cb, liveBodies, cacheById),
                 orbitalElements(cb, epoch),
                 Boolean.TRUE.equals(cb.wasDiscovered),
                 Boolean.TRUE.equals(cb.wasMapped));
@@ -227,6 +308,11 @@ public final class CachedBodyJournalBridge {
     }
 
     private static ScanBaryCentreRecord toBarycentreRecord(CachedBody cb, String systemName) {
+        return toBarycentreRecord(cb, systemName, null);
+    }
+
+    private static ScanBaryCentreRecord toBarycentreRecord(
+            CachedBody cb, String systemName, Map<Integer, BodyInfo> liveBodies) {
         if (cb.bodyId < 0) {
             return null;
         }
@@ -241,12 +327,26 @@ public final class CachedBodyJournalBridge {
                 epoch,
                 cb.bodyId,
                 name,
-                parentsFromCache(cb),
+                parentsFromCache(cb, liveBodies, null),
                 List.of(),
                 orbitalElements(cb, epoch));
     }
 
-    private static List<ParentRef> parentsFromCache(CachedBody cb) {
+    private static Map<Integer, CachedBody> indexCachedBodies(List<CachedBody> bodies) {
+        Map<Integer, CachedBody> out = new LinkedHashMap<>();
+        if (bodies == null) {
+            return out;
+        }
+        for (CachedBody cb : bodies) {
+            if (cb != null && cb.bodyId >= 0) {
+                out.put(Integer.valueOf(cb.bodyId), cb);
+            }
+        }
+        return out;
+    }
+
+    private static List<ParentRef> parentsFromCache(
+            CachedBody cb, Map<Integer, BodyInfo> liveBodies, Map<Integer, CachedBody> cacheById) {
         if (cb.journalParentRefs != null && !cb.journalParentRefs.isEmpty()) {
             List<ParentRef> out = new ArrayList<>();
             for (String ref : cb.journalParentRefs) {
@@ -256,16 +356,94 @@ public final class CachedBodyJournalBridge {
                 }
             }
             if (!out.isEmpty()) {
-                return List.copyOf(out);
+                return correctStellarNullParents(List.copyOf(out), liveBodies, cacheById);
             }
         }
         if (cb.immediateParentBodyId >= 0) {
             if (cb.immediateParentBodyId == 0) {
                 return List.of(new ParentRef(ParentRef.ParentType.NULL, 0));
             }
-            return List.of(new ParentRef(ParentRef.ParentType.NULL, cb.immediateParentBodyId));
+            ParentRef.ParentType type = resolveImmediateParentType(
+                    cb.immediateParentBodyId, cb, liveBodies, cacheById);
+            return List.of(new ParentRef(type, cb.immediateParentBodyId));
         }
         return List.of();
+    }
+
+    private static ParentRef.ParentType resolveImmediateParentType(
+            int parentId,
+            CachedBody self,
+            Map<Integer, BodyInfo> liveBodies,
+            Map<Integer, CachedBody> cacheById) {
+        BodyInfo live = liveBodies != null ? liveBodies.get(Integer.valueOf(parentId)) : null;
+        if (live != null) {
+            return parentTypeFromBodyInfo(live);
+        }
+        CachedBody cached = cacheById != null ? cacheById.get(Integer.valueOf(parentId)) : null;
+        if (cached != null) {
+            return isCachedStellar(cached) ? ParentRef.ParentType.STAR : ParentRef.ParentType.PLANET;
+        }
+        if (self != null && DesignationParser.hasMoonLetterSuffix(self.bodyName)) {
+            return ParentRef.ParentType.PLANET;
+        }
+        return ParentRef.ParentType.STAR;
+    }
+
+    private static ParentRef.ParentType parentTypeFromBodyInfo(BodyInfo body) {
+        if (body.isScanBarycentreRow()) {
+            return ParentRef.ParentType.NULL;
+        }
+        if (body.getBodyId() == 0) {
+            return ParentRef.ParentType.STAR;
+        }
+        String starType = body.getStarType();
+        if (starType != null && !starType.isBlank()) {
+            return ParentRef.ParentType.STAR;
+        }
+        String planetClass = body.getPlanetClass();
+        if (planetClass != null && "Star".equalsIgnoreCase(planetClass)) {
+            return ParentRef.ParentType.STAR;
+        }
+        return ParentRef.ParentType.PLANET;
+    }
+
+    private static boolean isCachedStellar(CachedBody cb) {
+        return cb.bodyId == 0
+                || (cb.starType != null && !cb.starType.isBlank())
+                || "Star".equalsIgnoreCase(cb.planetClass);
+    }
+
+    /**
+     * SQLite / EDSM rows sometimes store {@code Null:N} where {@code N} is a companion star id; journal scans use
+     * {@code Star:N}. Without this correction, parent reconciliation keeps the mistaken hub and hierarchy prunes the body.
+     */
+    private static List<ParentRef> correctStellarNullParents(
+            List<ParentRef> parents, Map<Integer, BodyInfo> liveBodies, Map<Integer, CachedBody> cacheById) {
+        if (parents == null || parents.isEmpty()) {
+            return parents;
+        }
+        List<ParentRef> out = new ArrayList<>(parents.size());
+        boolean changed = false;
+        for (ParentRef p : parents) {
+            if (p.type() == ParentRef.ParentType.NULL && p.bodyId() > 0
+                    && isStellarBodyId(p.bodyId(), liveBodies, cacheById)) {
+                out.add(new ParentRef(ParentRef.ParentType.STAR, p.bodyId()));
+                changed = true;
+            } else {
+                out.add(p);
+            }
+        }
+        return changed ? List.copyOf(out) : parents;
+    }
+
+    private static boolean isStellarBodyId(
+            int bodyId, Map<Integer, BodyInfo> liveBodies, Map<Integer, CachedBody> cacheById) {
+        BodyInfo live = liveBodies != null ? liveBodies.get(Integer.valueOf(bodyId)) : null;
+        if (live != null) {
+            return parentTypeFromBodyInfo(live) == ParentRef.ParentType.STAR;
+        }
+        CachedBody cached = cacheById != null ? cacheById.get(Integer.valueOf(bodyId)) : null;
+        return cached != null && isCachedStellar(cached);
     }
 
     private static ParentRef parseParentRef(String ref) {

@@ -68,6 +68,9 @@ public final class SystemMapPipeline {
                         freezeBarycentreStars);
                 SystemOrbitGeometry.restoreTrueScaleHierarchicalOuterCompanionChord(positions, bodies, a0, a1);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                reseatInnerOuterHierarchicalCompanions(positions, bodies, a0, a1);
+                SystemOrbitGeometry.finalizeMapPlaneDependentPositions(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
             } else {
                 SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
                 SystemOrbitGeometry.alignPlanetBinaryGroupsOnMapPlane(positions, bodies, t, a0, a1,
@@ -75,6 +78,8 @@ public final class SystemMapPipeline {
                 SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
                         freezeBarycentreStars);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                SystemOrbitGeometry.finalizeMapPlaneDependentPositions(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
             }
             frame = SystemOrbitGeometry.captureWideBinaryFlattenFrame(positions, bodies, a0, a1);
         } else {
@@ -85,6 +90,8 @@ public final class SystemMapPipeline {
             SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
                     freezeBarycentreStars);
             SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+            SystemOrbitGeometry.finalizeMapPlaneDependentPositions(positions, bodies, t, a0, a1,
+                    freezeBarycentreStars);
         }
 
         Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies, model);
@@ -295,6 +302,9 @@ public final class SystemMapPipeline {
                         freezeBarycentreStars);
                 SystemOrbitGeometry.restoreTrueScaleHierarchicalOuterCompanionChord(positions, bodies, a0, a1);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                reseatInnerOuterHierarchicalCompanions(positions, bodies, a0, a1);
+                SystemOrbitGeometry.finalizeMapPlaneDependentPositions(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
             } else {
                 Instant t = epoch != null ? epoch : Instant.now();
                 SystemOrbitGeometry.snapPlanetBinaryBarycentreCentroidsOnMapPlane(positions, bodies, a0, a1);
@@ -303,6 +313,8 @@ public final class SystemMapPipeline {
                 SystemOrbitGeometry.placeTrueScalePrimaryBranchPlanetBinaryHubs(positions, bodies, t, a0, a1,
                         freezeBarycentreStars);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                SystemOrbitGeometry.finalizeMapPlaneDependentPositions(positions, bodies, t, a0, a1,
+                        freezeBarycentreStars);
             }
             return positions;
         }
@@ -393,5 +405,22 @@ public final class SystemMapPipeline {
             a1 = 2;
         }
         return new int[] { a0, a1 };
+    }
+
+    /**
+     * Inner+outer companion stars (B near A, C far) — re-run after trunk snap/chord restore, which can collapse them.
+     */
+    private static void reseatInnerOuterHierarchicalCompanions(Map<Integer, double[]> positions,
+            Map<Integer, BodyInfo> bodies,
+            int a0,
+            int a1) {
+        if (positions == null || bodies == null
+                || !SystemOrbitGeometry.isHierarchicalWideBinary(bodies)
+                || SystemOrbitGeometry.isHierarchicalTripleStarMap(bodies)
+                || SystemOrbitGeometry.hierarchicalCompanionBranchStarsCohesive(bodies)
+                || SystemOrbitGeometry.hasNestedInnerStellarStarAtScanBarycentre(bodies)) {
+            return;
+        }
+        SystemOrbitGeometry.placeHierarchicalWideBinaryOnSystemBarycentre(positions, bodies, a0, a1);
     }
 }

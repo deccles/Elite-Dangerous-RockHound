@@ -86,6 +86,8 @@ public final class SystemHierarchyGraphFrame extends JFrame {
     private final SystemVisitNav visitNav = new SystemVisitNav();
     private boolean navigationLoad;
     private int navigationRevertIndex = -1;
+    /** Session rebuilt from the system tab when Graph is opened from that tab (avoids stale registry / cache-only load). */
+    private volatile SystemSession preferredTabSession;
 
     private SystemHierarchyGraphFrame() {
         super("System hierarchy graph");
@@ -483,7 +485,14 @@ public final class SystemHierarchyGraphFrame extends JFrame {
                     Loaded loaded = SystemMapSystemLoader.load(trimmed, loadSource);
                     loadedResult = loaded;
 
-                    SystemSession tabSession = SystemSessionRegistry.lookup(trimmed);
+                    SystemSession tabSession = preferredTabSession;
+                    preferredTabSession = null;
+                    if (tabSession != null && !trimmed.equalsIgnoreCase(tabSession.systemName())) {
+                        tabSession = null;
+                    }
+                    if (tabSession == null) {
+                        tabSession = SystemSessionRegistry.lookup(trimmed);
+                    }
                     Graph graph = SystemModelHierarchyBuilder.buildForSession(tabSession);
                     if (graph == null) {
                         graph = SystemModelHierarchyBuilder.buildForLoaded(loaded);
@@ -587,12 +596,17 @@ public final class SystemHierarchyGraphFrame extends JFrame {
     }
 
     public static void showForSystem(Component parent, String systemName) {
+        showForSystem(parent, systemName, null);
+    }
+
+    public static void showForSystem(Component parent, String systemName, SystemSession tabSession) {
         SwingUtilities.invokeLater(() -> {
             String name = systemName != null ? systemName.trim() : "";
             if (name.isEmpty()) {
                 return;
             }
             if (openInstance != null && openInstance.isDisplayable()) {
+                openInstance.preferredTabSession = tabSession;
                 openInstance.systemField.setText(name);
                 openInstance.toFront();
                 openInstance.requestFocus();
@@ -600,6 +614,7 @@ public final class SystemHierarchyGraphFrame extends JFrame {
                 return;
             }
             openInstance = new SystemHierarchyGraphFrame();
+            openInstance.preferredTabSession = tabSession;
             openInstance.systemField.setText(name);
             if (!openInstance.restoredFrameBounds) {
                 openInstance.setLocationRelativeTo(parent);
