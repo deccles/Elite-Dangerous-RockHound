@@ -6302,6 +6302,10 @@ public final class SystemPlanMapPanel extends JPanel {
         if (hit != null) {
             return hit;
         }
+        hit = hitTestStarBodyDot(ctx, px, py);
+        if (hit != null) {
+            return hit;
+        }
         hit = hitTestBodyLabel(ctx, px, py);
         if (hit != null) {
             return hit;
@@ -6562,11 +6566,37 @@ public final class SystemPlanMapPanel extends JPanel {
         return null;
     }
 
+    private MapClickHit hitTestStarBodyDot(MapClickPaintCtx ctx, int px, int py) {
+        List<BodyDot> ordered = new ArrayList<>(dots);
+        Collections.reverse(ordered);
+        for (BodyDot d : ordered) {
+            if (d == null || !d.star) {
+                continue;
+            }
+            if (ctx.labelPlan.summaryClusterMemberIds.contains(Integer.valueOf(d.bodyId))
+                    || (ctx.companionLump != null && ctx.companionLump.contains(d.bodyId))
+                    || hideDotForSubsystemLumpView(d, ctx.visibleLsMinAxis)) {
+                continue;
+            }
+            boolean lockHub = subsystemScreenLockHubId >= 0 && d.bodyId == subsystemScreenLockHubId;
+            double[] cxy = bodyDotScreenMetres(d, lockHub, ctx.vcx, ctx.vcy, ctx.scale, ctx.availW, ctx.availH,
+                    ctx.plotCx, ctx.plotCy);
+            float sx = (float) cxy[0];
+            float sy = (float) cxy[1];
+            float r = bodyDotHitRadiusPx(ctx, d);
+            if (pointInCircle(px, py, sx, sy, r)) {
+                return MapClickHit.body(d, orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(d.bodyId)) : null,
+                        mapModel, planetaryRingsDecorWouldDrawForTests(d.bodyId, ctx.visibleLsMinAxis));
+            }
+        }
+        return null;
+    }
+
     private MapClickHit hitTestBodyDot(MapClickPaintCtx ctx, int px, int py) {
         List<BodyDot> ordered = new ArrayList<>(dots);
         Collections.reverse(ordered);
         for (BodyDot d : ordered) {
-            if (d == null) {
+            if (d == null || d.star) {
                 continue;
             }
             if (!d.star && ctx.labelPlan.summaryClusterMemberIds.contains(Integer.valueOf(d.bodyId))

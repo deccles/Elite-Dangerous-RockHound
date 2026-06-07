@@ -7624,7 +7624,8 @@ public final class SystemOrbitGeometry {
             offsetFlatWideBinaryCompanionsByJournalHelioSpread(positions, bodies, primaryId, a0, a1, ux, uy);
             return;
         }
-        if (hierarchical && Math.abs(projSepM - targetSepM) < 50.0 * LIGHT_SECOND_METRES) {
+        if (hierarchical && !journalTrueScaleChord
+                && Math.abs(projSepM - targetSepM) < 50.0 * LIGHT_SECOND_METRES) {
             placeHierarchicalWideBinaryOnSystemBarycentre(positions, bodies, mapProjA0, mapProjA1);
             return;
         }
@@ -7663,9 +7664,6 @@ public final class SystemOrbitGeometry {
             positions.put(e.getKey(), shifted);
         }
         if (journalTrueScaleChord) {
-            if (hierarchical) {
-                placeHierarchicalWideBinaryOnSystemBarycentre(positions, bodies, mapProjA0, mapProjA1);
-            }
             return;
         }
         if (hierarchical) {

@@ -272,7 +272,7 @@ class TrueScaleSystemMapTest {
         int idC = journal.bodyIdByLabel("C");
         int null1Key = SystemOrbitGeometry.planetBinaryBarycentreMapKey(2);
         double sepAc = distLs(model, idA, idC);
-        assertTrue(sepAc > 2_500.0 && sepAc < 4_000.0, "A–C projected separation Ls=" + sepAc);
+        assertTrue(sepAc > 9_000.0 && sepAc < 13_000.0, "A–C journal true-scale separation Ls=" + sepAc);
         double innerRingLs = meanPolylineRadiusLs(model,
                 SystemOrbitGeometry.HIERARCHICAL_INNER_STELLAR_PAIR_POLYLINE_ID);
         double outerRingLs = meanPolylineRadiusLs(model, SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID);

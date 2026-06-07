@@ -68,6 +68,12 @@ public final class SystemMapPipeline {
                         freezeBarycentreStars);
                 SystemOrbitGeometry.restoreTrueScaleHierarchicalOuterCompanionChord(positions, bodies, a0, a1);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                if (!SystemOrbitGeometry.hierarchicalCompanionBranchStarsCohesive(bodies)
+                        && SystemOrbitGeometry.hasNestedInnerStellarStarAtScanBarycentre(bodies)
+                        && !SystemOrbitGeometry.isHierarchicalTripleStarMap(bodies)) {
+                    SystemOrbitGeometry.placeTrueScaleHierarchicalScanHubs(positions, bodies, a0, a1);
+                    SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                }
                 reseatInnerOuterHierarchicalCompanions(positions, bodies, a0, a1);
                 SystemOrbitGeometry.finalizeMapPlaneDependentPositions(positions, bodies, t, a0, a1,
                         freezeBarycentreStars);
@@ -302,6 +308,12 @@ public final class SystemMapPipeline {
                         freezeBarycentreStars);
                 SystemOrbitGeometry.restoreTrueScaleHierarchicalOuterCompanionChord(positions, bodies, a0, a1);
                 SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                if (!SystemOrbitGeometry.hierarchicalCompanionBranchStarsCohesive(bodies)
+                        && SystemOrbitGeometry.hasNestedInnerStellarStarAtScanBarycentre(bodies)
+                        && !SystemOrbitGeometry.isHierarchicalTripleStarMap(bodies)) {
+                    SystemOrbitGeometry.placeTrueScaleHierarchicalScanHubs(positions, bodies, a0, a1);
+                    SystemOrbitGeometry.syncScanBarycentreRowPositionsToSyntheticHubs(positions, bodies);
+                }
                 reseatInnerOuterHierarchicalCompanions(positions, bodies, a0, a1);
                 SystemOrbitGeometry.finalizeMapPlaneDependentPositions(positions, bodies, t, a0, a1,
                         freezeBarycentreStars);
