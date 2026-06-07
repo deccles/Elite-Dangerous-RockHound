@@ -206,6 +206,7 @@ private Double lastFootTravelUpDeg;
     private long passThroughBookmarkHoverStartMs = -1L;
     private long passThroughZoomInHoverStartMs = -1L;
     private long passThroughZoomOutHoverStartMs = -1L;
+    private long passThroughCompassHoverStartMs = -1L;
     private static final long PASS_THROUGH_MAP_CONTROL_DWELL_MS = 700L;
 
     public BiologyTabPanel() {
@@ -405,7 +406,6 @@ private Double lastFootTravelUpDeg;
         syncMapBookmarksToPanel();
         syncMapToPanel();
         tryRestoreParkedShipFromJournal();
-        tryRestoreParkedSrvFromJournal();
         refreshTableForCurrentBody(false);
     }
 
@@ -416,7 +416,7 @@ private Double lastFootTravelUpDeg;
     }
 
     /**
-     * Pass-through mode: dwell over map controls (bookmark / zoom), same timing as title-bar toggle.
+     * Pass-through mode: dwell over map controls (compass / bookmark / zoom), same timing as title-bar toggle.
      *
      * @return {@code true} while the pointer is over one of those controls
      */
@@ -426,6 +426,21 @@ private Double lastFootTravelUpDeg;
             return false;
         }
         long now = System.currentTimeMillis();
+        if (mapPanel.isCompassAtScreen(screenX, screenY)) {
+            resetPassThroughBookmarkHoverOnly();
+            passThroughZoomInHoverStartMs = -1L;
+            passThroughZoomOutHoverStartMs = -1L;
+            mapPanel.setCompassButtonHovered(true);
+            if (passThroughCompassHoverStartMs < 0L) {
+                passThroughCompassHoverStartMs = now;
+            } else if (now - passThroughCompassHoverStartMs >= PASS_THROUGH_MAP_CONTROL_DWELL_MS) {
+                mapPanel.toggleHeadingUpMode();
+                passThroughCompassHoverStartMs = -1L;
+            }
+            return true;
+        }
+        passThroughCompassHoverStartMs = -1L;
+        mapPanel.setCompassButtonHovered(false);
         if (mapPanel.isZoomInButtonAtScreen(screenX, screenY)) {
             resetPassThroughBookmarkHoverOnly();
             if (passThroughZoomInHoverStartMs < 0L) {
@@ -479,7 +494,9 @@ private Double lastFootTravelUpDeg;
         passThroughBookmarkHoverStartMs = -1L;
         passThroughZoomInHoverStartMs = -1L;
         passThroughZoomOutHoverStartMs = -1L;
+        passThroughCompassHoverStartMs = -1L;
         mapPanel.setBookmarkButtonHovered(false);
+        mapPanel.setCompassButtonHovered(false);
     }
 
     private void resetPassThroughBookmarkHoverOnly() {
@@ -752,9 +769,22 @@ private Double lastFootTravelUpDeg;
                     continue;
                 }
                 String bodyName = td.getBodyName();
-                if (currentBodyName != null && !currentBodyName.isBlank()
-                        && bodyName != null && !bodyName.isBlank()
-                        && !currentBodyName.equalsIgnoreCase(bodyName)) {
+                Integer bodyId = td.getBodyId() >= 0 ? Integer.valueOf(td.getBodyId()) : null;
+                if (!touchdownMatchesCurrentBody(bodyName, bodyId)) {
+                    continue;
+                }
+                Double radiusM = resolvePlanetRadiusMetres(bodyName, td.getBodyId());
+                double radius = radiusM != null && radiusM.doubleValue() > 1.0
+                        ? radiusM.doubleValue()
+                        : (currentPlanetRadius != null ? currentPlanetRadius.doubleValue() : 0.0);
+                if (isUnoccupiedShipTouchdown(
+                        lastCommanderAwayFromShip,
+                        commanderInSrv,
+                        currentLat,
+                        currentLon,
+                        lat.doubleValue(),
+                        lon.doubleValue(),
+                        radius)) {
                     continue;
                 }
                 applyParkedSrvSurfaceFix(lat.doubleValue(), lon.doubleValue(), null);
@@ -820,6 +850,21 @@ private Double lastFootTravelUpDeg;
         }
         // First body lock-on after restart (null → name) is not a body hop — keep parked ship.
         return false;
+    }
+
+    /** Journal / touchdown body must match the active planetary body when either side has an id or name. */
+    private boolean touchdownMatchesCurrentBody(String touchdownBodyName, Integer touchdownBodyId) {
+        if (currentBodyId != null && touchdownBodyId != null) {
+            return currentBodyId.equals(touchdownBodyId);
+        }
+        if (currentBodyName != null && !currentBodyName.isBlank()
+                && touchdownBodyName != null && !touchdownBodyName.isBlank()) {
+            return currentBodyName.equalsIgnoreCase(touchdownBodyName);
+        }
+        return currentBodyId == null
+                && (currentBodyName == null || currentBodyName.isBlank())
+                && touchdownBodyId == null
+                && (touchdownBodyName == null || touchdownBodyName.isBlank());
     }
 
     /**
@@ -1068,19 +1113,17 @@ private Double lastFootTravelUpDeg;
                 tryRestoreParkedShipFromJournal();
             }
 
+            commanderInSrv = e.isInSrv() && !e.isOnFoot();
+            lastCommanderAwayFromShip = isCommanderAwayFromShip(e);
+
             if (shouldUpdateParkedSrvPosition(e) && newLat != null && newLon != null) {
                 applyParkedSrvSurfaceFix(
                         newLat.doubleValue(),
                         newLon.doubleValue(),
                         statusHeadingToDegrees(e.getHeading()));
-            } else if ((e.isOnFoot()
-                    || (e.getDecodedFlags() != null && e.getDecodedFlags().inMainShip))
-                    && !e.isInSrv() && parkedSrvLat == null) {
+            } else if (lastCommanderAwayFromShip && !commanderInSrv && parkedSrvLat == null) {
                 tryRestoreParkedSrvFromJournal();
             }
-
-            commanderInSrv = e.isInSrv() && !e.isOnFoot();
-            lastCommanderAwayFromShip = isCommanderAwayFromShip(e);
 
             boolean awayFromShip = lastCommanderAwayFromShip;
             if (currentLat != null && currentLon != null && currentPlanetRadius != null) {
@@ -2190,8 +2233,10 @@ private final class BioMapPanel extends JPanel {
     /** SRV nose heading (degrees); frozen when not driving. */
     private Double srvGlyphHeadingDeg;
 
-    /** Map "up" (0=N, clockwise): ship nose in hull; movement direction on foot / in SRV. */
+    /** Player heading (0=N, clockwise): ship nose in hull; movement direction on foot / in SRV. */
     private double shipHeadingDeg;
+    /** When true, map rotates so player heading points up; when false, north points up. */
+    private boolean headingUpMode = true;
     /** Ship nose heading (degrees); from Status while in ship, frozen when parked. */
     private Double shipGlyphHeadingDeg;
     /** Commander / player nose heading (degrees) for the white V — Status heading, else movement. */
@@ -2218,7 +2263,9 @@ private final class BioMapPanel extends JPanel {
     private final Rectangle zoomInHit = new Rectangle();
     private final Rectangle zoomOutHit = new Rectangle();
     private final Rectangle bookmarkHit = new Rectangle();
+    private final Rectangle compassHit = new Rectangle();
     private boolean bookmarkButtonHovered;
+    private boolean compassButtonHovered;
     private List<BioMapBookmark> mapBookmarks = Collections.emptyList();
 
     private BioMapPanel() {
@@ -2226,7 +2273,9 @@ private final class BioMapPanel extends JPanel {
         addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (bookmarkHit.contains(e.getPoint())) {
+                if (compassHit.contains(e.getPoint())) {
+                    toggleHeadingUpMode();
+                } else if (bookmarkHit.contains(e.getPoint())) {
                     BiologyTabPanel.this.addMapBookmarkAtCurrentPosition();
                 } else if (zoomInHit.contains(e.getPoint())) {
                     adjustMapZoom(true);
@@ -2264,6 +2313,22 @@ private final class BioMapPanel extends JPanel {
             this.bookmarkButtonHovered = hovered;
             repaint();
         }
+    }
+
+    void setCompassButtonHovered(boolean hovered) {
+        if (this.compassButtonHovered != hovered) {
+            this.compassButtonHovered = hovered;
+            repaint();
+        }
+    }
+
+    void toggleHeadingUpMode() {
+        headingUpMode = !headingUpMode;
+        repaint();
+    }
+
+    boolean isCompassAtScreen(int screenX, int screenY) {
+        return isMapControlAtScreen(screenX, screenY, compassHit);
     }
 
     boolean isBookmarkButtonAtScreen(int screenX, int screenY) {
@@ -2395,12 +2460,17 @@ private final class BioMapPanel extends JPanel {
         repaint();
     }
 
+    /** Map rotation for projection and glyph alignment (0 when north-up). */
+    private double mapProjectionHeadingDeg() {
+        return headingUpMode ? shipHeadingDeg : 0.0;
+    }
+
     /** Degrees to rotate ship glyph so nose matches true heading on the heading-up map. */
     private double shipGlyphRotationDeg() {
         if (shipGlyphHeadingDeg == null) {
             return 0.0;
         }
-        double rot = shipGlyphHeadingDeg.doubleValue() - shipHeadingDeg;
+        double rot = shipGlyphHeadingDeg.doubleValue() - mapProjectionHeadingDeg();
         rot %= 360.0;
         if (rot < 0.0) {
             rot += 360.0;
@@ -2412,7 +2482,7 @@ private final class BioMapPanel extends JPanel {
         if (srvGlyphHeadingDeg == null) {
             return 0.0;
         }
-        double rot = srvGlyphHeadingDeg.doubleValue() - shipHeadingDeg;
+        double rot = srvGlyphHeadingDeg.doubleValue() - mapProjectionHeadingDeg();
         rot %= 360.0;
         if (rot < 0.0) {
             rot += 360.0;
@@ -2435,7 +2505,7 @@ private final class BioMapPanel extends JPanel {
         if (playerHeadingDeg == null) {
             return 0.0;
         }
-        double rot = playerHeadingDeg.doubleValue() - shipHeadingDeg;
+        double rot = playerHeadingDeg.doubleValue() - mapProjectionHeadingDeg();
         rot %= 360.0;
         if (rot < 0.0) {
             rot += 360.0;
@@ -2475,10 +2545,18 @@ private final class BioMapPanel extends JPanel {
         double oLon = mapOriginLon();
         double d = greatCircleMeters(oLat, oLon, worldLat, worldLon, shipRadiusM);
         double brng = bearingDeg(oLat, oLon, worldLat, worldLon);
-        double rel = Math.toRadians(brng - shipHeadingDeg);
+        double rel = Math.toRadians(brng - mapProjectionHeadingDeg());
         int px = cx + (int) Math.round(Math.sin(rel) * d * scale);
         int py = cy + (int) Math.round(-Math.cos(rel) * d * scale);
         return new int[] { px, py };
+    }
+
+    private void layoutCompassHit(int x0, int y0, int plotW) {
+        int pad = 10;
+        int compR = 22;
+        int compCx = x0 + plotW - pad - compR;
+        int compCy = y0 + pad + compR;
+        compassHit.setBounds(compCx - compR, compCy - compR, compR * 2, compR * 2);
     }
 
     @Override
@@ -2656,18 +2734,18 @@ private final class BioMapPanel extends JPanel {
                 }
             }
 
-            // Compass (upper right)
-            int pad = 10;
-            int compR = 22;
-            int compCx = x0 + plotW - pad - compR;
-            int compCy = y0 + pad + compR;
+            // Compass (upper right) — click toggles heading-up / north-up
+            layoutCompassHit(x0, y0, plotW);
+            int compCx = compassHit.x + compassHit.width / 2;
+            int compCy = compassHit.y + compassHit.height / 2;
+            int compR = compassHit.width / 2;
 
-            g2.setColor(EdoUi.Internal.BLACK_ALPHA_140);
+            g2.setColor(compassButtonHovered ? new Color(70, 70, 90, 200) : EdoUi.Internal.BLACK_ALPHA_140);
             g2.fill(new Ellipse2D.Double(compCx - compR, compCy - compR, compR * 2, compR * 2));
-            g2.setColor(EdoUi.Internal.WHITE_ALPHA_200);
+            g2.setColor(compassButtonHovered ? new Color(255, 255, 255, 240) : EdoUi.Internal.WHITE_ALPHA_200);
             g2.draw(new Ellipse2D.Double(compCx - compR, compCy - compR, compR * 2, compR * 2));
 
-            double relN = Math.toRadians(0.0 - shipHeadingDeg);
+            double relN = Math.toRadians(0.0 - mapProjectionHeadingDeg());
             double nx = Math.sin(relN);
             double ny = -Math.cos(relN);
 
@@ -2854,7 +2932,7 @@ private final class BioMapPanel extends JPanel {
         }
         double distM = Math.hypot(dxPx, dyPx) / scale;
         double relDeg = Math.toDegrees(Math.atan2(dxPx, -dyPx));
-        double brng = shipHeadingDeg + relDeg;
+        double brng = mapProjectionHeadingDeg() + relDeg;
         return surfacePointAtBearing(mapOriginLat(), mapOriginLon(), brng, distM, shipRadiusM);
     }
 
@@ -3217,7 +3295,7 @@ private final class BioMapPanel extends JPanel {
         double oLon = mapOriginLon();
         double d = greatCircleMeters(oLat, oLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
         double brng = bearingDeg(oLat, oLon, p.getLatitude(), p.getLongitude());
-        double rel = Math.toRadians(brng - shipHeadingDeg);
+        double rel = Math.toRadians(brng - mapProjectionHeadingDeg());
         int tx = cx + (int) Math.round(Math.sin(rel) * d * scale);
         int ty = cy + (int) Math.round(-Math.cos(rel) * d * scale);
         return new int[] { tx, ty };

@@ -1,0 +1,67 @@
+{
+  "name": "Eol Prou WK-N d7-440",
+  "notes": "Nested four-star hierarchy from journal: A 0 Ls, B 44 Ls, C 821 Ls, D 40873 Ls, D 1 gas giant.",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Eol Prou WK-N d7-440 A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "F",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 1.0E12
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou WK-N d7-440 barycentre 2",
+      "shortName": "bary 2",
+      "distanceLs": 22.0,
+      "scanBarycentreRow": true,
+      "semiMajorAxisM": 6.6E9
+    },
+    {
+      "id": 3,
+      "bodyName": "Eol Prou WK-N d7-440 B",
+      "shortName": "B",
+      "distanceLs": 44.0,
+      "starType": "F",
+      "immediateParentBodyId": 2,
+      "semiMajorAxisM": 6.6E9
+    },
+    {
+      "id": 4,
+      "bodyName": "Eol Prou WK-N d7-440 barycentre 3",
+      "shortName": "bary 3",
+      "distanceLs": 400.0,
+      "scanBarycentreRow": true,
+      "semiMajorAxisM": 2.5E11
+    },
+    {
+      "id": 5,
+      "bodyName": "Eol Prou WK-N d7-440 C",
+      "shortName": "C",
+      "distanceLs": 821.0,
+      "starType": "M",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 2.5E11
+    },
+    {
+      "id": 6,
+      "bodyName": "Eol Prou WK-N d7-440 D",
+      "shortName": "D",
+      "distanceLs": 40873.0,
+      "starType": "G",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 1.2E13
+    },
+    {
+      "id": 7,
+      "bodyName": "Eol Prou WK-N d7-440 D 1",
+      "shortName": "D 1",
+      "distanceLs": 39513.0,
+      "planetClass": "Gas giant with water based life",
+      "immediateParentBodyId": 6,
+      "semiMajorAxisM": 1.1E12
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "name": "Eol Prou WK-N d7-539",
+  "notes": "From RockHound screenshot: A 167 Ls with A 1-6 planets; B/C/D ~9907-9911 Ls; E 10854 Ls.",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Eol Prou WK-N d7-539 A",
+      "shortName": "A",
+      "distanceLs": 167.0,
+      "starType": "F",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 5.0E11
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou WK-N d7-539 B",
+      "shortName": "B",
+      "distanceLs": 9911.0,
+      "starType": "K",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 3.0E12
+    },
+    {
+      "id": 3,
+      "bodyName": "Eol Prou WK-N d7-539 C",
+      "shortName": "C",
+      "distanceLs": 9909.0,
+      "starType": "K",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 3.0E12
+    },
+    {
+      "id": 4,
+      "bodyName": "Eol Prou WK-N d7-539 D",
+      "shortName": "D",
+      "distanceLs": 9907.0,
+      "starType": "K",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 3.0E12
+    },
+    {
+      "id": 5,
+      "bodyName": "Eol Prou WK-N d7-539 E",
+      "shortName": "E",
+      "distanceLs": 10854.0,
+      "starType": "M",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 3.2E12
+    },
+    {
+      "id": 10,
+      "bodyName": "Eol Prou WK-N d7-539 A 1",
+      "shortName": "A 1",
+      "distanceLs": 183.0,
+      "planetClass": "High metal content body",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 5.5E9
+    },
+    {
+      "id": 11,
+      "bodyName": "Eol Prou WK-N d7-539 A 2",
+      "shortName": "A 2",
+      "distanceLs": 250.0,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 7.5E9
+    },
+    {
+      "id": 12,
+      "bodyName": "Eol Prou WK-N d7-539 A 3",
+      "shortName": "A 3",
+      "distanceLs": 400.0,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.2E10
+    },
+    {
+      "id": 13,
+      "bodyName": "Eol Prou WK-N d7-539 A 4",
+      "shortName": "A 4",
+      "distanceLs": 550.0,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.6E10
+    },
+    {
+      "id": 14,
+      "bodyName": "Eol Prou WK-N d7-539 A 5",
+      "shortName": "A 5",
+      "distanceLs": 700.0,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 2.1E10
+    },
+    {
+      "id": 15,
+      "bodyName": "Eol Prou WK-N d7-539 A 6",
+      "shortName": "A 6",
+      "distanceLs": 897.0,
+      "planetClass": "Rocky body",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 2.7E10
+    }
+  ]
+}
