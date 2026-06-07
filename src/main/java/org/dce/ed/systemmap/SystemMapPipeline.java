@@ -101,7 +101,8 @@ public final class SystemMapPipeline {
         }
 
         Map<Integer, Integer> resolvedParents = buildResolvedParents(bodies, model);
-        boolean includeBinaryBarycentreRing = !useHierarchicalLayoutPasses(bodies, layoutHints);
+        boolean includeBinaryBarycentreRing = !useHierarchicalLayoutPasses(bodies, layoutHints)
+                && !SystemOrbitGeometry.isPrimaryHostedNumberedStellarCompanionMap(bodies);
         List<OrbitPolylineWorldXY> polylines = orbitPolylinesForBuild(
                 bodies, positions, resolvedParents, a0, a1, includeBinaryBarycentreRing, t);
         Map<Integer, Integer> childCounts = buildDirectChildCounts(resolvedParents);
@@ -161,7 +162,8 @@ public final class SystemMapPipeline {
         if (base == null || positionsMetres == null || base.bodies().isEmpty()) {
             return List.of();
         }
-        boolean includeBinaryBarycentreRing = !SystemOrbitGeometry.isHierarchicalWideBinary(base.bodies());
+        boolean includeBinaryBarycentreRing = !SystemOrbitGeometry.isHierarchicalWideBinary(base.bodies())
+                && !SystemOrbitGeometry.isPrimaryHostedNumberedStellarCompanionMap(base.bodies());
         return SystemOrbitGeometry.orbitPolylinesWorldMetresXY(base.bodies(), positionsMetres, segments,
                 scalePixelsPerMetre, base.projectionAxis0(), base.projectionAxis1(), includeBinaryBarycentreRing,
                 base.resolvedParentByBodyId(), ringRadiusReferencePositions, viewTiltDegrees, strokeEpoch);

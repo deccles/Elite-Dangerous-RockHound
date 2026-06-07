@@ -1,0 +1,40 @@
+{
+  "name": "Eol Prou LS-T e3-3428",
+  "notes": "Live-cache shape: arrival * at 0 Ls, numbered companion star 1 with journal Parents Null:0 (not letter B).",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Eol Prou LS-T e3-3428",
+      "shortName": "Eol Prou LS-T e3-3428",
+      "distanceLs": 0.0,
+      "starType": "K",
+      "atmoOrType": "A",
+      "immediateParentBodyId": -1
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou LS-T e3-3428 1",
+      "shortName": "1",
+      "distanceLs": 3338.0,
+      "starType": "T",
+      "parentIsBarycentre": true
+    },
+    {
+      "id": 3,
+      "bodyName": "Eol Prou LS-T e3-3428 1 a",
+      "shortName": "1 a",
+      "distanceLs": 3245.0,
+      "planetClass": "High metal content",
+      "immediateParentBodyId": 2
+    }
+  ],
+  "expect": {
+    "layoutKind": "SINGLE_STAR",
+    "mapStellarCount": 2,
+    "hasBarycentreMutualRing": false,
+    "parents": [
+      { "body": "1", "resolvesTo": "Eol Prou LS-T e3-3428" },
+      { "body": "1 a", "resolvesTo": "1" }
+    ]
+  }
+}

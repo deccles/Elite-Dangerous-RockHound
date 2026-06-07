@@ -2045,6 +2045,12 @@ public final class SystemOrbitGeometry {
          */
         if (declared == 0) {
             if (isMapStellarBody(child)) {
+                if (isPrimaryHostedNumberedStellarCompanionMap(bodies)) {
+                    int companionId = primaryHostedNumberedStellarCompanionId(bodies);
+                    if (companionId >= 0 && mapBodyId == companionId) {
+                        return primaryAnchorBodyMapKey(bodies);
+                    }
+                }
                 return -1;
             }
             int inferredNullAtZero = inferPlanetBinaryNullParentId(child, bodies, mapBodyId);
@@ -2082,7 +2088,7 @@ public final class SystemOrbitGeometry {
                                 }
                             }
                         }
-                    } else {
+                    } else if (!isPrimaryHostedNumberedStellarCompanionMap(bodies)) {
                         return -1;
                     }
                 }
@@ -2169,6 +2175,12 @@ public final class SystemOrbitGeometry {
             int primary = primaryAnchorBodyMapKey(bodies);
             if (primary >= 0 && mapBodyId >= 0 && mapBodyId != primary) {
                 return primary;
+            }
+        }
+        if (isPrimaryHostedNumberedStellarCompanionMap(bodies)) {
+            int companionId = primaryHostedNumberedStellarCompanionId(bodies);
+            if (companionId >= 0 && mapBodyId == companionId && isMapStellarBody(child)) {
+                return primaryAnchorBodyMapKey(bodies);
             }
         }
         return -1;
@@ -2282,6 +2294,9 @@ public final class SystemOrbitGeometry {
         if (isHierarchicalWideBinary(bodies)) {
             return false;
         }
+        if (isPrimaryHostedNumberedStellarCompanionMap(bodies)) {
+            return true;
+        }
         if (isSingleStarMap(bodies)) {
             return true;
         }
@@ -2293,6 +2308,133 @@ public final class SystemOrbitGeometry {
             return true;
         }
         return countMapStellarBodies(bodies) == 1;
+    }
+
+    /**
+     * Arrival {@code *} (system-name primary) with a numbered stellar companion ({@code 1}, {@code 2}) parented to the
+     * host — not a letter-branch wide binary ({@code A}/{@code B} around Null:0).
+     */
+    public static boolean isPrimaryHostedNumberedStellarCompanionMap(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || isHierarchicalWideBinary(bodies) || countMapStellarBodies(bodies) != 2) {
+            return false;
+        }
+        int primaryId = primaryAnchorBodyMapKey(bodies);
+        BodyInfo primary = primaryId >= 0 ? bodies.get(Integer.valueOf(primaryId)) : null;
+        if (primary == null || !isPrimaryStarBodyByName(primary)) {
+            return false;
+        }
+        if (stellarBodyDeclaredParentIsSystemBarycentre(primary)) {
+            return false;
+        }
+        int companionId = primaryHostedNumberedStellarCompanionId(bodies);
+        if (companionId < 0) {
+            return false;
+        }
+        BodyInfo companion = bodies.get(Integer.valueOf(companionId));
+        if (companion == null || !isNumberedStellarCompanionDesignation(companion)
+                || isLetterBranchStellarCompanion(companion)) {
+            return false;
+        }
+        /*
+         * Live journal often lists numbered companions with Parents:[{"Null":0}] even though they orbit the arrival
+         * star — letter-branch wide binaries (B, C, …) are excluded above; primary must not be Null:0-hosted.
+         */
+        int declaredParent = companion.getImmediateParentBodyId();
+        return declaredParent == primaryId || declaredParent == 0 || declaredParent < 0;
+    }
+
+    /** Map key of the numbered companion star in a {@link #isPrimaryHostedNumberedStellarCompanionMap} system. */
+    public static int primaryHostedNumberedStellarCompanionId(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null) {
+            return -1;
+        }
+        int primaryId = primaryAnchorBodyMapKey(bodies);
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            int id = e.getKey().intValue();
+            if (id == primaryId || !isMapStellarBody(e.getValue())) {
+                continue;
+            }
+            return id;
+        }
+        return -1;
+    }
+
+    /** Map label for a numbered companion star ({@code 1}, {@code 2}); {@code null} when not applicable. */
+    public static String numberedStellarCompanionMapLabel(BodyInfo star) {
+        if (star == null || !isNumberedStellarCompanionDesignation(star)
+                || isLetterBranchStellarCompanion(star)) {
+            return null;
+        }
+        String sn = firstNonBlank(star.getShortName(), star.getBodyName());
+        if (sn == null) {
+            return null;
+        }
+        sn = sn.trim();
+        if (sn.chars().allMatch(Character::isDigit)) {
+            return sn;
+        }
+        int lastSpace = sn.lastIndexOf(' ');
+        if (lastSpace > 0 && lastSpace < sn.length() - 1) {
+            String tail = sn.substring(lastSpace + 1).trim();
+            if (!tail.isEmpty() && tail.chars().allMatch(Character::isDigit)) {
+                return tail;
+            }
+        }
+        return null;
+    }
+
+    private static boolean stellarBodyDeclaredParentIsSystemBarycentre(BodyInfo star) {
+        return star != null && star.getImmediateParentBodyId() == 0;
+    }
+
+    private static boolean isNumberedStellarCompanionDesignation(BodyInfo star) {
+        if (star == null) {
+            return false;
+        }
+        String sn = firstNonBlank(star.getShortName(), star.getBodyName());
+        if (sn == null || sn.isBlank()) {
+            return false;
+        }
+        sn = sn.trim();
+        if (hasTrailingStarBodyDesignationInName(sn)) {
+            return false;
+        }
+        if (sn.chars().allMatch(Character::isDigit)) {
+            return true;
+        }
+        int lastSpace = sn.lastIndexOf(' ');
+        if (lastSpace > 0 && lastSpace < sn.length() - 1) {
+            String tail = sn.substring(lastSpace + 1).trim();
+            return !tail.isEmpty() && tail.chars().allMatch(Character::isDigit);
+        }
+        return false;
+    }
+
+    /** Letter-branch companion ({@code B}, {@code C}) — wide-binary barycentre layout, not numbered host companion. */
+    private static boolean isLetterBranchStellarCompanion(BodyInfo companion) {
+        if (companion == null) {
+            return false;
+        }
+        String branch = stellarBranchLetter(companion);
+        if (branch != null && branch.length() == 1) {
+            char c = branch.charAt(0);
+            if (c >= 'B' && c <= 'Z') {
+                return true;
+            }
+        }
+        String sn = firstNonBlank(companion.getShortName(), companion.getBodyName());
+        if (sn == null) {
+            return false;
+        }
+        sn = sn.trim();
+        if (sn.length() == 1) {
+            char c = Character.toUpperCase(sn.charAt(0));
+            return c >= 'B' && c <= 'Z';
+        }
+        return hasTrailingStarBodyDesignationInName(sn);
     }
 
     /** True when any journal {@code Null:N} planet-binary barycentre is present. */
@@ -6240,10 +6382,11 @@ public final class SystemOrbitGeometry {
         }
         /*
          * Two-star systems always use barycentric map layout; journal/cache may parent the companion to the arrival
-         * star even when separation is still below the wide-binary flatten threshold.
+         * star even when separation is still below the wide-binary flatten threshold. Exception: arrival {@code *} with
+         * a numbered companion ({@code 1}, {@code 2}) parented to the host — host-centred single-star layout.
          */
         if (countMapStellarBodies(bodies) == 2) {
-            return true;
+            return !isPrimaryHostedNumberedStellarCompanionMap(bodies);
         }
         double dC = child.getDistanceLs();
         double dP = primary.getDistanceLs();

@@ -3705,8 +3705,12 @@ public final class SystemPlanMapPanel extends JPanel {
         return false;
     }
 
-    /** Map label for stars: branch letter ({@code A}, {@code B}), not the full system name on the primary. */
+    /** Map label for stars: branch letter ({@code A}, {@code B}), numbered companion ({@code 1}), or {@code *} primary. */
     private static String starMapLabel(BodyInfo b, int mapKey, int primaryAnch) {
+        String numbered = SystemOrbitGeometry.numberedStellarCompanionMapLabel(b);
+        if (numbered != null) {
+            return numbered;
+        }
         String letter = starBranchLetterFromName(b);
         if (letter != null) {
             return letter;

@@ -34,7 +34,9 @@ class SystemMapFixtureTest {
                 "gas-giant-2-binary-moons.json",
                 "eol-prou-zh-t-c4-127-body3-moons.json",
                 "eol-prou-or-v-d2-399.json",
-                "eor-aowsy-ri-k-c8-3670.json");
+                "eor-aowsy-ri-k-c8-3670.json",
+                "eol-prou-ls-t-e3-3428-numbered-companion.json",
+                "eol-prou-ls-t-e3-3428-numbered-companion-journal-null0.json");
     }
 
     @ParameterizedTest(name = "{0}")
