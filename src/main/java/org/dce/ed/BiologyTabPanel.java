@@ -2440,7 +2440,6 @@ private final class BioMapPanel extends JPanel {
 
     /**
      * Drag pan: shift the map view in pixels ({@code dx} right moves map content right with the cursor).
-     * Recentres on commander/ship when pan exceeds half the smaller plot dimension.
      */
     private void applyMapPanPixelDelta(int dxPix, int dyPix) {
         if (!canPaintMap() || (dxPix == 0 && dyPix == 0)) {
@@ -2448,28 +2447,34 @@ private final class BioMapPanel extends JPanel {
         }
         mapPanPxX += dxPix;
         mapPanPxY += dyPix;
-        enforceMapPanRecenterLimit();
         repaint();
     }
 
-    private void enforceMapPanRecenterLimit() {
+    /** True when the commander/ship anchor (map origin) is outside the plot due to pan offset. */
+    private boolean isMapAnchorOffScreen() {
+        if (!canPaintMap() || (mapPanPxX == 0 && mapPanPxY == 0)) {
+            return false;
+        }
         int w = getWidth();
         int h = getHeight();
         if (w <= 0 || h <= 0) {
-            return;
+            return false;
         }
-        int half = Math.min(Math.max(1, w), Math.max(1, h)) / 2;
-        if (Math.hypot(mapPanPxX, mapPanPxY) > half) {
+        int ax = w / 2 + mapPanPxX;
+        int ay = h / 2 + mapPanPxY;
+        return ax < 0 || ax >= w || ay < 0 || ay >= h;
+    }
+
+    /** After a position update, recenter only if the player anchor was panned off the map. */
+    private void maybeRecenterPanIfAnchorOffMap() {
+        if (isMapAnchorOffScreen()) {
             mapPanPxX = 0;
             mapPanPxY = 0;
         }
     }
 
-    private void resetMapPan() {
-        mapPanPxX = 0;
-        mapPanPxY = 0;
-        mapPanDragActive = false;
-        setCursor(Cursor.getDefaultCursor());
+    private static boolean surfaceFixChanged(double prevLat, double prevLon, double lat, double lon) {
+        return Double.compare(prevLat, lat) != 0 || Double.compare(prevLon, lon) != 0;
     }
 
     void setShowParkedPins(boolean show) {
@@ -2499,10 +2504,15 @@ private final class BioMapPanel extends JPanel {
     }
 
     private void setShipLatLon(double lat, double lon, double radiusM) {
+        boolean posMoved = haveShip && !commanderCentered
+                && surfaceFixChanged(shipLat, shipLon, lat, lon);
         this.shipLat = lat;
         this.shipLon = lon;
         this.shipRadiusM = radiusM;
         this.haveShip = true;
+        if (posMoved) {
+            maybeRecenterPanIfAnchorOffMap();
+        }
         repaint();
     }
 
@@ -2603,10 +2613,15 @@ private final class BioMapPanel extends JPanel {
     }
 
     private void setCommanderCentered(boolean centered, double lat, double lon, boolean inSrv) {
+        boolean posMoved = centered && commanderCentered
+                && surfaceFixChanged(commanderLat, commanderLon, lat, lon);
         this.commanderCentered = centered;
         this.commanderInSrv = inSrv;
         this.commanderLat = lat;
         this.commanderLon = lon;
+        if (posMoved) {
+            maybeRecenterPanIfAnchorOffMap();
+        }
         repaint();
     }
 
