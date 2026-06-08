@@ -11,9 +11,8 @@ import org.dce.ed.util.SystemOrbitGeometry;
 
 /**
  * Testable rules for classifying a system and resolving map layout. Topology (parent links) comes from
- * {@link ModelMapTopology} / {@link SystemModel} when a {@link SystemSession} is present; legacy
- * {@link #resolveOrbitParentBodyId} remains for tests without a model. The map GUI consumes
- * {@link SystemMapModel} built by {@link SystemMapPipeline}.
+ * {@link SystemModel} hierarchy when a {@link SystemSession} is present via {@link ModelMapTranscriber}.
+ * The map GUI consumes {@link SystemMapModel} built by {@link SystemMapPipeline}.
  * <p>
  * Rule catalogue (each should have a fixture assertion):
  * <ul>
@@ -69,10 +68,7 @@ public final class SystemMapRules {
                 || SystemOrbitGeometry.shouldApplySingleStarLayout(bodies);
         List<Integer> baryStars = barycentricMapStellarIds(bodies);
         SystemLayoutKind kind;
-        ModelLayoutHints hints = model != null ? ModelLayoutHints.from(model, bodies) : null;
-        if (hints != null && hints.hierarchicalWide) {
-            kind = SystemLayoutKind.WIDE_BINARY;
-        } else if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
+        if (SystemOrbitGeometry.isHierarchicalWideBinary(bodies)) {
             kind = SystemLayoutKind.WIDE_BINARY;
         } else if (baryStars.size() >= 2 && !singleStar) {
             kind = SystemLayoutKind.WIDE_BINARY;

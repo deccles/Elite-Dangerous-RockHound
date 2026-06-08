@@ -12,18 +12,20 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class NestedBarycentreOrbitParentTest {
 
     @Test
-    void innerBarycentre_orbitsOuterNull_notStar() {
+    void innerBarycentre_orbitsOuterNull() {
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
-        OrbitalElements orbit = new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t);
         SystemModel model = new SystemModelBuilder()
                 .systemName("Nested")
                 .add(star(t))
                 .add(new ScanBaryCentreRecord(
-                        t, 67, "outer", List.of(), List.of(),
+                        t, 67, "outer",
+                        List.of(new ParentRef(ParentRef.ParentType.STAR, 0)),
+                        List.of(),
                         new OrbitalElements(2e11, 0, 0, 0, 0, 0, 100_000, t)))
                 .add(new ScanBaryCentreRecord(
                         t, 32, "inner",
@@ -37,6 +39,25 @@ class NestedBarycentreOrbitParentTest {
         assertEquals(67, inner.orbitParent().bodyId());
         assertEquals(HierarchyKeys.baryMapKey(67), model.hierarchy().parentOf(HierarchyKeys.baryMapKey(32)).intValue());
         assertEquals(0, model.hierarchy().parentOf(HierarchyKeys.baryMapKey(67)).intValue());
+    }
+
+    @Test
+    void outerBaryWithoutParents_isIncomplete() {
+        Instant t = Instant.parse("2026-05-27T12:00:00Z");
+        OrbitalElements orbit = new OrbitalElements(2e11, 0, 0, 0, 0, 0, 100_000, t);
+        var outer = new SystemModelBuilder()
+                .systemName("Nested")
+                .add(star(t))
+                .add(new ScanRecord(
+                        t, 10, "Nested 1", "Planet", "Rocky", 100,
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        List.of(new ParentRef(ParentRef.ParentType.NULL, 67)),
+                        orbit, true, false))
+                .add(new ScanBaryCentreRecord(t, 67, "outer", List.of(), List.of(), orbit))
+                .buildPartial()
+                .barycentre(67)
+                .orElseThrow();
+        assertNull(outer.orbitParent());
     }
 
     private static ScanRecord star(Instant t) {

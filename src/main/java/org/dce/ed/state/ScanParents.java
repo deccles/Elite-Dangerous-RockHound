@@ -1,7 +1,6 @@
 package org.dce.ed.state;
 
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -10,62 +9,38 @@ import org.dce.ed.util.SystemOrbitGeometry;
 
 /**
  * Resolves journal {@code Scan} {@code Parents[]} into the immediate orbit parent id stored on {@link BodyInfo}.
- * Planet-class scans list parents inner-to-outer. Co-orbit planet-binary majors take the first {@code Null:N};
- * moons ({@code A 3 e}) take the first {@code Planet} host even when {@code Null:N} is listed first in the journal.
+ * Journal order is inner-to-outer; {@code parents[0]} is the immediate orbit parent (M-0).
  */
 public final class ScanParents {
 
     private ScanParents() {
     }
 
-    /**
-     * Elite journal: each {@code Parents} element is typically one keyed ref, inner-to-outer hierarchy.
-     */
     public static int immediateOrbitParentBodyId(List<ScanEvent.ParentRef> parents, ScanEvent scan) {
         return immediateOrbitParentBodyId(parents, scan, null);
     }
 
     public static int immediateOrbitParentBodyId(List<ScanEvent.ParentRef> parents, ScanEvent scan,
-            Map<Integer, BodyInfo> bodies) {
+            java.util.Map<Integer, BodyInfo> bodies) {
         if (parents == null || parents.isEmpty() || parents.get(0) == null) {
             return -1;
         }
-        if (!scanIndicatesStellarBody(scan)) {
-            if (scanIndicatesMoonBody(scan, bodies)) {
-                for (ScanEvent.ParentRef p : parents) {
-                    if (p == null || p.getType() == null) {
-                        continue;
-                    }
-                    if ("Planet".equalsIgnoreCase(p.getType())) {
-                        int planetId = p.getBodyId();
-                        if (bodies == null || moonDesignationMatchesPlanetJournalId(scan.getBodyName(), bodies,
-                                planetId)) {
-                            return planetId;
-                        }
-                    }
-                }
-            }
-            for (ScanEvent.ParentRef p : parents) {
-                if (p == null || p.getType() == null) {
-                    continue;
-                }
-                if ("Planet".equalsIgnoreCase(p.getType())) {
-                    return p.getBodyId();
-                }
-                if ("Null".equalsIgnoreCase(p.getType()) && p.getBodyId() > 0) {
-                    return p.getBodyId();
-                }
-            }
+        ScanEvent.ParentRef p = parents.get(0);
+        if (p.getType() == null) {
+            return -1;
         }
-        return parents.get(0).getBodyId();
+        return switch (p.getType().toLowerCase(java.util.Locale.ROOT)) {
+            case "null", "planet", "star" -> p.getBodyId();
+            default -> -1;
+        };
     }
 
-    /** Moons ({@code … A 3 e}) vs planet-binary majors ({@code … 1 b}) sharing a {@code Null:N} parent row. */
+    /** Moons ({@code … A 3 e}) vs planet-binary majors ({@code … 1 b}) — display classification only. */
     public static boolean scanIndicatesMoonBody(ScanEvent scan) {
         return scanIndicatesMoonBody(scan, null);
     }
 
-    public static boolean scanIndicatesMoonBody(ScanEvent scan, Map<Integer, BodyInfo> bodies) {
+    public static boolean scanIndicatesMoonBody(ScanEvent scan, java.util.Map<Integer, BodyInfo> bodies) {
         if (scan == null || scanIndicatesStellarBody(scan)) {
             return false;
         }
@@ -77,96 +52,37 @@ public final class ScanParents {
         if (SystemOrbitGeometry.hasTrailingStarBodyMoonSuffix(trimmed)) {
             return true;
         }
-        if (!SystemOrbitGeometry.hasEliteMoonDesignationInName(trimmed)) {
-            return false;
-        }
-        List<ScanEvent.ParentRef> parents = scan.getParents();
-        if (parents == null || bodies == null) {
-            return false;
-        }
-        for (ScanEvent.ParentRef p : parents) {
-            if (p == null || p.getType() == null) {
-                continue;
-            }
-            if ("Planet".equalsIgnoreCase(p.getType()) && p.getBodyId() > 0
-                    && moonDesignationMatchesPlanetJournalId(name, bodies, p.getBodyId())) {
-                return true;
-            }
-        }
-        return false;
+        return SystemOrbitGeometry.hasEliteMoonDesignationInName(trimmed);
     }
 
-    /**
-     * {@code 7 d} → host designation {@code 7} must match the journal {@code Planet} row's short name, so
-     * {@code 1 b} with an unrelated {@code Planet:10} ref stays a planet-binary major.
-     */
-    private static boolean moonDesignationMatchesPlanetJournalId(String bodyName, Map<Integer, BodyInfo> bodies,
-            int planetJournalId) {
-        if (bodyName == null || bodies == null || planetJournalId < 0) {
+    public static boolean scanIndicatesStellarBody(ScanEvent scan) {
+        if (scan == null) {
             return false;
         }
-        BodyInfo probe = new BodyInfo();
-        probe.setBodyName(bodyName);
-        String hostDesig = moonHostDesignationFromName(probe);
-        if (hostDesig == null) {
+        String starType = scan.getStarType();
+        if (starType != null && !starType.isBlank()) {
             return true;
         }
-        BodyInfo planet = bodies.get(Integer.valueOf(planetJournalId));
-        if (planet == null) {
-            for (BodyInfo row : bodies.values()) {
-                if (row != null && row.getBodyId() == planetJournalId) {
-                    planet = row;
-                    break;
-                }
-            }
-        }
-        if (planet == null) {
-            return false;
-        }
-        String label = planet.getShortName();
-        if (label == null || label.isBlank()) {
-            String full = planet.getBodyName();
-            if (full != null) {
-                int sp = full.lastIndexOf(' ');
-                label = sp >= 0 ? full.substring(sp + 1).trim() : full.trim();
-            }
-        }
-        return label != null && hostDesig.equalsIgnoreCase(label.trim());
+        return scan.getBodyId() == 0;
     }
 
-    private static String moonHostDesignationFromName(BodyInfo b) {
-        String name = b != null ? b.getBodyName() : null;
-        if (name == null || name.isBlank()) {
-            return null;
-        }
-        String trimmed = name.trim();
-        Matcher compact = Pattern.compile("^(\\d+)\\s*([A-Za-z])\\s*$").matcher(trimmed);
-        if (compact.matches()) {
-            return compact.group(1);
-        }
-        String[] parts = trimmed.split("\\s+");
-        if (parts.length >= 2) {
-            String last = parts[parts.length - 1];
-            String prev = parts[parts.length - 2];
-            if (prev.matches("\\d+") && last.length() == 1 && Character.isLetter(last.charAt(0))) {
-                return prev;
-            }
-        }
-        return null;
-    }
+    private static final Pattern MOON_DESIGNATION = Pattern.compile(".*\\s([A-Za-z])\\s(\\d+)\\s([a-z])\\s*$");
 
-    /**
-     * Star scans carry star type without planet class; planetary scans carry {@link ScanEvent#getPlanetClass()}.
-     */
-    public static boolean scanIndicatesStellarBody(ScanEvent e) {
-        if (e == null) {
-            return false;
+    static boolean moonDesignationMatchesPlanetJournalId(String bodyName, java.util.Map<Integer, BodyInfo> bodies,
+            int planetId) {
+        if (bodyName == null || bodies == null) {
+            return true;
         }
-        String pc = e.getPlanetClass();
-        if (pc != null && !pc.trim().isEmpty()) {
-            return false;
+        Matcher m = MOON_DESIGNATION.matcher(bodyName.trim());
+        if (!m.matches()) {
+            return true;
         }
-        String st = e.getStarType();
-        return st != null && !st.trim().isEmpty();
+        BodyInfo host = bodies.get(Integer.valueOf(planetId));
+        if (host == null || host.getBodyName() == null) {
+            return true;
+        }
+        String hostName = host.getBodyName().trim();
+        String expectedSuffix = " " + m.group(2);
+        return hostName.endsWith(expectedSuffix) || hostName.contains(expectedSuffix);
     }
 }

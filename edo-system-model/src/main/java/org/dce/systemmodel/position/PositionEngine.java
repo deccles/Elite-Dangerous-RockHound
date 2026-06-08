@@ -32,47 +32,67 @@ public final class PositionEngine {
         this.hierarchy = hierarchy;
     }
 
-    public Vec3 positionAt(int bodyId, Instant t, boolean strictOrbit) {
-        return positionAtRecursive(bodyId, t, strictOrbit, new HashMap<>(), new HashSet<>());
+    public Vec3 positionAt(int mapKey, Instant t, boolean strictOrbit) {
+        return positionAtRecursive(mapKey, t, strictOrbit, new HashMap<>(), new HashSet<>());
     }
 
     private Vec3 positionAtRecursive(
-            int bodyId, Instant t, boolean strictOrbit, Map<Integer, Vec3> memo, Set<Integer> visiting) {
-        if (memo.containsKey(bodyId)) {
-            return memo.get(bodyId);
+            int mapKey, Instant t, boolean strictOrbit, Map<Integer, Vec3> memo, Set<Integer> visiting) {
+        if (memo.containsKey(mapKey)) {
+            return memo.get(mapKey);
         }
-        if (!visiting.add(bodyId)) {
+        if (!visiting.add(mapKey)) {
             return Vec3.ZERO;
         }
         try {
-            Integer parentId = hierarchy.parentOf(bodyId);
-            if (parentId == null || parentId == bodyId) {
-                memo.put(bodyId, Vec3.ZERO);
+            Integer parentKey = hierarchy.parentOf(mapKey);
+            if (parentKey == null || parentKey == mapKey) {
+                memo.put(mapKey, Vec3.ZERO);
                 return Vec3.ZERO;
             }
-            Vec3 parentPos = positionAtRecursive(parentId, t, strictOrbit, memo, visiting);
-            OrbitalElements orbit = orbitOf(bodyId);
-            if (orbit == null) {
-                memo.put(bodyId, parentPos);
-                return parentPos;
-            }
-            if (strictOrbit) {
-                validateOrbitForEvolution(bodyId, orbit, t);
-            }
-            double M = KeplerMath.evolvedMeanAnomalyRadians(orbit, t);
-            double[] rel = KeplerMath.keplerDisplacementMetres(orbit, M);
-            if (rel == null) {
+            Vec3 parentPos = positionAtRecursive(parentKey, t, strictOrbit, memo, visiting);
+
+            OrbitalElements orbit = orbitOf(mapKey);
+            if (orbit != null) {
                 if (strictOrbit) {
-                    throw new MissingOrbitalElementsException(bodyId, List.of("semiMajorAxisM"));
+                    validateOrbitForEvolution(mapKey, orbit, t);
                 }
-                memo.put(bodyId, parentPos);
-                return parentPos;
+                double M = KeplerMath.evolvedMeanAnomalyRadians(orbit, t);
+                double[] rel = KeplerMath.keplerDisplacementMetres(orbit, M);
+                if (rel != null) {
+                    Vec3 world = parentPos.plus(new Vec3(rel[0], rel[1], rel[2]));
+                    memo.put(mapKey, world);
+                    return world;
+                }
+                if (strictOrbit) {
+                    throw new MissingOrbitalElementsException(mapKey, List.of("semiMajorAxisM"));
+                }
             }
-            Vec3 world = parentPos.plus(new Vec3(rel[0], rel[1], rel[2]));
-            memo.put(bodyId, world);
-            return world;
+
+            BarycentreNode bc = barycentreForMapKey(mapKey);
+            if (bc != null && bc.childBodyIds() != null && !bc.childBodyIds().isEmpty()) {
+                Vec3 sum = Vec3.ZERO;
+                int count = 0;
+                for (int memberId : bc.childBodyIds()) {
+                    BodyNode member = bodies.get(memberId);
+                    if (member == null || !member.definitive()) {
+                        continue;
+                    }
+                    Vec3 memberPos = positionAtRecursive(memberId, t, strictOrbit, memo, visiting);
+                    sum = sum.plus(memberPos);
+                    count++;
+                }
+                if (count > 0) {
+                    Vec3 centroid = new Vec3(sum.x() / count, sum.y() / count, sum.z() / count);
+                    memo.put(mapKey, centroid);
+                    return centroid;
+                }
+            }
+
+            memo.put(mapKey, parentPos);
+            return parentPos;
         } finally {
-            visiting.remove(bodyId);
+            visiting.remove(mapKey);
         }
     }
 
@@ -80,30 +100,35 @@ public final class PositionEngine {
         List<OrbitRing> rings = new ArrayList<>();
         Map<Integer, Vec3> memo = new HashMap<>();
         Set<Integer> visiting = new HashSet<>();
-        for (BodyNode b : bodies.values()) {
-            if (b.orbit() == null || b.orbitParent() == null) {
-                continue;
-            }
-            int parentId = b.orbitParent().bodyId();
-            rings.add(worldOrbitRing(b.bodyId(), parentId, b.orbit(), t, memo, visiting));
-        }
+
         for (BarycentreNode bc : barycentres.values()) {
-            if (bc.orbit() == null || bc.orbitParent() == null) {
+            int hubKey = HierarchyKeys.baryMapKey(bc.bodyId());
+            Integer parentKey = hierarchy.parentOf(hubKey);
+            if (bc.orbit() != null && parentKey != null) {
+                rings.add(worldOrbitRing(hubKey, parentKey, bc.orbit(), t, memo, visiting));
+            }
+        }
+        for (BodyNode b : bodies.values()) {
+            if (!b.definitive() || b.orbit() == null) {
                 continue;
             }
-            rings.add(worldOrbitRing(bc.bodyId(), bc.orbitParent().bodyId(), bc.orbit(), t, memo, visiting));
+            Integer parentKey = hierarchy.parentOf(b.bodyId());
+            if (parentKey == null) {
+                continue;
+            }
+            rings.add(worldOrbitRing(b.bodyId(), parentKey, b.orbit(), t, memo, visiting));
         }
         return List.copyOf(rings);
     }
 
     private OrbitRing worldOrbitRing(
-            int bodyId, int parentId, OrbitalElements orbit, Instant t, Map<Integer, Vec3> memo,
+            int bodyId, int parentKey, OrbitalElements orbit, Instant t, Map<Integer, Vec3> memo,
             Set<Integer> visiting) {
-        OrbitRing rel = KeplerOrbitRing.ringForBody(bodyId, parentId, orbit, t);
+        OrbitRing rel = KeplerOrbitRing.ringForBody(bodyId, parentKey, orbit, t);
         if (rel.pointsMetres().isEmpty()) {
             return rel;
         }
-        Vec3 parentPos = positionAtRecursive(parentId, t, false, memo, visiting);
+        Vec3 parentPos = positionAtRecursive(parentKey, t, false, memo, visiting);
         List<double[]> world = new ArrayList<>(rel.pointsMetres().size());
         for (double[] pt : rel.pointsMetres()) {
             world.add(new double[] {
@@ -112,7 +137,7 @@ public final class PositionEngine {
                     parentPos.z() + (pt.length >= 3 ? pt[2] : 0.0)
             });
         }
-        return new OrbitRing(bodyId, parentId, List.copyOf(world));
+        return new OrbitRing(bodyId, parentKey, List.copyOf(world));
     }
 
     private static void validateOrbitForEvolution(int bodyId, OrbitalElements orbit, Instant t) {
@@ -130,16 +155,19 @@ public final class PositionEngine {
         }
     }
 
-    private OrbitalElements orbitOf(int bodyId) {
-        BodyNode b = bodies.get(bodyId);
+    private BarycentreNode barycentreForMapKey(int mapKey) {
+        if (HierarchyKeys.isBaryMapKey(mapKey)) {
+            return barycentres.get(HierarchyKeys.journalNullFromBaryMapKey(mapKey));
+        }
+        return barycentres.get(mapKey);
+    }
+
+    private OrbitalElements orbitOf(int mapKey) {
+        BodyNode b = bodies.get(mapKey);
         if (b != null) {
             return b.orbit();
         }
-        if (HierarchyKeys.isBaryMapKey(bodyId)) {
-            BarycentreNode bc = barycentres.get(HierarchyKeys.journalNullFromBaryMapKey(bodyId));
-            return bc != null ? bc.orbit() : null;
-        }
-        BarycentreNode bc = barycentres.get(bodyId);
+        BarycentreNode bc = barycentreForMapKey(mapKey);
         return bc != null ? bc.orbit() : null;
     }
 }

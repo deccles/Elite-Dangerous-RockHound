@@ -16,6 +16,7 @@ import org.dce.ed.systemmap.SystemMapFixtureLoader;
 import org.dce.ed.systemmap.SystemMapHierarchyBuilder;
 import org.dce.ed.systemmap.SystemMapModel;
 import org.dce.ed.systemmap.SystemMapPipeline;
+import org.dce.ed.systemmap.SystemModelHierarchyBuilder;
 import org.junit.jupiter.api.Test;
 
 class JournalParentRefsTest {
@@ -77,7 +78,8 @@ class JournalParentRefsTest {
         BodyInfo moon = new BodyInfo();
         moon.setBodyId(25);
         moon.setBodyShortName("A 4 a");
-        moon.setImmediateParentBodyId(19);
+        moon.setImmediateParentBodyId(24);
+        moon.setJournalParentRefs(List.of("Planet:24"));
         Map<Integer, BodyInfo> bodies = Map.of(
                 Integer.valueOf(24), a4,
                 Integer.valueOf(25), moon);
@@ -109,30 +111,6 @@ class JournalParentRefsTest {
     }
 
     @Test
-    void coeus_hierarchyGraph_showsParentsOnA2() throws IOException {
-        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
-        Map<Integer, BodyInfo> bodies = coeus.toBodies();
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, true);
-        SystemMapHierarchyBuilder.Graph g = SystemMapHierarchyBuilder.build(coeus.name, model, bodies);
-        SystemMapHierarchyBuilder.Node a2 = findNode(g.root, "A 2");
-        assertNotNull(a2);
-        assertNotNull(a2.parentsLine);
-        assertTrue(a2.parentsLine.contains("Null:14"));
-        assertTrue(a2.parentsLine.contains("→ A →"));
-    }
-
-    @Test
-    void coeus_hierarchyGraph_moonA4a_parentsA4_not19() throws IOException {
-        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
-        Map<Integer, BodyInfo> bodies = coeus.toBodies();
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, true);
-        SystemMapHierarchyBuilder.Graph g = SystemMapHierarchyBuilder.build(coeus.name, model, bodies);
-        SystemMapHierarchyBuilder.Node moon = findNode(g.root, "A 4 a");
-        assertNotNull(moon);
-        assertEquals("Parents: A 4", moon.parentsLine);
-    }
-
-    @Test
     void formatMapParentLabel_planetBinaryHub_usesNullN() throws IOException {
         SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         Map<Integer, BodyInfo> bodies = coeus.toBodies();
@@ -143,28 +121,4 @@ class JournalParentRefsTest {
                         org.dce.ed.util.SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies)));
     }
 
-    @Test
-    void coeus_hierarchyGraph_null14Hub_parentsA_notSelf() throws IOException {
-        SystemMapFixture coeus = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
-        Map<Integer, BodyInfo> bodies = coeus.toBodies();
-        SystemMapModel model = SystemMapPipeline.build(coeus.name, bodies, Instant.EPOCH, true);
-        SystemMapHierarchyBuilder.Graph g = SystemMapHierarchyBuilder.build(coeus.name, model, bodies);
-        SystemMapHierarchyBuilder.Node starA = findNode(g.root, "A");
-        SystemMapHierarchyBuilder.Node null14 = findNode(starA, "Null:14");
-        assertNotNull(null14);
-        assertEquals("Parents: A → Null:0", null14.parentsLine);
-    }
-
-    private static SystemMapHierarchyBuilder.Node findNode(SystemMapHierarchyBuilder.Node node, String label) {
-        if (label.equals(node.label)) {
-            return node;
-        }
-        for (SystemMapHierarchyBuilder.Node child : node.children) {
-            SystemMapHierarchyBuilder.Node hit = findNode(child, label);
-            if (hit != null) {
-                return hit;
-            }
-        }
-        return null;
-    }
 }

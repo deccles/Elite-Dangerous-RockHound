@@ -40,7 +40,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.prefs.Preferences;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.swing.BorderFactory;
@@ -80,6 +79,7 @@ import javax.swing.table.TableRowSorter;
 
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteJournalReader;
+import org.dce.ed.logreader.LogSearchFilter;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.logreader.event.CommanderEvent;
@@ -349,7 +349,8 @@ public class LogTabPanel extends JPanel {
         searchField = new JTextField(24);
         searchField.setForeground(JOURNAL_TEXT);
         searchField.setCaretColor(JOURNAL_TEXT);
-        searchField.setToolTipText("Regex search (press Enter). Empty = show all.");
+        searchField.setToolTipText(
+                "Regex search (press Enter). Use & for AND (e.g. ScanBaryCentre&13). | is OR. Empty = show all.");
         searchField.setMaximumSize(searchField.getPreferredSize()); // keeps toolbar height sane
         searchField.addActionListener(e -> applySearchFromField());
         toolBar.add(searchField);
@@ -1590,14 +1591,14 @@ simPlayButton.addActionListener(e -> startSimulation());
             return;
         }
 
-	    final Pattern p;
+	    final LogSearchFilter searchFilter;
 	    try {
-	        p = Pattern.compile(text, Pattern.CASE_INSENSITIVE);
+	        searchFilter = LogSearchFilter.compile(text);
 	    } catch (Exception ex) {
 	        Toolkit.getDefaultToolkit().beep();
 	        JOptionPane.showMessageDialog(
 	                this,
-	                "Invalid regex:\n" + ex.getMessage(),
+	                "Invalid search:\n" + ex.getMessage(),
 	                "Search",
 	                JOptionPane.ERROR_MESSAGE);
 	        return;
@@ -1606,16 +1607,12 @@ simPlayButton.addActionListener(e -> startSimulation());
 	    searchRowFilter = new RowFilter<LogTableModel, Integer>() {
 	        @Override
 	        public boolean include(Entry<? extends LogTableModel, ? extends Integer> entry) {
-	            // Match any column text
-	            for (int c = 0; c < entry.getValueCount(); c++) {
-	                String s = entry.getStringValue(c);
-	                if (s == null)
-	                    continue;
-
-	                if (p.matcher(s).find())
-	                    return true;
+	            int n = entry.getValueCount();
+	            String[] cols = new String[n];
+	            for (int c = 0; c < n; c++) {
+	                cols[c] = entry.getStringValue(c);
 	            }
-	            return false;
+	            return searchFilter.matchesRow(cols);
 	        }
 	    };
 

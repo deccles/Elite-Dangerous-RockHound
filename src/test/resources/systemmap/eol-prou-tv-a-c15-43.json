@@ -1,0 +1,335 @@
+{
+  "name": "Eol Prou TV-A c15-43",
+  "notes": "Auto-exported from journal Scan events",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Eol Prou TV-A c15-43 barycentre 1",
+      "shortName": "bary 1",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 4.682269275188446E12,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 2,
+      "bodyName": "Eol Prou TV-A c15-43 A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "G",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 8.382012903690338E10
+    },
+    {
+      "id": 3,
+      "bodyName": "Eol Prou TV-A c15-43 B",
+      "shortName": "B",
+      "distanceLs": 787.857479,
+      "starType": "K",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.4369150400161743E11
+    },
+    {
+      "id": 4,
+      "bodyName": "Eol Prou TV-A c15-43 C",
+      "shortName": "C",
+      "distanceLs": 69803.926051,
+      "starType": "M",
+      "parentIsBarycentre": true,
+      "semiMajorAxisM": 1.5123010277748107E13
+    },
+    {
+      "id": 9,
+      "bodyName": "Eol Prou TV-A c15-43 A 1",
+      "shortName": "A 1",
+      "distanceLs": 22.197442,
+      "planetClass": "Metal rich body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 6.647044599056244E9
+    },
+    {
+      "id": 10,
+      "bodyName": "Eol Prou TV-A c15-43 A 2",
+      "shortName": "A 2",
+      "distanceLs": 29.999138,
+      "planetClass": "Metal rich body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 9.005516588687897E9
+    },
+    {
+      "id": 11,
+      "bodyName": "Eol Prou TV-A c15-43 A 3",
+      "shortName": "A 3",
+      "distanceLs": 36.451687,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.0928243398666382E10
+    },
+    {
+      "id": 12,
+      "bodyName": "Eol Prou TV-A c15-43 A 4",
+      "shortName": "A 4",
+      "distanceLs": 50.655994,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.5164620280265808E10
+    },
+    {
+      "id": 13,
+      "bodyName": "Eol Prou TV-A c15-43 A 5",
+      "shortName": "A 5",
+      "distanceLs": 85.637923,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 2.5531182289123535E10
+    },
+    {
+      "id": 14,
+      "bodyName": "Eol Prou TV-A c15-43 A 5 a",
+      "shortName": "A 5 a",
+      "distanceLs": 85.675897,
+      "planetClass": "Rocky body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 13,
+      "semiMajorAxisM": 1.462296128273E7
+    },
+    {
+      "id": 15,
+      "bodyName": "Eol Prou TV-A c15-43 A 6",
+      "shortName": "A 6",
+      "distanceLs": 122.474054,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 3.680064022541046E10
+    },
+    {
+      "id": 21,
+      "bodyName": "Eol Prou TV-A c15-43 B 1",
+      "shortName": "B 1",
+      "distanceLs": 794.53452,
+      "planetClass": "Metal rich body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 2.434413552284241E9
+    },
+    {
+      "id": 22,
+      "bodyName": "Eol Prou TV-A c15-43 B 2",
+      "shortName": "B 2",
+      "distanceLs": 790.890828,
+      "planetClass": "Metal rich body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 3.500497102737427E9
+    },
+    {
+      "id": 23,
+      "bodyName": "Eol Prou TV-A c15-43 B 2 a",
+      "shortName": "B 2 a",
+      "distanceLs": 790.902623,
+      "planetClass": "Metal rich body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 22,
+      "semiMajorAxisM": 3747966.349125
+    },
+    {
+      "id": 24,
+      "bodyName": "Eol Prou TV-A c15-43 B 3",
+      "shortName": "B 3",
+      "distanceLs": 771.382386,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 5.561767101287842E9
+    },
+    {
+      "id": 25,
+      "bodyName": "Eol Prou TV-A c15-43 B 4",
+      "shortName": "B 4",
+      "distanceLs": 766.493101,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 8.276456296443939E9
+    },
+    {
+      "id": 26,
+      "bodyName": "Eol Prou TV-A c15-43 B 5",
+      "shortName": "B 5",
+      "distanceLs": 798.040539,
+      "planetClass": "High metal content body",
+      "atmoOrType": "",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.9751832485198975E10
+    },
+    {
+      "id": 27,
+      "bodyName": "Eol Prou TV-A c15-43 AB 1",
+      "shortName": "AB 1",
+      "distanceLs": 1636.120171,
+      "planetClass": "Icy body",
+      "atmoOrType": "hot thick methane rich atmosphere",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 5.705542087554932E11
+    },
+    {
+      "id": 28,
+      "bodyName": "Eol Prou TV-A c15-43 AB 2",
+      "shortName": "AB 2",
+      "distanceLs": 2669.025697,
+      "planetClass": "Icy body",
+      "atmoOrType": "hot thick methane rich atmosphere",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 8.394920766353607E11
+    },
+    {
+      "id": 29,
+      "bodyName": "Eol Prou TV-A c15-43 AB 3",
+      "shortName": "AB 3",
+      "distanceLs": 4394.201196,
+      "planetClass": "Icy body",
+      "atmoOrType": "thick methane rich atmosphere",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 1.3968374133110046E12
+    },
+    {
+      "id": 30,
+      "bodyName": "Eol Prou TV-A c15-43 AB 3 a",
+      "shortName": "AB 3 a",
+      "distanceLs": 4408.055852,
+      "planetClass": "Icy body",
+      "atmoOrType": "thin nitrogen atmosphere",
+      "immediateParentBodyId": 29,
+      "semiMajorAxisM": 4.98466819524765E9
+    },
+    {
+      "id": 31,
+      "bodyName": "Eol Prou TV-A c15-43 AB 4",
+      "shortName": "AB 4",
+      "distanceLs": 6490.985505,
+      "planetClass": "Icy body",
+      "atmoOrType": "helium atmosphere",
+      "immediateParentBodyId": 1,
+      "semiMajorAxisM": 2.1129350066184998E12
+    },
+    {
+      "id": 32,
+      "bodyName": "Eol Prou TV-A c15-43 C 1",
+      "shortName": "C 1",
+      "distanceLs": 70277.678372,
+      "planetClass": "High metal content body",
+      "atmoOrType": "argon rich atmosphere",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 1.453325629234314E11
+    },
+    {
+      "id": 33,
+      "bodyName": "Eol Prou TV-A c15-43 C 2",
+      "shortName": "C 2",
+      "distanceLs": 69527.713136,
+      "planetClass": "High metal content body",
+      "atmoOrType": "argon rich atmosphere",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 1.8694968223571777E11
+    },
+    {
+      "id": 34,
+      "bodyName": "Eol Prou TV-A c15-43 C 3",
+      "shortName": "C 3",
+      "distanceLs": 70516.382973,
+      "planetClass": "High metal content body",
+      "atmoOrType": "argon rich atmosphere",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 2.493348479270935E11
+    },
+    {
+      "id": 35,
+      "bodyName": "Eol Prou TV-A c15-43 C 4",
+      "shortName": "C 4",
+      "distanceLs": 70961.480937,
+      "planetClass": "Icy body",
+      "atmoOrType": "thick methane atmosphere",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 3.484867453575134E11
+    },
+    {
+      "id": 36,
+      "bodyName": "Eol Prou TV-A c15-43 C 4 a",
+      "shortName": "C 4 a",
+      "distanceLs": 70958.576968,
+      "planetClass": "Icy body",
+      "atmoOrType": "thin argon atmosphere",
+      "immediateParentBodyId": 35,
+      "semiMajorAxisM": 1.046096086502075E9
+    },
+    {
+      "id": 37,
+      "bodyName": "Eol Prou TV-A c15-43 barycentre 37",
+      "shortName": "bary 37",
+      "distanceLs": 0.0,
+      "semiMajorAxisM": 4.572633743286133E11,
+      "scanBarycentreRow": true
+    },
+    {
+      "id": 38,
+      "bodyName": "Eol Prou TV-A c15-43 C 5",
+      "shortName": "C 5",
+      "distanceLs": 68423.348163,
+      "planetClass": "Icy body",
+      "atmoOrType": "thick methane rich atmosphere",
+      "immediateParentBodyId": 37,
+      "semiMajorAxisM": 1.64872932434082E9
+    },
+    {
+      "id": 39,
+      "bodyName": "Eol Prou TV-A c15-43 C 6",
+      "shortName": "C 6",
+      "distanceLs": 68413.714187,
+      "planetClass": "Icy body",
+      "atmoOrType": "methane rich atmosphere",
+      "immediateParentBodyId": 37,
+      "semiMajorAxisM": 2.251157701015472E9
+    },
+    {
+      "id": 40,
+      "bodyName": "Eol Prou TV-A c15-43 C 7",
+      "shortName": "C 7",
+      "distanceLs": 71208.195447,
+      "planetClass": "Icy body",
+      "atmoOrType": "neon rich atmosphere",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 5.780031085014343E11
+    },
+    {
+      "id": 41,
+      "bodyName": "Eol Prou TV-A c15-43 C 8",
+      "shortName": "C 8",
+      "distanceLs": 71238.366197,
+      "planetClass": "Icy body",
+      "atmoOrType": "helium atmosphere",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 7.450561940670013E11
+    },
+    {
+      "id": 42,
+      "bodyName": "Eol Prou TV-A c15-43 C 9",
+      "shortName": "C 9",
+      "distanceLs": 73384.363006,
+      "planetClass": "Icy body",
+      "atmoOrType": "neon rich atmosphere",
+      "immediateParentBodyId": 4,
+      "semiMajorAxisM": 1.0929199457168579E12
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 3,
+    "barycentreRecentred": true,
+    "hasBarycentreMutualRing": true
+  }
+}

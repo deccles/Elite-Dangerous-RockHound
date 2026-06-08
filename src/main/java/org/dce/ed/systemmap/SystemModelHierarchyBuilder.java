@@ -177,7 +177,7 @@ public final class SystemModelHierarchyBuilder {
 
         attachHierarchyRootsToSystemBarycentre(model, hg, root, built);
         wireHierarchyChildrenBreadthFirst(hg, root, built);
-        linkUnattachedHierarchyChildren(model, hg, built);
+        linkUnattachedHierarchyChildrenFixpoint(model, hg, built);
 
         List<SystemMapHierarchyBuilder.Edge> edges = new ArrayList<>();
         collectEdges(root, edges);
@@ -229,38 +229,71 @@ public final class SystemModelHierarchyBuilder {
         return true;
     }
 
-    private static void linkUnattachedHierarchyChildren(
+    private static void linkUnattachedHierarchyChildrenFixpoint(
             SystemModel model, HierarchyGraph hg, Map<Integer, SystemMapHierarchyBuilder.Node> built) {
-        for (BodyNode b : model.bodies().values()) {
-            linkIfUnattached(model, hg, built, b.bodyId());
-        }
-        for (int journalNullId : model.barycentres().keySet()) {
-            linkIfUnattached(model, hg, built, HierarchyKeys.baryMapKey(journalNullId));
+        for (int pass = 0; pass < 32; pass++) {
+            int linked = linkUnattachedHierarchyChildrenOnce(model, hg, built);
+            if (linked == 0) {
+                break;
+            }
+            wireHierarchyChildrenBreadthFirst(hg, rootFromBuilt(built), built);
         }
     }
 
-    private static void linkIfUnattached(
+    private static SystemMapHierarchyBuilder.Node rootFromBuilt(
+            Map<Integer, SystemMapHierarchyBuilder.Node> built) {
+        return built.get(Integer.valueOf(ROOT_KEY));
+    }
+
+    private static int linkUnattachedHierarchyChildrenOnce(
+            SystemModel model, HierarchyGraph hg, Map<Integer, SystemMapHierarchyBuilder.Node> built) {
+        int linked = 0;
+        for (BodyNode b : model.bodies().values()) {
+            linked += linkIfUnattached(model, hg, built, b.bodyId()) ? 1 : 0;
+        }
+        for (int journalNullId : model.barycentres().keySet()) {
+            linked += linkIfUnattached(model, hg, built, HierarchyKeys.baryMapKey(journalNullId)) ? 1 : 0;
+        }
+        return linked;
+    }
+
+    /** Stars present in {@code model} but dropped by {@link #pruneOrphanNodesFromIndex} (debug / tests). */
+    static java.util.Set<Integer> prunedStellarBodyIds(SystemModel model, SystemMapHierarchyBuilder.Graph graph) {
+        java.util.Set<Integer> pruned = new java.util.HashSet<>();
+        if (model == null || graph == null) {
+            return pruned;
+        }
+        for (BodyNode b : model.bodies().values()) {
+            if (b.kind() == BodyKind.STAR && !graph.nodeByKey.containsKey(b.bodyId())) {
+                pruned.add(Integer.valueOf(b.bodyId()));
+            }
+        }
+        return pruned;
+    }
+
+    private static boolean linkIfUnattached(
             SystemModel model,
             HierarchyGraph hg,
             Map<Integer, SystemMapHierarchyBuilder.Node> built,
             int childKey) {
         SystemMapHierarchyBuilder.Node child = built.get(childKey);
         if (child == null || child.parentKey != Integer.MIN_VALUE) {
-            return;
+            return false;
         }
         Integer parentId = hg.parentOf(childKey);
         if (parentId == null) {
-            return;
+            return false;
         }
         int parentKey = hierarchyNodeKey(model, parentId.intValue());
         SystemMapHierarchyBuilder.Node parent = built.get(parentKey);
         if (parent == null) {
-            return;
+            return false;
         }
         child.parentKey = parentKey;
         if (!parent.children.contains(child)) {
             parent.children.add(child);
         }
+        return true;
     }
 
     private static int hierarchyNodeKey(SystemModel model, int hierarchyId) {

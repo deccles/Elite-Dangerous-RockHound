@@ -2,9 +2,7 @@ package org.dce.systemmodel.build;
 
 import org.dce.systemmodel.designation.DesignationParser;
 import org.dce.systemmodel.journal.JournalRecord;
-import org.dce.systemmodel.journal.OrbitalElements;
 import org.dce.systemmodel.journal.ParentRef;
-import org.dce.systemmodel.journal.NullParentRefs;
 import org.dce.systemmodel.journal.ScanBaryCentreRecord;
 import org.dce.systemmodel.journal.ScanRecord;
 import org.dce.systemmodel.model.BarycentreNode;
@@ -16,14 +14,13 @@ import org.dce.systemmodel.model.SystemModel;
 import org.dce.systemmodel.position.PositionEngine;
 import org.dce.systemmodel.validate.SystemModelValidator;
 
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.time.Instant;
 
 public final class SystemModelBuilder {
 
@@ -32,7 +29,6 @@ public final class SystemModelBuilder {
     private final List<JournalRecord> records = new ArrayList<>();
     private final Map<Integer, ScanRecord> scans = new LinkedHashMap<>();
     private final Map<Integer, ScanBaryCentreRecord> barycentres = new LinkedHashMap<>();
-    private final Map<Integer, Integer> baryHostByNullId = new HashMap<>();
     private final List<String> incompleteReasons = new ArrayList<>();
 
     public SystemModelBuilder systemName(String name) {
@@ -54,7 +50,6 @@ public final class SystemModelBuilder {
             scans.put(s.bodyId(), s);
         } else if (record instanceof ScanBaryCentreRecord b) {
             barycentres.put(b.bodyId(), b);
-            linkBarycentreFromMembers(b.bodyId());
         }
         return this;
     }
@@ -91,9 +86,7 @@ public final class SystemModelBuilder {
         incompleteReasons.clear();
         Map<Integer, BodyNode> bodyNodes = new LinkedHashMap<>();
         Map<Integer, BarycentreNode> baryNodes = new LinkedHashMap<>();
-        Set<Integer> knownNullIds = new HashSet<>(barycentres.keySet());
-        Map<Integer, List<Integer>> membersByNullId = indexNullBarycentreMembers();
-        refreshAllPlanetHostedBarycentreLinks(membersByNullId);
+        Map<Integer, List<Integer>> membersByNullId = indexMembersByImmediateNullParent();
         Set<Integer> nullReferencedAsParent = nullIdsReferencedFromScansAndBary(barycentres, scans);
 
         for (ScanBaryCentreRecord b : barycentres.values()) {
@@ -104,38 +97,43 @@ public final class SystemModelBuilder {
                     && !hasJournalParents) {
                 continue;
             }
-            ParentRef orbitParent = resolveBarycentreOrbitParent(b, members, knownNullIds, membersByNullId);
+            List<Integer> memberList = members.isEmpty() && b.childBodyIds() != null
+                    ? List.copyOf(b.childBodyIds())
+                    : List.copyOf(members);
+            ParentRef orbitParent = JournalParentChain.immediateOrbitParent(b.parents());
+            if (orbitParent == null && !memberList.isEmpty()) {
+                orbitParent = BarycentreOrbitParentResolver.fromMemberChains(b.bodyId(), memberList, scans);
+            }
             baryNodes.put(
                     b.bodyId(),
                     new BarycentreNode(
                             b.bodyId(),
                             b.bodyName(),
                             orbitParent,
-                            b.parents(),
-                            members.isEmpty() && b.childBodyIds() != null
-                                    ? List.copyOf(b.childBodyIds())
-                                    : List.copyOf(members),
+                            b.parents() != null ? List.copyOf(b.parents()) : List.of(),
+                            memberList,
                             b.orbit()));
             if (orbitParent == null) {
                 incompleteReasons.add("barycentre " + b.bodyId() + " missing orbit parent");
             }
         }
 
-        synthesizeSharedNullBarycentres(baryNodes, membersByNullId, knownNullIds);
-        knownNullIds = new HashSet<>(baryNodes.keySet());
+        Set<Integer> knownNullIds = new HashSet<>(baryNodes.keySet());
 
         for (ScanRecord scan : scans.values()) {
             BodyKind kind = classify(scan);
-            boolean moon = kind == BodyKind.MOON;
-            boolean definitive = true;
-            int pendingNullId = NullParentRefs.anyNullParentIdInChain(scan);
-            if (moon && pendingNullId > 0 && !knownNullIds.contains(pendingNullId)) {
-                incompleteReasons.add("moon " + scan.bodyId() + " awaits ScanBaryCentre for Null:"
-                        + pendingNullId);
+            boolean arrivalRoot = ArrivalStarRoot.isJournalArrivalStar(scan);
+            ParentRef orbitParent = JournalParentChain.immediateOrbitParent(scan.parents());
+            boolean definitive = orbitParent != null || arrivalRoot;
+            if (orbitParent == null && !arrivalRoot) {
+                incompleteReasons.add("body " + scan.bodyId() + " missing parents");
+            } else if (orbitParent != null && orbitParent.type() == ParentRef.ParentType.NULL
+                    && orbitParent.bodyId() > 0
+                    && !knownNullIds.contains(orbitParent.bodyId())) {
+                incompleteReasons.add("body " + scan.bodyId() + " awaits ScanBaryCentre for Null:"
+                        + orbitParent.bodyId());
                 definitive = false;
             }
-            ParentRef orbitParent = OrbitParentSelector.select(
-                    kind, scan, scan.parents(), knownNullIds, membersByNullId, scans);
             bodyNodes.put(
                     scan.bodyId(),
                     new BodyNode(
@@ -153,14 +151,16 @@ public final class SystemModelBuilder {
 
         HierarchyGraph.Builder hg = HierarchyGraph.builder();
         for (BodyNode b : bodyNodes.values()) {
-            if (b.orbitParent() != null && b.orbitParent().bodyId() != b.bodyId()) {
-                hg.addEdge(hierarchyParentKey(b.orbitParent()), b.bodyId());
+            if (!b.definitive() || b.orbitParent() == null || b.orbitParent().bodyId() == b.bodyId()) {
+                continue;
             }
+            hg.addEdge(hierarchyParentKey(b.orbitParent()), b.bodyId());
         }
         for (BarycentreNode bc : baryNodes.values()) {
-            if (bc.orbitParent() != null && bc.orbitParent().bodyId() != bc.bodyId()) {
-                hg.addEdge(hierarchyParentKey(bc.orbitParent()), HierarchyKeys.baryMapKey(bc.bodyId()));
+            if (bc.orbitParent() == null || bc.orbitParent().bodyId() == bc.bodyId()) {
+                continue;
             }
+            hg.addEdge(hierarchyParentKey(bc.orbitParent()), HierarchyKeys.baryMapKey(bc.bodyId()));
         }
 
         HierarchyGraph graph = hg.build();
@@ -173,116 +173,19 @@ public final class SystemModelBuilder {
         return new Built(model, List.copyOf(incompleteReasons));
     }
 
-    private ParentRef resolveBarycentreOrbitParent(
-            ScanBaryCentreRecord b,
-            List<Integer> memberIds,
-            Set<Integer> knownNullIds,
-            Map<Integer, List<Integer>> membersByNullId) {
-        if (memberIds != null
-                && OrbitParentSelector.isCoOrbitMajorHub(b.bodyId(), membersByNullId, scans)) {
-            ParentRef starParent = inferCoOrbitBaryOrbitParent(memberIds);
-            if (starParent != null) {
-                return starParent;
-            }
-        }
-        Integer host = baryHostByNullId.get(b.bodyId());
-        if (host != null && host >= 0) {
-            return new ParentRef(ParentRef.ParentType.PLANET, host);
-        }
-        if (memberIds != null && !memberIds.isEmpty()) {
-            int planetHost = inferPlanetHostFromMembers(memberIds);
-            if (planetHost >= 0) {
-                return new ParentRef(ParentRef.ParentType.PLANET, planetHost);
-            }
-        }
-        if (hasStellarMembers(memberIds)) {
-            ParentRef starParent = inferCoOrbitBaryOrbitParent(memberIds);
-            if (starParent != null) {
-                return starParent;
-            }
-        }
-        if (b.parents() != null && !b.parents().isEmpty()) {
-            ParentRef fromJournal = OrbitParentSelector.select(
-                    BodyKind.BARYCENTRE, null, b.parents(), knownNullIds, membersByNullId, scans);
-            if (fromJournal != null) {
-                return fromJournal;
-            }
-        }
-        /*
-         * ScanBaryCentre journal lines carry heliocentric orbital elements only (no Parents[]). When members are
-         * stellar or elements exist, the barycentre orbits the arrival star.
-         */
-        if (b.orbit() != null || hasStellarMembers(memberIds)) {
-            int starId = primaryStarId();
-            if (starId >= 0) {
-                return new ParentRef(ParentRef.ParentType.STAR, starId);
-            }
-        }
-        return null;
-    }
-
-    private void refreshAllPlanetHostedBarycentreLinks(Map<Integer, List<Integer>> membersByNullId) {
-        Set<Integer> nullIds = new HashSet<>(barycentres.keySet());
-        if (membersByNullId != null) {
-            nullIds.addAll(membersByNullId.keySet());
-        }
-        for (int nullId : nullIds) {
-            linkBarycentreFromMembers(nullId);
-        }
-    }
-
-    private Map<Integer, List<Integer>> indexNullBarycentreMembers() {
-        Map<Integer, List<Integer>> members = new HashMap<>();
+    private Map<Integer, List<Integer>> indexMembersByImmediateNullParent() {
+        Map<Integer, List<Integer>> members = new LinkedHashMap<>();
         for (ScanRecord scan : scans.values()) {
-            int nullId = NullParentRefs.innermostNullParentId(scan);
-            if (nullId > 0) {
-                members.computeIfAbsent(nullId, k -> new ArrayList<>()).add(scan.bodyId());
+            ParentRef p = JournalParentChain.immediateOrbitParent(scan.parents());
+            if (p != null && p.type() == ParentRef.ParentType.NULL && p.bodyId() > 0) {
+                members.computeIfAbsent(p.bodyId(), k -> new ArrayList<>()).add(scan.bodyId());
             }
         }
-        Map<Integer, List<Integer>> frozen = new HashMap<>();
+        Map<Integer, List<Integer>> frozen = new LinkedHashMap<>();
         for (var e : members.entrySet()) {
             frozen.put(e.getKey(), List.copyOf(e.getValue()));
         }
         return frozen;
-    }
-
-    private int inferPlanetHostFromMembers(List<Integer> memberIds) {
-        for (int id : memberIds) {
-            ScanRecord scan = scans.get(id);
-            if (scan == null || !isPlanetHostedMoon(scan)) {
-                continue;
-            }
-            int host = journalPlanetHost(scan);
-            if (host >= 0) {
-                return host;
-            }
-        }
-        return -1;
-    }
-
-    private boolean hasStellarMembers(List<Integer> memberIds) {
-        if (memberIds == null || memberIds.isEmpty()) {
-            return false;
-        }
-        for (int id : memberIds) {
-            ScanRecord scan = scans.get(id);
-            if (scan != null && isStellar(scan)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private int primaryStarId() {
-        if (scans.containsKey(0)) {
-            return 0;
-        }
-        for (ScanRecord scan : scans.values()) {
-            if (isStellar(scan)) {
-                return scan.bodyId();
-            }
-        }
-        return -1;
     }
 
     private static int hierarchyParentKey(ParentRef orbitParent) {
@@ -314,138 +217,12 @@ public final class SystemModelBuilder {
             Map<Integer, ScanBaryCentreRecord> barycentres, Map<Integer, ScanRecord> scans) {
         Set<Integer> refs = nullIdsReferencedAsBaryParent(barycentres);
         for (ScanRecord scan : scans.values()) {
-            int nullId = NullParentRefs.anyNullParentIdInChain(scan);
-            if (nullId > 0) {
-                refs.add(nullId);
+            ParentRef p = JournalParentChain.immediateOrbitParent(scan.parents());
+            if (p != null && p.type() == ParentRef.ParentType.NULL && p.bodyId() > 0) {
+                refs.add(p.bodyId());
             }
         }
         return refs;
-    }
-
-    private void synthesizeSharedNullBarycentres(
-            Map<Integer, BarycentreNode> baryNodes,
-            Map<Integer, List<Integer>> membersByNullId,
-            Set<Integer> knownNullIds) {
-        for (var e : membersByNullId.entrySet()) {
-            int nullId = e.getKey();
-            if (baryNodes.containsKey(nullId)) {
-                continue;
-            }
-            List<Integer> members = e.getValue();
-            if (!OrbitParentSelector.sharedNullHub(nullId, membersByNullId, scans)) {
-                continue;
-            }
-            ParentRef orbitParent = inferSyntheticBaryOrbitParent(nullId, members, membersByNullId);
-            baryNodes.put(
-                    nullId,
-                    new BarycentreNode(
-                            nullId,
-                            systemName + " barycentre " + nullId,
-                            orbitParent,
-                            List.of(),
-                            List.copyOf(members),
-                            null));
-            knownNullIds.add(nullId);
-            if (orbitParent == null) {
-                incompleteReasons.add("synthetic barycentre " + nullId + " missing orbit parent");
-            }
-        }
-    }
-
-    private ParentRef inferSyntheticBaryOrbitParent(
-            int nullId, List<Integer> members, Map<Integer, List<Integer>> membersByNullId) {
-        if (OrbitParentSelector.isCoOrbitMajorHub(nullId, membersByNullId, scans)) {
-            ParentRef starParent = inferCoOrbitBaryOrbitParent(members);
-            if (starParent != null) {
-                return starParent;
-            }
-        }
-        Integer host = baryHostByNullId.get(nullId);
-        if (host != null && host >= 0) {
-            return new ParentRef(ParentRef.ParentType.PLANET, host);
-        }
-        int planetHost = inferPlanetHostFromMembers(members);
-        if (planetHost >= 0) {
-            return new ParentRef(ParentRef.ParentType.PLANET, planetHost);
-        }
-        return inferCoOrbitBaryOrbitParent(members);
-    }
-
-    private ParentRef inferCoOrbitBaryOrbitParent(List<Integer> memberIds) {
-        for (int id : memberIds) {
-            ScanRecord scan = scans.get(id);
-            if (scan == null || scan.parents() == null) {
-                continue;
-            }
-            for (ParentRef p : scan.parents()) {
-                if (p.type() == ParentRef.ParentType.STAR) {
-                    return p;
-                }
-            }
-        }
-        int starId = primaryStarId();
-        return starId >= 0 ? new ParentRef(ParentRef.ParentType.STAR, starId) : null;
-    }
-
-    private void linkBarycentreFromMembers(int nullId) {
-        List<Integer> members = new ArrayList<>();
-        for (ScanRecord scan : scans.values()) {
-            if (referencesNull(scan, nullId)) {
-                members.add(scan.bodyId());
-            }
-        }
-        if (!members.isEmpty()
-                && OrbitParentSelector.isCoOrbitMajorHub(nullId, Map.of(nullId, members), scans)) {
-            return;
-        }
-        int planetHostId = -1;
-        for (ScanRecord moon : scans.values()) {
-            if (!referencesNull(moon, nullId)) {
-                continue;
-            }
-            if (!isPlanetHostedMoon(moon)) {
-                continue;
-            }
-            int host = journalPlanetHost(moon);
-            if (host >= 0) {
-                planetHostId = host;
-                break;
-            }
-        }
-        if (planetHostId >= 0) {
-            baryHostByNullId.put(nullId, planetHostId);
-        }
-    }
-
-    private static int journalPlanetHost(ScanRecord moon) {
-        if (moon.parents() == null) {
-            return -1;
-        }
-        for (ParentRef p : moon.parents()) {
-            if (p.type() == ParentRef.ParentType.PLANET) {
-                return p.bodyId();
-            }
-        }
-        return -1;
-    }
-
-    private static boolean referencesNull(ScanRecord scan, int nullId) {
-        if (scan.parents() == null) {
-            return false;
-        }
-        for (ParentRef p : scan.parents()) {
-            if (p.type() == ParentRef.ParentType.NULL && p.bodyId() == nullId) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean isPlanetHostedMoon(ScanRecord scan) {
-        if (scan == null || classify(scan) != BodyKind.MOON) {
-            return false;
-        }
-        return DesignationParser.hasMoonLetterSuffix(scan.bodyName());
     }
 
     private static BodyKind classify(ScanRecord scan) {
@@ -454,10 +231,6 @@ public final class SystemModelBuilder {
         }
         if (DesignationParser.hasMoonLetterSuffix(scan.bodyName())) {
             return BodyKind.MOON;
-        }
-        String pc = scan.subType();
-        if (pc != null && !pc.isBlank()) {
-            return BodyKind.PLANET;
         }
         return BodyKind.PLANET;
     }

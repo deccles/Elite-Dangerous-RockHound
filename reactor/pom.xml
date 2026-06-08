@@ -21,6 +21,6 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Bump when edo-system-model changes; see edo-system-model/README.md § Versioning -->
-        <edo-system-model.version>1.0.1</edo-system-model.version>
+        <edo-system-model.version>1.0.2</edo-system-model.version>
     </properties>
 </project>

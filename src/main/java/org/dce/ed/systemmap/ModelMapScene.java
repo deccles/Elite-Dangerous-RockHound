@@ -13,6 +13,7 @@ import org.dce.ed.systemmodel.SystemModelService;
 import org.dce.ed.systemmodel.SystemModelService.ModelHandle;
 import org.dce.ed.systemmodel.SystemModelService.ModelState;
 import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
+import org.dce.systemmodel.model.HierarchyKeys;
 import org.dce.systemmodel.model.OrbitRing;
 import org.dce.systemmodel.model.SystemModel;
 
@@ -60,7 +61,7 @@ public final class ModelMapScene {
         Set<Integer> definitiveIds = definitiveBodyIds(model, definitiveOnly);
         List<OrbitPolylineWorldXY> polys = new ArrayList<>();
         for (OrbitRing ring : model.orbitRingsAt(t)) {
-            if (definitiveOnly && !definitiveIds.contains(ring.bodyId())) {
+            if (definitiveOnly && !ringIncludedInDefinitiveView(ring, definitiveIds, model)) {
                 continue;
             }
             List<double[]> pts = ring.pointsMetres();
@@ -75,9 +76,27 @@ public final class ModelMapScene {
                 wx[i] = view[0];
                 wy[i] = view[1];
             }
-            polys.add(new OrbitPolylineWorldXY(ring.bodyId(), wx, wy));
+            boolean baryOrbit = isBarycentreAssociatedOrbit(ring.bodyId(), ring.parentId());
+            polys.add(new OrbitPolylineWorldXY(ring.bodyId(), wx, wy, baryOrbit));
         }
         return List.copyOf(polys);
+    }
+
+    /** Bary hub rings and bodies whose immediate parent is a {@code Null:N} hub use dashed strokes in the map panel. */
+    static boolean isBarycentreAssociatedOrbit(int bodyId, int parentId) {
+        return HierarchyKeys.isBaryMapKey(bodyId) || HierarchyKeys.isBaryMapKey(parentId);
+    }
+
+    private static boolean ringIncludedInDefinitiveView(
+            OrbitRing ring, Set<Integer> definitiveIds, SystemModel model) {
+        if (definitiveIds.contains(ring.bodyId())) {
+            return true;
+        }
+        if (HierarchyKeys.isBaryMapKey(ring.bodyId())) {
+            int nullId = HierarchyKeys.journalNullFromBaryMapKey(ring.bodyId());
+            return model.barycentre(nullId).isPresent();
+        }
+        return false;
     }
 
     private static Set<Integer> definitiveBodyIds(SystemModel model, boolean definitiveOnly) {

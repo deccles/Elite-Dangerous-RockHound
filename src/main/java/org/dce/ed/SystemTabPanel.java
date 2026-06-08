@@ -4925,7 +4925,7 @@ static class Row {
     }
 
     /**
-     * Body names stay fully visible; atmo/type text yields width first, then dist/value/land; bio keeps a floor.
+     * Body, bio, and value stay fully visible; atmo/type ellipsizes first, then dist/land yield width.
      */
     private void applySystemBodiesTableColumnLayout() {
         if (table == null || systemBodyScrollPane == null) {
@@ -4943,7 +4943,7 @@ static class Row {
         int wBody = measureSystemTableColumnContentPx(0, SYSTEM_TABLE_BODY_COL_PAD_PX);
         int wAtmoPref = measureSystemTableColumnContentPx(1, SYSTEM_TABLE_BODY_COL_PAD_PX);
         int wBio = measureSystemTableBioColumnContentPx();
-        int wValue = Math.max(SYSTEM_TABLE_VALUE_COL_MIN_PX, measureSystemTableColumnContentPx(3, 8));
+        int wValue = measureSystemTableValueColumnContentPx();
         int wLand = Math.max(SYSTEM_TABLE_LAND_COL_MIN_PX, measureSystemTableColumnContentPx(4, 8));
         int wDist = Math.max(SYSTEM_TABLE_DIST_COL_MIN_PX, measureSystemTableColumnContentPx(5, 8));
 
@@ -4965,16 +4965,11 @@ static class Row {
                 slack -= take;
             }
             if (slack > 0) {
-                take = Math.min(slack, Math.max(0, wValue - SYSTEM_TABLE_VALUE_COL_MIN_PX));
-                wValue -= take;
-                slack -= take;
-            }
-            if (slack > 0) {
                 take = Math.min(slack, Math.max(0, wLand - SYSTEM_TABLE_LAND_COL_MIN_PX));
                 wLand -= take;
                 slack -= take;
             }
-            // Bio and Body widths are content-sized; do not truncate payout/signal text.
+            // Bio, body, and value widths are content-sized; do not truncate payout/signal text.
         } else if (total < avail) {
             wDist += avail - total;
         }
@@ -4983,7 +4978,7 @@ static class Row {
         setSystemTableColumnFixedWidth(cm.getColumn(0), wBody);
         setSystemTableColumnFlexibleWidth(cm.getColumn(1), wAtmo, SYSTEM_TABLE_ATMO_COL_MIN_PX);
         setSystemTableColumnFixedWidth(cm.getColumn(2), wBio);
-        setSystemTableColumnFlexibleWidth(cm.getColumn(3), wValue, SYSTEM_TABLE_VALUE_COL_MIN_PX);
+        setSystemTableColumnFixedWidth(cm.getColumn(3), wValue);
         setSystemTableColumnFlexibleWidth(cm.getColumn(4), wLand, SYSTEM_TABLE_LAND_COL_MIN_PX);
         setSystemTableColumnFlexibleWidth(cm.getColumn(5), wDist, SYSTEM_TABLE_DIST_COL_MIN_PX);
         table.revalidate();
@@ -5007,6 +5002,37 @@ static class Row {
      * Bio column display width: leading icon stack + plain text from {@link BioTableBuilder#formatBodyBioColumnText}
      * (model column 2 is often empty on body rows).
      */
+    /** Value column: text plus optional high-value body icon in the column-3 cell renderer. */
+    private int measureSystemTableValueColumnContentPx() {
+        if (table == null || tableModel == null) {
+            return SYSTEM_TABLE_VALUE_COL_MIN_PX;
+        }
+        FontMetrics fm = table.getFontMetrics(table.getFont());
+        int max = fm.stringWidth("Value");
+        int iconExtra = 0;
+        if (valuableEarthBodyIcon != null) {
+            iconExtra = valuableEarthBodyIcon.getIconWidth() + 4;
+        }
+        int rows = tableModel.getRowCount();
+        for (int r = 0; r < rows; r++) {
+            Row row = tableModel.getRowAt(r);
+            Object v = tableModel.getValueAt(r, 3);
+            if (v == null) {
+                continue;
+            }
+            String s = String.valueOf(v);
+            if (s.isEmpty()) {
+                continue;
+            }
+            int w = fm.stringWidth(s);
+            if (row != null && !row.detail && row.body != null && row.body.isHighValue()) {
+                w += iconExtra;
+            }
+            max = Math.max(max, w);
+        }
+        return Math.max(SYSTEM_TABLE_VALUE_COL_MIN_PX, max + 8);
+    }
+
     private int measureSystemTableBioColumnContentPx() {
         if (table == null || tableModel == null) {
             return SYSTEM_TABLE_BIO_COL_MIN_PX;

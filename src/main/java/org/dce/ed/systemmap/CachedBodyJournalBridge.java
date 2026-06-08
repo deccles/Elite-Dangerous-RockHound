@@ -98,7 +98,7 @@ public final class CachedBodyJournalBridge {
             }
             CachedBody cb = cachedBodyFromBodyInfo(body);
             if (body.isScanBarycentreRow()) {
-                JournalRecord bary = toBarycentreRecord(cb, systemName, bodies);
+                JournalRecord bary = toBarycentreRecord(cb, systemName, bodies, cacheById);
                 if (bary == null) {
                     continue;
                 }
@@ -308,11 +308,19 @@ public final class CachedBodyJournalBridge {
     }
 
     private static ScanBaryCentreRecord toBarycentreRecord(CachedBody cb, String systemName) {
-        return toBarycentreRecord(cb, systemName, null);
+        return toBarycentreRecord(cb, systemName, null, null);
     }
 
     private static ScanBaryCentreRecord toBarycentreRecord(
             CachedBody cb, String systemName, Map<Integer, BodyInfo> liveBodies) {
+        return toBarycentreRecord(cb, systemName, liveBodies, null);
+    }
+
+    private static ScanBaryCentreRecord toBarycentreRecord(
+            CachedBody cb,
+            String systemName,
+            Map<Integer, BodyInfo> liveBodies,
+            Map<Integer, CachedBody> cacheById) {
         if (cb.bodyId < 0) {
             return null;
         }
@@ -327,7 +335,7 @@ public final class CachedBodyJournalBridge {
                 epoch,
                 cb.bodyId,
                 name,
-                parentsFromCache(cb, liveBodies, null),
+                parentsFromCache(cb, liveBodies, cacheById),
                 List.of(),
                 orbitalElements(cb, epoch));
     }
@@ -367,7 +375,53 @@ public final class CachedBodyJournalBridge {
                     cb.immediateParentBodyId, cb, liveBodies, cacheById);
             return List.of(new ParentRef(type, cb.immediateParentBodyId));
         }
+        if (cb.scanBarycentreRow && innerStellarBarycentreHost(cb, liveBodies, cacheById)) {
+            return List.of(new ParentRef(ParentRef.ParentType.NULL, 0));
+        }
         return List.of();
+    }
+
+    /** True when this ScanBaryCentre row hosts two or more stars (inner pair arrival hub). */
+    private static boolean innerStellarBarycentreHost(
+            CachedBody self, Map<Integer, BodyInfo> liveBodies, Map<Integer, CachedBody> cacheById) {
+        if (self == null || self.bodyId <= 0) {
+            return false;
+        }
+        int stars = 0;
+        if (liveBodies != null && !liveBodies.isEmpty()) {
+            for (BodyInfo body : liveBodies.values()) {
+                if (body == null || body.isScanBarycentreRow()) {
+                    continue;
+                }
+                if (isStellarBodyInfo(body) && body.getImmediateParentBodyId() == self.bodyId) {
+                    stars++;
+                }
+            }
+            return stars >= 2;
+        }
+        if (cacheById != null) {
+            for (CachedBody cb : cacheById.values()) {
+                if (cb == null || cb.scanBarycentreRow || cb.bodyId == self.bodyId) {
+                    continue;
+                }
+                if (isCachedStellar(cb) && cb.immediateParentBodyId == self.bodyId) {
+                    stars++;
+                }
+            }
+        }
+        return stars >= 2;
+    }
+
+    private static boolean isStellarBodyInfo(BodyInfo body) {
+        if (body.getBodyId() == 0) {
+            return true;
+        }
+        String starType = body.getStarType();
+        if (starType != null && !starType.isBlank()) {
+            return true;
+        }
+        String planetClass = body.getPlanetClass();
+        return planetClass != null && "Star".equalsIgnoreCase(planetClass);
     }
 
     private static ParentRef.ParentType resolveImmediateParentType(
@@ -381,6 +435,9 @@ public final class CachedBodyJournalBridge {
         }
         CachedBody cached = cacheById != null ? cacheById.get(Integer.valueOf(parentId)) : null;
         if (cached != null) {
+            if (cached.scanBarycentreRow) {
+                return ParentRef.ParentType.NULL;
+            }
             return isCachedStellar(cached) ? ParentRef.ParentType.STAR : ParentRef.ParentType.PLANET;
         }
         if (self != null && DesignationParser.hasMoonLetterSuffix(self.bodyName)) {

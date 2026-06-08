@@ -12,13 +12,12 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Co-orbit majors at {@code Null:20} must not parent the barycentre to a member planet. */
+/** Co-orbit majors at {@code Null:20} — bary parent from journal {@code parents[0]}. */
 class CoOrbitBaryOrbitParentTest {
 
     @Test
-    void null20_withMoonsAndCoOrbitPlanets_baryOrbitsStarNotPlanet21() {
+    void null20_withMoonsAndCoOrbitPlanets_baryOrbitsStar() {
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
         OrbitalElements orbit = new OrbitalElements(1e9, 0, 0, 0, 0, 0, 100_000, t);
         SystemModel model = new SystemModelBuilder()
@@ -29,7 +28,9 @@ class CoOrbitBaryOrbitParentTest {
                 .add(moon(t, 210, 5, 21, "a", orbit))
                 .add(new ScanBaryCentreRecord(
                         t, 20, "Eol Prou NN-Y b31-0 barycentre 20",
-                        List.of(), List.of(), new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
+                        List.of(new ParentRef(ParentRef.ParentType.STAR, 0)),
+                        List.of(),
+                        new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
                 .buildPartial();
 
         int null20Key = HierarchyKeys.baryMapKey(20);
@@ -58,7 +59,9 @@ class CoOrbitBaryOrbitParentTest {
                 .add(ring(t, 303, 25, orbit))
                 .add(new ScanBaryCentreRecord(
                         t, 20, "Eol Prou NN-Y b31-0 barycentre 20",
-                        List.of(), List.of(), new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
+                        List.of(new ParentRef(ParentRef.ParentType.STAR, 0)),
+                        List.of(),
+                        new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
                 .buildPartial();
 
         assertEquals(List.of(21, 25), model.hierarchy().childrenOf(null20Key));
@@ -81,14 +84,33 @@ class CoOrbitBaryOrbitParentTest {
                 .add(star(t))
                 .add(planet(t, 21, 5, orbit))
                 .add(planet(t, 25, 6, orbit))
-                .add(ring(t, 301, 21, "Eol Prou NN-Y b31-0 5 A Ring", "Planet", "Planetary Ring", orbit))
+                .add(ring(t, 401, 21, orbit))
                 .add(new ScanBaryCentreRecord(
                         t, 20, "Eol Prou NN-Y b31-0 barycentre 20",
-                        List.of(), List.of(), new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
+                        List.of(new ParentRef(ParentRef.ParentType.STAR, 0)),
+                        List.of(),
+                        new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
                 .buildPartial();
 
-        assertEquals(21, model.hierarchy().parentOf(301).intValue());
-        assertEquals(List.of(21, 25), model.hierarchy().childrenOf(null20Key));
+        assertEquals(21, model.hierarchy().parentOf(401).intValue());
+        assertEquals(null20Key, model.hierarchy().parentOf(21).intValue());
+    }
+
+    @Test
+    void baryWithEmptyParents_derivesFromCoOrbitMemberChains() {
+        Instant t = Instant.parse("2026-05-27T12:00:00Z");
+        OrbitalElements orbit = new OrbitalElements(1e9, 0, 0, 0, 0, 0, 100_000, t);
+        var bc = new SystemModelBuilder()
+                .systemName("Test")
+                .add(star(t))
+                .add(planet(t, 21, 5, orbit))
+                .add(planet(t, 25, 6, orbit))
+                .add(new ScanBaryCentreRecord(t, 20, "barycentre 20", List.of(), List.of(), orbit))
+                .buildPartial()
+                .barycentre(20)
+                .orElseThrow();
+        assertEquals(ParentRef.ParentType.STAR, bc.orbitParent().type());
+        assertEquals(0, bc.orbitParent().bodyId());
     }
 
     private static ScanRecord star(Instant t) {
@@ -108,30 +130,25 @@ class CoOrbitBaryOrbitParentTest {
                 orbit, true, false);
     }
 
-    private static ScanRecord ring(
-            Instant t, int id, int planetId, String name, String bodyType, String subType, OrbitalElements orbit) {
+    private static ScanRecord moon(
+            Instant t, int bodyId, int designation, int hostId, String letter, OrbitalElements orbit) {
         return new ScanRecord(
-                t, id, name, bodyType, subType, 100,
+                t, bodyId, "Eol Prou NN-Y b31-0 " + designation + " " + letter, "Planet", "Rocky", 99,
                 0, 0, 0, 0, 0, 0, 0, 0,
                 List.of(
+                        new ParentRef(ParentRef.ParentType.PLANET, hostId),
                         new ParentRef(ParentRef.ParentType.NULL, 20),
-                        new ParentRef(ParentRef.ParentType.PLANET, planetId),
                         new ParentRef(ParentRef.ParentType.STAR, 0)),
                 orbit, true, false);
     }
 
-    private static ScanRecord ring(Instant t, int id, int planetId, OrbitalElements orbit) {
-        return ring(t, id, planetId, "Eol Prou NN-Y b31-0 Ring", "Ring", "", orbit);
-    }
-
-    private static ScanRecord moon(
-            Instant t, int id, int designation, int planetId, String moonLetter, OrbitalElements orbit) {
+    private static ScanRecord ring(Instant t, int bodyId, int hostId, OrbitalElements orbit) {
         return new ScanRecord(
-                t, id, "Eol Prou NN-Y b31-0 " + designation + " " + moonLetter, "Planet", "Icy", 100,
+                t, bodyId, "Eol Prou NN-Y b31-0 5 A Ring", "Ring", "", 99,
                 0, 0, 0, 0, 0, 0, 0, 0,
                 List.of(
+                        new ParentRef(ParentRef.ParentType.PLANET, hostId),
                         new ParentRef(ParentRef.ParentType.NULL, 20),
-                        new ParentRef(ParentRef.ParentType.PLANET, planetId),
                         new ParentRef(ParentRef.ParentType.STAR, 0)),
                 orbit, true, false);
     }

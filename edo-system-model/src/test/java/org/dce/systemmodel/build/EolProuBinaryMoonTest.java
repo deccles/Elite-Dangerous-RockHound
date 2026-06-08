@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EolProuBinaryMoonTest {
@@ -46,14 +47,14 @@ class EolProuBinaryMoonTest {
     }
 
     @Test
-    void heliocentricBarycentreWithoutExplicitParents_orbitsPrimaryStar() {
+    void stellarBaryWithoutExplicitParents_derivesFromMemberChains() {
         SystemModelBuilder builder = new SystemModelBuilder()
                 .systemName("Stellar pair")
                 .add(star())
                 .add(starB())
                 .add(starC())
                 .add(stellarBary16());
-        assertTrue(builder.incompleteReasons().isEmpty(), builder.incompleteReasons().toString());
+        assertFalse(builder.incompleteReasons().stream().anyMatch(r -> r.contains("barycentre 16")));
         var bc = builder.buildPartial().barycentre(16).orElseThrow();
         assertEquals(ParentRef.ParentType.STAR, bc.orbitParent().type());
         assertEquals(0, bc.orbitParent().bodyId());
@@ -118,7 +119,7 @@ class EolProuBinaryMoonTest {
     private static ScanBaryCentreRecord bary32() {
         return new ScanBaryCentreRecord(
                 Instant.EPOCH, 32, "Eol Prou NN-Y b31-0 barycentre 32",
-                List.of(),
+                List.of(new ParentRef(ParentRef.ParentType.PLANET, 28)),
                 List.of(),
                 orbit());
     }

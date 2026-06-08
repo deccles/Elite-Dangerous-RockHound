@@ -1,5 +1,6 @@
 package org.dce.systemmodel.validate;
 
+import org.dce.systemmodel.build.ArrivalStarRoot;
 import org.dce.systemmodel.designation.DesignationParser;
 import org.dce.systemmodel.exception.ModelBuildException;
 import org.dce.systemmodel.exception.ValidationIssue;
@@ -35,7 +36,7 @@ public final class SystemModelValidator {
     private static List<ValidationIssue> validate(SystemModel model, boolean partialOnlyLoggedBodies) {
         List<ValidationIssue> errors = new ArrayList<>();
         for (BodyNode b : model.bodies().values()) {
-            if (b.orbitParent() == null) {
+            if (b.orbitParent() == null && !ArrivalStarRoot.isSystemOrigin(b)) {
                 errors.add(new ValidationIssue(
                         ValidationIssue.IssueKind.INVALID_PARENT_REF,
                         b.bodyId(), "orbitParent", "body " + b.bodyId() + " missing orbit parent"));

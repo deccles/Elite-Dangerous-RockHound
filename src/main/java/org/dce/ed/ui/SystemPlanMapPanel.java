@@ -2003,7 +2003,7 @@ public final class SystemPlanMapPanel extends JPanel {
         Instant strokeEpoch = orbitPlaybackActive ? orbitPlaybackEpoch : null;
         orbitLines = mapModel != null
                 ? SystemMapPipeline.rebuildOrbitPolylines(mapModel, orbitGeomPositions, legacySeg, scalePxPerM,
-                        ringRadiusReferencePositions, tiltForRebuild, strokeEpoch)
+                        ringRadiusReferencePositions, tiltForRebuild, strokeEpoch, mapSession)
                 : Collections.emptyList();
         logOrbitLinesIfBodySetChanged(orbitLines);
     }
@@ -2370,7 +2370,7 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         if (mapModel != null) {
             positions = SystemMapPipeline.refreshPositionsForPlayback(mapModel, positions, orbitPositionEpoch,
-                    freezeBarycentreStarsDuringPlayback());
+                    freezeBarycentreStarsDuringPlayback(), mapSession);
         }
         orbitGeomPositions = positions;
         for (BodyDot d : dots) {
@@ -2855,8 +2855,9 @@ public final class SystemPlanMapPanel extends JPanel {
                     BasicStroke orbitStroke = detailOrbits && poly.bodyId > 0 && isMoonOrbitPolyline(poly.bodyId)
                             ? orbitStrokeMoon
                             : orbitStrokeThin;
+                    int orbitParentId = mapResolvedParent(poly.bodyId);
                     if (poly.estimated
-                            || SystemOrbitGeometry.isBarycentreAssociatedOrbitRingBodyId(poly.bodyId)) {
+                            || SystemOrbitGeometry.isBarycentreAssociatedOrbitStroke(poly.bodyId, orbitParentId)) {
                         orbitStroke = new BasicStroke(orbitStroke.getLineWidth(), BasicStroke.CAP_ROUND,
                                 BasicStroke.JOIN_ROUND, 10f, new float[] { 4f, 5f }, 0f);
                     }

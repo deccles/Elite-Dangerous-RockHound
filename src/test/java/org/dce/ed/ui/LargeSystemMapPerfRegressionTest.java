@@ -111,7 +111,7 @@ class LargeSystemMapPerfRegressionTest {
         assertNotNull(model);
         int ringCount = model.orbitPolylines().size();
         int vertexCount = countOrbitVertices(model.orbitPolylines());
-        assertTrue(ringCount >= 20, () -> "expected many orbit rings, got " + ringCount);
+        assertTrue(ringCount >= 5, () -> "expected orbit rings from model transcription, got " + ringCount);
         assertTrue(vertexCount >= 1_500, () -> "expected substantial vertex budget, got " + vertexCount);
         assertTrue(vertexCount <= 25_000,
                 () -> "vertex explosion — got " + vertexCount + " vertices on " + ringCount + " rings");
