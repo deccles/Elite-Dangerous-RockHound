@@ -5,6 +5,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Container;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -2268,22 +2269,76 @@ private final class BioMapPanel extends JPanel {
     private boolean compassButtonHovered;
     private List<BioMapBookmark> mapBookmarks = Collections.emptyList();
 
+    /** Drag pan offset from commander/ship-centred view (pixels). */
+    private int mapPanPxX;
+    private int mapPanPxY;
+    private boolean mapPanDragActive;
+    private int mapPanDragLastX;
+    private int mapPanDragLastY;
+
     private BioMapPanel() {
         setOpaque(false);
-        addMouseListener(new MouseAdapter() {
+        MouseAdapter mapMouse = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (compassHit.contains(e.getPoint())) {
+                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                    return;
+                }
+                Point p = e.getPoint();
+                if (compassHit.contains(p)) {
                     toggleHeadingUpMode();
-                } else if (bookmarkHit.contains(e.getPoint())) {
+                    return;
+                }
+                if (bookmarkHit.contains(p)) {
                     BiologyTabPanel.this.addMapBookmarkAtCurrentPosition();
-                } else if (zoomInHit.contains(e.getPoint())) {
+                    return;
+                }
+                if (zoomInHit.contains(p)) {
                     adjustMapZoom(true);
-                } else if (zoomOutHit.contains(e.getPoint())) {
+                    return;
+                }
+                if (zoomOutHit.contains(p)) {
                     adjustMapZoom(false);
+                    return;
+                }
+                if (SwingUtilities.isMiddleMouseButton(e)
+                        || (SwingUtilities.isLeftMouseButton(e) && canPaintMap())) {
+                    mapPanDragActive = true;
+                    mapPanDragLastX = e.getX();
+                    mapPanDragLastY = e.getY();
+                    setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    e.consume();
                 }
             }
-        });
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                    return;
+                }
+                if (mapPanDragActive
+                        && (SwingUtilities.isMiddleMouseButton(e) || SwingUtilities.isLeftMouseButton(e))) {
+                    mapPanDragActive = false;
+                    setCursor(Cursor.getDefaultCursor());
+                    e.consume();
+                }
+            }
+
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                if (OverlayPreferences.isOverlayMousePassThroughToGame() || !mapPanDragActive) {
+                    return;
+                }
+                int x = e.getX();
+                int y = e.getY();
+                applyMapPanPixelDelta(x - mapPanDragLastX, y - mapPanDragLastY);
+                mapPanDragLastX = x;
+                mapPanDragLastY = y;
+                e.consume();
+            }
+        };
+        addMouseListener(mapMouse);
+        addMouseMotionListener(mapMouse);
         addMouseWheelListener(this::handleMouseWheel);
     }
 
@@ -2381,6 +2436,40 @@ private final class BioMapPanel extends JPanel {
         double next = mapZoomFactor * (zoomIn ? BIO_MAP_ZOOM_STEP : 1.0 / BIO_MAP_ZOOM_STEP);
         mapZoomFactor = Math.max(BIO_MAP_ZOOM_MIN, Math.min(BIO_MAP_ZOOM_MAX, next));
         repaint();
+    }
+
+    /**
+     * Drag pan: shift the map view in pixels ({@code dx} right moves map content right with the cursor).
+     * Recentres on commander/ship when pan exceeds half the smaller plot dimension.
+     */
+    private void applyMapPanPixelDelta(int dxPix, int dyPix) {
+        if (!canPaintMap() || (dxPix == 0 && dyPix == 0)) {
+            return;
+        }
+        mapPanPxX += dxPix;
+        mapPanPxY += dyPix;
+        enforceMapPanRecenterLimit();
+        repaint();
+    }
+
+    private void enforceMapPanRecenterLimit() {
+        int w = getWidth();
+        int h = getHeight();
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+        int half = Math.min(Math.max(1, w), Math.max(1, h)) / 2;
+        if (Math.hypot(mapPanPxX, mapPanPxY) > half) {
+            mapPanPxX = 0;
+            mapPanPxY = 0;
+        }
+    }
+
+    private void resetMapPan() {
+        mapPanPxX = 0;
+        mapPanPxY = 0;
+        mapPanDragActive = false;
+        setCursor(Cursor.getDefaultCursor());
     }
 
     void setShowParkedPins(boolean show) {
@@ -2593,6 +2682,8 @@ private final class BioMapPanel extends JPanel {
 
             int cx = x0 + plotW / 2;
             int cy = y0 + plotH / 2;
+            int viewCx = cx + mapPanPxX;
+            int viewCy = cy + mapPanPxY;
 
             // Sample pins: parked history first, then active incomplete scans.
             java.util.List<BioRow> rows = model.getRowsSnapshot();
@@ -2634,7 +2725,7 @@ private final class BioMapPanel extends JPanel {
 
             java.awt.Shape oldClip = g2.getClip();
             g2.setClip(x0, y0, plotW, plotH);
-            drawLatLonGrid(g2, cx, cy, scale, fitSpanM, x0, y0, plotW, plotH);
+            drawLatLonGrid(g2, viewCx, viewCy, scale, fitSpanM, x0, y0, plotW, plotH);
             g2.setClip(oldClip);
 
             double shipRot = shipGlyphRotationDeg();
@@ -2642,18 +2733,18 @@ private final class BioMapPanel extends JPanel {
             int[] shipPx = null;
             int[] srvPx = null;
             if (commanderCentered && haveShip) {
-                shipPx = worldToMapPx(cx, cy, scale, shipLat, shipLon);
-                drawVehicleRayLine(g2, cx, cy, shipPx[0], shipPx[1], BIO_MAP_SHIP_RAY);
+                shipPx = worldToMapPx(viewCx, viewCy, scale, shipLat, shipLon);
+                drawVehicleRayLine(g2, viewCx, viewCy, shipPx[0], shipPx[1], BIO_MAP_SHIP_RAY);
                 queueVehicleRayLabel(
-                        rayLabels, cx, cy, shipPx[0], shipPx[1],
+                        rayLabels, viewCx, viewCy, shipPx[0], shipPx[1],
                         commanderLat, commanderLon, shipLat, shipLon, 1);
             }
             if (showParkedSrvMarker()) {
-                srvPx = worldToMapPx(cx, cy, scale, srvLat, srvLon);
+                srvPx = worldToMapPx(viewCx, viewCy, scale, srvLat, srvLon);
                 if (commanderCentered) {
-                    drawVehicleRayLine(g2, cx, cy, srvPx[0], srvPx[1], BIO_MAP_SRV_RAY);
+                    drawVehicleRayLine(g2, viewCx, viewCy, srvPx[0], srvPx[1], BIO_MAP_SRV_RAY);
                     queueVehicleRayLabel(
-                            rayLabels, cx, cy, srvPx[0], srvPx[1],
+                            rayLabels, viewCx, viewCy, srvPx[0], srvPx[1],
                             commanderLat, commanderLon, srvLat, srvLon, 1);
                 }
             }
@@ -2664,7 +2755,7 @@ private final class BioMapPanel extends JPanel {
                         continue;
                     }
                     for (BodyInfo.BioSamplePoint p : row.points) {
-                        int[] end = sampleRayEndPx(cx, cy, scale, p);
+                        int[] end = sampleRayEndPx(viewCx, viewCy, scale, p);
                         drawBioSampleCompleteMarker(g2, end[0], end[1]);
                     }
                 }
@@ -2681,8 +2772,8 @@ private final class BioMapPanel extends JPanel {
                                 ? BIO_MAP_RESUMED_GENUS_HISTORY
                                 : BIO_MAP_ABANDONED_SAMPLE;
                         for (BodyInfo.BioSamplePoint p : e.getValue()) {
-                            drawBioSampleRayLine(g2, cx, cy, scale, parkedColor, p);
-                            queueBioSampleRayLabel(rayLabels, cx, cy, scale, p, e.getKey(), 2);
+                            drawBioSampleRayLine(g2, viewCx, viewCy, scale, parkedColor, p);
+                            queueBioSampleRayLabel(rayLabels, viewCx, viewCy, scale, p, e.getKey(), 2);
                         }
                     }
                 }
@@ -2692,8 +2783,8 @@ private final class BioMapPanel extends JPanel {
                             continue;
                         }
                         for (BodyInfo.BioSamplePoint p : row.points) {
-                            drawBioSampleRayLine(g2, cx, cy, scale, BIO_MAP_ACTIVE_SAMPLE, p);
-                            queueBioSampleRayLabel(rayLabels, cx, cy, scale, p, row.displayName, 3);
+                            drawBioSampleRayLine(g2, viewCx, viewCy, scale, BIO_MAP_ACTIVE_SAMPLE, p);
+                            queueBioSampleRayLabel(rayLabels, viewCx, viewCy, scale, p, row.displayName, 3);
                         }
                     }
                 }
@@ -2701,17 +2792,17 @@ private final class BioMapPanel extends JPanel {
 
             if (haveShip && showParkedSrvMarker() && !commanderCentered) {
                 if (srvPx == null) {
-                    srvPx = worldToMapPx(cx, cy, scale, srvLat, srvLon);
+                    srvPx = worldToMapPx(viewCx, viewCy, scale, srvLat, srvLon);
                 }
-                drawVehicleRayLine(g2, cx, cy, srvPx[0], srvPx[1], BIO_MAP_SRV_RAY);
-                queueVehicleRayLabel(rayLabels, cx, cy, srvPx[0], srvPx[1], shipLat, shipLon, srvLat, srvLon, 1);
+                drawVehicleRayLine(g2, viewCx, viewCy, srvPx[0], srvPx[1], BIO_MAP_SRV_RAY);
+                queueVehicleRayLabel(rayLabels, viewCx, viewCy, srvPx[0], srvPx[1], shipLat, shipLon, srvLat, srvLon, 1);
             }
 
             deconflictAndDrawRayLabels(g2, rayLabels);
 
             if (!mapBookmarks.isEmpty()) {
                 for (BioMapBookmark b : mapBookmarks) {
-                    int[] px = worldToMapPx(cx, cy, scale, b.lat, b.lon);
+                    int[] px = worldToMapPx(viewCx, viewCy, scale, b.lat, b.lon);
                     drawMapBookmarkStar(g2, px[0], px[1]);
                 }
             }
@@ -2723,12 +2814,12 @@ private final class BioMapPanel extends JPanel {
                 if (srvPx != null) {
                     drawSrvLocationMarker(g2, srvPx[0], srvPx[1], srvRot);
                 } else if (showDrivingSrvAtCenter()) {
-                    drawSrvLocationMarker(g2, cx, cy, playerVNoseRotationDeg());
+                    drawSrvLocationMarker(g2, viewCx, viewCy, playerVNoseRotationDeg());
                 }
-                drawHeadingVNose(g2, cx, cy, playerVNoseRotationDeg());
+                drawHeadingVNose(g2, viewCx, viewCy, playerVNoseRotationDeg());
             } else if (haveShip) {
-                drawShipLocationMarker(g2, cx, cy, shipRot);
-                drawHeadingVNose(g2, cx, cy, shipRot);
+                drawShipLocationMarker(g2, viewCx, viewCy, shipRot);
+                drawHeadingVNose(g2, viewCx, viewCy, shipRot);
                 if (showParkedSrvMarker() && srvPx != null) {
                     drawSrvLocationMarker(g2, srvPx[0], srvPx[1], srvRot);
                 }

@@ -8,7 +8,8 @@
       "shortName": "bary 1",
       "distanceLs": 0.0,
       "semiMajorAxisM": 4.682269275188446E12,
-      "scanBarycentreRow": true
+      "scanBarycentreRow": true,
+      "journalParents": ["Null:0"]
     },
     {
       "id": 2,
@@ -17,7 +18,8 @@
       "distanceLs": 0.0,
       "starType": "G",
       "immediateParentBodyId": 1,
-      "semiMajorAxisM": 8.382012903690338E10
+      "semiMajorAxisM": 8.382012903690338E10,
+      "journalParents": ["Null:1", "Null:0"]
     },
     {
       "id": 3,
@@ -26,7 +28,8 @@
       "distanceLs": 787.857479,
       "starType": "K",
       "immediateParentBodyId": 1,
-      "semiMajorAxisM": 1.4369150400161743E11
+      "semiMajorAxisM": 1.4369150400161743E11,
+      "journalParents": ["Null:1", "Null:0"]
     },
     {
       "id": 4,
@@ -35,7 +38,8 @@
       "distanceLs": 69803.926051,
       "starType": "M",
       "parentIsBarycentre": true,
-      "semiMajorAxisM": 1.5123010277748107E13
+      "semiMajorAxisM": 1.5123010277748107E13,
+      "journalParents": ["Null:0"]
     },
     {
       "id": 9,
@@ -273,7 +277,8 @@
       "shortName": "bary 37",
       "distanceLs": 0.0,
       "semiMajorAxisM": 4.572633743286133E11,
-      "scanBarycentreRow": true
+      "scanBarycentreRow": true,
+      "journalParents": ["Star:4"]
     },
     {
       "id": 38,
@@ -283,7 +288,8 @@
       "planetClass": "Icy body",
       "atmoOrType": "thick methane rich atmosphere",
       "immediateParentBodyId": 37,
-      "semiMajorAxisM": 1.64872932434082E9
+      "semiMajorAxisM": 1.64872932434082E9,
+      "journalParents": ["Null:37", "Star:4"]
     },
     {
       "id": 39,
@@ -293,7 +299,8 @@
       "planetClass": "Icy body",
       "atmoOrType": "methane rich atmosphere",
       "immediateParentBodyId": 37,
-      "semiMajorAxisM": 2.251157701015472E9
+      "semiMajorAxisM": 2.251157701015472E9,
+      "journalParents": ["Null:37", "Star:4"]
     },
     {
       "id": 40,

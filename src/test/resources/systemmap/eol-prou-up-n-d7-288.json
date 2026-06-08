@@ -17,7 +17,8 @@
       "shortName": "bary 2",
       "distanceLs": 1200.0,
       "scanBarycentreRow": true,
-      "semiMajorAxisM": 5.9E11
+      "semiMajorAxisM": 5.9E11,
+      "journalParents": ["Star:1"]
     },
     {
       "id": 3,
@@ -26,7 +27,8 @@
       "distanceLs": 1957.0,
       "starType": "K",
       "immediateParentBodyId": 2,
-      "semiMajorAxisM": 5.87E11
+      "semiMajorAxisM": 5.87E11,
+      "journalParents": ["Null:2", "Star:1"]
     },
     {
       "id": 4,
@@ -35,7 +37,8 @@
       "distanceLs": 21067.0,
       "starType": "G",
       "immediateParentBodyId": 0,
-      "semiMajorAxisM": 6.32E12
+      "semiMajorAxisM": 6.32E12,
+      "journalParents": ["Null:0"]
     }
   ],
   "expect": {

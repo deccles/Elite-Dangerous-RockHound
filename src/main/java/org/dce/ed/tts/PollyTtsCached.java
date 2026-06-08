@@ -180,7 +180,7 @@ public class PollyTtsCached implements Closeable {
     }
 
     public void speak(String text) {
-        if (text == null || text.isBlank()) {
+        if (isTestSpeechSuppressed() || text == null || text.isBlank()) {
             return;
         }
         PLAYBACK_QUEUE.submit(() -> {
@@ -197,6 +197,9 @@ public class PollyTtsCached implements Closeable {
     }
 
     public void speakBlocking(String text) throws Exception {
+        if (isTestSpeechSuppressed()) {
+            return;
+        }
         Objects.requireNonNull(text, "text");
 
         VoiceSettings s = resolveVoiceSettings(null);
@@ -428,6 +431,9 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
     }
 
     public void playWavBlocking(Path wavPath) {
+        if (isTestSpeechSuppressed()) {
+            return;
+        }
         playWavBlockingInternal(wavPath);
     }
 
@@ -1147,8 +1153,12 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
     // Playback helpers
     // ------------------------------
 
+    private static boolean isTestSpeechSuppressed() {
+        return Boolean.getBoolean("edo.test.disableSpeech");
+    }
+
     private static void playWavBlockingInternal(Path wavPath) {
-        if (wavPath == null) {
+        if (isTestSpeechSuppressed() || wavPath == null) {
             return;
         }
 

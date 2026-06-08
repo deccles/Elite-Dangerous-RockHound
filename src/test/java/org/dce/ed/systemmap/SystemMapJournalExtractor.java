@@ -16,8 +16,7 @@ import com.google.gson.GsonBuilder;
  * Replays journal {@code Scan} events for one system and writes a {@link SystemMapFixture} JSON file. Intended for
  * developers refreshing fixtures from a real journal folder.
  * <p>
- * Run manually, e.g.:
- * {@code mvn -q test -Dtest=SystemMapJournalExtractorTest#exportSystem -Dedo.journal.dir="%USERPROFILE%\\Saved Games\\Frontier Developments\\Elite Dangerous" -Dedo.export.system="Byua Aim TT-X c15-29"}}
+ * Call {@link #extractFromJournals} / {@link #writeFixture} from a small main or REPL when refreshing fixtures.
  */
 public final class SystemMapJournalExtractor {
 

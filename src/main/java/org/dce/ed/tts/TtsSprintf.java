@@ -127,7 +127,7 @@ public class TtsSprintf {
             String template, Object[] args) {
         // Double-gate: most callers already check speech enabled, but tests (and any missed call sites)
         // must never produce console spam or invoke TTS side effects.
-        if (!speechEnabled) {
+        if (Boolean.getBoolean("edo.test.disableSpeech") || !speechEnabled) {
             return;
         }
         Object[] a = args != null ? args : new Object[0];

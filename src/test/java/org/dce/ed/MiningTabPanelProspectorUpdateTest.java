@@ -33,16 +33,9 @@ class MiningTabPanelProspectorUpdateTest {
         TestEnvironment.ensureTestIsolation();
     }
 
-    private static final String DEFAULT_DISABLE_SPEECH_PROPERTY = "edo.test.disableSpeech";
-    private String originalDisableSpeechPropertyValue;
-
     @AfterEach
     void restoreDisableSpeechProperty() {
-        if (originalDisableSpeechPropertyValue == null) {
-            System.clearProperty(DEFAULT_DISABLE_SPEECH_PROPERTY);
-        } else {
-            System.setProperty(DEFAULT_DISABLE_SPEECH_PROPERTY, originalDisableSpeechPropertyValue);
-        }
+        System.setProperty(DisableSpeechExtension.PROPERTY, "true");
     }
 
     private static class RecordingTtsSprintf extends TtsSprintf {
@@ -99,8 +92,6 @@ class MiningTabPanelProspectorUpdateTest {
 
     @Test
     void speechDisabled_doesNotCallTts_butRowsStillPopulate() throws Exception {
-        originalDisableSpeechPropertyValue = System.getProperty(DEFAULT_DISABLE_SPEECH_PROPERTY);
-        System.setProperty(DEFAULT_DISABLE_SPEECH_PROPERTY, "true"); // force-disable for this test
         OverlayPreferences.setSpeechEnabled(true);
 
         GalacticAveragePrices prices = GalacticAveragePrices.loadDefault();
@@ -150,9 +141,8 @@ class MiningTabPanelProspectorUpdateTest {
     }
 
     @Test
+    @AllowSpeechForTest
     void speechEnabled_withAnnouncement_callsTtsOnce_andDedupPreventsRepeat() throws Exception {
-        originalDisableSpeechPropertyValue = System.getProperty(DEFAULT_DISABLE_SPEECH_PROPERTY);
-        System.setProperty(DEFAULT_DISABLE_SPEECH_PROPERTY, "false"); // allow speech gating to proceed
         OverlayPreferences.setSpeechEnabled(true);
 
         GalacticAveragePrices prices = GalacticAveragePrices.loadDefault();
@@ -191,9 +181,8 @@ class MiningTabPanelProspectorUpdateTest {
     }
 
     @Test
+    @AllowSpeechForTest
     void speechEnabled_announcementNull_doesNotCallTts() throws Exception {
-        originalDisableSpeechPropertyValue = System.getProperty(DEFAULT_DISABLE_SPEECH_PROPERTY);
-        System.setProperty(DEFAULT_DISABLE_SPEECH_PROPERTY, "false"); // allow speech gating to proceed
         OverlayPreferences.setSpeechEnabled(true);
 
         GalacticAveragePrices prices = GalacticAveragePrices.loadDefault();

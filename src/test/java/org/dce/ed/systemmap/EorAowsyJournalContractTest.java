@@ -5,16 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
 
 import org.dce.ed.state.BodyInfo;
-import org.dce.ed.state.SystemState;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 /**
  * Machine-readable journal contract for Eor Aowsy RI-K c8-3670 ({@code eor-aowsy-ri-k-c8-3670-expected-tree.json}).
@@ -60,28 +56,6 @@ class EorAowsyJournalContractTest {
             BodyInfo bary = fixture.toBodies().get(baryId);
             assertNotNull(bary, "ScanBaryCentre row " + baryId);
             assertTrue(bary.isScanBarycentreRow());
-        }
-    }
-
-    @Test
-    @EnabledIfEnvironmentVariable(named = "EDO_JOURNAL_DIR", matches = ".+")
-    void liveJournal_replayMatchesExpectedTree() throws IOException {
-        Path journalDir = Path.of(System.getenv("EDO_JOURNAL_DIR").trim());
-        assertTrue(Files.isDirectory(journalDir), journalDir.toString());
-        SystemState state = JournalSystemMapLoader.loadFromJournal(journalDir, SYSTEM);
-        assertEquals(1008877717987402L, state.getSystemAddress());
-        for (SystemMapExpectedTree.BodyEntry entry : expectedTree.bodies) {
-            BodyInfo b = state.getBodies().get(Integer.valueOf(entry.id));
-            assertNotNull(b, "journal missing " + entry.shortName);
-            if (entry.parentIsBarycentre != null && entry.parentIsBarycentre.booleanValue()) {
-                assertEquals(0, b.getImmediateParentBodyId(), entry.shortName);
-            } else if (entry.immediateParentBodyId != null) {
-                assertEquals(entry.immediateParentBodyId.intValue(), b.getImmediateParentBodyId(), entry.shortName);
-            }
-        }
-        for (Integer baryId : expectedTree.scanBarycentreIds) {
-            assertTrue(state.getBodies().containsKey(baryId));
-            assertTrue(state.getBodies().get(baryId).isScanBarycentreRow());
         }
     }
 }

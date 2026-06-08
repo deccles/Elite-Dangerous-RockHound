@@ -13,15 +13,18 @@ import org.dce.systemmodel.journal.OrbitalElements;
 import org.dce.systemmodel.journal.ParentRef;
 import org.dce.systemmodel.journal.ScanBaryCentreRecord;
 import org.dce.systemmodel.journal.ScanRecord;
+import org.dce.systemmodel.model.HierarchyKeys;
 import org.dce.systemmodel.model.SystemModel;
 import org.junit.jupiter.api.Test;
 
+/** UI hierarchy graph mirrors journal-authoritative {@link SystemModel} (M-0: no synthetic barycentres). */
 class SystemModelHierarchyBuilderTest {
 
     @Test
-    void singleMemberNull_planetOnStar_baryNotInTree() {
+    void singleMemberNull_planetUnderBaryInTree() {
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
         OrbitalElements orbit = new OrbitalElements(1e9, 0, 0, 0, 0, 0, 100_000, t);
+        int null32Key = HierarchyKeys.baryMapKey(32);
         SystemModel model = new SystemModelBuilder()
                 .systemName("Test")
                 .add(scan(0, "Test", "Star", "M", 0, List.of(), null))
@@ -41,88 +44,54 @@ class SystemModelHierarchyBuilderTest {
                 "Test", model, model.hierarchy());
 
         assertTrue(model.barycentres().containsKey(32));
-        int null32Key = org.dce.systemmodel.model.HierarchyKeys.baryMapKey(32);
         assertTrue(graph.nodeByKey.containsKey(null32Key));
         SystemMapHierarchyBuilder.Node star = graph.root.children.stream()
                 .filter(n -> n.mapKey == 0)
                 .findFirst()
                 .orElseThrow();
-        assertTrue(star.children.stream().anyMatch(n -> n.mapKey == 7));
         assertTrue(star.children.stream().anyMatch(n -> n.mapKey == null32Key));
+        assertFalse(star.children.stream().anyMatch(n -> n.mapKey == 7), "planet orbits Null:32, not star");
+        SystemMapHierarchyBuilder.Node null32 = graph.nodeByKey.get(null32Key);
+        assertTrue(null32.children.stream().anyMatch(n -> n.mapKey == 7));
     }
 
     @Test
-    void coOrbitAtNull20_withMoon_doesNotParentBaryToPlanet21() {
+    void coOrbitAtNull20_withMoon_baryOrbitsStar_moonOrbitsPlanet() {
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
         OrbitalElements orbit = new OrbitalElements(1e9, 0, 0, 0, 0, 0, 100_000, t);
-        int null20Key = org.dce.systemmodel.model.HierarchyKeys.baryMapKey(20);
+        int null20Key = HierarchyKeys.baryMapKey(20);
         SystemModel model = new SystemModelBuilder()
                 .systemName("Eol Prou NN-Y b31-0")
                 .add(scan(0, "Eol Prou NN-Y b31-0", "Star", "M", 0, List.of(), null))
-                .add(scan(21, "Eol Prou NN-Y b31-0 5", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(scan(25, "Eol Prou NN-Y b31-0 6", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(scan(210, "Eol Prou NN-Y b31-0 5 a", "Planet", "Icy", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.PLANET, 21),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(new ScanBaryCentreRecord(
-                        t, 20, "Eol Prou NN-Y b31-0 barycentre 20",
-                        List.of(), List.of(),
-                        new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
+                .add(planet(t, 21, 5, orbit))
+                .add(planet(t, 25, 6, orbit))
+                .add(moon(t, 210, 5, 21, "a", orbit))
+                .add(bary20(t))
                 .buildPartial();
 
         assertEquals(0, model.hierarchy().parentOf(null20Key).intValue());
+        assertEquals(21, model.hierarchy().parentOf(210).intValue());
         SystemMapHierarchyBuilder.Graph graph = SystemModelHierarchyBuilder.buildGraph(
                 "Eol Prou NN-Y b31-0", model, model.hierarchy());
         assertTrue(graph.nodeByKey.containsKey(null20Key));
         assertTrue(graph.nodeByKey.containsKey(21));
         assertTrue(graph.nodeByKey.containsKey(25));
+        assertTrue(graph.nodeByKey.containsKey(210));
     }
 
     @Test
     void coOrbitAtNull20_moonsAndRingsUnderPlanetsNotUnderNullHub() {
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
         OrbitalElements orbit = new OrbitalElements(1e9, 0, 0, 0, 0, 0, 100_000, t);
-        int null20Key = org.dce.systemmodel.model.HierarchyKeys.baryMapKey(20);
+        int null20Key = HierarchyKeys.baryMapKey(20);
         SystemModel model = new SystemModelBuilder()
                 .systemName("Eol Prou NN-Y b31-0")
                 .add(scan(0, "Eol Prou NN-Y b31-0", "Star", "M", 0, List.of(), null))
-                .add(scan(21, "Eol Prou NN-Y b31-0 5", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(scan(25, "Eol Prou NN-Y b31-0 6", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(scan(211, "Eol Prou NN-Y b31-0 5 a", "Planet", "Icy", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.PLANET, 21),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(scan(301, "Eol Prou NN-Y b31-0 Ring", "Ring", "", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.PLANET, 21),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(new ScanBaryCentreRecord(
-                        t, 20, "Eol Prou NN-Y b31-0 barycentre 20",
-                        List.of(), List.of(),
-                        new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
+                .add(planet(t, 21, 5, orbit))
+                .add(planet(t, 25, 6, orbit))
+                .add(moon(t, 211, 5, 21, "a", orbit))
+                .add(ring(t, 301, 21, orbit))
+                .add(bary20(t))
                 .buildPartial();
 
         SystemMapHierarchyBuilder.Graph graph = SystemModelHierarchyBuilder.buildGraph(
@@ -139,25 +108,13 @@ class SystemModelHierarchyBuilderTest {
     void coOrbitAtNull20_baryAndPlanetsReachableFromRoot() {
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
         OrbitalElements orbit = new OrbitalElements(1e9, 0, 0, 0, 0, 0, 100_000, t);
-        int null20Key = org.dce.systemmodel.model.HierarchyKeys.baryMapKey(20);
+        int null20Key = HierarchyKeys.baryMapKey(20);
         SystemModel model = new SystemModelBuilder()
                 .systemName("Eol Prou NN-Y b31-0")
                 .add(scan(0, "Eol Prou NN-Y b31-0", "Star", "M", 0, List.of(), null))
-                .add(scan(21, "Eol Prou NN-Y b31-0 5", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(scan(25, "Eol Prou NN-Y b31-0 6", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(new ScanBaryCentreRecord(
-                        t, 20, "Eol Prou NN-Y b31-0 barycentre 20",
-                        List.of(new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        List.of(),
-                        new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
+                .add(planet(t, 21, 5, orbit))
+                .add(planet(t, 25, 6, orbit))
+                .add(bary20(t))
                 .buildPartial();
 
         assertEquals(0, model.hierarchy().parentOf(null20Key).intValue());
@@ -176,29 +133,23 @@ class SystemModelHierarchyBuilderTest {
     void nestedBarycentre_planetsUnderInnerHub_visibleInTree() {
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
         OrbitalElements orbit = new OrbitalElements(1e9, 0, 0, 0, 0, 0, 100_000, t);
-        int null67 = org.dce.systemmodel.model.HierarchyKeys.baryMapKey(67);
-        int null20 = org.dce.systemmodel.model.HierarchyKeys.baryMapKey(20);
+        int null67 = HierarchyKeys.baryMapKey(67);
+        int null20 = HierarchyKeys.baryMapKey(20);
         SystemModel model = new SystemModelBuilder()
                 .systemName("Eol Prou NN-Y b31-0")
                 .add(scan(0, "Eol Prou NN-Y b31-0", "Star", "M", 0, List.of(), null))
                 .add(new ScanBaryCentreRecord(
-                        t, 67, "outer", List.of(), List.of(),
+                        t, 67, "outer",
+                        List.of(new ParentRef(ParentRef.ParentType.STAR, 0)),
+                        List.of(),
                         new OrbitalElements(2e11, 0, 0, 0, 0, 0, 100_000, t)))
                 .add(new ScanBaryCentreRecord(
                         t, 20, "inner",
                         List.of(new ParentRef(ParentRef.ParentType.NULL, 67)),
                         List.of(),
                         new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t)))
-                .add(scan(21, "Eol Prou NN-Y b31-0 5", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(scan(25, "Eol Prou NN-Y b31-0 6", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
+                .add(planet(t, 21, 5, orbit))
+                .add(planet(t, 25, 6, orbit))
                 .buildPartial();
 
         SystemMapHierarchyBuilder.Graph graph = SystemModelHierarchyBuilder.buildGraph(
@@ -214,34 +165,27 @@ class SystemModelHierarchyBuilderTest {
     }
 
     @Test
-    void coOrbitPlanetsWithoutBaryScan_visibleInHierarchyTree() {
+    void coOrbitPlanetsWithoutBaryScan_omittedFromHierarchyTree() {
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
         OrbitalElements orbit = new OrbitalElements(1e9, 0, 0, 0, 0, 0, 100_000, t);
+        int null5Key = HierarchyKeys.baryMapKey(5);
         SystemModel model = new SystemModelBuilder()
                 .systemName("Eol Prou NN-Y b31-0")
                 .add(scan(0, "Eol Prou NN-Y b31-0", "Star", "M", 0, List.of(), null))
-                .add(scan(10, "Eol Prou NN-Y b31-0 5", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 5),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
-                .add(scan(11, "Eol Prou NN-Y b31-0 6", "Planet", "Rocky", 100,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 5),
-                                new ParentRef(ParentRef.ParentType.STAR, 0)),
-                        orbit))
+                .add(planet(t, 10, 5, orbit))
+                .add(planet(t, 11, 6, orbit))
                 .buildPartial();
+
+        assertFalse(model.body(10).orElseThrow().definitive());
+        assertFalse(model.body(11).orElseThrow().definitive());
+        assertFalse(model.barycentre(5).isPresent());
 
         SystemMapHierarchyBuilder.Graph graph = SystemModelHierarchyBuilder.buildGraph(
                 "Eol Prou NN-Y b31-0", model, model.hierarchy());
 
-        assertTrue(graph.nodeByKey.containsKey(10), "planet designation 5");
-        assertTrue(graph.nodeByKey.containsKey(11), "planet designation 6");
-        int null5Key = org.dce.systemmodel.model.HierarchyKeys.baryMapKey(5);
-        assertTrue(graph.nodeByKey.containsKey(null5Key));
-        SystemMapHierarchyBuilder.Node bary = graph.nodeByKey.get(null5Key);
-        assertTrue(bary.children.stream().anyMatch(n -> n.mapKey == 10));
-        assertTrue(bary.children.stream().anyMatch(n -> n.mapKey == 11));
+        assertFalse(graph.nodeByKey.containsKey(10), "non-definitive planet omitted");
+        assertFalse(graph.nodeByKey.containsKey(11), "non-definitive planet omitted");
+        assertFalse(graph.nodeByKey.containsKey(null5Key), "no synthetic Null:5 hub");
     }
 
     @Test
@@ -259,7 +203,7 @@ class SystemModelHierarchyBuilderTest {
                 "Test", model, model.hierarchy());
 
         assertFalse(model.barycentres().containsKey(99));
-        assertFalse(graph.nodeByKey.containsKey(org.dce.systemmodel.model.HierarchyKeys.baryMapKey(99)));
+        assertFalse(graph.nodeByKey.containsKey(HierarchyKeys.baryMapKey(99)));
         assertTrue(graph.root.children.stream().anyMatch(n -> n.mapKey == 0));
     }
 
@@ -278,7 +222,7 @@ class SystemModelHierarchyBuilderTest {
         String sys = "Eol Prou YF-N d7-1186";
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
         OrbitalElements orbit = new OrbitalElements(1e9, 0, 0, 0, 0, 0, 100_000, t);
-        int null44Key = org.dce.systemmodel.model.HierarchyKeys.baryMapKey(44);
+        int null44Key = HierarchyKeys.baryMapKey(44);
         SystemModel model = new SystemModelBuilder()
                 .systemName(sys)
                 .add(scan(0, sys, "Star", "G", 0, List.of(new ParentRef(ParentRef.ParentType.NULL, 0)), null))
@@ -294,18 +238,8 @@ class SystemModelHierarchyBuilderTest {
                                 new ParentRef(ParentRef.ParentType.STAR, 2),
                                 new ParentRef(ParentRef.ParentType.NULL, 0)),
                         orbit))
-                .add(scan(21, sys + " 2 a", "Planet", "Icy", 201,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 44),
-                                new ParentRef(ParentRef.ParentType.PLANET, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 2)),
-                        orbit))
-                .add(scan(22, sys + " 2 b", "Planet", "Icy", 202,
-                        List.of(
-                                new ParentRef(ParentRef.ParentType.NULL, 44),
-                                new ParentRef(ParentRef.ParentType.PLANET, 20),
-                                new ParentRef(ParentRef.ParentType.STAR, 2)),
-                        orbit))
+                .add(binaryMoon(t, 21, 20, orbit))
+                .add(binaryMoon(t, 22, 20, orbit))
                 .add(scan(23, sys + " 2 c", "Planet", "Icy", 203,
                         List.of(
                                 new ParentRef(ParentRef.ParentType.PLANET, 20),
@@ -314,8 +248,12 @@ class SystemModelHierarchyBuilderTest {
                 .add(scan(30, sys + " 3", "Planet", "Sudarsky class I gas giant", 300,
                         List.of(
                                 new ParentRef(ParentRef.ParentType.STAR, 2),
-                                new ParentRef(ParentRef.ParentType.NULL, 44),
                                 new ParentRef(ParentRef.ParentType.NULL, 0)),
+                        orbit))
+                .add(new ScanBaryCentreRecord(
+                        t, 44, sys + " barycentre 44",
+                        List.of(new ParentRef(ParentRef.ParentType.PLANET, 20)),
+                        List.of(),
                         orbit))
                 .buildPartial();
 
@@ -333,6 +271,50 @@ class SystemModelHierarchyBuilderTest {
         assertTrue(starB.children.stream().anyMatch(n -> n.mapKey == 20));
         assertTrue(starB.children.stream().anyMatch(n -> n.mapKey == 30));
         assertFalse(starB.children.stream().anyMatch(n -> n.mapKey == null44Key));
+    }
+
+    private static ScanBaryCentreRecord bary20(Instant t) {
+        return new ScanBaryCentreRecord(
+                t, 20, "Eol Prou NN-Y b31-0 barycentre 20",
+                List.of(new ParentRef(ParentRef.ParentType.STAR, 0)),
+                List.of(),
+                new OrbitalElements(1e11, 0, 0, 0, 0, 0, 100_000, t));
+    }
+
+    private static ScanRecord planet(Instant t, int bodyId, int designation, OrbitalElements orbit) {
+        return scan(bodyId, "Eol Prou NN-Y b31-0 " + designation, "Planet", "Rocky", 100,
+                List.of(
+                        new ParentRef(ParentRef.ParentType.NULL, 20),
+                        new ParentRef(ParentRef.ParentType.STAR, 0)),
+                orbit);
+    }
+
+    private static ScanRecord moon(
+            Instant t, int bodyId, int designation, int hostId, String letter, OrbitalElements orbit) {
+        return scan(bodyId, "Eol Prou NN-Y b31-0 " + designation + " " + letter, "Planet", "Icy", 99,
+                List.of(
+                        new ParentRef(ParentRef.ParentType.PLANET, hostId),
+                        new ParentRef(ParentRef.ParentType.NULL, 20),
+                        new ParentRef(ParentRef.ParentType.STAR, 0)),
+                orbit);
+    }
+
+    private static ScanRecord ring(Instant t, int bodyId, int hostId, OrbitalElements orbit) {
+        return scan(bodyId, "Eol Prou NN-Y b31-0 5 A Ring", "Ring", "", 99,
+                List.of(
+                        new ParentRef(ParentRef.ParentType.PLANET, hostId),
+                        new ParentRef(ParentRef.ParentType.NULL, 20),
+                        new ParentRef(ParentRef.ParentType.STAR, 0)),
+                orbit);
+    }
+
+    private static ScanRecord binaryMoon(Instant t, int bodyId, int hostPlanetId, OrbitalElements orbit) {
+        return scan(bodyId, "moon " + bodyId, "Planet", "Icy", 201,
+                List.of(
+                        new ParentRef(ParentRef.ParentType.NULL, 44),
+                        new ParentRef(ParentRef.ParentType.PLANET, hostPlanetId),
+                        new ParentRef(ParentRef.ParentType.STAR, 2)),
+                orbit);
     }
 
     private static ScanRecord scan(
