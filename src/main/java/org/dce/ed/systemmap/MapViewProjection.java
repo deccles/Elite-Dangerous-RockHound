@@ -95,6 +95,41 @@ public final class MapViewProjection {
         return new double[] { u, v };
     }
 
+    /**
+     * Approximate inverse of {@link #projectWorldComponents} for the map-plane point {@code (u, v)} at {@code viewTiltDeg},
+     * with depth fixed on the unused axis ({@code vPerp = 0} except at 90°). Keeps the plot centre on the same world
+     * point as tilt changes — no snap to the nearest body.
+     */
+    public static double[] worldMetresAtMapViewPoint(double u, double v, int proj0, int proj1, int viewTiltDeg) {
+        int tilt = clampViewTiltDegrees(viewTiltDeg);
+        int a0 = clampAxis(proj0);
+        int a1 = clampAxis(proj1);
+        int aPerp = thirdAxisIndex(a0, a1);
+        double v1;
+        double vPerp;
+        if (tilt <= 0) {
+            v1 = v;
+            vPerp = 0.0;
+        } else if (tilt >= 90) {
+            v1 = 0.0;
+            vPerp = v;
+        } else {
+            double c = Math.cos(Math.toRadians(tilt));
+            v1 = Math.abs(c) > 1e-9 ? v / c : 0.0;
+            vPerp = 0.0;
+        }
+        return worldVectorFromAxisComponents(u, v1, vPerp, a0, a1, aPerp);
+    }
+
+    static double[] worldVectorFromAxisComponents(
+            double onA0, double onA1, double onAPerp, int a0, int a1, int aPerp) {
+        double[] out = new double[3];
+        out[clampAxis(a0)] = onA0;
+        out[clampAxis(a1)] = onA1;
+        out[clampAxis(aPerp)] = onAPerp;
+        return out;
+    }
+
     private static double component(double x, double y, double z, int axis) {
         return switch (axis) {
             case 0 -> x;

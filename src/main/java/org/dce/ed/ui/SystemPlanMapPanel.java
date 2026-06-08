@@ -500,11 +500,12 @@ public final class SystemPlanMapPanel extends JPanel {
         if (next == viewTiltDegrees) {
             return;
         }
+        int previousTilt = viewTiltDegrees;
         viewTiltDegrees = next;
         if (persistPrefs) {
             OverlayPreferences.setSystemPlanMapViewTiltDegrees(next);
         }
-        applyViewTiltProjectionRefresh();
+        applyViewTiltProjectionRefresh(previousTilt);
     }
 
     /**
@@ -548,16 +549,101 @@ public final class SystemPlanMapPanel extends JPanel {
         }
     }
 
-    private void applyViewTiltProjectionRefresh() {
+    private void applyViewTiltProjectionRefresh(int previousTiltDeg) {
         if (sceneEmpty) {
             repaint();
             return;
         }
+        int anchorBodyId = resolveViewTiltAnchorBodyId();
+        double offsetWx = 0.0;
+        double offsetWy = 0.0;
+        if (anchorBodyId >= 0) {
+            double[] anchorOld = bodyProjectedMapCoords(anchorBodyId, previousTiltDeg);
+            if (anchorOld != null && Double.isFinite(anchorOld[0]) && Double.isFinite(anchorOld[1])) {
+                offsetWx = viewCenterWx - anchorOld[0];
+                offsetWy = viewCenterWy - anchorOld[1];
+            }
+        }
         reprojectBodyDotsAndShipFromGeomPositions();
+        if (anchorBodyId >= 0) {
+            double[] anchorNew = bodyProjectedMapCoords(anchorBodyId, viewTiltDegrees);
+            if (anchorNew != null && Double.isFinite(anchorNew[0]) && Double.isFinite(anchorNew[1])) {
+                viewCenterWx = anchorNew[0] + offsetWx;
+                viewCenterWy = anchorNew[1] + offsetWy;
+            }
+        } else if (MAP_AUTO_VIEW_PAN && zoomEssentiallyAtMinFit()) {
+            snapViewCenterToSystemCentroidWorld();
+        }
         lastOrbitRebuildKey = Long.MIN_VALUE;
         rebuildOrbitPolylines(true, true);
         refreshTrueScaleLayoutSpansFromView();
         repaint();
+    }
+
+    /**
+     * Subsystem hub lock, proximity highlight hub, or nearest dot when zoomed in — same as the first tilt-follow fix.
+     */
+    private int resolveViewTiltAnchorBodyId() {
+        if (subsystemScreenLockHubId >= 0) {
+            return subsystemScreenLockHubId;
+        }
+        if (!zoomEssentiallyAtMinFit()) {
+            if (highlightNearBodyId != null && highlightNearBodyId.intValue() >= 0) {
+                int hid = highlightNearBodyId.intValue();
+                Map<Integer, Integer> resolvedParents = mapResolvedParents();
+                if (orbitGeomBodies != null && resolvedParents != null) {
+                    int hub = subsystemFocusKeyForBody(hid, orbitGeomBodies, resolvedParents);
+                    if (hub >= 0) {
+                        return hub;
+                    }
+                }
+                return hid;
+            }
+            return bodyIdNearestProjectedPoint(viewCenterWx, viewCenterWy);
+        }
+        return -1;
+    }
+
+    private int bodyIdNearestProjectedPoint(double wx, double wy) {
+        if (!Double.isFinite(wx) || !Double.isFinite(wy)) {
+            return -1;
+        }
+        int bestId = -1;
+        double bestD2 = Double.POSITIVE_INFINITY;
+        for (BodyDot d : dots) {
+            if (!Double.isFinite(d.wx) || !Double.isFinite(d.wy)) {
+                continue;
+            }
+            double dx = d.wx - wx;
+            double dy = d.wy - wy;
+            double d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                bestId = d.bodyId;
+            }
+        }
+        return bestId;
+    }
+
+    /** Map-plane coords for a body at a given view tilt (from stored 3D positions). */
+    private double[] bodyProjectedMapCoords(int bodyId, int atTiltDeg) {
+        if (orbitGeomPositions != null) {
+            double[] world = orbitGeomPositions.get(Integer.valueOf(bodyId));
+            if (world != null && world.length >= 2) {
+                if (atTiltDeg <= 0) {
+                    return new double[] {
+                            SystemOrbitGeometry.worldAxisMetres(world, mapProjA0),
+                            SystemOrbitGeometry.worldAxisMetres(world, mapProjA1)
+                    };
+                }
+                return MapViewProjection.projectFromPositionMetres(world, mapProjA0, mapProjA1, atTiltDeg);
+            }
+        }
+        BodyDot d = findBodyDot(bodyId);
+        if (d != null && Double.isFinite(d.wx) && Double.isFinite(d.wy)) {
+            return new double[] { d.wx, d.wy };
+        }
+        return null;
     }
 
     /** Recomputes {@link #layoutSpanX}/{@link #layoutSpanY} from tilted dots and orbit strokes. */

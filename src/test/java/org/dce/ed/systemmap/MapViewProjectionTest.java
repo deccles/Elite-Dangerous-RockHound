@@ -29,6 +29,28 @@ class MapViewProjectionTest {
     }
 
     @Test
+    void worldMetresAtMapViewPoint_roundTripsAtSameTilt() {
+        double u = 4.2e11;
+        double v = -1.7e11;
+        for (int tilt : new int[] { 0, 30, 60, 90 }) {
+            double[] world = MapViewProjection.worldMetresAtMapViewPoint(u, v, 0, 1, tilt);
+            double[] back = MapViewProjection.projectWorldComponents(world[0], world[1], world[2], 0, 1, tilt);
+            assertEquals(u, back[0], Math.max(1.0, Math.abs(u)) * 1e-9, "u tilt " + tilt);
+            assertEquals(v, back[1], Math.max(1.0, Math.abs(v)) * 1e-9, "v tilt " + tilt);
+        }
+    }
+
+    @Test
+    void worldMetresAtMapViewPoint_tiltChange_movesViewCentreSmoothlyNotToNearestBody() {
+        double u = 1.0e12;
+        double v = 5.0e11;
+        double[] world = MapViewProjection.worldMetresAtMapViewPoint(u, v, 0, 1, 0);
+        double[] at5 = MapViewProjection.projectWorldComponents(world[0], world[1], world[2], 0, 1, 5);
+        assertEquals(u, at5[0], 1e-6);
+        assertTrue(Math.abs(at5[1] - v) < Math.abs(v) * 0.05, "small v shift at 5°");
+    }
+
+    @Test
     void projectWorldComponents_inclinedOrbitSpreadIncreasesWithTilt() {
         double min0 = Double.POSITIVE_INFINITY;
         double max0 = 0.0;
