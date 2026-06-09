@@ -9,33 +9,40 @@ import java.util.List;
 
 public final class KeplerOrbitRing {
 
-    private static final int RING_SAMPLES = 128;
+    private static final int RING_SAMPLES_DEFAULT = 128;
+    private static final int RING_SAMPLES_MIN = 64;
+    private static final int RING_SAMPLES_MAX = 768;
 
     private KeplerOrbitRing() {
     }
 
     public static OrbitRing ringForBody(int bodyId, int parentId, OrbitalElements orbit, Instant t) {
-        List<double[]> pts = new ArrayList<>(RING_SAMPLES);
+        return ringForBody(bodyId, parentId, orbit, t, RING_SAMPLES_DEFAULT);
+    }
+
+    public static OrbitRing ringForBody(int bodyId, int parentId, OrbitalElements orbit, Instant t, int samples) {
+        int n = Math.max(RING_SAMPLES_MIN, Math.min(RING_SAMPLES_MAX, samples));
+        List<double[]> pts = new ArrayList<>(n);
         if (!(orbit.semiMajorAxisM() > 0) || Double.isNaN(orbit.semiMajorAxisM())) {
             return new OrbitRing(bodyId, parentId, List.of());
         }
         double period = orbit.orbitalPeriodSec();
         double M0 = Math.toRadians(orbit.meanAnomalyDeg());
         long epochMs = orbit.orbitalEpoch() != null ? orbit.orbitalEpoch().toEpochMilli() : 0L;
-        double n;
+        double nDot;
         double dtBase;
         if (period > 1e-6 && Double.isFinite(period)) {
-            n = (Math.PI * 2.0) / period;
+            nDot = (Math.PI * 2.0) / period;
             dtBase = t != null ? (t.toEpochMilli() - epochMs) / 1000.0 : 0.0;
         } else {
             /* SMA without period: draw static closed path (map ring shape, not time evolution). */
-            n = 0.0;
+            nDot = 0.0;
             dtBase = 0.0;
         }
-
-        for (int i = 0; i < RING_SAMPLES; i++) {
-            double phase = (Math.PI * 2.0 * i) / RING_SAMPLES;
-            double M = KeplerMath.wrapToTwoPi(M0 + n * dtBase + phase);
+        double Mbase = KeplerMath.wrapToTwoPi(M0 + nDot * dtBase);
+        for (int i = 0; i < n; i++) {
+            double phase = (Math.PI * 2.0 * i) / n;
+            double M = KeplerMath.wrapToTwoPi(Mbase + phase);
             double[] rel = KeplerMath.keplerDisplacementMetres(orbit, M);
             if (rel != null) {
                 pts.add(rel);

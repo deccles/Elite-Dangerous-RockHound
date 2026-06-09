@@ -79,6 +79,43 @@ class JournalEventLogUtilTest {
         assertEquals(2, out.size());
     }
 
+    @Test
+    void stripDuplicateArrivalStarScans_dropsEdsmIdWhenJournalZeroPresent() {
+        Instant journalTs = Instant.parse("2026-03-06T22:40:09Z");
+        Instant synthTs = Instant.EPOCH;
+        String sys = "Eol Prou LW-L c8-75";
+        ScanRecord journalStar = new ScanRecord(
+                journalTs, 0, sys, "Star", "M", 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                List.of(), null, true, false);
+        ScanRecord edsmStar = new ScanRecord(
+                synthTs, 9781, sys, "Star", "M", 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                List.of(), null, true, false);
+        List<JournalRecord> out = JournalEventLogUtil.stripDuplicateArrivalStarScans(
+                sys, List.of(journalStar, edsmStar));
+        assertEquals(1, out.size());
+        assertEquals(0, ((ScanRecord) out.get(0)).bodyId());
+    }
+
+    @Test
+    void normalizeForSystemBuild_stripsEdsmArrivalStarDuplicate() {
+        Instant journalTs = Instant.parse("2026-03-06T22:40:09Z");
+        String sys = "Eol Prou LW-L c8-75";
+        ScanRecord journalStar = new ScanRecord(
+                journalTs, 0, sys, "Star", "M", 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                List.of(), null, true, false);
+        ScanRecord edsmStar = new ScanRecord(
+                Instant.EPOCH, 9781, sys, "Star", "M", 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                List.of(), null, true, false);
+        List<JournalRecord> out = JournalEventLogUtil.normalizeForSystemBuild(
+                sys, List.of(journalStar, edsmStar));
+        assertEquals(1, out.size());
+        assertEquals(0, ((ScanRecord) out.get(0)).bodyId());
+    }
+
     private static ScanRecord scan(Instant t, int id, String name, String type) {
         return new ScanRecord(
                 t, id, name, type, "", 0,

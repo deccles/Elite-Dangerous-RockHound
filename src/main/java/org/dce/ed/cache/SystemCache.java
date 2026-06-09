@@ -18,6 +18,7 @@ import java.util.prefs.Preferences;
 
 import org.dce.ed.OverlayFrame;
 import org.dce.ed.edsm.BodiesResponse;
+import org.dce.ed.edsm.EdsmJournalBodyIdBridge;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
@@ -520,7 +521,7 @@ public final class SystemCache implements SystemStore {
      *
      * If allowEdsmStandalone is true, EDSM bodies may create new BodyInfo entries.
      * If allowEdsmStandalone is false, EDSM bodies ONLY supplement existing local bodies:
-     *   - We match by EDSM bodyId (remote.id) / journal BodyID.
+     *   - We match by journal BodyID; EDSM arrival stars (name = system name) map to {@code BodyID 0}.
      *   - If there is no local body with the same BodyID, the EDSM body is ignored.
      */
     @Override
@@ -552,13 +553,25 @@ public final class SystemCache implements SystemStore {
             return;
         }
 
+        String sysName = state.getSystemName();
+        if (sysName == null || sysName.isEmpty()) {
+            sysName = edsm.name;
+            if (sysName != null && !sysName.isEmpty()) {
+                state.setSystemName(sysName);
+            }
+        }
+
         for (BodiesResponse.Body remote : edsm.bodies) {
             if (remote == null || remote.name == null || remote.name.isEmpty()) {
                 continue;
             }
 
-            // Prefer EDSM bodyId as the key (matches journal BodyID in practice)
-            Integer remoteBodyId = toBodyKey(remote.id);
+            Integer remoteBodyId;
+            if (EdsmJournalBodyIdBridge.isArrivalStar(remote, sysName)) {
+                remoteBodyId = 0;
+            } else {
+                remoteBodyId = toBodyKey(remote.id);
+            }
             if (remoteBodyId == null) {
                 // If we can't determine a BodyID, we can't "same-id" match.
                 if (!allowEdsmStandalone) {
@@ -600,13 +613,6 @@ public final class SystemCache implements SystemStore {
                 info.setBodyName(remote.name);
             }
 
-            String sysName = state.getSystemName();
-            if (sysName == null || sysName.isEmpty()) {
-                sysName = edsm.name;
-                if (sysName != null && !sysName.isEmpty()) {
-                    state.setSystemName(sysName);
-                }
-            }
             if (sysName != null && !sysName.isEmpty()) {
                 info.setStarSystem(sysName);
                 if (info.getShortName() == null || info.getShortName().isEmpty()) {

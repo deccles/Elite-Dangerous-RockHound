@@ -116,6 +116,22 @@ class BodyInfoTest {
     }
 
     @Test
+    void colonyRangeDuplicatePinDoesNotUndoJournalSampleCount() {
+        BodyInfo body = new BodyInfo();
+        body.setRadius(Double.valueOf(1_000_000.0));
+
+        body.recordBioSample("Tussock Catena", "Log");
+        body.recordBioSamplePoint("Tussock Catena", "Log", 10.0, 20.0);
+        assertEquals(1, body.getBioSampleCount("Tussock Catena"));
+
+        body.recordBioSample("Tussock Catena", "Sample");
+        // Status lat/lon still at the first sample — within colony range, but journal counted the sample.
+        body.recordBioSamplePoint("Tussock Catena", "Sample", 10.0, 20.0);
+
+        assertEquals(2, body.getBioSampleCount("Tussock Catena"));
+    }
+
+    @Test
     void sanitizeInflated_dropsFalseCompleteWithoutAnalyse() {
         BodyInfo body = new BodyInfo();
         body.setBioSampleCounts(new java.util.HashMap<>(java.util.Map.of("Fungoida Setisis", 3)));

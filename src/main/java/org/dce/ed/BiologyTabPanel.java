@@ -1060,7 +1060,7 @@ private Double lastFootTravelUpDeg;
             Double newLat = e.getLatitude();
             Double newLon = e.getLongitude();
             Double newRadius = e.getPlanetRadius();
-            String newBodyName = e.getBodyName();
+            String newBodyName = resolveSurfaceBodyName(e);
             Integer newBodyId = e.getStatusBodyId();
 
             boolean bodyChanged = surfaceBodyChanged(newBodyName, newBodyId);
@@ -1205,6 +1205,7 @@ private Double lastFootTravelUpDeg;
                             Long.valueOf(System.currentTimeMillis() + SUPPRESS_ENTER_AFTER_SAMPLE_MS));
                 }
             }
+            syncCurrentBodyFromScanOrganic(so);
         }
 
         if (event instanceof BioScanPredictionEvent || event instanceof ScanOrganicEvent || event instanceof SaasignalsFoundEvent) {
@@ -1241,7 +1242,7 @@ private Double lastFootTravelUpDeg;
             return;
         }
 
-        BodyInfo body = findBodyByName(state, currentBodyName);
+        BodyInfo body = findBodyForExoBio(state, currentBodyName, currentBodyId);
         if (body == null) {
             if (clearIfBodyMissing) {
                 clearBioTableAndMapPins();
@@ -1602,8 +1603,64 @@ private static List<BioRow> buildRows(BodyInfo body) {
         return null;
     }
 
+    /**
+     * Prefer {@code BodyID} from Status / journal — Status {@code BodyName} is sometimes the star system name
+     * (e.g. after FSD) and does not match any {@link BodyInfo} entry by name alone.
+     */
+    private static BodyInfo findBodyForExoBio(SystemState state, String bodyName, Integer bodyId) {
+        if (state == null || state.getBodies() == null || state.getBodies().isEmpty()) {
+            return null;
+        }
+        if (bodyId != null && bodyId.intValue() >= 0) {
+            BodyInfo byId = state.getBodies().get(bodyId);
+            if (byId != null) {
+                return byId;
+            }
+        }
+        return findBodyByName(state, bodyName);
+    }
+
+    private String resolveSurfaceBodyName(StatusEvent e) {
+        if (e == null) {
+            return null;
+        }
+        String name = e.getBodyNamePhysical();
+        if (name == null || name.isBlank()) {
+            name = e.getBodyName();
+        }
+        Integer bodyId = e.getStatusBodyId();
+        if (systemTab != null && bodyId != null && bodyId.intValue() >= 0) {
+            SystemState state = systemTab.getState();
+            if (state != null) {
+                BodyInfo known = state.getBodies().get(bodyId);
+                if (known != null && known.getBodyName() != null && !known.getBodyName().isBlank()) {
+                    return known.getBodyName();
+                }
+            }
+        }
+        return name;
+    }
+
+    private void syncCurrentBodyFromScanOrganic(ScanOrganicEvent so) {
+        if (so == null || so.getBodyId() < 0 || systemTab == null) {
+            return;
+        }
+        SystemState state = systemTab.getState();
+        if (state == null) {
+            return;
+        }
+        BodyInfo body = state.getBodies().get(so.getBodyId());
+        if (body == null) {
+            return;
+        }
+        currentBodyId = Integer.valueOf(so.getBodyId());
+        if (body.getBodyName() != null && !body.getBodyName().isBlank()) {
+            currentBodyName = body.getBodyName();
+        }
+    }
+
     private static BodyInfo findBodyByName(SystemState state, String bodyName) {
-        if (state.getBodies() == null || state.getBodies().isEmpty()) {
+        if (bodyName == null || bodyName.isBlank()) {
             return null;
         }
         for (BodyInfo b : state.getBodies().values()) {
@@ -2130,7 +2187,7 @@ private static List<BioRow> buildRows(BodyInfo body) {
             return;
         }
 
-        BodyInfo body = findBodyByName(state, currentBodyName);
+        BodyInfo body = findBodyForExoBio(state, currentBodyName, currentBodyId);
         if (body == null) {
             return;
         }
@@ -2256,7 +2313,10 @@ private final class BioMapPanel extends JPanel {
     /** Purple “parked” pins from incomplete genera left behind when switching scans. */
     private boolean showParkedPins;
 
-    private static final double BIO_MAP_ZOOM_MIN = 0.45;
+    /** Content-relative zoom floor (zoom 1 = auto-fit all pins from the map anchor). */
+    private static final double BIO_MAP_ZOOM_MIN = 0.008;
+    /** Hard floor so wheel/button zoom can reach full-planet overview on very large bodies. */
+    private static final double BIO_MAP_ZOOM_ABSOLUTE_FLOOR = 1e-6;
     /** Deep zoom for tight sample clusters when a far pin/ship/bookmark sets the auto-fit span. */
     private static final double BIO_MAP_ZOOM_MAX = 48.0;
     private static final double BIO_MAP_ZOOM_STEP = 1.18;
@@ -2434,8 +2494,36 @@ private final class BioMapPanel extends JPanel {
 
     void adjustMapZoom(boolean zoomIn) {
         double next = mapZoomFactor * (zoomIn ? BIO_MAP_ZOOM_STEP : 1.0 / BIO_MAP_ZOOM_STEP);
-        mapZoomFactor = Math.max(BIO_MAP_ZOOM_MIN, Math.min(BIO_MAP_ZOOM_MAX, next));
+        mapZoomFactor = Math.max(resolveBioMapZoomMin(), Math.min(BIO_MAP_ZOOM_MAX, next));
         repaint();
+    }
+
+    /**
+     * Minimum zoom factor for the current body and pin spread. Allows zooming out until the view span reaches
+     * the body's full surface circumference ({@code 2π × radius}).
+     */
+    private double resolveBioMapZoomMin() {
+        double maxDistM = computeMaxDistM(model.getRowsSnapshot(), haveAbandonedSamplePins());
+        double min = BIO_MAP_ZOOM_MIN;
+        if (shipRadiusM > 100.0) {
+            double planetCircumferenceM = 2.0 * Math.PI * shipRadiusM;
+            if (planetCircumferenceM > maxDistM) {
+                min = Math.min(min, maxDistM / planetCircumferenceM);
+            }
+        }
+        return Math.max(BIO_MAP_ZOOM_ABSOLUTE_FLOOR, min);
+    }
+
+    private boolean haveAbandonedSamplePins() {
+        if (!showParkedPins || abandonedByKey == null) {
+            return false;
+        }
+        for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
+            if (e.getValue() != null && !e.getValue().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -2702,16 +2790,7 @@ private final class BioMapPanel extends JPanel {
 
             // Sample pins: parked history first, then active incomplete scans.
             java.util.List<BioRow> rows = model.getRowsSnapshot();
-            boolean haveAbandonedPins = false;
-            if (showParkedPins && abandonedByKey != null) {
-                for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
-                    if (e.getValue() == null || e.getValue().isEmpty()) {
-                        continue;
-                    }
-                    haveAbandonedPins = true;
-                    break;
-                }
-            }
+            boolean haveAbandonedPins = haveAbandonedSamplePins();
             boolean haveActivePins = false;
             if (rows != null) {
                 for (BioRow row : rows) {

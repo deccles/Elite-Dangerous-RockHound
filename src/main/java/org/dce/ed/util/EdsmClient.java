@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import org.dce.ed.edsm.BodiesResponse;
+import org.dce.ed.edsm.EdsmJournalBodyIdBridge;
 import org.dce.ed.edsm.CmdrCreditsResponse;
 import org.dce.ed.edsm.CmdrLastPositionResponse;
 import org.dce.ed.edsm.CmdrRanksResponse;
@@ -562,6 +563,13 @@ public class EdsmClient {
             return;
         }
 
+        String sysName = state.getSystemName();
+        if ((sysName == null || sysName.isEmpty()) && edsm.name != null && !edsm.name.isEmpty()) {
+            sysName = edsm.name;
+            state.setSystemName(sysName);
+        }
+        Map<Integer, Integer> edsmToJournal = EdsmJournalBodyIdBridge.buildEdsmToJournalIdMap(sysName, edsm.bodies);
+
         // EDSM "parents" uses {"Star": <bodyId>} where that id corresponds to the same numeric id in the body list.
         Map<Integer, String> starNameById = new HashMap<>();
         for (BodiesResponse.Body b : edsm.bodies) {
@@ -581,7 +589,7 @@ public class EdsmClient {
                 continue;
             }
 
-            Integer bodyId = safeToInt(remote.id);
+            Integer bodyId = EdsmJournalBodyIdBridge.resolveJournalBodyId(remote, sysName);
             if (bodyId == null) {
                 continue;
             }
@@ -596,12 +604,6 @@ public class EdsmClient {
             // Identity / names
             if (info.getBodyName() == null || info.getBodyName().isEmpty()) {
                 info.setBodyName(remote.name);
-            }
-
-            String sysName = state.getSystemName();
-            if ((sysName == null || sysName.isEmpty()) && edsm.name != null && !edsm.name.isEmpty()) {
-                sysName = edsm.name;
-                state.setSystemName(sysName);
             }
 
             if (sysName != null && !sysName.isEmpty()) {
@@ -661,7 +663,7 @@ public class EdsmClient {
                 info.setOrbitalInclination(remote.orbitalInclination);
             }
 
-            applyEdsmParentRefs(info, remote, starNameById, stellarRemote);
+            applyEdsmParentRefs(info, remote, starNameById, stellarRemote, edsmToJournal);
 
             // Planet class from EDSM subType (only makes sense for planets)
             if ("Planet".equalsIgnoreCase(remote.type)
@@ -734,7 +736,7 @@ public class EdsmClient {
      * orbit the primary in our map and breaks binary geometry.
      */
     private static void applyEdsmParentRefs(BodyInfo info, BodiesResponse.Body remote,
-            Map<Integer, String> starNameById, boolean stellarRemote) {
+            Map<Integer, String> starNameById, boolean stellarRemote, Map<Integer, Integer> edsmToJournal) {
         if (remote.parents == null || remote.parents.isEmpty()) {
             return;
         }
@@ -747,7 +749,7 @@ public class EdsmClient {
                 if (p.Planet != null) {
                     refs.add("Planet:" + p.Planet.intValue());
                 } else if (p.Star != null) {
-                    refs.add("Star:" + p.Star.intValue());
+                    refs.add("Star:" + EdsmJournalBodyIdBridge.remapStarParentId(p.Star.intValue(), edsmToJournal));
                 } else if (p.Null != null) {
                     refs.add("Null:" + p.Null.intValue());
                 }
@@ -766,7 +768,8 @@ public class EdsmClient {
                     break;
                 }
                 if (p.Star != null) {
-                    info.setImmediateParentBodyId(p.Star.intValue());
+                    info.setImmediateParentBodyId(
+                            EdsmJournalBodyIdBridge.remapStarParentId(p.Star.intValue(), edsmToJournal));
                     break;
                 }
                 if (p.Null != null) {
@@ -789,7 +792,7 @@ public class EdsmClient {
             }
         }
         if (anchorStar != null && info.getParentStarBodyId() < 0) {
-            info.setParentStarBodyId(anchorStar.intValue());
+            info.setParentStarBodyId(EdsmJournalBodyIdBridge.remapStarParentId(anchorStar.intValue(), edsmToJournal));
         }
         if ((info.getParentStar() == null || info.getParentStar().isEmpty()) && anchorStar != null) {
             String parentStarName = starNameById.get(anchorStar);

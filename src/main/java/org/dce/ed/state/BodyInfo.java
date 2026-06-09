@@ -1061,8 +1061,9 @@ public class BodyInfo {
 		int ccr = BioColonyDistance.metersForBio(key);
 		if (ccr > 0
 				&& isWithinColonyRangeOfAnyRecordedPoint(key, latitude, longitude, pts, ccr)) {
-			// Same colony as an existing or parked pin — game would not count a new sample; undo journal increment.
-			undoLastBioSampleLog(key);
+			// Same colony as an existing or parked pin — skip duplicate map pin only.
+			// Do not undo the journal count: Status.json lat/lon can lag ScanOrganic, which falsely
+			// looked like a duplicate colony and made the ExoBio table stop registering samples.
 			return;
 		}
 
@@ -1115,25 +1116,6 @@ public class BodyInfo {
 			}
 		}
 		return false;
-	}
-
-	private void undoLastBioSampleLog(String key) {
-		if (key == null || key.isBlank()) {
-			return;
-		}
-		Integer cur = bioSampleCountsByDisplayName.get(key);
-		if (cur == null || cur.intValue() <= 0) {
-			return;
-		}
-		int next = cur.intValue() - 1;
-		if (next <= 0) {
-			bioSampleCountsByDisplayName.remove(key);
-			if (Objects.equals(key, activeIncompleteBioKey)) {
-				activeIncompleteBioKey = null;
-			}
-		} else {
-			bioSampleCountsByDisplayName.put(key, Integer.valueOf(next));
-		}
 	}
 
 	public void setAtmoOrType(String atmoOrType) {

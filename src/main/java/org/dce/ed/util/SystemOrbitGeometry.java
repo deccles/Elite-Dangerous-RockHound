@@ -1034,6 +1034,13 @@ public final class SystemOrbitGeometry {
      * where the global layout span dwarfs a single orbit still get smooth rings when the user zooms in — the
      * chord estimate alone can sit at {@code softMin} while the stroke is still tens of pixels across.
      */
+    /**
+     * Closed-orbit vertex budget from projected perimeter and map zoom (see {@link #orbitPolylinesWorldMetresXY}).
+     */
+    public static int orbitRingSegmentCountForScreen(double scalePxPerM, double perimeterMetres, int legacyN) {
+        return segmentCountForScreenChord(scalePxPerM, perimeterMetres, legacyN);
+    }
+
     private static int segmentCountForScreenChord(double scalePxPerM, double perimeterMetres, int legacyN) {
         if (!Double.isFinite(perimeterMetres) || perimeterMetres <= 0.0) {
             return legacyN;
@@ -5968,20 +5975,183 @@ public final class SystemOrbitGeometry {
     }
 
     /**
-     * Lone-star systems: very high eccentricity FSS elements draw through the star; use journal-radius circles.
+     * Post-process a model-authoritative Kepler ring for 2D map display. FSS often lists barycentric / high-e
+     * elements that draw spirograph strokes through the parent star; replace with a journal-radius guide circle
+     * (see {@code eol-prou-rl-z-c15-127.json} / {@code eol-prou-wb-z-c15-363.json} fixtures).
      */
+    public static OrbitPolylineWorldXY displayOrbitPolylineFromModel(
+            OrbitPolylineWorldXY keplerPoly,
+            Map<Integer, BodyInfo> bodies,
+            Map<Integer, double[]> positions,
+            int parentId,
+            int proj0,
+            int proj1,
+            int viewTiltDeg) {
+        if (keplerPoly == null || keplerPoly.wx == null || keplerPoly.wy == null || keplerPoly.wx.length < 3
+                || bodies == null || positions == null) {
+            return keplerPoly;
+        }
+        if (parentId < 0 && !isPlanetBinaryBarycentreMapKey(parentId)) {
+            return keplerPoly;
+        }
+        int bodyId = keplerPoly.bodyId;
+        BodyInfo body = bodies.get(Integer.valueOf(bodyId));
+        if (body == null || body.isScanBarycentreRow() || isMapStellarBody(body)) {
+            return keplerPoly;
+        }
+        double[] parentPos = mapDisplayOrbitParentPositionMetres(parentId, bodyId, bodies, positions);
+        if (parentPos == null) {
+            return keplerPoly;
+        }
+        boolean useGuideCircle = shouldUseJournalGuideCircle(body, bodies);
+        if (!useGuideCircle && !isTrueScaleBranchStarPlanetStroke(body, parentId, bodies)
+                && !keplerStrokePlausibleInMapView(body, parentId, bodies, bodyId, parentPos, keplerPoly.wx,
+                        keplerPoly.wy, positions, proj0, proj1, viewTiltDeg)) {
+            useGuideCircle = true;
+        }
+        if (!useGuideCircle) {
+            return keplerPoly;
+        }
+        OrbitPolylineWorldXY circle = journalRadiusGuideCirclePolyline(bodyId, body, parentId, bodies, positions,
+                parentPos, proj0, proj1, viewTiltDeg, keplerPoly.wx.length);
+        return circle != null ? circle : keplerPoly;
+    }
 
-    /**
-     * Lone-star systems: very high eccentricity FSS elements draw through the star; use journal-radius circles.
-     */
-    private static boolean loneStarHighEccentricityUseSchematicCircle(BodyInfo child, Map<Integer, BodyInfo> bodies) {
-        if (child == null || bodies == null || countMapStellarBodies(bodies) != 1) {
+    /** Orbit stroke centre: model bary hub when present, else journal immediate parent (e.g. star for {@code Null:0}). */
+    private static double[] mapDisplayOrbitParentPositionMetres(
+            int parentMapId, int bodyMapId, Map<Integer, BodyInfo> bodies, Map<Integer, double[]> positions) {
+        if (positions != null) {
+            double[] direct = positions.get(Integer.valueOf(parentMapId));
+            if (direct != null) {
+                return direct;
+            }
+        }
+        if (bodies == null || bodyMapId < 0) {
+            return null;
+        }
+        BodyInfo child = bodies.get(Integer.valueOf(bodyMapId));
+        if (child != null && child.getImmediateParentBodyId() >= 0 && positions != null) {
+            double[] journalParent = positions.get(Integer.valueOf(child.getImmediateParentBodyId()));
+            if (journalParent != null) {
+                return journalParent;
+            }
+        }
+        if (isPlanetBinaryBarycentreMapKey(parentMapId) && positions != null) {
+            int starKey = centralStarMapKey(bodies);
+            if (starKey >= 0) {
+                return positions.get(Integer.valueOf(starKey));
+            }
+        }
+        return parentMapId >= 0 && positions != null ? positions.get(Integer.valueOf(parentMapId)) : null;
+    }
+
+    private static OrbitPolylineWorldXY journalRadiusGuideCirclePolyline(
+            int bodyId,
+            BodyInfo body,
+            int parentId,
+            Map<Integer, BodyInfo> bodies,
+            Map<Integer, double[]> positions,
+            double[] parentPos,
+            int proj0,
+            int proj1,
+            int viewTiltDeg,
+            int segments) {
+        double[] bodyPos = positions.get(Integer.valueOf(bodyId));
+        if (body == null || parentPos == null) {
+            return null;
+        }
+        double rad = Double.NaN;
+        if (shouldUseJournalGuideCircle(body, bodies)) {
+            double hintLs = journalOrbitRadiusLsFromParent(body, parentId, bodies, bodyId);
+            if (Double.isFinite(hintLs) && hintLs > 2.0) {
+                rad = hintLs * LIGHT_SECOND_METRES;
+            }
+        }
+        if (!Double.isFinite(rad)) {
+            rad = mapViewGuideCircleRadiusMetres(body, parentId, bodies, bodyId, bodyPos, parentPos, proj0, proj1,
+                    viewTiltDeg);
+        }
+        if (!Double.isFinite(rad) || rad < MIN_FALLBACK_ORBIT_RADIUS_METRES) {
+            return null;
+        }
+        int n = Math.max(48, Math.min(ORBIT_POLYLINE_SEGMENTS_HARD_MAX, segments));
+        double[] wx = new double[n];
+        double[] wy = new double[n];
+        fillMapPlaneCircleVertices(wx, wy, parentPos, rad, proj0, proj1, viewTiltDeg);
+        return new OrbitPolylineWorldXY(bodyId, wx, wy, true);
+    }
+
+    /** Guide-circle radius in map view: separation of body and parent after projection, else journal parent-relative Ls. */
+    private static double mapViewGuideCircleRadiusMetres(
+            BodyInfo body,
+            int parentId,
+            Map<Integer, BodyInfo> bodies,
+            int bodyId,
+            double[] bodyPos,
+            double[] parentPos,
+            int proj0,
+            int proj1,
+            int viewTiltDeg) {
+        if (bodyPos != null && parentPos != null) {
+            double[] bodyView = MapViewProjection.projectFromPositionMetres(bodyPos, proj0, proj1, viewTiltDeg);
+            double[] parentView = MapViewProjection.projectFromPositionMetres(parentPos, proj0, proj1, viewTiltDeg);
+            if (Double.isFinite(bodyView[0]) && Double.isFinite(bodyView[1]) && Double.isFinite(parentView[0])
+                    && Double.isFinite(parentView[1])) {
+                double projM = Math.hypot(bodyView[0] - parentView[0], bodyView[1] - parentView[1]);
+                if (projM >= MIN_FALLBACK_ORBIT_RADIUS_METRES) {
+                    return projM;
+                }
+            }
+        }
+        return journalOrbitRadiusMetres(body, parentId, bodies, bodyId,
+                bodyPos != null ? bodyPos : parentPos, parentPos, proj0, proj1);
+    }
+
+    /** Lone-star majors with very high FSS eccentricity: draw journal-radius circles, not raw Kepler spirographs. */
+    private static boolean shouldUseJournalGuideCircle(BodyInfo child, Map<Integer, BodyInfo> bodies) {
+        if (child == null || bodies == null || isMapStellarBody(child) || countMapStellarBodies(bodies) > 1) {
             return false;
         }
         if (child.getEccentricity() == null || Double.isNaN(child.getEccentricity().doubleValue())) {
             return false;
         }
         return child.getEccentricity().doubleValue() > 0.75;
+    }
+
+    /**
+     * Same rejection rules as {@link #trueScalePlanetKeplerStrokePlausible}, but parent and stroke share
+     * {@link MapViewProjection} coordinates (required when {@code viewTiltDeg} is non-zero).
+     */
+    private static boolean keplerStrokePlausibleInMapView(
+            BodyInfo child,
+            int parentMapId,
+            Map<Integer, BodyInfo> bodies,
+            int mapBodyId,
+            double[] parentPos,
+            double[] wx,
+            double[] wy,
+            Map<Integer, double[]> bodyWorldPositions,
+            int p0,
+            int p1,
+            int viewTiltDeg) {
+        if (child == null || parentPos == null || wx == null || wy == null || wx.length < 3) {
+            return true;
+        }
+        double[] parentView = MapViewProjection.projectFromPositionMetres(parentPos, p0, p1, viewTiltDeg);
+        if (!Double.isFinite(parentView[0]) || !Double.isFinite(parentView[1])) {
+            return trueScalePlanetKeplerStrokePlausible(child, parentMapId, bodies, mapBodyId, parentPos, wx, wy,
+                    bodyWorldPositions, p0, p1);
+        }
+        double[] viewParent = new double[] { parentView[0], parentView[1], 0.0 };
+        return trueScalePlanetKeplerStrokePlausible(child, parentMapId, bodies, mapBodyId, viewParent, wx, wy,
+                bodyWorldPositions, p0, p1);
+    }
+
+    /**
+     * Lone-star systems: very high eccentricity FSS elements draw through the star; use journal-radius circles.
+     */
+    private static boolean loneStarHighEccentricityUseSchematicCircle(BodyInfo child, Map<Integer, BodyInfo> bodies) {
+        return shouldUseJournalGuideCircle(child, bodies);
     }
 
     /**

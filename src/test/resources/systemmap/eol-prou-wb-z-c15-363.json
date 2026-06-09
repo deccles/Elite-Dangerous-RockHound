@@ -1,0 +1,33 @@
+{
+  "name": "Eol Prou WB-Z c15-363",
+  "notes": "Single K star + high-e icy helium planet (20381 Ls, e≈0.91). Raw FSS Kepler draws spirograph strokes through the star; map must use journal-radius guide circle.",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Eol Prou WB-Z c15-363",
+      "shortName": "Eol Prou WB-Z c15-363",
+      "distanceLs": 0,
+      "starType": "K"
+    },
+    {
+      "id": 21,
+      "bodyName": "Eol Prou WB-Z c15-363 1",
+      "shortName": "1",
+      "distanceLs": 20381,
+      "planetClass": "Icy body",
+      "atmoOrType": "helium atmosphere",
+      "immediateParentBodyId": 0,
+      "semiMajorAxisM": 3217033402880.0,
+      "eccentricity": 0.910101,
+      "orbitalInclination": -177.454055,
+      "periapsis": 230.737082,
+      "ascendingNode": 0.0,
+      "meanAnomaly": 180.0,
+      "orbitalPeriod": 4317331378.0
+    }
+  ],
+  "expect": {
+    "layoutKind": "SINGLE_STAR",
+    "mapStellarCount": 1
+  }
+}

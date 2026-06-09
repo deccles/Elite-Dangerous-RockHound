@@ -65,7 +65,7 @@ public final class ModelMapTranscriber {
         int a1 = axes[1];
 
         List<OrbitPolylineWorldXY> polylines = orbitPolylinesFromModel(
-                model, handle, t, a0, a1, 0);
+                model, handle, t, a0, a1, 0, bodies, positions);
 
         SystemMapClassification classification = SystemMapRules.classify(bodies, model);
         Map<Integer, Integer> resolvedParents = hierarchyResolvedParents(model, bodies);
@@ -102,7 +102,7 @@ public final class ModelMapTranscriber {
         }
         Instant t = strokeEpoch != null ? strokeEpoch : Instant.now();
         return orbitPolylinesFromModel(model, handle, t, base.projectionAxis0(), base.projectionAxis1(),
-                viewTiltDegrees);
+                viewTiltDegrees, base.bodies(), positionsMetres, segments, scalePixelsPerMetre);
     }
 
     public static Map<Integer, double[]> refreshPositionsForPlayback(
@@ -183,12 +183,30 @@ public final class ModelMapTranscriber {
             Instant t,
             int a0,
             int a1,
-            int viewTiltDeg) {
+            int viewTiltDeg,
+            Map<Integer, BodyInfo> bodies,
+            Map<Integer, double[]> positionsMetres) {
+        return orbitPolylinesFromModel(model, handle, t, a0, a1, viewTiltDeg, bodies, positionsMetres, 128,
+                Double.NaN);
+    }
+
+    private static List<OrbitPolylineWorldXY> orbitPolylinesFromModel(
+            SystemModel model,
+            ModelHandle handle,
+            Instant t,
+            int a0,
+            int a1,
+            int viewTiltDeg,
+            Map<Integer, BodyInfo> bodies,
+            Map<Integer, double[]> positionsMetres,
+            int legacySegments,
+            double scalePixelsPerMetre) {
         if (model == null) {
             return List.of();
         }
         boolean definitiveOnly = handle != null && handle.state() == ModelState.INCOMPLETE;
-        return ModelMapScene.orbitPolylines(model, t, a0, a1, viewTiltDeg, definitiveOnly);
+        return ModelMapScene.orbitPolylines(model, bodies, positionsMetres, t, a0, a1, viewTiltDeg, definitiveOnly,
+                legacySegments, scalePixelsPerMetre);
     }
 
     static Map<Integer, Integer> hierarchyResolvedParents(SystemModel model, Map<Integer, BodyInfo> bodies) {

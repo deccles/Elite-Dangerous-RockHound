@@ -70,7 +70,42 @@ public final class JournalEventLogUtil {
     }
 
     public static List<JournalRecord> normalizeForSystemBuild(String systemName, List<JournalRecord> log) {
-        return dedupeScansByDesignation(systemName, latestPerBodyId(forSystem(systemName, log)));
+        return dedupeScansByDesignation(
+                systemName, latestPerBodyId(forSystem(systemName, stripDuplicateArrivalStarScans(systemName, log))));
+    }
+
+    /**
+     * When journal {@code BodyID 0} is present for the arrival star, drop EDSM duplicate star scans that reused
+     * the same body name with a non-zero id.
+     */
+    public static List<JournalRecord> stripDuplicateArrivalStarScans(String systemName, List<JournalRecord> log) {
+        if (systemName == null || systemName.isBlank() || log == null || log.isEmpty()) {
+            return log != null ? log : List.of();
+        }
+        String sys = systemName.trim();
+        boolean hasArrivalAtZero = false;
+        for (JournalRecord r : log) {
+            if (!(r instanceof ScanRecord s)) {
+                continue;
+            }
+            if (s.bodyId() == 0 && isStellarScan(s) && s.bodyName() != null
+                    && s.bodyName().trim().equalsIgnoreCase(sys)) {
+                hasArrivalAtZero = true;
+                break;
+            }
+        }
+        if (!hasArrivalAtZero) {
+            return log;
+        }
+        List<JournalRecord> out = new ArrayList<>(log.size());
+        for (JournalRecord r : log) {
+            if (r instanceof ScanRecord s && s.bodyId() != 0 && isStellarScan(s) && s.bodyName() != null
+                    && s.bodyName().trim().equalsIgnoreCase(sys)) {
+                continue;
+            }
+            out.add(r);
+        }
+        return List.copyOf(out);
     }
 
     /**
