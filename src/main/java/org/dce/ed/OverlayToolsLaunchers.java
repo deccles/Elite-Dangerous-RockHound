@@ -15,6 +15,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 
 import org.dce.ed.exobiology.audit.ExoPredictionDebuggerMain;
+import org.dce.ed.logreader.RescanCurrentSystemFromJournal;
 import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.tools.EdoSqliteDatabaseFrame;
 import org.dce.ed.tools.SystemHierarchyGraphFrame;
@@ -123,6 +124,109 @@ public final class OverlayToolsLaunchers {
                 } else {
                     SystemTabPanel.notifyAllInstancesReloadDisplayedSystemFromCache();
                 }
+            }
+        };
+
+        worker.execute();
+        progressDialog.setVisible(true);
+    }
+
+    public static void rescanCurrentSystemFromJournal(Component parent) {
+        RescanCurrentSystemFromJournal.TargetSystem target = RescanCurrentSystemFromJournal.resolveTargetSystem();
+        if (target == null) {
+            JOptionPane.showMessageDialog(parent,
+                    "Open a system on the System tab first (name and address required).",
+                    "Rescan current system from journal",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        int choice = JOptionPane.showConfirmDialog(parent,
+                "Replace the cached data for:\n\n  "
+                        + target.systemName() + "\n\n"
+                        + "by replaying every matching journal event from all Journal.*.log files.\n"
+                        + "Other cached systems are not changed.\n\n"
+                        + "Bodies that exist only from EDSM (never scanned in your journals) will be removed.",
+                "Rescan current system from journal",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+
+        Window owner = SwingUtilities.getWindowAncestor(parent);
+        JDialog progressDialog = new JDialog(owner, "Rescan current system from journal",
+                Dialog.ModalityType.APPLICATION_MODAL);
+        progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        JLabel statusLabel = new JLabel("Preparing…");
+        JProgressBar progressBar = new JProgressBar();
+        progressBar.setIndeterminate(true);
+        progressBar.setStringPainted(true);
+
+        progressDialog.getContentPane().setLayout(new BorderLayout(10, 10));
+        progressDialog.getContentPane().add(statusLabel, BorderLayout.NORTH);
+        progressDialog.getContentPane().add(progressBar, BorderLayout.CENTER);
+        progressDialog.setSize(520, 130);
+        progressDialog.setLocationRelativeTo(parent);
+
+        SwingWorker<RescanCurrentSystemFromJournal.RescanResult, RescanProgressUpdate> worker =
+                new SwingWorker<RescanCurrentSystemFromJournal.RescanResult, RescanProgressUpdate>() {
+
+            private Exception failure;
+
+            @Override
+            protected RescanCurrentSystemFromJournal.RescanResult doInBackground() {
+                try {
+                    return RescanCurrentSystemFromJournal.rescanSystem(
+                            target.systemName(),
+                            target.systemAddress(),
+                            (phase, percent, detail) -> publish(new RescanProgressUpdate(phase, percent, detail)));
+                } catch (IOException ex) {
+                    failure = ex;
+                    return null;
+                }
+            }
+
+            @Override
+            protected void process(List<RescanProgressUpdate> chunks) {
+                if (chunks.isEmpty()) {
+                    return;
+                }
+                RescanProgressUpdate last = chunks.get(chunks.size() - 1);
+                applyRescanProgress(statusLabel, progressBar, last.phase, last.percent, last.detail);
+            }
+
+            @Override
+            protected void done() {
+                progressDialog.dispose();
+                if (failure != null) {
+                    failure.printStackTrace();
+                    String msg = failure.getMessage();
+                    if (msg == null || msg.isBlank()) {
+                        msg = failure.getClass().getSimpleName();
+                    }
+                    JOptionPane.showMessageDialog(parent,
+                            "System journal rescan failed:\n" + msg,
+                            "Rescan current system from journal",
+                            JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                RescanCurrentSystemFromJournal.RescanResult result = null;
+                try {
+                    result = get();
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+                String detail = result != null
+                        ? result.eventsReplayed() + " events replayed, "
+                                + result.bodiesStored() + " bod" + (result.bodiesStored() == 1 ? "y" : "ies") + " stored."
+                        : "Cache updated.";
+                JOptionPane.showMessageDialog(parent,
+                        target.systemName() + " rebuilt from journal.\n" + detail,
+                        "Rescan current system from journal",
+                        JOptionPane.INFORMATION_MESSAGE);
+                RescanCurrentSystemFromJournal.reloadDisplayedSystemFromCacheOnEdt();
             }
         };
 

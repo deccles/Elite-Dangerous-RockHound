@@ -37,6 +37,7 @@ import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.RingGeometryUtil;
 import org.dce.ed.util.RingSummaryFormatter;
 import org.dce.ed.util.SpanshBodyExobiologyInfo;
 import org.dce.ed.util.SpanshLandmark;
@@ -241,6 +242,9 @@ public class SystemEventProcessor {
 
     /** Last known carrier orbit from journal; not cleared on commander FSD. */
     private void assignCarrierParkedOrbit(int bodyId, long systemAddress) {
+        if (SystemCache.isJournalReplaceSystemWrite()) {
+            return;
+        }
         if (bodyId > 0 && systemAddress != 0L) {
             state.setCarrierParkedBodyId(Integer.valueOf(bodyId));
             state.setCarrierParkedSystemAddress(systemAddress);
@@ -268,6 +272,11 @@ public class SystemEventProcessor {
             }
             applySystemClassifiersToAllBodies();
 
+            return;
+        }
+
+        // Targeted single-system journal replay must never hydrate another system from SQLite mid-loop.
+        if (SystemCache.isJournalReplaceSystemWrite()) {
             return;
         }
 
@@ -512,7 +521,15 @@ public class SystemEventProcessor {
             }
             if (e.getRings() != null && !e.getRings().isEmpty()) {
                 info.setRingSummaryLines(RingSummaryFormatter.fromJournal(e.getRings(), e.getReserveLevel()));
+                RingGeometryUtil.mergeBandsInto(info, RingGeometryUtil.fromJournal(e.getRings()), true);
             }
+        }
+
+        if (e.getRadius() != null && e.getRadius().doubleValue() > 0) {
+            info.setRadius(e.getRadius());
+        }
+        if (e.getAxialTilt() != null) {
+            info.setAxialTilt(e.getAxialTilt());
         }
 
         List<ScanEvent.ParentRef> plist = e.getParents();

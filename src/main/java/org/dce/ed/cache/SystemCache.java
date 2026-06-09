@@ -28,6 +28,7 @@ import org.dce.ed.systemmodel.SystemModelService;
 import org.dce.systemmodel.build.SystemModelBuilder;
 import org.dce.systemmodel.model.SystemModel;
 import org.dce.systemmodel.snapshot.SystemSnapshot;
+import org.dce.ed.util.RingGeometryUtil;
 import org.dce.ed.util.RingSummaryFormatter;
 import org.dce.ed.util.ExplorationBodyCredits;
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
@@ -74,6 +75,11 @@ public final class SystemCache implements SystemStore {
      * (bulk journal rescan).
      */
     public static final String CACHE_BULK_SYSTEM_WRITE_PROPERTY = "edo.cache.bulkSystemWrite";
+    /**
+     * When {@code true}, {@link #storeSystem} replaces the on-disk system row from replayed journal state only
+     * (no union with previous cache bodies or merge-back of sparse fields).
+     */
+    public static final String CACHE_JOURNAL_REPLACE_SYSTEM_WRITE_PROPERTY = "edo.cache.journalReplaceSystemWrite";
 
     private static final SystemCache INSTANCE = new SystemCache();
 
@@ -512,6 +518,15 @@ public final class SystemCache implements SystemStore {
                     && !cb.ringTypes.isEmpty()) {
                 info.setRingSummaryLines(new ArrayList<>(cb.ringTypes));
             }
+            if (cb.radius != null && cb.radius.doubleValue() > 0) {
+                info.setRadius(cb.radius);
+            }
+            if (cb.axialTilt != null) {
+                info.setAxialTilt(cb.axialTilt);
+            }
+            if (cb.planetaryRingBands != null && !cb.planetaryRingBands.isEmpty()) {
+                info.setPlanetaryRingBands(new ArrayList<>(cb.planetaryRingBands));
+            }
             state.getBodies().put(info.getBodyId(), info);
         }
     }
@@ -740,6 +755,7 @@ public final class SystemCache implements SystemStore {
                 if (!ringLines.isEmpty() && info.getRingSummaryLines().isEmpty()) {
                     info.setRingSummaryLines(ringLines);
                 }
+                RingGeometryUtil.mergeBandsInto(info, RingGeometryUtil.fromEdsm(remote.rings), false);
             }
         }
     }
@@ -782,15 +798,18 @@ public final class SystemCache implements SystemStore {
         // Merge-on-save: preserve certain fields from the existing on-disk cache when the
         // current in-memory SystemState does not currently have them populated.
         CachedSystem existing = get(state.getSystemAddress(), state.getSystemName());
-        mergeJournalEventLogFromCache(state, existing);
+        if (!isJournalReplaceSystemWrite()) {
+            mergeJournalEventLogFromCache(state, existing);
+        }
         // Bulk journal rescan already replays every event; per-system journal replay here would re-read all logs.
         if (!isBulkSystemWrite()) {
             SystemMapJournalEnricher.enrichStateFromJournalIfSparse(state, existing);
         }
 
+        boolean replaceWrite = isJournalReplaceSystemWrite();
         Map<Integer, CachedBody> existingBodies = new HashMap<>();
         Map<String, CachedBody> existingBodiesByName = new HashMap<>();
-        if (existing != null && existing.bodies != null) {
+        if (!replaceWrite && existing != null && existing.bodies != null) {
             for (CachedBody eb : existing.bodies) {
                 if (eb == null) {
                     continue;
@@ -810,8 +829,8 @@ public final class SystemCache implements SystemStore {
                 continue;
             }
 
-            CachedBody prev = existingBodies.get(Integer.valueOf(b.getBodyId()));
-            if (prev == null && b.getBodyName() != null && !b.getBodyName().isEmpty()) {
+            CachedBody prev = replaceWrite ? null : existingBodies.get(Integer.valueOf(b.getBodyId()));
+            if (!replaceWrite && prev == null && b.getBodyName() != null && !b.getBodyName().isEmpty()) {
                 prev = existingBodiesByName.get(canonicalName(b.getBodyName()));
             }
 
@@ -879,6 +898,11 @@ public final class SystemCache implements SystemStore {
             } else if (b.getRingReserveHumanized() != null && !b.getRingReserveHumanized().isEmpty()) {
                 cb.ringReserveHumanized = b.getRingReserveHumanized();
             }
+            cb.radius = b.getRadius();
+            cb.axialTilt = b.getAxialTilt();
+            if (!b.getPlanetaryRingBands().isEmpty()) {
+                cb.planetaryRingBands = new ArrayList<>(b.getPlanetaryRingBands());
+            }
 
             // Preserve cache truth when the current session hasn't learned these flags yet.
             // These flags are monotonic in practice (once true, they don't become false).
@@ -910,6 +934,16 @@ public final class SystemCache implements SystemStore {
                         && (cb.ringReserveHumanized == null || cb.ringReserveHumanized.isBlank())
                         && prev.ringReserveHumanized != null && !prev.ringReserveHumanized.isBlank()) {
                     cb.ringReserveHumanized = prev.ringReserveHumanized;
+                }
+                if (cb.radius == null && prev.radius != null) {
+                    cb.radius = prev.radius;
+                }
+                if (cb.axialTilt == null && prev.axialTilt != null) {
+                    cb.axialTilt = prev.axialTilt;
+                }
+                if ((cb.planetaryRingBands == null || cb.planetaryRingBands.isEmpty())
+                        && prev.planetaryRingBands != null && !prev.planetaryRingBands.isEmpty()) {
+                    cb.planetaryRingBands = new ArrayList<>(prev.planetaryRingBands);
                 }
                 if (cb.spanshPredictedGenera == null && prev.spanshPredictedGenera != null) {
                     cb.spanshPredictedGenera = new ArrayList<>(prev.spanshPredictedGenera);
@@ -1091,19 +1125,21 @@ public final class SystemCache implements SystemStore {
         // Session snapshots are often partial (incremental rescan, one new Detailed scan). Never drop
         // previously cached bodies that are absent from the current SystemState — only ScanBaryCentre rows
         // used to get this treatment; widening to all bodies fixes sparse hierarchy/map loads (e.g. Coeus).
-        for (CachedBody prevBody : existingBodies.values()) {
-            if (prevBody == null || prevBody.bodyId < 0) {
-                continue;
-            }
-            boolean present = false;
-            for (CachedBody saved : list) {
-                if (saved != null && saved.bodyId == prevBody.bodyId) {
-                    present = true;
-                    break;
+        if (!replaceWrite) {
+            for (CachedBody prevBody : existingBodies.values()) {
+                if (prevBody == null || prevBody.bodyId < 0) {
+                    continue;
                 }
-            }
-            if (!present) {
-                list.add(copyCachedBody(prevBody));
+                boolean present = false;
+                for (CachedBody saved : list) {
+                    if (saved != null && saved.bodyId == prevBody.bodyId) {
+                        present = true;
+                        break;
+                    }
+                }
+                if (!present) {
+                    list.add(copyCachedBody(prevBody));
+                }
             }
         }
 
@@ -1135,6 +1171,11 @@ public final class SystemCache implements SystemStore {
     /** True while {@link org.dce.ed.logreader.RescanJournalsMain} replays journals (suppress live UI side effects). */
     public static boolean isBulkSystemWrite() {
         return Boolean.parseBoolean(System.getProperty(CACHE_BULK_SYSTEM_WRITE_PROPERTY, "false"));
+    }
+
+    /** True while {@link org.dce.ed.logreader.RescanCurrentSystemFromJournal} replaces one cache row from journal replay. */
+    public static boolean isJournalReplaceSystemWrite() {
+        return Boolean.parseBoolean(System.getProperty(CACHE_JOURNAL_REPLACE_SYSTEM_WRITE_PROPERTY, "false"));
     }
 
     private static Integer toBodyKey(Long id) {

@@ -722,6 +722,7 @@ public class EdsmClient {
                 if (!ringLines.isEmpty() && info.getRingSummaryLines().isEmpty()) {
                     info.setRingSummaryLines(ringLines);
                 }
+                RingGeometryUtil.mergeBandsInto(info, RingGeometryUtil.fromEdsm(remote.rings), false);
             }
 
             // NOTE:

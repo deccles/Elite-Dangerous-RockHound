@@ -422,6 +422,11 @@ public final class OverlayMenuStatusBar {
         rescanJournalFull.addActionListener(e -> OverlayToolsLaunchers.rescanJournalFull(parent));
         toolsMenu.add(rescanJournalFull);
 
+        JMenuItem rescanCurrentSystem = new JMenuItem("Rescan current system from journal…");
+        styleMenuItem(rescanCurrentSystem);
+        rescanCurrentSystem.addActionListener(e -> OverlayToolsLaunchers.rescanCurrentSystemFromJournal(parent));
+        toolsMenu.add(rescanCurrentSystem);
+
         JMenuItem edsm = new JMenuItem("Run EDSM Query Tools");
         styleMenuItem(edsm);
         edsm.addActionListener(e -> OverlayToolsLaunchers.launchEdsmQueryTools(parent));

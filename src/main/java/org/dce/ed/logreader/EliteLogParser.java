@@ -908,6 +908,8 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
         List<ScanEvent.RingInfo> rings = parseScanRings(obj);
         String reserveLevel = getString(obj, "ReserveLevel");
         String scanType = getString(obj, "ScanType");
+        Double radius = optionalJsonDouble(obj, "Radius");
+        Double axialTilt = optionalJsonDouble(obj, "AxialTilt");
 
         Double surfacePressure = obj.has("SurfacePressure")
         		? obj.get("SurfacePressure").getAsDouble(): null;
@@ -944,7 +946,9 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
                 parents,
                 rings,
                 reserveLevel,
-                scanType
+                scanType,
+                radius,
+                axialTilt
         );
     }
 
@@ -967,7 +971,15 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
             if (ringClass == null || ringClass.isEmpty()) {
                 continue;
             }
-            out.add(new ScanEvent.RingInfo(name, ringClass));
+            Double innerRad = optionalJsonDouble(ro, "InnerRad");
+            if (innerRad == null) {
+                innerRad = optionalJsonDouble(ro, "InnerRadius");
+            }
+            Double outerRad = optionalJsonDouble(ro, "OuterRad");
+            if (outerRad == null) {
+                outerRad = optionalJsonDouble(ro, "OuterRadius");
+            }
+            out.add(new ScanEvent.RingInfo(name, ringClass, innerRad, outerRad));
         }
         return out.isEmpty() ? Collections.emptyList() : out;
     }

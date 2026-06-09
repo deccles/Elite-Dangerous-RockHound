@@ -7052,6 +7052,102 @@ public final class SystemOrbitGeometry {
     }
 
     /**
+     * Whether map orbit strokes can shade by temporal distance from the body's current phase (needs journal period +
+     * mean anomaly).
+     */
+    public static boolean orbitStrokeSupportsTimeColoring(BodyInfo body) {
+        if (body == null) {
+            return false;
+        }
+        Double p = body.getOrbitalPeriod();
+        return p != null && Double.isFinite(p.doubleValue()) && p.doubleValue() > 1e-6
+                && body.getMeanAnomaly() != null && Double.isFinite(body.getMeanAnomaly().doubleValue());
+    }
+
+    /**
+     * Mean anomaly (rad) for closed-orbit polyline vertex {@code vertexIndex} of {@code vertexCount} samples.
+     */
+    public static double orbitPolylineVertexMeanAnomalyRad(int vertexIndex, int vertexCount) {
+        if (vertexCount <= 0) {
+            return 0.0;
+        }
+        return wrapToTwoPi((Math.PI * 2.0 * vertexIndex) / vertexCount);
+    }
+
+    /**
+     * Temporal separation along the orbit for map stroke shading: {@code 0} at the body's current phase,
+     * {@code 1} half an orbital period away (short arc in mean anomaly).
+     *
+     * @deprecated Prefer {@link #orbitStrokePolylinePhaseSeparationFraction(int, int, int, int)} with a polyline
+     *             anchor from the body's map position — model rings place the current phase at vertex {@code 0}.
+     */
+    public static double orbitStrokeTimeSeparationFraction(BodyInfo body, double vertexMeanAnomalyRad, Instant epoch) {
+        if (!orbitStrokeSupportsTimeColoring(body)) {
+            return 0.0;
+        }
+        double mNow = evolvedMeanAnomalyRadians(body, epoch);
+        double mVert = wrapToTwoPi(vertexMeanAnomalyRad);
+        double dM = Math.abs(mVert - mNow);
+        if (dM > Math.PI) {
+            dM = (Math.PI * 2.0) - dM;
+        }
+        return clamp(dM / Math.PI, 0.0, 1.0);
+    }
+
+    /**
+     * Vertex index on a closed map orbit polyline nearest the body's projected map position (metres).
+     */
+    public static int orbitPolylineNearestVertexIndex(double[] wx, double[] wy, double bodyWx, double bodyWy) {
+        if (wx == null || wy == null || wx.length < 2 || wy.length != wx.length
+                || !Double.isFinite(bodyWx) || !Double.isFinite(bodyWy)) {
+            return 0;
+        }
+        int best = 0;
+        double bestD = Double.POSITIVE_INFINITY;
+        for (int i = 0; i < wx.length; i++) {
+            if (!Double.isFinite(wx[i]) || !Double.isFinite(wy[i])) {
+                continue;
+            }
+            double d = Math.hypot(wx[i] - bodyWx, wy[i] - bodyWy);
+            if (d < bestD) {
+                bestD = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Shorter arc length along a closed polyline vertex ring, in vertex-index units.
+     */
+    public static double orbitPolylineCircularVertexDistance(int indexA, int indexB, int vertexCount) {
+        if (vertexCount <= 0) {
+            return 0.0;
+        }
+        int d = Math.abs(indexA - indexB) % vertexCount;
+        if (d > vertexCount / 2) {
+            d = vertexCount - d;
+        }
+        return d;
+    }
+
+    /**
+     * Phase separation for one stroked segment: {@code 0} at {@code anchorVertexIndex} (body position),
+     * {@code 1} half a ring away. Matches {@link org.dce.systemmodel.position.KeplerOrbitRing} sampling where
+     * vertex {@code 0} is the evolved mean anomaly at {@code t}.
+     */
+    public static double orbitStrokePolylinePhaseSeparationFraction(
+            int segmentStartVertex, int segmentEndVertex, int anchorVertexIndex, int vertexCount) {
+        if (vertexCount <= 1) {
+            return 0.0;
+        }
+        double d0 = orbitPolylineCircularVertexDistance(segmentStartVertex, anchorVertexIndex, vertexCount);
+        double d1 = orbitPolylineCircularVertexDistance(segmentEndVertex, anchorVertexIndex, vertexCount);
+        double halfRing = vertexCount / 2.0;
+        return clamp(Math.min(d0, d1) / halfRing, 0.0, 1.0);
+    }
+
+    /**
      * Rough distance from the map primary (Ls): sum of this body's and ancestors' {@code SemiMajorAxis}
      * (journal metres) along {@link #resolveOrbitParentBodyId(BodyInfo, Map, int)} until the primary anchor is
      * reached. Used when journal arrival distance is missing so map positions are not all degenerate at the

@@ -2381,12 +2381,11 @@ public class SystemTabPanel extends JPanel {
         }
         Instant mapEpoch;
         if (orbitAnimDemoActive) {
-            mapEpoch = orbitAnimSimInstant;
-        } else {
-            if (orbitAnimFreezeEpoch == null) {
-                orbitAnimFreezeEpoch = Instant.now();
-            }
+            mapEpoch = orbitAnimSimInstant != null ? orbitAnimSimInstant : Instant.now();
+        } else if (orbitAnimFreezeEpoch != null) {
             mapEpoch = orbitAnimFreezeEpoch;
+        } else {
+            mapEpoch = Instant.now();
         }
         Map<Integer, double[]> pos = SystemOrbitGeometry.bodyPositionsMetres(bodies, mapEpoch,
                 freezeBarycentreStarsDuringOrbitAnim());
@@ -2409,26 +2408,21 @@ public class SystemTabPanel extends JPanel {
                 && !Objects.equals(nearBodyId, planMapTriangleAnchor)) {
             proximityHighlight = nearBodyId;
         }
-        if (orbitAnimDemoActive) {
+        boolean orbitMapFastUpdate = orbitAnimDemoActive || orbitAnimFreezeEpoch != null;
+        if (orbitMapFastUpdate) {
             if (systemPlanMapPanel.tryApplyPositionUpdate(
                     bodies, pos, ship, planMapTriangleAnchor, proximityHighlight, orbitAnimDemoActive, mapEpoch)) {
                 return;
             }
-            orbitAnimDemoActive = false;
-            if (orbitAnimDemoTimer != null) {
-                orbitAnimDemoTimer.stop();
+            if (orbitAnimDemoActive) {
+                orbitAnimDemoActive = false;
+                if (orbitAnimDemoTimer != null) {
+                    orbitAnimDemoTimer.stop();
+                }
+                if (orbitAnimPlayButton != null) {
+                    orbitAnimPlayButton.setSelected(false);
+                }
             }
-            if (orbitAnimPlayButton != null) {
-                orbitAnimPlayButton.setSelected(false);
-            }
-            boolean hudZoomPending = pendingHudTargetMapZoomBodyId != null;
-            systemPlanMapPanel.setSkipProximityHopForHudTarget(hudZoomPending);
-            systemPlanMapPanel.setScene(bodies, pos, ship, planMapTriangleAnchor, proximityHighlight,
-                    orbitAnimDemoActive, mapEpoch, systemSession);
-            systemPlanMapPanel.setSkipProximityHopForHudTarget(false);
-            systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
-            finishPendingHudTargetMapZoom();
-            return;
         }
         boolean hudZoomPending = pendingHudTargetMapZoomBodyId != null;
         systemPlanMapPanel.setSkipProximityHopForHudTarget(hudZoomPending);
@@ -2489,8 +2483,20 @@ public class SystemTabPanel extends JPanel {
         } finally {
             orbitAnimSuppressPlayToggleHandler = false;
         }
+        Map<Integer, BodyInfo> bodies = state.getBodies();
+        Integer planMapTriangleAnchor = resolvePlanMapTriangleAnchorBodyId();
+        Integer proximityHighlight = null;
+        if (bodies != null && nearBodyId != null && bodies.containsKey(nearBodyId)
+                && !Objects.equals(nearBodyId, planMapTriangleAnchor)) {
+            proximityHighlight = nearBodyId;
+        }
         refreshPlanMap();
-        systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
+        Integer snapFocus = proximityHighlight != null ? proximityHighlight : planMapTriangleAnchor;
+        if (snapFocus != null) {
+            systemPlanMapPanel.snapViewCenterToSubsystemHubAfterOrbitReset(snapFocus.intValue());
+        } else {
+            systemPlanMapPanel.syncViewCenterToSubsystemHubAfterOrbitPause();
+        }
     }
 
     private void tickOrbitAnimDemo() {

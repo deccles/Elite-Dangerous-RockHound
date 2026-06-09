@@ -222,6 +222,8 @@ public class BodyInfo {
 	/** Humanized {@code ReserveLevel} from journal (e.g. Pristine); used to annotate EDSM ring lines that omit quality. */
 	private String ringReserveHumanized;
 
+	private List<PlanetaryRingBand> planetaryRingBands;
+
 	Double radius;
 	private String shortName;
 	double starPos[];
@@ -574,6 +576,18 @@ public class BodyInfo {
 		this.ringReserveHumanized = (ringReserveHumanized == null || ringReserveHumanized.isBlank())
 				? null
 				: ringReserveHumanized.trim();
+	}
+
+	public List<PlanetaryRingBand> getPlanetaryRingBands() {
+		return planetaryRingBands != null ? planetaryRingBands : Collections.emptyList();
+	}
+
+	public void setPlanetaryRingBands(List<PlanetaryRingBand> bands) {
+		if (bands == null || bands.isEmpty()) {
+			this.planetaryRingBands = null;
+		} else {
+			this.planetaryRingBands = new ArrayList<>(bands);
+		}
 	}
 
 	public String getShortName() {
@@ -1128,6 +1142,10 @@ public class BodyInfo {
 
 	public void setAxialTilt(Double axialTilt) {
 		this.axialTilt = axialTilt;
+	}
+
+	public Double getAxialTilt() {
+		return axialTilt;
 	}
 
 	public void setBioSampleCounts(Map<String, Integer> counts) {

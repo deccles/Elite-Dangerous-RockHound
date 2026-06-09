@@ -47,6 +47,8 @@ class JournalEventAdapterTest {
                 List.of(new ScanEvent.ParentRef("Null", 32), new ScanEvent.ParentRef("Planet", 28)),
                 List.of(),
                 null,
+                null,
+                null,
                 null);
         ScanRecord r = JournalEventAdapter.fromScanEvent(e);
         assertEquals(33, r.bodyId());

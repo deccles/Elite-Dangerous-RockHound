@@ -161,16 +161,6 @@ public final class SystemPlanMapPanel extends JPanel {
      * body dot radius (FSS-style scale cue when the map is moderately zoomed in).
      */
     private static final double ZOOM_MAP_GIANT_BODY_DOT = 5.0;
-    /**
-     * Ringed bodies that are not a subsystem hub, sole orbit cluster, or orbit-revolution centre: planetary ring art
-     * only appears from this zoom (× fit) upward so distant moons stay uncluttered when zoomed out.
-     */
-    private static final double ZOOM_MAP_BODY_RINGS = 6.25;
-
-    /** Outer stroke for plan-map planetary rings (behind the body dot; above subsystem hub icon rings). */
-    private static final Color MAP_PLANETARY_RING_OUTER = new Color(255, 45, 45, 245);
-    /** Inner stroke for plan-map planetary rings. */
-    private static final Color MAP_PLANETARY_RING_INNER = new Color(255, 95, 95, 230);
     /** Earth-like and water-family worlds — saturated FSS blue (same on map as in-game scanner dot). */
     private static final Color MAP_FSS_HABITABLE_BLUE_DOT = new Color(0, 0, 255);
     /** Map star core radius vs {@link #mapBodyDotRadiusPx} base (branch stars still use {@code ×1.85} after this). */
@@ -2111,6 +2101,13 @@ public final class SystemPlanMapPanel extends JPanel {
         if (orbitLines == null || orbitLines.isEmpty()) {
             return;
         }
+        /*
+         * At subsystem zoom, keep tight layout spans so moon mutual orbits stay visible on screen. Full setScene
+         * otherwise expands to heliocentric rings and shrinks local strokes below visibility (pause/stop regressions).
+         */
+        if (zoomFactor >= ZOOM_SUBSYSTEM_CENTER_LOCK - 1e-6) {
+            return;
+        }
         double minX = Double.POSITIVE_INFINITY;
         double maxX = Double.NEGATIVE_INFINITY;
         double minY = Double.POSITIVE_INFINITY;
@@ -2182,7 +2179,9 @@ public final class SystemPlanMapPanel extends JPanel {
         double scalePxPerM = screenOrbitScale ? computeScalePixelsPerWorldMetre() : Double.NaN;
         int legacySeg = orbitSegmentsForZoom(zoomFactor);
         int tiltForRebuild = true ? viewTiltDegrees : 0;
-        Instant strokeEpoch = orbitPlaybackActive ? orbitPlaybackEpoch : null;
+        Instant strokeEpoch = orbitPlaybackActive && orbitPlaybackEpoch != null
+                ? orbitPlaybackEpoch
+                : lastSceneOrbitEpoch;
         orbitLines = mapModel != null
                 ? SystemMapPipeline.rebuildOrbitPolylines(mapModel, orbitGeomPositions, legacySeg, scalePxPerM,
                         ringRadiusReferencePositions, tiltForRebuild, strokeEpoch, mapSession)
@@ -2522,7 +2521,8 @@ public final class SystemPlanMapPanel extends JPanel {
             if (e.getKey() == null || e.getValue() == null) {
                 continue;
             }
-            if (e.getValue().isScanBarycentreRow()) {
+            if (e.getValue().isScanBarycentreRow()
+                    || SystemMapRules.isPlanetaryRingMapBody(e.getValue())) {
                 continue;
             }
             double[] p = positions.get(e.getKey());
@@ -2536,6 +2536,7 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         this.orbitPlaybackActive = orbitPlaybackActive;
         syncOrbitPlaybackEpochTracking(orbitPlaybackActive, orbitPositionEpoch);
+        lastSceneOrbitEpoch = orbitPositionEpoch != null ? orbitPositionEpoch : Instant.now();
         this.anchorBodyId = anchorBodyId;
         this.highlightNearBodyId = highlightNearBodyId;
         orbitGeomBodies = bodies;
@@ -2629,6 +2630,38 @@ public final class SystemPlanMapPanel extends JPanel {
     public void syncViewCenterToSubsystemHubAfterOrbitPause() {
         cancelSubsystemProximityHop();
         pendingSubsystemCenterPauseResync = true;
+        repaint();
+    }
+
+    /**
+     * After orbit sim stop rewinds to live time, snap the map view onto the subsystem hub for {@code focusBodyId}
+     * (journal id) so the camera stays on the same cluster at its reset positions.
+     */
+    public void snapViewCenterToSubsystemHubAfterOrbitReset(int focusBodyId) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> snapViewCenterToSubsystemHubAfterOrbitReset(focusBodyId));
+            return;
+        }
+        cancelSubsystemProximityHop();
+        pendingSubsystemCenterPauseResync = false;
+        if (sceneEmpty || dots.isEmpty() || focusBodyId < 0) {
+            return;
+        }
+        int mapKey = resolveMapKeyForBody(focusBodyId);
+        if (mapKey < 0 || orbitGeomBodies == null || !orbitGeomBodies.containsKey(Integer.valueOf(mapKey))) {
+            return;
+        }
+        int hubId = resolveHudTargetSubsystemHub(mapKey);
+        if (hubId < 0) {
+            hubId = mapKey;
+        }
+        double[] xy = new double[2];
+        if (!worldXYForBody(hubId, xy)) {
+            return;
+        }
+        viewCenterWx = xy[0];
+        viewCenterWy = xy[1];
+        subsystemScreenLockHubId = hubId;
         repaint();
     }
 
@@ -3016,9 +3049,9 @@ public final class SystemPlanMapPanel extends JPanel {
                  * Single-pixel draw() on some Windows/Java2D pipelines stays visibly aliased even with AA hints on.
                  */
                 Color orbitBlue = new Color(110, 165, 220);
+                Color orbitBlueDim = new Color(24, 38, 52);
                 BasicStroke orbitStrokeThin = new BasicStroke(1.15f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f);
                 BasicStroke orbitStrokeMoon = new BasicStroke(1.35f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f);
-                g2.setColor(orbitBlue);
                 boolean detailOrbits = showClusterDetail;
                 for (OrbitPolylineWorldXY poly : orbitLines) {
                     if (poly == null || poly.wx == null || poly.wy == null
@@ -3035,6 +3068,9 @@ public final class SystemPlanMapPanel extends JPanel {
                             availH, detailOrbits)) {
                         continue;
                     }
+                    if (skipOrbitPolylineForPlanetaryRingBody(poly)) {
+                        continue;
+                    }
                     BasicStroke orbitStroke = detailOrbits && poly.bodyId > 0 && isMoonOrbitPolyline(poly.bodyId)
                             ? orbitStrokeMoon
                             : orbitStrokeThin;
@@ -3044,33 +3080,8 @@ public final class SystemPlanMapPanel extends JPanel {
                         orbitStroke = new BasicStroke(orbitStroke.getLineWidth(), BasicStroke.CAP_ROUND,
                                 BasicStroke.JOIN_ROUND, 10f, new float[] { 4f, 5f }, 0f);
                     }
-                    Path2D path = new Path2D.Double();
-                    boolean moved = false;
-                    double prevSx = Double.NaN;
-                    double prevSy = Double.NaN;
-                    for (int i = 0; i < poly.wx.length; i++) {
-                        double sx = PAD + availW / 2.0 + (poly.wx[i] - vcx) * scale;
-                        double sy = PAD + availH / 2.0 - (poly.wy[i] - vcy) * scale;
-                        if (!Double.isFinite(sx) || !Double.isFinite(sy)) {
-                            moved = false;
-                            break;
-                        }
-                        if (moved && sx == prevSx && sy == prevSy) {
-                            continue;
-                        }
-                        if (!moved) {
-                            path.moveTo(sx, sy);
-                            moved = true;
-                        } else {
-                            path.lineTo(sx, sy);
-                        }
-                        prevSx = sx;
-                        prevSy = sy;
-                    }
-                    if (moved) {
-                        path.closePath();
-                        g2.fill(orbitStroke.createStrokedShape(path));
-                    }
+                    fillOrbitPolylineStroked(g2, poly, orbitStroke, orbitBlue, orbitBlueDim, vcx,
+                            vcy, scale, availW, availH);
                 }
             }
             if (!showClusterDetail) {
@@ -3110,18 +3121,19 @@ public final class SystemPlanMapPanel extends JPanel {
                         && (d.soleOrbitCluster || subsystemHubLumpBodyIds.contains(Integer.valueOf(d.bodyId)));
                 boolean ringedOrbitCentre = !d.star && mapModel != null
                         && mapModel.isOrbitRevolutionCenter(d.bodyId);
+                BodyInfo mapBody = orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(d.bodyId)) : null;
                 boolean ringsZoomOk = d.hasPlanetaryRings
                         && (ringHubOrSolo || ringedOrbitCentre
-                                || (showClusterDetail && zoomFactor >= ZOOM_MAP_BODY_RINGS));
+                                || showClusterDetail);
                 boolean ringsAfterHubIcon = hubTwinBlueRings;
                 if (ringsZoomOk && !ringsAfterHubIcon) {
                     float ringDecorR = r;
                     if (!showClusterDetail && (ringHubOrSolo || ringedOrbitCentre)) {
                         ringDecorR = Math.max(r, Math.max(bodyR * 0.92f, 4.5f));
                     }
-                    drawPlanetaryRingsDecor(g2, sx, sy, ringDecorR);
+                    drawPlanetaryRingsForBody(g2, d.bodyId, sx, sy, ringDecorR, mapBody, showClusterDetail,
+                            vcx, vcy, scale, availW, availH);
                 }
-                BodyInfo mapBody = orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(d.bodyId)) : null;
                 boolean starHostedRevolutionCentre = ringedOrbitCentre && mapModel != null
                         && mapModel.resolveParentBodyId(d.bodyId) >= 0
                         && orbitGeomBodies != null
@@ -3145,7 +3157,8 @@ public final class SystemPlanMapPanel extends JPanel {
                         }
                         if (ringsZoomOk) {
                             float ringDecorR = Math.max(r, Math.max(bodyR * 0.92f, 4.5f));
-                            drawPlanetaryRingsDecor(g2, sx, sy, ringDecorR);
+                            drawPlanetaryRingsForBody(g2, d.bodyId, sx, sy, ringDecorR, mapBody, showClusterDetail,
+                            vcx, vcy, scale, availW, availH);
                         }
                     }
                 } else if (starHostedRevolutionCentre) {
@@ -3532,30 +3545,37 @@ public final class SystemPlanMapPanel extends JPanel {
         return r;
     }
 
-    /** Zoomed-in: two tilted ellipses approximating ring bands in the map projection. */
-    private static void drawPlanetaryRingsDecor(Graphics2D g2, double sx, double sy, float bodyRadiusPx) {
-        if (bodyRadiusPx <= 0f || !Double.isFinite(sx) || !Double.isFinite(sy)) {
-            return;
+    /** Wide zoom: icon; subsystem detail: journal/EDSM annuli when geometry is available. */
+    private void drawPlanetaryRingsForBody(Graphics2D g2, int bodyId, double sx, double sy, float bodyRadiusPx,
+            BodyInfo body, boolean showClusterDetail, double vcx, double vcy, double scale, double availW,
+            double availH) {
+        PlanetaryRingMapDrawContext ctx = buildPlanetaryRingDrawContext(bodyId, vcx, vcy, scale, availW, availH);
+        if (showClusterDetail && PlanetaryRingMapRenderer.hasAccurateGeometry(body)) {
+            PlanetaryRingMapRenderer.drawAccurate(g2, sx, sy, bodyRadiusPx, body, ctx);
+        } else {
+            PlanetaryRingMapRenderer.drawIcon(g2, sx, sy, bodyRadiusPx, body, ctx);
         }
-        Stroke prevStroke = g2.getStroke();
-        Color prevColor = g2.getColor();
-        try {
-            float cx = (float) sx;
-            float cy = (float) sy;
-            float rw = Math.max(5f, bodyRadiusPx * 2.85f);
-            float rh = Math.max(2f, bodyRadiusPx * 0.92f);
-            g2.setColor(MAP_PLANETARY_RING_OUTER);
-            g2.setStroke(new BasicStroke(Math.max(1.05f, bodyRadiusPx * 0.14f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g2.draw(new Ellipse2D.Float(cx - rw, cy - rh, rw * 2f, rh * 2f));
-            g2.setColor(MAP_PLANETARY_RING_INNER);
-            float rw2 = Math.max(3.5f, bodyRadiusPx * 2.05f);
-            float rh2 = Math.max(1.4f, bodyRadiusPx * 0.62f);
-            g2.setStroke(new BasicStroke(Math.max(0.95f, bodyRadiusPx * 0.11f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g2.draw(new Ellipse2D.Float(cx - rw2, cy - rh2, rw2 * 2f, rh2 * 2f));
-        } finally {
-            g2.setStroke(prevStroke);
-            g2.setColor(prevColor);
+    }
+
+    private PlanetaryRingMapDrawContext buildPlanetaryRingDrawContext(int bodyId, double vcx, double vcy,
+            double scale, double availW, double availH) {
+        if (orbitGeomPositions == null || bodyId < 0) {
+            return null;
         }
+        double[] hostWorld = orbitGeomPositions.get(Integer.valueOf(bodyId));
+        if (hostWorld == null) {
+            return null;
+        }
+        return new PlanetaryRingMapDrawContext(
+                hostWorld, mapProjA0, mapProjA1, viewTiltDegrees, vcx, vcy, scale, PAD, availW, availH);
+    }
+
+    private boolean skipOrbitPolylineForPlanetaryRingBody(OrbitPolylineWorldXY poly) {
+        if (poly == null || poly.bodyId <= 0 || orbitGeomBodies == null) {
+            return false;
+        }
+        BodyInfo body = orbitGeomBodies.get(Integer.valueOf(poly.bodyId));
+        return SystemOrbitGeometry.isPlanetaryRingMapBody(body);
     }
 
     private static String resolveMapSystemName(Map<Integer, BodyInfo> bodies) {
@@ -4434,7 +4454,11 @@ public final class SystemPlanMapPanel extends JPanel {
         for (BodyDot d : dots) {
             if (d != null && d.bodyId == lump.hubBodyId && d.hasPlanetaryRings) {
                 float ringDecorR = Math.max(bodyR * 0.92f, 4.5f);
-                drawPlanetaryRingsDecor(g2, sx, sy, ringDecorR);
+                BodyInfo hubBody = orbitGeomBodies != null
+                        ? orbitGeomBodies.get(Integer.valueOf(lump.hubBodyId))
+                        : null;
+                drawPlanetaryRingsForBody(g2, lump.hubBodyId, sx, sy, ringDecorR, hubBody, false,
+                        vcx, vcy, scale, availW, availH);
                 break;
             }
         }
@@ -5133,6 +5157,64 @@ public final class SystemPlanMapPanel extends JPanel {
         return maxR / SystemOrbitGeometry.LIGHT_SECOND_METRES;
     }
 
+    private static Color orbitStrokeColorAtSeparation(Color bright, Color dim, double separationFraction) {
+        float t = (float) Math.max(0.0, Math.min(1.0, separationFraction));
+        return new Color(
+                clampColorChannel(bright.getRed() + t * (dim.getRed() - bright.getRed())),
+                clampColorChannel(bright.getGreen() + t * (dim.getGreen() - bright.getGreen())),
+                clampColorChannel(bright.getBlue() + t * (dim.getBlue() - bright.getBlue())));
+    }
+
+    private static int clampColorChannel(double v) {
+        return (int) Math.round(Math.max(0.0, Math.min(255.0, v)));
+    }
+
+    /**
+     * Filled stroked orbit segments. When journal period and mean anomaly exist, shade by temporal distance from the
+     * body's current phase (bright at now, dim half an orbit away).
+     */
+    private void fillOrbitPolylineStroked(Graphics2D g2, OrbitPolylineWorldXY poly, BasicStroke orbitStroke,
+            Color orbitBright, Color orbitDim, double vcx, double vcy, double scale,
+            double availW, double availH) {
+        if (poly == null || poly.wx == null || poly.wy == null || poly.wx.length < 2
+                || poly.wy.length != poly.wx.length) {
+            return;
+        }
+        BodyInfo body = orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(poly.bodyId)) : null;
+        boolean timeColor = SystemOrbitGeometry.orbitStrokeSupportsTimeColoring(body);
+        double[] bodyXY = new double[2];
+        int anchorVertex = 0;
+        if (timeColor && worldXYForBody(poly.bodyId, bodyXY)) {
+            anchorVertex = SystemOrbitGeometry.orbitPolylineNearestVertexIndex(
+                    poly.wx, poly.wy, bodyXY[0], bodyXY[1]);
+        }
+        int n = poly.wx.length;
+        for (int i = 0; i < n; i++) {
+            int j = (i + 1) % n;
+            double sx0 = PAD + availW / 2.0 + (poly.wx[i] - vcx) * scale;
+            double sy0 = PAD + availH / 2.0 - (poly.wy[i] - vcy) * scale;
+            double sx1 = PAD + availW / 2.0 + (poly.wx[j] - vcx) * scale;
+            double sy1 = PAD + availH / 2.0 - (poly.wy[j] - vcy) * scale;
+            if (!Double.isFinite(sx0) || !Double.isFinite(sy0) || !Double.isFinite(sx1) || !Double.isFinite(sy1)) {
+                continue;
+            }
+            if (sx0 == sx1 && sy0 == sy1) {
+                continue;
+            }
+            Color segmentColor = orbitBright;
+            if (timeColor) {
+                double sep = SystemOrbitGeometry.orbitStrokePolylinePhaseSeparationFraction(
+                        i, j, anchorVertex, n);
+                segmentColor = orbitStrokeColorAtSeparation(orbitBright, orbitDim, sep);
+            }
+            Path2D segment = new Path2D.Double();
+            segment.moveTo(sx0, sy0);
+            segment.lineTo(sx1, sy1);
+            g2.setColor(segmentColor);
+            g2.fill(orbitStroke.createStrokedShape(segment));
+        }
+    }
+
     /**
      * Stagger label anchors so clustered bodies do not share one diagonal. Slot mixes body id and label text so
      * nearby moons (e.g. {@code 1 c} vs {@code 1 d}) rarely pick the same direction. Keeps text close to the dot.
@@ -5519,6 +5601,53 @@ public final class SystemPlanMapPanel extends JPanel {
         return new ResolvedSubsystemHub(hub, tx, ty);
     }
 
+    private ResolvedSubsystemHub resolvedSubsystemHubForBodyId(int hubId) {
+        if (hubId < 0 || orbitGeomBodies == null || !orbitGeomBodies.containsKey(Integer.valueOf(hubId))) {
+            return null;
+        }
+        double[] xy = new double[2];
+        if (!worldXYForBody(hubId, xy)) {
+            return null;
+        }
+        return new ResolvedSubsystemHub(hubId, xy[0], xy[1]);
+    }
+
+    /**
+     * Pick a subsystem hub for orbit-playback follow without requiring the hub to stay inside the current viewport
+     * (high d/s heliocentric motion can outrun viewport-based picking).
+     */
+    private ResolvedSubsystemHub tryAcquireSubsystemFollowHubForPlayback(double availW, double availH, double scale) {
+        if (highlightNearBodyId != null && highlightNearBodyId.intValue() >= 0
+                && orbitGeomBodies.containsKey(highlightNearBodyId)) {
+            int hub = resolveHudTargetSubsystemHub(highlightNearBodyId.intValue());
+            if (hub < 0) {
+                hub = highlightNearBodyId.intValue();
+            }
+            ResolvedSubsystemHub h = resolvedSubsystemHubForBodyId(hub);
+            if (h != null) {
+                return h;
+            }
+        }
+        if (subsystemScreenLockHubId >= 0) {
+            ResolvedSubsystemHub h = resolvedSubsystemHubForBodyId(subsystemScreenLockHubId);
+            if (h != null) {
+                return h;
+            }
+        }
+        int nearest = nearestPlottedBodyIdToWorldPoint(viewCenterWx, viewCenterWy);
+        if (nearest >= 0) {
+            int hub = resolveHudTargetSubsystemHub(nearest);
+            if (hub < 0) {
+                hub = nearest;
+            }
+            ResolvedSubsystemHub h = resolvedSubsystemHubForBodyId(hub);
+            if (h != null) {
+                return h;
+            }
+        }
+        return tryResolveSubsystemFollowHub(availW, availH, scale, false);
+    }
+
     /**
      * Per mouse-wheel zoom-in step: move {@link #viewCenterWx}/{@link #viewCenterWy} partway toward the subsystem hub.
      * Blend increases with {@link #zoomFactor} so shallow zoom-in is gentle and max zoom is almost a full snap.
@@ -5715,7 +5844,7 @@ public final class SystemPlanMapPanel extends JPanel {
         int plotH = Math.max(88, h - MAP_BOTTOM_INSET);
         double availW = w - 2.0 * PAD;
         double availH = plotH - 2.0 * PAD;
-        ResolvedSubsystemHub hub = tryResolveSubsystemFollowHub(availW, availH, scale, false);
+        ResolvedSubsystemHub hub = tryAcquireSubsystemFollowHubForPlayback(availW, availH, scale);
         if (hub == null) {
             subsystemScreenLockHubId = -1;
             return;
@@ -6839,6 +6968,9 @@ public final class SystemPlanMapPanel extends JPanel {
                     ctx.availW, ctx.availH, detailOrbits)) {
                 continue;
             }
+            if (skipOrbitPolylineForPlanetaryRingBody(poly)) {
+                continue;
+            }
             double distSq = minDistSqToClosedPolylineScreen(poly, ctx, px, py);
             if (distSq < bestDistSq) {
                 bestDistSq = distSq;
@@ -7320,7 +7452,7 @@ public final class SystemPlanMapPanel extends JPanel {
             boolean ringedOrbitCentre = !d.star && mapModel != null
                     && mapModel.isOrbitRevolutionCenter(bodyId);
             return ringHubOrSolo || ringedOrbitCentre
-                    || (showClusterDetail && zoomFactor >= ZOOM_MAP_BODY_RINGS);
+                    || showClusterDetail;
         }
         return false;
     }

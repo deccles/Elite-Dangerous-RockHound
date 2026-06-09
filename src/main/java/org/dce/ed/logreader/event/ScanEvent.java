@@ -48,10 +48,18 @@ public final class ScanEvent extends EliteLogEvent {
     public static final class RingInfo {
         private final String name;
         private final String ringClass;
+        private final Double innerRadM;
+        private final Double outerRadM;
 
         public RingInfo(String name, String ringClass) {
+            this(name, ringClass, null, null);
+        }
+
+        public RingInfo(String name, String ringClass, Double innerRadM, Double outerRadM) {
             this.name = name;
             this.ringClass = ringClass;
+            this.innerRadM = innerRadM;
+            this.outerRadM = outerRadM;
         }
 
         /** Journal {@code Name} (may be null). */
@@ -62,6 +70,20 @@ public final class ScanEvent extends EliteLogEvent {
         /** Journal {@code RingClass} (e.g. MetalRich, Icy). */
         public String getRingClass() {
             return ringClass;
+        }
+
+        public Double getInnerRadM() {
+            return innerRadM;
+        }
+
+        public Double getOuterRadM() {
+            return outerRadM;
+        }
+
+        public boolean hasGeometry() {
+            return innerRadM != null && outerRadM != null
+                    && innerRadM.doubleValue() > 0
+                    && outerRadM.doubleValue() > innerRadM.doubleValue();
         }
     }
 
@@ -112,6 +134,10 @@ private final String terraformState;
     private final String reserveLevel;
     /** Journal {@code ScanType} (e.g. {@code AutoScan}, {@code Detailed}); may be null on older lines. */
     private final String scanType;
+    /** Host body radius in metres ({@code Radius}). */
+    private final Double radius;
+    /** Journal {@code AxialTilt} in degrees. */
+    private final Double axialTilt;
 
     public ScanEvent(Instant timestamp,
                      JsonObject rawJson,
@@ -144,7 +170,9 @@ private final String terraformState;
                      List<ParentRef> parents,
                      List<RingInfo> rings,
                      String reserveLevel,
-                     String scanType) {
+                     String scanType,
+                     Double radius,
+                     Double axialTilt) {
 
         super(timestamp, EliteEventType.SCAN, rawJson);
         this.bodyName = bodyName;
@@ -178,6 +206,8 @@ private final String terraformState;
         this.rings = (rings == null) ? Collections.emptyList() : rings;
         this.reserveLevel = reserveLevel;
         this.scanType = scanType;
+        this.radius = radius;
+        this.axialTilt = axialTilt;
     }
 
     /** Raw journal {@code ScanType}, or null if absent. */
@@ -308,6 +338,14 @@ private final String terraformState;
     /** Raw journal {@code ReserveLevel} for the body's ring system (may be null). */
     public String getReserveLevel() {
         return reserveLevel;
+    }
+
+    public Double getRadius() {
+        return radius;
+    }
+
+    public Double getAxialTilt() {
+        return axialTilt;
     }
 
 }

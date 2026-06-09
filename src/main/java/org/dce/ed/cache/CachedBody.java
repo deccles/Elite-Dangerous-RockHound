@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
+import org.dce.ed.state.PlanetaryRingBand;
 import org.dce.ed.util.SpanshLandmark;
 
 /**
@@ -126,6 +127,13 @@ public class CachedBody {
 
 	/** Journal reserve (Pristine, …) for annotating ring lines that lack quality. */
 	public String ringReserveHumanized;
+
+	/** Journal / EDSM ring band geometry (metres from host centre). */
+	public List<PlanetaryRingBand> planetaryRingBands;
+
+	public Double radius;
+
+	public Double axialTilt;
 
 	/** Genus/species names from Spansh landmarks (community-recorded biology). Kept separate from {@link #predictions} (our scan/model prediction). */
 	public List<String> spanshPredictedGenera;

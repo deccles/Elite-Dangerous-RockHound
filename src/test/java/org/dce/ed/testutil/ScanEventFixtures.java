@@ -50,6 +50,8 @@ public final class ScanEventFixtures {
                 parents,
                 Collections.emptyList(),
                 null,
+                null,
+                null,
                 null);
     }
 
@@ -86,6 +88,8 @@ public final class ScanEventFixtures {
                 starType,
                 parents,
                 Collections.emptyList(),
+                null,
+                null,
                 null,
                 null);
     }
