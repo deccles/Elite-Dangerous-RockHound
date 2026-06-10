@@ -165,6 +165,14 @@ public class SystemTabPanel extends JPanel {
     private final JScrollPane systemBodyScrollPane;
     /** Resizable split between bodies table (top) and plan map (bottom), like Mining tab dividers. */
     private JSplitPane systemTableMapSplit;
+    /** Suppresses divider-move persistence while the divider is positioned programmatically. */
+    private boolean systemSplitProgrammaticChange;
+    /**
+     * True until the saved split ratio is first applied at a real size. Swing's first layout places the divider
+     * from preferred sizes and fires the same property change as a user drag; saving that would clobber the
+     * stored ratio before it is ever restored.
+     */
+    private boolean systemSplitInitialRestorePending = true;
     /** Map toolbar (kept visible when the plan map canvas is collapsed to the tab bottom). */
     private JPanel systemPlanMapToolbar;
     /** Collapse / restore plan map height (toolbar stays docked at bottom). */
@@ -1049,7 +1057,12 @@ public class SystemTabPanel extends JPanel {
         double tableSplitRatio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
         systemTableMapSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tablePane, mapColumn);
         EdoMiningSplitPaneUi.install(systemTableMapSplit);
-        configureSystemTableMapSplit(systemTableMapSplit, tableSplitRatio);
+        systemSplitProgrammaticChange = true;
+        try {
+            configureSystemTableMapSplit(systemTableMapSplit, tableSplitRatio);
+        } finally {
+            systemSplitProgrammaticChange = false;
+        }
         systemTableMapSplit.addPropertyChangeListener(evt -> {
             if (!JSplitPane.DIVIDER_LOCATION_PROPERTY.equals(evt.getPropertyName())) {
                 return;
@@ -1062,12 +1075,18 @@ public class SystemTabPanel extends JPanel {
                 if (systemTableMapSplit == null || systemTableMapSplit.getHeight() < 32) {
                     return;
                 }
-                if (systemPlanMapCollapsed) {
-                    applySystemPlanMapCollapsedDivider();
-                } else {
-                    double ratio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
-                    systemTableMapSplit.setResizeWeight(ratio);
-                    systemTableMapSplit.setDividerLocation(ratio);
+                systemSplitProgrammaticChange = true;
+                try {
+                    if (systemPlanMapCollapsed) {
+                        applySystemPlanMapCollapsedDivider();
+                    } else {
+                        double ratio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
+                        systemTableMapSplit.setResizeWeight(ratio);
+                        systemTableMapSplit.setDividerLocation(ratio);
+                        systemSplitInitialRestorePending = false;
+                    }
+                } finally {
+                    systemSplitProgrammaticChange = false;
                 }
                 EdoMiningSplitPaneUi.applyDividerTheme(systemTableMapSplit);
             }
@@ -2759,7 +2778,12 @@ public class SystemTabPanel extends JPanel {
         systemPlanMapSplitRatioBeforeCollapse = computeVerticalSplitRatio(systemTableMapSplit);
         systemPlanMapCollapsed = true;
         systemPlanMapPanel.setVisible(false);
-        applySystemPlanMapCollapsedDivider();
+        systemSplitProgrammaticChange = true;
+        try {
+            applySystemPlanMapCollapsedDivider();
+        } finally {
+            systemSplitProgrammaticChange = false;
+        }
         updateSystemPlanMapCollapseButtons();
         revalidate();
         repaint();
@@ -2775,7 +2799,12 @@ public class SystemTabPanel extends JPanel {
         if (ratio < 0.05 || ratio > 0.95) {
             ratio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
         }
-        configureSystemTableMapSplit(systemTableMapSplit, ratio);
+        systemSplitProgrammaticChange = true;
+        try {
+            configureSystemTableMapSplit(systemTableMapSplit, ratio);
+        } finally {
+            systemSplitProgrammaticChange = false;
+        }
         updateSystemPlanMapCollapseButtons();
         revalidate();
         repaint();
@@ -2808,7 +2837,7 @@ public class SystemTabPanel extends JPanel {
     }
 
     private void onSystemTableMapDividerMoved() {
-        if (systemTableMapSplit == null) {
+        if (systemTableMapSplit == null || systemSplitProgrammaticChange) {
             return;
         }
         if (systemPlanMapCollapsed) {
@@ -5973,7 +6002,8 @@ static class Row {
     }
 
     private void saveSystemTableMapSplitRatio() {
-        if (systemPlanMapCollapsed || systemTableMapSplit == null || systemTableMapSplit.getHeight() < 32) {
+        if (systemPlanMapCollapsed || systemTableMapSplit == null || systemTableMapSplit.getHeight() < 32
+                || systemSplitInitialRestorePending || !systemTableMapSplit.isShowing()) {
             return;
         }
         double ratio = computeVerticalSplitRatio(systemTableMapSplit);

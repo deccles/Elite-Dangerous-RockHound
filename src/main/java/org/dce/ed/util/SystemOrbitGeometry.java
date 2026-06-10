@@ -1845,14 +1845,25 @@ public final class SystemOrbitGeometry {
 
         double[] wx = new double[n];
         double[] wy = new double[n];
+        int[] fadeAnchors;
         if (trueScale && ringAnchorAWorld != null && ringAnchorBWorld != null
                 && isFiniteXYZ(ringAnchorAWorld) && isFiniteXYZ(ringAnchorBWorld)) {
             fillCircleThroughTwoWorldAnchors(wx, wy, ringAnchorAWorld, ringAnchorBWorld, p0, p1, viewTiltDeg);
+            // fillCircleThroughTwoWorldAnchors parameterization: vertex 0 = anchor B, n/2 = anchor A.
+            fadeAnchors = new int[] { 0, n / 2 };
         } else {
             double[] centerWorld = mapPlaneCentreToWorldMetres(cx, cy, p0, p1);
             fillMapPlaneCircleVertices(wx, wy, centerWorld, radiusM, p0, p1, viewTiltDeg);
+            fadeAnchors = new int[baryStarProj.size()];
+            for (int i = 0; i < baryStarProj.size(); i++) {
+                double[] p = baryStarProj.get(i);
+                fadeAnchors[i] = ringVertexIndexAtMapPlaneAngle(Math.atan2(p[1] - cy, p[0] - cx), n);
+            }
+            if (fadeAnchors.length == 0) {
+                fadeAnchors = null;
+            }
         }
-        out.add(new OrbitPolylineWorldXY(BINARY_BARYCENTRE_ORBIT_RING_BODY_ID, wx, wy));
+        out.add(new OrbitPolylineWorldXY(BINARY_BARYCENTRE_ORBIT_RING_BODY_ID, wx, wy, false, fadeAnchors));
     }
 
     private static double[] meanWorldMetresForBodyIds(Map<Integer, double[]> bodyWorldPositions,
@@ -4685,14 +4696,13 @@ public final class SystemOrbitGeometry {
     }
 
     /** Map-plane centroid of non-moon bodies sharing a Null barycentre (for mutual-orbit ring placement). */
-    private static double[] planetBinaryMemberCentroidWorldXY(int journalNullParentId, Map<Integer, BodyInfo> bodies,
-            Map<Integer, double[]> bodyWorldPositions, int p0, int p1) {
+    /** Current map-plane {@code (x, y)} of each planet-binary member at {@code journalNullParentId}. */
+    private static List<double[]> planetBinaryMemberMapPlanePositions(int journalNullParentId,
+            Map<Integer, BodyInfo> bodies, Map<Integer, double[]> bodyWorldPositions, int p0, int p1) {
+        List<double[]> members = new ArrayList<>();
         if (bodies == null || bodyWorldPositions == null) {
-            return null;
+            return members;
         }
-        double sx = 0.0;
-        double sy = 0.0;
-        int n = 0;
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
             if (e.getKey() == null || e.getValue() == null) {
                 continue;
@@ -4723,8 +4733,21 @@ public final class SystemOrbitGeometry {
             if (!Double.isFinite(x) || !Double.isFinite(y)) {
                 continue;
             }
-            sx += x;
-            sy += y;
+            members.add(new double[] { x, y });
+        }
+        return members;
+    }
+
+    private static double[] planetBinaryMemberCentroidWorldXY(int journalNullParentId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, double[]> bodyWorldPositions, int p0, int p1) {
+        List<double[]> members = planetBinaryMemberMapPlanePositions(journalNullParentId, bodies,
+                bodyWorldPositions, p0, p1);
+        double sx = 0.0;
+        double sy = 0.0;
+        int n = 0;
+        for (double[] m : members) {
+            sx += m[0];
+            sy += m[1];
             n++;
         }
         if (n < 2) {
@@ -5286,8 +5309,25 @@ public final class SystemOrbitGeometry {
             double[] wy = new double[n];
             fillMapPlaneCircleVertices(wx, wy, starPos, radM, p0, p1, viewTiltDeg);
             int ringId = PLANET_BINARY_OUTER_ORBIT_RING_ID_BASE - nullId;
-            out.add(new OrbitPolylineWorldXY(ringId, wx, wy));
+            out.add(new OrbitPolylineWorldXY(ringId, wx, wy, false,
+                    hubFadeAnchorVertexIndices(bodyWorldPositions, nullId, starPos, p0, p1, n)));
         }
+    }
+
+    /** Single fade anchor at the barycentre hub's current map-plane bearing from the ring centre; null if unknown. */
+    private static int[] hubFadeAnchorVertexIndices(Map<Integer, double[]> bodyWorldPositions, int nullId,
+            double[] centerPos, int p0, int p1, int n) {
+        double[] hubPos = bodyWorldPositions.get(Integer.valueOf(planetBinaryBarycentreMapKey(nullId)));
+        int needLen = Math.max(p0, p1) + 1;
+        if (hubPos == null || hubPos.length < needLen || centerPos == null || centerPos.length < needLen) {
+            return null;
+        }
+        double dx = worldAxisMetres(hubPos, p0) - worldAxisMetres(centerPos, p0);
+        double dy = worldAxisMetres(hubPos, p1) - worldAxisMetres(centerPos, p1);
+        if (!Double.isFinite(dx) || !Double.isFinite(dy) || Math.hypot(dx, dy) < 1.0) {
+            return null;
+        }
+        return new int[] { ringVertexIndexAtMapPlaneAngle(Math.atan2(dy, dx), n) };
     }
 
     /**
@@ -5335,7 +5375,8 @@ public final class SystemOrbitGeometry {
             double[] wy = new double[n];
             fillMapPlaneCircleVertices(wx, wy, hostPos, radM, p0, p1, viewTiltDeg);
             int ringId = PLANET_BINARY_OUTER_ORBIT_RING_ID_BASE - nullId;
-            out.add(new OrbitPolylineWorldXY(ringId, wx, wy));
+            out.add(new OrbitPolylineWorldXY(ringId, wx, wy, false,
+                    hubFadeAnchorVertexIndices(bodyWorldPositions, nullId, hostPos, p0, p1, n)));
         }
     }
 
@@ -5390,7 +5431,20 @@ public final class SystemOrbitGeometry {
             double[] wx = new double[n];
             double[] wy = new double[n];
             fillMapPlaneCircleVertices(wx, wy, centerWorld, radM, p0, p1, viewTiltDeg);
-            out.add(new OrbitPolylineWorldXY(PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - nullId, wx, wy));
+            List<double[]> members = planetBinaryMemberMapPlanePositions(nullId, bodies, bodyWorldPositions,
+                    p0, p1);
+            int[] fadeAnchors = null;
+            if (!members.isEmpty()) {
+                double ccx = worldAxisMetres(centerWorld, p0);
+                double ccy = worldAxisMetres(centerWorld, p1);
+                fadeAnchors = new int[members.size()];
+                for (int mi = 0; mi < members.size(); mi++) {
+                    double[] m = members.get(mi);
+                    fadeAnchors[mi] = ringVertexIndexAtMapPlaneAngle(Math.atan2(m[1] - ccy, m[0] - ccx), n);
+                }
+            }
+            out.add(new OrbitPolylineWorldXY(PLANET_BINARY_MUTUAL_ORBIT_RING_ID_BASE - nullId, wx, wy, false,
+                    fadeAnchors));
         }
     }
 
@@ -6645,16 +6699,27 @@ public final class SystemOrbitGeometry {
         public final double[] wy;
         /** Dashed stroke when position/orbit radius was invented (missing journal elements). */
         public final boolean estimated;
+        /**
+         * Vertex indices shaded bright ("now") on synthetic guide rings whose body id has no journal phase data
+         * (barycentre / mutual rings: the member bodies' current positions). {@code null} = no fade shading.
+         */
+        public final int[] fadeAnchorVertexIndices;
 
         public OrbitPolylineWorldXY(int bodyId, double[] wx, double[] wy) {
-            this(bodyId, wx, wy, false);
+            this(bodyId, wx, wy, false, null);
         }
 
         public OrbitPolylineWorldXY(int bodyId, double[] wx, double[] wy, boolean estimated) {
+            this(bodyId, wx, wy, estimated, null);
+        }
+
+        public OrbitPolylineWorldXY(int bodyId, double[] wx, double[] wy, boolean estimated,
+                int[] fadeAnchorVertexIndices) {
             this.bodyId = bodyId;
             this.wx = wx;
             this.wy = wy;
             this.estimated = estimated;
+            this.fadeAnchorVertexIndices = fadeAnchorVertexIndices;
         }
     }
 
@@ -7163,6 +7228,37 @@ public final class SystemOrbitGeometry {
         double d1 = orbitPolylineCircularVertexDistance(segmentEndVertex, anchorVertexIndex, vertexCount);
         double halfRing = vertexCount / 2.0;
         return clamp(Math.min(d0, d1) / halfRing, 0.0, 1.0);
+    }
+
+    /**
+     * Phase separation with multiple bright anchors (mutual / barycentre guide rings shade bright at every member
+     * body): {@code 0} at the nearest anchor, {@code 1} at the point farthest from all of them (assumes roughly
+     * even anchor spacing, e.g. opposite members of a mutual ring).
+     */
+    public static double orbitStrokePolylineMultiAnchorPhaseSeparationFraction(
+            int segmentStartVertex, int segmentEndVertex, int[] anchorVertexIndices, int vertexCount) {
+        if (vertexCount <= 1 || anchorVertexIndices == null || anchorVertexIndices.length == 0) {
+            return 0.0;
+        }
+        double best = Double.POSITIVE_INFINITY;
+        for (int anchor : anchorVertexIndices) {
+            double d0 = orbitPolylineCircularVertexDistance(segmentStartVertex, anchor, vertexCount);
+            double d1 = orbitPolylineCircularVertexDistance(segmentEndVertex, anchor, vertexCount);
+            best = Math.min(best, Math.min(d0, d1));
+        }
+        double dimRange = vertexCount / (2.0 * anchorVertexIndices.length);
+        return clamp(best / dimRange, 0.0, 1.0);
+    }
+
+    /**
+     * Vertex index at map-plane angle {@code thetaRad} for guide rings sampled {@code theta_i = 2*pi*i/n}
+     * ({@link #fillMapPlaneCircleVertices}). View tilt projects all vertices alike, so index mapping survives it.
+     */
+    private static int ringVertexIndexAtMapPlaneAngle(double thetaRad, int n) {
+        if (n <= 0 || !Double.isFinite(thetaRad)) {
+            return 0;
+        }
+        return Math.floorMod((int) Math.round(thetaRad * n / (Math.PI * 2.0)), n);
     }
 
     /**
@@ -9775,7 +9871,9 @@ public final class SystemOrbitGeometry {
         double[] wy = new double[n];
         double[] centerWorld = mapPlaneCentreToWorldMetres(cx, cy, p0, p1);
         fillMapPlaneCircleVertices(wx, wy, centerWorld, halfSepM, p0, p1, viewTiltDeg);
-        out.add(new OrbitPolylineWorldXY(strokeBodyId, wx, wy));
+        int anchorA = ringVertexIndexAtMapPlaneAngle(Math.atan2(ay - cy, ax - cx), n);
+        out.add(new OrbitPolylineWorldXY(strokeBodyId, wx, wy, false,
+                new int[] { anchorA, (anchorA + n / 2) % n }));
     }
 
     /** Map-plane centre {@code (u,v)} on axes {@code p0}/{@code p1} as a 3D world position for view-tilted rings. */

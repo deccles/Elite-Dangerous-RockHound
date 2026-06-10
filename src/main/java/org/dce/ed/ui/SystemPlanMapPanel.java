@@ -3106,11 +3106,10 @@ public final class SystemPlanMapPanel extends JPanel {
                         orbitStroke = new BasicStroke(orbitStroke.getLineWidth(), BasicStroke.CAP_BUTT,
                                 BasicStroke.JOIN_ROUND, 10f, GUIDE_RING_DASH_PATTERN, 0f);
                     }
-                    if (dashedGuide && !orbitPolylineSupportsTimeColoring(poly.bodyId)) {
+                    if (dashedGuide && orbitPolylineFadeAnchorVertices(poly) == null) {
                         /*
-                         * Dash phase must run continuously around the ring: per-segment stroking restarts the
-                         * dash at every vertex, and at high zoom segments are shorter than one dash period, so
-                         * the ring paints solid.
+                         * No fade anchors (placeholder ring without member positions): draw as one closed path
+                         * so the dash phase still runs continuously around the ring.
                          */
                         fillOrbitPolylineDashedClosedPath(g2, poly, orbitStroke, orbitBlue, vcx, vcy, scale,
                                 availW, availH);
@@ -5208,12 +5207,6 @@ public final class SystemPlanMapPanel extends JPanel {
     /** Screen-space dash pattern for barycentre/guide rings; constant px regardless of zoom. */
     private static final float[] GUIDE_RING_DASH_PATTERN = { 7f, 8f };
 
-    /** Whether this polyline's stroke is shaded by orbital phase (needs a journal body with period + anomaly). */
-    private boolean orbitPolylineSupportsTimeColoring(int polyBodyId) {
-        BodyInfo body = orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(polyBodyId)) : null;
-        return SystemOrbitGeometry.orbitStrokeSupportsTimeColoring(body);
-    }
-
     /**
      * Dashed guide ring as one closed path so the dash phase runs continuously around the ring. Fills the
      * stroked outline (not {@code draw()}) for the same AA reasons as {@link #fillOrbitPolylineStroked}.
@@ -5260,15 +5253,20 @@ public final class SystemPlanMapPanel extends JPanel {
                 || poly.wy.length != poly.wx.length) {
             return;
         }
-        BodyInfo body = orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(poly.bodyId)) : null;
-        boolean timeColor = SystemOrbitGeometry.orbitStrokeSupportsTimeColoring(body);
-        double[] bodyXY = new double[2];
-        int anchorVertex = 0;
-        if (timeColor && worldXYForBody(poly.bodyId, bodyXY)) {
-            anchorVertex = SystemOrbitGeometry.orbitPolylineNearestVertexIndex(
-                    poly.wx, poly.wy, bodyXY[0], bodyXY[1]);
-        }
         int n = poly.wx.length;
+        int[] fadeAnchors = orbitPolylineFadeAnchorVertices(poly);
+        /*
+         * Dashed strokes: per-segment stroking restarts the dash at every vertex (rings paint solid at high
+         * zoom), so carry the dash phase across segments via cumulative screen-space arc length.
+         */
+        float[] dashArray = orbitStroke.getDashArray();
+        double dashPeriod = 0.0;
+        if (dashArray != null) {
+            for (float d : dashArray) {
+                dashPeriod += d;
+            }
+        }
+        double cumLen = 0.0;
         for (int i = 0; i < n; i++) {
             int j = (i + 1) % n;
             double sx0 = PAD + availW / 2.0 + (poly.wx[i] - vcx) * scale;
@@ -5282,17 +5280,51 @@ public final class SystemPlanMapPanel extends JPanel {
                 continue;
             }
             Color segmentColor = orbitBright;
-            if (timeColor) {
-                double sep = SystemOrbitGeometry.orbitStrokePolylinePhaseSeparationFraction(
-                        i, j, anchorVertex, n);
+            if (fadeAnchors != null) {
+                double sep = SystemOrbitGeometry.orbitStrokePolylineMultiAnchorPhaseSeparationFraction(
+                        i, j, fadeAnchors, n);
                 segmentColor = orbitStrokeColorAtSeparation(orbitBright, orbitDim, sep);
+            }
+            BasicStroke segmentStroke = orbitStroke;
+            if (dashArray != null && dashPeriod > 0.0) {
+                segmentStroke = new BasicStroke(orbitStroke.getLineWidth(), orbitStroke.getEndCap(),
+                        orbitStroke.getLineJoin(), orbitStroke.getMiterLimit(), dashArray,
+                        (float) (cumLen % dashPeriod));
+                cumLen += Math.hypot(sx1 - sx0, sy1 - sy0);
             }
             Path2D segment = new Path2D.Double();
             segment.moveTo(sx0, sy0);
             segment.lineTo(sx1, sy1);
             g2.setColor(segmentColor);
-            g2.fill(orbitStroke.createStrokedShape(segment));
+            g2.fill(segmentStroke.createStrokedShape(segment));
         }
+    }
+
+    /**
+     * Bright-"now" vertices for orbit stroke fading: the body's current map position when journal phase data
+     * exists (or the ring is estimated but the body is placed), else member anchors baked into synthetic
+     * barycentre / mutual guide rings. {@code null} = uniform stroke.
+     */
+    private int[] orbitPolylineFadeAnchorVertices(OrbitPolylineWorldXY poly) {
+        BodyInfo body = orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(poly.bodyId)) : null;
+        boolean timeColor = SystemOrbitGeometry.orbitStrokeSupportsTimeColoring(body);
+        double[] bodyXY = new double[2];
+        if (timeColor) {
+            int anchorVertex = 0;
+            if (worldXYForBody(poly.bodyId, bodyXY)) {
+                anchorVertex = SystemOrbitGeometry.orbitPolylineNearestVertexIndex(
+                        poly.wx, poly.wy, bodyXY[0], bodyXY[1]);
+            }
+            return new int[] { anchorVertex };
+        }
+        if (poly.fadeAnchorVertexIndices != null && poly.fadeAnchorVertexIndices.length > 0) {
+            return poly.fadeAnchorVertexIndices;
+        }
+        if (poly.estimated && body != null && worldXYForBody(poly.bodyId, bodyXY)) {
+            return new int[] { SystemOrbitGeometry.orbitPolylineNearestVertexIndex(
+                    poly.wx, poly.wy, bodyXY[0], bodyXY[1]) };
+        }
+        return null;
     }
 
     /**
