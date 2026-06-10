@@ -1265,6 +1265,9 @@ public final class SystemOrbitGeometry {
             if (!isMapStellarBody(b) && isPlanetBinaryBarycentreMapKey(pId)) {
                 continue;
             }
+            if (shouldSkipOwnOrbitStrokeForInnerArrivalWideBinary(bodyId, b, bodies, pId)) {
+                continue;
+            }
             double[] bodyPos = bodyWorldPositions.get(Integer.valueOf(bodyId));
             if (bodyPos == null || bodyPos.length < 2) {
                 continue;
@@ -2648,6 +2651,20 @@ public final class SystemOrbitGeometry {
                 if (isSpectralTypeLetter(c)) {
                     double d = b.getDistanceLs();
                     if (Double.isFinite(d) && d <= 1.0) {
+                        /*
+                         * Letter-branch primary ({code … A} at 0 Ls) is a named star, not the arrival * alias.
+                         * Spectral-only short names (M/K at arrival) use the system name without a branch suffix.
+                         */
+                        String full = firstNonBlank(b.getBodyName(), shortName);
+                        if (full != null) {
+                            String trimmed = full.trim();
+                            String branchSuffix = " " + sn;
+                            if (trimmed.length() >= branchSuffix.length()
+                                    && trimmed.regionMatches(true, trimmed.length() - branchSuffix.length(),
+                                            branchSuffix, 0, branchSuffix.length())) {
+                                return false;
+                            }
+                        }
                         return true;
                     }
                 }
@@ -3245,6 +3262,7 @@ public final class SystemOrbitGeometry {
     public static boolean isBarycentreAssociatedOrbitRingBodyId(int bodyId) {
         return isPlanetBinaryBarycentreMapKey(bodyId)
                 || bodyId == BINARY_BARYCENTRE_ORBIT_RING_BODY_ID
+                || bodyId == HIERARCHICAL_INNER_STELLAR_PAIR_POLYLINE_ID
                 || isPlanetBinaryMutualOrbitRingBodyId(bodyId)
                 || isPlanetBinaryOuterBarycentreOrbitRingBodyId(bodyId);
     }
@@ -9204,6 +9222,52 @@ public final class SystemOrbitGeometry {
         }
     }
 
+    /**
+     * Inner-arrival wide binary (TV-A / AE-R c5-465): model {@link org.dce.systemmodel.model.OrbitRing}s for
+     * individual stars and the inner {@code Null:N} hub duplicate the trunk strokes from
+     * {@link #appendInnerArrivalWideBinaryOrbitPolylines}.
+     */
+    public static boolean shouldSkipModelOrbitRingForInnerArrivalDisplay(
+            int bodyId, int parentId, Map<Integer, BodyInfo> bodies) {
+        if (bodies == null) {
+            return false;
+        }
+        int innerBary = innerArrivalStellarPairBarycentreBodyId(bodies);
+        if (innerBary < 0) {
+            return false;
+        }
+        if (isPlanetBinaryBarycentreMapKey(bodyId)
+                && journalNullIdFromPlanetBinaryBarycentreMapKey(bodyId) == innerBary) {
+            return true;
+        }
+        BodyInfo b = bodies.get(Integer.valueOf(bodyId));
+        if (b == null) {
+            return false;
+        }
+        return shouldSkipOwnOrbitStrokeForInnerArrivalWideBinary(bodyId, b, bodies, parentId);
+    }
+
+    /**
+     * Inner-arrival wide binary (TV-A / AE-R c5-465): per-star Kepler strokes duplicate the A–B mutual ring and
+     * inner-hub→C trunk drawn by {@link #appendInnerArrivalWideBinaryOrbitRings}.
+     */
+    private static boolean shouldSkipOwnOrbitStrokeForInnerArrivalWideBinary(
+            int bodyId, BodyInfo b, Map<Integer, BodyInfo> bodies, int pId) {
+        if (bodies == null || b == null || !isMapStellarBody(b)) {
+            return false;
+        }
+        int innerBary = innerArrivalStellarPairBarycentreBodyId(bodies);
+        if (innerBary < 0) {
+            return false;
+        }
+        int primaryId = primaryAnchorBodyMapKey(bodies);
+        if (primaryId >= 0 && isInnerArrivalOuterTrunkBranchBody(bodyId, b, primaryId, bodies)) {
+            return true;
+        }
+        int hubKey = planetBinaryBarycentreMapKey(innerBary);
+        return bodyId == primaryId || b.getImmediateParentBodyId() == innerBary || pId == hubKey || pId == innerBary;
+    }
+
     private static boolean isInnerArrivalOuterTrunkBranchBody(
             int id, BodyInfo b, int primaryId, Map<Integer, BodyInfo> bodies) {
         if (b == null || bodies == null || primaryId < 0) {
@@ -9932,6 +9996,19 @@ public final class SystemOrbitGeometry {
      * Inner-arrival wide binary (TV-A c15-43): A+B mutual ring at {@code Null:1}, outer trunk from that hub to C —
      * not a single ring through A, B, and C together.
      */
+    public static void appendInnerArrivalWideBinaryOrbitPolylines(List<OrbitPolylineWorldXY> out,
+            Map<Integer, BodyInfo> bodies,
+            Map<Integer, double[]> bodyWorldPositions,
+            int p0,
+            int p1,
+            int legacyN,
+            boolean useScreenChord,
+            double scalePixelsPerMetre,
+            int viewTiltDeg) {
+        appendInnerArrivalWideBinaryOrbitRings(out, bodies, bodyWorldPositions, p0, p1, legacyN, useScreenChord,
+                scalePixelsPerMetre, viewTiltDeg);
+    }
+
     private static void appendInnerArrivalWideBinaryOrbitRings(List<OrbitPolylineWorldXY> out,
             Map<Integer, BodyInfo> bodies,
             Map<Integer, double[]> bodyWorldPositions,

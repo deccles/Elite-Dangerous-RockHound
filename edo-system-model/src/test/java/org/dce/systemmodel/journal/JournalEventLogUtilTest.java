@@ -63,6 +63,43 @@ class JournalEventLogUtilTest {
     }
 
     @Test
+    void dedupeScansByDesignation_collapsesSameStarDifferentBodyIds() {
+        Instant t = Instant.parse("2026-05-27T12:00:00Z");
+        String sys = "Eol Prou AE-R c5-465";
+        ScanRecord cacheB = new ScanRecord(
+                t, 2, sys + " B", "Star", "K", 2236,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                List.of(new ParentRef(ParentRef.ParentType.NULL, 1)), null, true, false);
+        ScanRecord journalB = new ScanRecord(
+                t, 8, sys + " B", "Star", "K5 VA", 2236,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                List.of(new ParentRef(ParentRef.ParentType.NULL, 1),
+                        new ParentRef(ParentRef.ParentType.NULL, 0)), null, true, false);
+        List<JournalRecord> out = JournalEventLogUtil.dedupeScansByDesignation(
+                sys, List.of(cacheB, journalB));
+        assertEquals(1, out.size());
+        assertEquals(8, ((ScanRecord) out.get(0)).bodyId());
+    }
+
+    @Test
+    void stripDuplicateArrivalStarScans_dropsSystemNameWhenLetterBranchAExists() {
+        Instant t = Instant.parse("2026-05-27T12:00:00Z");
+        String sys = "Eol Prou AE-R c5-465";
+        ScanRecord edsmArrival = new ScanRecord(
+                t, 9781, sys, "Star", "K", 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                List.of(new ParentRef(ParentRef.ParentType.NULL, 0)), null, true, false);
+        ScanRecord starA = new ScanRecord(
+                t, 2, sys + " A", "Star", "K5 VA", 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                List.of(new ParentRef(ParentRef.ParentType.NULL, 1)), null, true, false);
+        List<JournalRecord> out = JournalEventLogUtil.stripDuplicateArrivalStarScans(
+                sys, List.of(edsmArrival, starA));
+        assertEquals(1, out.size());
+        assertEquals(sys + " A", ((ScanRecord) out.get(0)).bodyName());
+    }
+
+    @Test
     void dedupeScansByDesignation_keepsBothStarsByBodyId() {
         Instant t = Instant.parse("2026-05-27T12:00:00Z");
         String sys = "Eol Prou YF-N d7-1186";
@@ -114,6 +151,25 @@ class JournalEventLogUtilTest {
                 sys, List.of(journalStar, edsmStar));
         assertEquals(1, out.size());
         assertEquals(0, ((ScanRecord) out.get(0)).bodyId());
+    }
+
+    @Test
+    void normalizeForSystemBuild_collapsesAeRStyleDuplicateStars() {
+        Instant t = Instant.parse("2026-06-01T12:00:00Z");
+        String sys = "Eol Prou AE-R c5-465";
+        List<JournalRecord> log = List.of(
+                new ScanBaryCentreRecord(
+                        t, 1, sys + " barycentre 1", List.of(new ParentRef(ParentRef.ParentType.NULL, 0)),
+                        List.of(), null),
+                scan(t, 9781, sys, "Star"),
+                scan(t, 2, sys + " A", "Star"),
+                scan(t, 3, sys + " B", "Star"),
+                scan(t, 9, sys + " B", "Star"),
+                scan(t, 4, sys + " C", "Star"),
+                scan(t, 10, sys + " C", "Star"));
+        List<JournalRecord> out = JournalEventLogUtil.normalizeForSystemBuild(sys, log);
+        long stars = out.stream().filter(r -> r instanceof ScanRecord).count();
+        assertEquals(3, stars);
     }
 
     private static ScanRecord scan(Instant t, int id, String name, String type) {

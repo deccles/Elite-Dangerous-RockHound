@@ -76,7 +76,8 @@ public final class JournalEventLogUtil {
 
     /**
      * When journal {@code BodyID 0} is present for the arrival star, drop EDSM duplicate star scans that reused
-     * the same body name with a non-zero id.
+     * the same body name with a non-zero id. Also drops a system-name arrival duplicate when a letter-branch
+     * {@code A} star exists (OR-V / TV-A style primaries named {@code … A}, not the system name).
      */
     public static List<JournalRecord> stripDuplicateArrivalStarScans(String systemName, List<JournalRecord> log) {
         if (systemName == null || systemName.isBlank() || log == null || log.isEmpty()) {
@@ -84,6 +85,7 @@ public final class JournalEventLogUtil {
         }
         String sys = systemName.trim();
         boolean hasArrivalAtZero = false;
+        boolean hasLetterBranchA = false;
         for (JournalRecord r : log) {
             if (!(r instanceof ScanRecord s)) {
                 continue;
@@ -91,17 +93,24 @@ public final class JournalEventLogUtil {
             if (s.bodyId() == 0 && isStellarScan(s) && s.bodyName() != null
                     && s.bodyName().trim().equalsIgnoreCase(sys)) {
                 hasArrivalAtZero = true;
-                break;
+            }
+            if (isStellarScan(s) && s.bodyName() != null && "a".equals(stellarBranchDesignationKey(systemName, s))) {
+                hasLetterBranchA = true;
             }
         }
-        if (!hasArrivalAtZero) {
+        if (!hasArrivalAtZero && !hasLetterBranchA) {
             return log;
         }
         List<JournalRecord> out = new ArrayList<>(log.size());
         for (JournalRecord r : log) {
-            if (r instanceof ScanRecord s && s.bodyId() != 0 && isStellarScan(s) && s.bodyName() != null
-                    && s.bodyName().trim().equalsIgnoreCase(sys)) {
-                continue;
+            if (r instanceof ScanRecord s && isStellarScan(s) && s.bodyName() != null) {
+                String name = s.bodyName().trim();
+                if (hasArrivalAtZero && s.bodyId() != 0 && name.equalsIgnoreCase(sys)) {
+                    continue;
+                }
+                if (hasLetterBranchA && name.equalsIgnoreCase(sys)) {
+                    continue;
+                }
             }
             out.add(r);
         }
@@ -136,7 +145,7 @@ public final class JournalEventLogUtil {
                     continue;
                 }
                 if (isStellarScan(s)) {
-                    String starKey = "star:" + s.bodyId();
+                    String starKey = "star:" + stellarBranchDesignationKey(systemName, s);
                     ScanRecord existing = scanByDesignation.get(starKey);
                     if (existing == null || preferScan(s, existing)) {
                         scanByDesignation.put(starKey, s);
@@ -165,6 +174,28 @@ public final class JournalEventLogUtil {
 
     private static boolean isStellarScan(ScanRecord s) {
         return "Star".equalsIgnoreCase(s.bodyType()) || s.bodyId() == 0;
+    }
+
+    /**
+     * Collapse key for stellar scans: branch letter ({@code a}, {@code b}, …) or the arrival star
+     * (system name with no branch suffix).
+     */
+    static String stellarBranchDesignationKey(String systemName, ScanRecord s) {
+        if (s == null || s.bodyName() == null || s.bodyName().isBlank()) {
+            return "unknown";
+        }
+        String dk = designationKey(systemName, s.bodyName());
+        if (dk.isEmpty()) {
+            return "arrival";
+        }
+        String prefix = systemName != null ? systemName.trim().toLowerCase(Locale.ROOT) : "";
+        if (!prefix.isEmpty() && dk.equals(prefix)) {
+            return "arrival";
+        }
+        if (dk.length() == 1 && Character.isLetter(dk.charAt(0))) {
+            return dk;
+        }
+        return dk;
     }
 
     private static boolean preferScan(ScanRecord candidate, ScanRecord incumbent) {

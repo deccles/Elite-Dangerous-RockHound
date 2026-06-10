@@ -1,0 +1,580 @@
+{
+  "name": "Eol Prou SR-U c3-59",
+  "notes": "Exported from user cache for HUD zoom debug",
+  "bodies": [
+    {
+      "id": 0,
+      "bodyName": "Eol Prou SR-U c3-59",
+      "distanceLs": 0.0,
+      "starType": "K"
+    },
+    {
+      "id": 10,
+      "bodyName": "Eol Prou SR-U c3-59 1",
+      "shortName": "1",
+      "distanceLs": 10.928738,
+      "starType": "K",
+      "planetClass": "Metal rich body",
+      "semiMajorAxisM": 3276445925.235748,
+      "eccentricity": 3.5e-05,
+      "orbitalInclination": -0.002051,
+      "periapsis": 185.502832,
+      "ascendingNode": 110.244335,
+      "meanAnomaly": 323.723342,
+      "orbitalPeriod": 120786.577463,
+      "immediateParentBodyId": 0,
+      "journalParents": [
+        "Star:0"
+      ]
+    },
+    {
+      "id": 22,
+      "bodyName": "Eol Prou SR-U c3-59 2",
+      "shortName": "2",
+      "distanceLs": 1292.593505,
+      "starType": "K",
+      "planetClass": "Sudarsky class II gas giant",
+      "semiMajorAxisM": 388862890005.1117,
+      "eccentricity": 0.00409,
+      "orbitalInclination": -0.031605,
+      "periapsis": 318.613049,
+      "ascendingNode": -94.495554,
+      "meanAnomaly": 328.427712,
+      "orbitalPeriod": 156174069.643021,
+      "immediateParentBodyId": 0,
+      "journalParents": [
+        "Star:0"
+      ]
+    },
+    {
+      "id": 24,
+      "bodyName": "Eol Prou SR-U c3-59 2 b",
+      "shortName": "2 b",
+      "distanceLs": 1294.48589,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 726737827.062607,
+      "eccentricity": 0.001232,
+      "orbitalInclination": 0.040503,
+      "periapsis": 289.24467,
+      "ascendingNode": 153.584081,
+      "meanAnomaly": 15.808883,
+      "orbitalPeriod": 228730.493784,
+      "immediateParentBodyId": 22,
+      "journalParents": [
+        "Planet:22",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 23,
+      "bodyName": "Eol Prou SR-U c3-59 2 a",
+      "shortName": "2 a",
+      "distanceLs": 1293.512552,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 460481417.179108,
+      "eccentricity": 0.000132,
+      "orbitalInclination": -0.153861,
+      "periapsis": 312.727533,
+      "ascendingNode": 29.546698,
+      "meanAnomaly": 260.021467,
+      "orbitalPeriod": 115365.415812,
+      "immediateParentBodyId": 22,
+      "journalParents": [
+        "Planet:22",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 25,
+      "bodyName": "Eol Prou SR-U c3-59 2 c",
+      "shortName": "2 c",
+      "distanceLs": 1289.580097,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 1033414006.233215,
+      "eccentricity": 0.001455,
+      "orbitalInclination": 0.013485,
+      "periapsis": 359.009793,
+      "ascendingNode": 127.018583,
+      "meanAnomaly": 303.028639,
+      "orbitalPeriod": 387854.629755,
+      "immediateParentBodyId": 22,
+      "journalParents": [
+        "Planet:22",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 26,
+      "bodyName": "Eol Prou SR-U c3-59 2 d",
+      "shortName": "2 d",
+      "distanceLs": 1286.826773,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 1905642986.297607,
+      "eccentricity": 0.005482,
+      "orbitalInclination": -0.042514,
+      "periapsis": 40.418478,
+      "ascendingNode": -118.065455,
+      "meanAnomaly": 94.066266,
+      "orbitalPeriod": 971224.886179,
+      "immediateParentBodyId": 22,
+      "journalParents": [
+        "Planet:22",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 28,
+      "bodyName": "Eol Prou SR-U c3-59 2 e",
+      "shortName": "2 e",
+      "distanceLs": 1285.661907,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 2679968237.876892,
+      "eccentricity": 8.6e-05,
+      "orbitalInclination": 0.060651,
+      "periapsis": 197.619561,
+      "ascendingNode": 143.656029,
+      "meanAnomaly": 168.986319,
+      "orbitalPeriod": 1619764.80484,
+      "immediateParentBodyId": 22,
+      "journalParents": [
+        "Planet:22",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 29,
+      "bodyName": "Eol Prou SR-U c3-59 2 f",
+      "shortName": "2 f",
+      "distanceLs": 1295.022617,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 3181086122.989655,
+      "eccentricity": 0.022308,
+      "orbitalInclination": -2.755244,
+      "periapsis": 93.264724,
+      "ascendingNode": 95.622894,
+      "meanAnomaly": 237.663648,
+      "orbitalPeriod": 2094693.720341,
+      "immediateParentBodyId": 22,
+      "journalParents": [
+        "Planet:22",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 32,
+      "bodyName": "Eol Prou SR-U c3-59 2 g",
+      "shortName": "2 g",
+      "distanceLs": 1280.549848,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 4799979388.713837,
+      "eccentricity": 0.005861,
+      "orbitalInclination": -0.55248,
+      "periapsis": 133.223434,
+      "ascendingNode": -57.593046,
+      "meanAnomaly": 185.720585,
+      "orbitalPeriod": 3882544.93475,
+      "immediateParentBodyId": 22,
+      "journalParents": [
+        "Planet:22",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 51,
+      "bodyName": "Eol Prou SR-U c3-59 4",
+      "shortName": "4",
+      "distanceLs": 1958.489021,
+      "starType": "K",
+      "planetClass": "Sudarsky class I gas giant",
+      "semiMajorAxisM": 23640708923.339844,
+      "eccentricity": 0.072027,
+      "orbitalInclination": -8.267947,
+      "periapsis": 259.850165,
+      "ascendingNode": 48.94809,
+      "meanAnomaly": 346.711568,
+      "orbitalPeriod": 40252287.387848,
+      "immediateParentBodyId": 41,
+      "journalParents": [
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 41,
+      "bodyName": "Eol Prou SR-U c3-59 barycentre 41",
+      "shortName": "barycentre 41",
+      "distanceLs": 1960.2045451666665,
+      "semiMajorAxisM": 585972803831.1005,
+      "eccentricity": 0.004379,
+      "orbitalInclination": 0.852849,
+      "periapsis": 46.740935,
+      "ascendingNode": 9.276186,
+      "meanAnomaly": 127.52738,
+      "orbitalPeriod": 288888531.923294,
+      "immediateParentBodyId": 42,
+      "scanBarycentreRow": true,
+      "journalParents": [
+        "Planet:42",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 42,
+      "bodyName": "Eol Prou SR-U c3-59 3",
+      "shortName": "3",
+      "distanceLs": 1960.237501,
+      "starType": "K",
+      "planetClass": "Sudarsky class III gas giant",
+      "semiMajorAxisM": 3301006495.952606,
+      "eccentricity": 0.072027,
+      "orbitalInclination": -8.267947,
+      "periapsis": 79.850171,
+      "ascendingNode": 48.94809,
+      "meanAnomaly": 346.71164,
+      "orbitalPeriod": 40252287.387848,
+      "immediateParentBodyId": 41,
+      "journalParents": [
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 45,
+      "bodyName": "Eol Prou SR-U c3-59 3 c",
+      "shortName": "3 c",
+      "distanceLs": 1961.227616,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 1865489721.298218,
+      "eccentricity": 9.7e-05,
+      "orbitalInclination": 2.301387,
+      "periapsis": 30.656816,
+      "ascendingNode": -94.75226,
+      "meanAnomaly": 136.808953,
+      "orbitalPeriod": 782932.645082,
+      "immediateParentBodyId": 42,
+      "journalParents": [
+        "Null:46",
+        "Planet:42",
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 46,
+      "bodyName": "Eol Prou SR-U c3-59 barycentre 46",
+      "shortName": "barycentre 46",
+      "distanceLs": 1962.150595,
+      "semiMajorAxisM": 2560658931.732178,
+      "eccentricity": 0.007132,
+      "orbitalInclination": -0.266533,
+      "periapsis": 287.746618,
+      "ascendingNode": 129.767099,
+      "meanAnomaly": 176.053306,
+      "orbitalPeriod": 1259107.112885,
+      "immediateParentBodyId": 42,
+      "scanBarycentreRow": true,
+      "journalParents": [
+        "Planet:42",
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 47,
+      "bodyName": "Eol Prou SR-U c3-59 3 d",
+      "shortName": "3 d",
+      "distanceLs": 1963.073574,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 1553778.9464,
+      "eccentricity": 0.051507,
+      "orbitalInclination": -0.413289,
+      "periapsis": 262.625562,
+      "ascendingNode": 77.810645,
+      "meanAnomaly": 218.47254,
+      "orbitalPeriod": 107809.811831,
+      "immediateParentBodyId": 46,
+      "journalParents": [
+        "Null:46",
+        "Planet:42",
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 48,
+      "bodyName": "Eol Prou SR-U c3-59 3 e",
+      "shortName": "3 e",
+      "distanceLs": 1963.06974,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 2924697.875977,
+      "eccentricity": 0.051507,
+      "orbitalInclination": -0.413289,
+      "periapsis": 82.625567,
+      "ascendingNode": 77.810645,
+      "meanAnomaly": 218.485214,
+      "orbitalPeriod": 107809.811831,
+      "immediateParentBodyId": 46,
+      "journalParents": [
+        "Null:46",
+        "Planet:42",
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 44,
+      "bodyName": "Eol Prou SR-U c3-59 3 b",
+      "shortName": "3 b",
+      "distanceLs": 1960.3764,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 1379283726.215363,
+      "eccentricity": 0.002764,
+      "orbitalInclination": -0.111251,
+      "periapsis": 227.038606,
+      "ascendingNode": -71.153946,
+      "meanAnomaly": 203.152108,
+      "orbitalPeriod": 497754.842043,
+      "immediateParentBodyId": 42,
+      "journalParents": [
+        "Null:46",
+        "Planet:42",
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 50,
+      "bodyName": "Eol Prou SR-U c3-59 3 g",
+      "shortName": "3 g",
+      "distanceLs": 1956.663273,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 4534114599.227905,
+      "eccentricity": 0.001437,
+      "orbitalInclination": 0.849937,
+      "periapsis": 177.355486,
+      "ascendingNode": 126.008972,
+      "meanAnomaly": 296.511752,
+      "orbitalPeriod": 2966701.14994,
+      "immediateParentBodyId": 42,
+      "journalParents": [
+        "Planet:42",
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 49,
+      "bodyName": "Eol Prou SR-U c3-59 3 f",
+      "shortName": "3 f",
+      "distanceLs": 1956.816668,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 3156417489.051819,
+      "eccentricity": 0.004747,
+      "orbitalInclination": -0.130313,
+      "periapsis": 204.925629,
+      "ascendingNode": 157.450016,
+      "meanAnomaly": 326.068689,
+      "orbitalPeriod": 1723164.558411,
+      "immediateParentBodyId": 42,
+      "journalParents": [
+        "Planet:42",
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 43,
+      "bodyName": "Eol Prou SR-U c3-59 3 a",
+      "shortName": "3 a",
+      "distanceLs": 1960.536005,
+      "starType": "K",
+      "planetClass": "Rocky body",
+      "semiMajorAxisM": 736768239.736557,
+      "eccentricity": 9.6e-05,
+      "orbitalInclination": 0.455616,
+      "periapsis": 92.486789,
+      "ascendingNode": 18.4756,
+      "meanAnomaly": 173.168222,
+      "orbitalPeriod": 194326.233864,
+      "immediateParentBodyId": 42,
+      "journalParents": [
+        "Null:46",
+        "Planet:42",
+        "Null:41",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 53,
+      "bodyName": "Eol Prou SR-U c3-59 5",
+      "shortName": "5",
+      "distanceLs": 3362.369371,
+      "starType": "K",
+      "planetClass": "Sudarsky class I gas giant",
+      "semiMajorAxisM": 1005826354026.7944,
+      "eccentricity": 0.002176,
+      "orbitalInclination": 4.837876,
+      "periapsis": 149.546913,
+      "ascendingNode": -15.361901,
+      "meanAnomaly": 177.422843,
+      "orbitalPeriod": 649678778.648376,
+      "immediateParentBodyId": 0,
+      "journalParents": [
+        "Star:0"
+      ]
+    },
+    {
+      "id": 54,
+      "bodyName": "Eol Prou SR-U c3-59 5 a",
+      "shortName": "5 a",
+      "distanceLs": 3360.841207,
+      "starType": "K",
+      "planetClass": "Icy body",
+      "semiMajorAxisM": 470174461.603165,
+      "eccentricity": 5.4e-05,
+      "orbitalInclination": -0.017253,
+      "periapsis": 321.010483,
+      "ascendingNode": 23.547951,
+      "meanAnomaly": 329.218956,
+      "orbitalPeriod": 333129.680157,
+      "immediateParentBodyId": 53,
+      "journalParents": [
+        "Planet:53",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 60,
+      "bodyName": "Eol Prou SR-U c3-59 5 g",
+      "shortName": "5 g",
+      "distanceLs": 3383.578246,
+      "starType": "K",
+      "planetClass": "Icy body",
+      "semiMajorAxisM": 6498246610.164642,
+      "eccentricity": 7.9e-05,
+      "orbitalInclination": 0.036449,
+      "periapsis": 290.641587,
+      "ascendingNode": -95.090665,
+      "meanAnomaly": 25.053557,
+      "orbitalPeriod": 17116662.859917,
+      "immediateParentBodyId": 53,
+      "journalParents": [
+        "Planet:53",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 59,
+      "bodyName": "Eol Prou SR-U c3-59 5 f",
+      "shortName": "5 f",
+      "distanceLs": 3366.047562,
+      "starType": "K",
+      "planetClass": "Icy body",
+      "semiMajorAxisM": 4319283664.226532,
+      "eccentricity": 0.000772,
+      "orbitalInclination": -0.332021,
+      "periapsis": 57.418047,
+      "ascendingNode": 30.909563,
+      "meanAnomaly": 341.281522,
+      "orbitalPeriod": 9275608.539581,
+      "immediateParentBodyId": 53,
+      "journalParents": [
+        "Planet:53",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 55,
+      "bodyName": "Eol Prou SR-U c3-59 5 b",
+      "shortName": "5 b",
+      "distanceLs": 3361.732196,
+      "starType": "K",
+      "planetClass": "Icy body",
+      "semiMajorAxisM": 685324484.109879,
+      "eccentricity": 3.8e-05,
+      "orbitalInclination": 0.084811,
+      "periapsis": 86.543206,
+      "ascendingNode": -89.218957,
+      "meanAnomaly": 68.721218,
+      "orbitalPeriod": 586231.559515,
+      "immediateParentBodyId": 53,
+      "journalParents": [
+        "Planet:53",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 56,
+      "bodyName": "Eol Prou SR-U c3-59 5 c",
+      "shortName": "5 c",
+      "distanceLs": 3367.013121,
+      "starType": "K",
+      "planetClass": "Icy body",
+      "semiMajorAxisM": 1795592784.881592,
+      "eccentricity": 0.000455,
+      "orbitalInclination": -0.010401,
+      "periapsis": 57.29426,
+      "ascendingNode": -141.826983,
+      "meanAnomaly": 53.861289,
+      "orbitalPeriod": 2486202.657223,
+      "immediateParentBodyId": 53,
+      "journalParents": [
+        "Planet:53",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 57,
+      "bodyName": "Eol Prou SR-U c3-59 5 d",
+      "shortName": "5 d",
+      "distanceLs": 3365.740699,
+      "starType": "K",
+      "planetClass": "Icy body",
+      "semiMajorAxisM": 2493066489.696503,
+      "eccentricity": 0.000164,
+      "orbitalInclination": 0.050118,
+      "periapsis": 329.464519,
+      "ascendingNode": 36.441668,
+      "meanAnomaly": 117.348263,
+      "orbitalPeriod": 4067481.75621,
+      "immediateParentBodyId": 53,
+      "journalParents": [
+        "Planet:53",
+        "Star:0"
+      ]
+    },
+    {
+      "id": 58,
+      "bodyName": "Eol Prou SR-U c3-59 5 e",
+      "shortName": "5 e",
+      "distanceLs": 3354.875307,
+      "starType": "K",
+      "planetClass": "Icy body",
+      "semiMajorAxisM": 3571128427.98233,
+      "eccentricity": 0.007346,
+      "orbitalInclination": -0.540727,
+      "periapsis": 18.524952,
+      "ascendingNode": 90.054955,
+      "meanAnomaly": 157.107003,
+      "orbitalPeriod": 6973214.626312,
+      "immediateParentBodyId": 53,
+      "journalParents": [
+        "Planet:53",
+        "Star:0"
+      ]
+    }
+  ]
+}

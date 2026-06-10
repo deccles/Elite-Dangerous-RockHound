@@ -5,12 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.systemmap.SystemMapHierarchyBuilder.Graph;
 import org.dce.ed.systemmap.SystemMapSystemLoader.Loaded;
 import org.dce.ed.util.SystemOrbitGeometry;
+import org.dce.ed.util.SystemOrbitGeometry.OrbitPolylineWorldXY;
 import org.dce.systemmodel.model.BodyKind;
 import org.dce.systemmodel.model.BodyNode;
 import org.dce.systemmodel.model.HierarchyKeys;
@@ -115,6 +117,21 @@ class EolProuTvAC1543TripleStarTest {
         int null37 = HierarchyKeys.baryMapKey(37);
         assertEquals(idC, session.model().hierarchy().parentOf(null37).intValue(),
                 "C 5/C 6 co-orbit hub must parent to star C");
+    }
+
+    @Test
+    void rings_innerArrivalStarsUseBarycentreTrunksOnly() {
+        SystemMapModel map = SystemMapPipeline.build(fixture.name, bodies, Instant.EPOCH, false, session);
+        List<OrbitPolylineWorldXY> polys = map.orbitPolylines();
+        assertTrue(polys.stream().noneMatch(p -> p.bodyId == idA), "no per-star A Kepler ring");
+        assertTrue(polys.stream().noneMatch(p -> p.bodyId == idB), "no per-star B Kepler ring");
+        assertTrue(polys.stream().noneMatch(p -> p.bodyId == idC), "no per-star C Kepler ring");
+        assertTrue(polys.stream().anyMatch(
+                p -> p.bodyId == SystemOrbitGeometry.HIERARCHICAL_INNER_STELLAR_PAIR_POLYLINE_ID),
+                "A–B mutual ring");
+        assertTrue(polys.stream().anyMatch(
+                p -> p.bodyId == SystemOrbitGeometry.BINARY_BARYCENTRE_ORBIT_RING_BODY_ID),
+                "inner hub to C trunk ring");
     }
 
     @Test

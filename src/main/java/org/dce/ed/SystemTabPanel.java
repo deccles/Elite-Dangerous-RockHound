@@ -301,7 +301,7 @@ public class SystemTabPanel extends JPanel {
     private JLabel mapViewTiltValueLabel;
     private JButton orbitAnimSpeedDownButton;
     private JButton orbitAnimSpeedUpButton;
-    private JLabel orbitAnimSpeedValueLabel;
+    private JTextField orbitAnimSpeedValueField;
     /** Simulated time advance: orbit-model days per one wall-clock second (map toolbar << / >>; persisted). */
     private double orbitAnimDaysPerWallSecond = OverlayPreferences.getSystemTabOrbitAnimDaysPerWallSecond();
     /** Body IDs whose exobiology detail rows are hidden (body + ring lines remain). */
@@ -1001,16 +1001,33 @@ public class SystemTabPanel extends JPanel {
                 "Stop orbit simulation and return bodies to real-time journal positions (now).");
         orbitAnimStopButton.addActionListener(e -> stopOrbitAnimSimulation());
         mapToolbarMain.add(orbitAnimStopButton);
-        String orbitSpeedTt = "Orbit model days advanced per second of real time while playing.";
+        String orbitSpeedTt = "Orbit model days per second of real time (1–"
+                + OverlayPreferences.getSystemTabOrbitAnimDaysPerWallSecondMax()
+                + "). Edit directly or use the chevrons while playing.";
         orbitAnimSpeedDownButton = new JButton();
         orbitAnimSpeedDownButton.setText(null);
         orbitAnimSpeedDownButton.addActionListener(e ->
                 setOrbitAnimSpeedValue((int) Math.round(orbitAnimDaysPerWallSecond) - ORBIT_ANIM_SPEED_STEP));
 
-        orbitAnimSpeedValueLabel = new JLabel(formatOrbitAnimSpeedLabel(orbitAnimDaysPerWallSecond));
-        orbitAnimSpeedValueLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        orbitAnimSpeedValueLabel.setForeground(EdoUi.User.MAIN_TEXT);
-        orbitAnimSpeedValueLabel.setToolTipText(orbitSpeedTt);
+        orbitAnimSpeedValueField = new JTextField(formatOrbitAnimSpeedLabel(orbitAnimDaysPerWallSecond), 5);
+        orbitAnimSpeedValueField.setHorizontalAlignment(SwingConstants.CENTER);
+        orbitAnimSpeedValueField.addActionListener(e -> commitOrbitAnimSpeedFieldEdit());
+        orbitAnimSpeedValueField.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                applyOrbitAnimSpeedFieldChrome(true);
+                SwingUtilities.invokeLater(orbitAnimSpeedValueField::selectAll);
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                if (e.isTemporary()) {
+                    return;
+                }
+                commitOrbitAnimSpeedFieldEdit();
+                applyOrbitAnimSpeedFieldChrome(false);
+            }
+        });
 
         orbitAnimSpeedUpButton = new JButton();
         orbitAnimSpeedUpButton.setText(null);
@@ -1020,8 +1037,9 @@ public class SystemTabPanel extends JPanel {
         applyOrbitMapToolbarTypography("Slower: fewer model days per second of real time.",
                 "Faster: more model days per second of real time.",
                 orbitSpeedTt);
+        applyOrbitAnimSpeedFieldEditability();
         mapToolbarMain.add(orbitAnimSpeedDownButton);
-        mapToolbarMain.add(orbitAnimSpeedValueLabel);
+        mapToolbarMain.add(orbitAnimSpeedValueField);
         mapToolbarMain.add(orbitAnimSpeedUpButton);
         mapToolbar.add(mapToolbarMain, BorderLayout.WEST);
         mapToolbar.add(mapToolbarEast, BorderLayout.EAST);
@@ -2233,8 +2251,8 @@ public class SystemTabPanel extends JPanel {
     }
 
     private void rebuildTable() {
-        systemSession = SystemSessionFactory.open(state);
         dedupeBodiesByName();
+        systemSession = SystemSessionFactory.open(state);
         updateHeaderLabel();
 
         boolean justSeededBioCollapseDefaults = false;
@@ -2521,10 +2539,79 @@ public class SystemTabPanel extends JPanel {
         int v = Math.max(min, Math.min(max, daysPerWallSecond));
         orbitAnimDaysPerWallSecond = v;
         OverlayPreferences.setSystemTabOrbitAnimDaysPerWallSecond(v);
-        if (orbitAnimSpeedValueLabel != null) {
-            orbitAnimSpeedValueLabel.setText(formatOrbitAnimSpeedLabel(orbitAnimDaysPerWallSecond));
+        if (orbitAnimSpeedValueField != null && !orbitAnimSpeedValueField.isFocusOwner()) {
+            syncOrbitAnimSpeedFieldFromValue();
         }
         updateOrbitAnimSpeedChevrons();
+    }
+
+    private void syncOrbitAnimSpeedFieldFromValue() {
+        if (orbitAnimSpeedValueField == null) {
+            return;
+        }
+        orbitAnimSpeedValueField.setText(formatOrbitAnimSpeedLabel(orbitAnimDaysPerWallSecond));
+    }
+
+    private void commitOrbitAnimSpeedFieldEdit() {
+        if (orbitAnimSpeedValueField == null) {
+            return;
+        }
+        int parsed = parseOrbitAnimSpeedFieldInput(orbitAnimSpeedValueField.getText());
+        if (parsed < 0) {
+            syncOrbitAnimSpeedFieldFromValue();
+            return;
+        }
+        setOrbitAnimSpeedValue(parsed);
+        syncOrbitAnimSpeedFieldFromValue();
+    }
+
+    private static int parseOrbitAnimSpeedFieldInput(String raw) {
+        if (raw == null) {
+            return -1;
+        }
+        String s = raw.trim();
+        if (s.isEmpty()) {
+            return -1;
+        }
+        s = s.replaceAll("(?i)\\s*d\\s*/\\s*s\\s*$", "").trim();
+        if (s.isEmpty()) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            try {
+                return (int) Math.round(Double.parseDouble(s));
+            } catch (NumberFormatException ignored) {
+                return -1;
+            }
+        }
+    }
+
+    private void applyOrbitAnimSpeedFieldEditability() {
+        if (orbitAnimSpeedValueField == null) {
+            return;
+        }
+        boolean passThrough = OverlayPreferences.isOverlayMousePassThroughToGame();
+        orbitAnimSpeedValueField.setEditable(!passThrough);
+        orbitAnimSpeedValueField.setFocusable(!passThrough);
+        if (passThrough && orbitAnimSpeedValueField.isFocusOwner()) {
+            orbitAnimSpeedValueField.transferFocus();
+        }
+        applyOrbitAnimSpeedFieldChrome(orbitAnimSpeedValueField.isFocusOwner());
+    }
+
+    private void applyOrbitAnimSpeedFieldChrome(boolean focused) {
+        if (orbitAnimSpeedValueField == null) {
+            return;
+        }
+        if (focused && orbitAnimSpeedValueField.isEditable()) {
+            orbitAnimSpeedValueField.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(EdoUi.Internal.MAIN_TEXT_ALPHA_200, 1),
+                    new EmptyBorder(1, 3, 1, 3)));
+        } else {
+            orbitAnimSpeedValueField.setBorder(new EmptyBorder(2, 4, 2, 4));
+        }
     }
 
     private void updateOrbitAnimSpeedChevrons() {
@@ -2544,7 +2631,7 @@ public class SystemTabPanel extends JPanel {
      */
     private void applyOrbitMapToolbarTypography(String slowerTt, String fasterTt, String speedValueTt) {
         if (orbitAnimPlayButton == null || orbitAnimStopButton == null || orbitAnimSpeedDownButton == null
-                || orbitAnimSpeedUpButton == null || orbitAnimSpeedValueLabel == null) {
+                || orbitAnimSpeedUpButton == null || orbitAnimSpeedValueField == null) {
             return;
         }
         Font base = uiFont != null ? uiFont : getFont();
@@ -2591,8 +2678,19 @@ public class SystemTabPanel extends JPanel {
         orbitAnimStopButton.setMargin(new java.awt.Insets(0, 0, 0, 0));
         orbitAnimStopButton.setPreferredSize(new Dimension(playSide, playSide));
 
-        orbitAnimSpeedValueLabel.setFont(toolbarFont);
-        orbitAnimSpeedValueLabel.setToolTipText(speedValueTt);
+        orbitAnimSpeedValueField.setFont(toolbarFont);
+        orbitAnimSpeedValueField.setToolTipText(speedValueTt);
+        orbitAnimSpeedValueField.setForeground(EdoUi.User.MAIN_TEXT);
+        orbitAnimSpeedValueField.setCaretColor(EdoUi.User.MAIN_TEXT);
+        orbitAnimSpeedValueField.setSelectionColor(EdoUi.Internal.MAIN_TEXT_ALPHA_40);
+        orbitAnimSpeedValueField.setSelectedTextColor(EdoUi.User.MAIN_TEXT);
+        orbitAnimSpeedValueField.setOpaque(false);
+        orbitAnimSpeedValueField.setBackground(EdoUi.Internal.TRANSPARENT);
+        int speedFieldW = fm.stringWidth("500 d/s") + 10;
+        Dimension speedFieldPref = new Dimension(speedFieldW, rowH);
+        orbitAnimSpeedValueField.setPreferredSize(speedFieldPref);
+        orbitAnimSpeedValueField.setMinimumSize(speedFieldPref);
+        applyOrbitAnimSpeedFieldChrome(orbitAnimSpeedValueField.isFocusOwner());
 
         int chevSize = Math.max(12, Math.min(40, Math.round(rowH * 0.88f)));
         Icon chevL = new OrbitPlaybackTransportIcons.DoubleChevronLeftIcon(chevSize);
@@ -3519,6 +3617,7 @@ public class SystemTabPanel extends JPanel {
             systemPlanMapExpandButton.repaint();
         }
         updateMapViewTiltHoverAppearance();
+        applyOrbitAnimSpeedFieldEditability();
     }
 
     private static void applyMapToolbarIconButtonHoverChrome(JButton b, boolean hovered) {

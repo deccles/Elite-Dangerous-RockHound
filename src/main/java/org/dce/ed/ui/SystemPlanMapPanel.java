@@ -1303,6 +1303,7 @@ public final class SystemPlanMapPanel extends JPanel {
         double targetX = frame[0];
         double targetY = frame[1];
         double targetZ = frame[2];
+        logHudTargetZoomDebug(mapKey, frameHub, targetZ);
 
         double systemZoom = clamp(1.0, zoomMinFit, ZOOM_MAX);
         boolean zoomedPastSystem = zoomFactor > systemZoom * (1.0 + HUD_TARGET_SYSTEM_ZOOM_EPS);
@@ -1321,6 +1322,30 @@ public final class SystemPlanMapPanel extends JPanel {
         beginSubsystemCameraHop(zoomFactor, zoomMid, targetZ, viewCenterWx, viewCenterWy, hopMid.panMidX, hopMid.panMidY,
                 targetX, targetY, outTicks, inTicks);
         hudTargetSubsystemHopActive = true;
+    }
+
+    /** One-line trace for HUD-target auto-zoom framing regressions (hub pick, member dots, end zoom). */
+    private void logHudTargetZoomDebug(int mapKey, int frameHub, double targetZ) {
+        Set<Integer> members = membersForHudTargetSubsystem(frameHub, orbitGeomBodies, mapResolvedParents());
+        int dotCount = 0;
+        for (BodyDot d : dots) {
+            if (d != null && members.contains(Integer.valueOf(d.bodyId))
+                    && Double.isFinite(d.wx) && Double.isFinite(d.wy)) {
+                dotCount++;
+            }
+        }
+        int w = getWidth();
+        int h = getHeight();
+        int plotH = Math.max(88, h - MAP_BOTTOM_INSET);
+        double availW = w - 2.0 * PAD;
+        double availH = plotH - 2.0 * PAD;
+        double scaleAtTarget = mapPlotScaleForZoom(targetZ, availW, availH, layoutSpanX, layoutSpanY);
+        double visLs = estimateVisibleLightSecondsAcrossMinPlotAxis(availW, availH, scaleAtTarget);
+        System.out.println("[EDO][OrbitMap][HudZoom] body=" + mapKey + " hub=" + frameHub
+                + " members=" + members.size() + " memberDots=" + dotCount
+                + " targetZoom=" + String.format(java.util.Locale.ROOT, "%.1f", targetZ)
+                + " visLsAtTarget=" + String.format(java.util.Locale.ROOT, "%.1f", visLs)
+                + " zoomNow=" + String.format(java.util.Locale.ROOT, "%.1f", zoomFactor));
     }
 
     /** Map key for a journal / HUD body id; prefers drawable bodies over scan barycentre rows. */
@@ -3075,10 +3100,21 @@ public final class SystemPlanMapPanel extends JPanel {
                             ? orbitStrokeMoon
                             : orbitStrokeThin;
                     int orbitParentId = mapResolvedParent(poly.bodyId);
-                    if (poly.estimated
-                            || SystemOrbitGeometry.isBarycentreAssociatedOrbitStroke(poly.bodyId, orbitParentId)) {
-                        orbitStroke = new BasicStroke(orbitStroke.getLineWidth(), BasicStroke.CAP_ROUND,
-                                BasicStroke.JOIN_ROUND, 10f, new float[] { 4f, 5f }, 0f);
+                    boolean dashedGuide = poly.estimated
+                            || SystemOrbitGeometry.isBarycentreAssociatedOrbitStroke(poly.bodyId, orbitParentId);
+                    if (dashedGuide) {
+                        orbitStroke = new BasicStroke(orbitStroke.getLineWidth(), BasicStroke.CAP_BUTT,
+                                BasicStroke.JOIN_ROUND, 10f, GUIDE_RING_DASH_PATTERN, 0f);
+                    }
+                    if (dashedGuide && !orbitPolylineSupportsTimeColoring(poly.bodyId)) {
+                        /*
+                         * Dash phase must run continuously around the ring: per-segment stroking restarts the
+                         * dash at every vertex, and at high zoom segments are shorter than one dash period, so
+                         * the ring paints solid.
+                         */
+                        fillOrbitPolylineDashedClosedPath(g2, poly, orbitStroke, orbitBlue, vcx, vcy, scale,
+                                availW, availH);
+                        continue;
                     }
                     fillOrbitPolylineStroked(g2, poly, orbitStroke, orbitBlue, orbitBlueDim, vcx,
                             vcy, scale, availW, availH);
@@ -5167,6 +5203,50 @@ public final class SystemPlanMapPanel extends JPanel {
 
     private static int clampColorChannel(double v) {
         return (int) Math.round(Math.max(0.0, Math.min(255.0, v)));
+    }
+
+    /** Screen-space dash pattern for barycentre/guide rings; constant px regardless of zoom. */
+    private static final float[] GUIDE_RING_DASH_PATTERN = { 7f, 8f };
+
+    /** Whether this polyline's stroke is shaded by orbital phase (needs a journal body with period + anomaly). */
+    private boolean orbitPolylineSupportsTimeColoring(int polyBodyId) {
+        BodyInfo body = orbitGeomBodies != null ? orbitGeomBodies.get(Integer.valueOf(polyBodyId)) : null;
+        return SystemOrbitGeometry.orbitStrokeSupportsTimeColoring(body);
+    }
+
+    /**
+     * Dashed guide ring as one closed path so the dash phase runs continuously around the ring. Fills the
+     * stroked outline (not {@code draw()}) for the same AA reasons as {@link #fillOrbitPolylineStroked}.
+     */
+    private void fillOrbitPolylineDashedClosedPath(Graphics2D g2, OrbitPolylineWorldXY poly,
+            BasicStroke dashedStroke, Color orbitColor, double vcx, double vcy, double scale,
+            double availW, double availH) {
+        if (poly == null || poly.wx == null || poly.wy == null || poly.wx.length < 3
+                || poly.wy.length != poly.wx.length) {
+            return;
+        }
+        Path2D path = new Path2D.Double();
+        boolean started = false;
+        int n = poly.wx.length;
+        for (int i = 0; i < n; i++) {
+            double sx = PAD + availW / 2.0 + (poly.wx[i] - vcx) * scale;
+            double sy = PAD + availH / 2.0 - (poly.wy[i] - vcy) * scale;
+            if (!Double.isFinite(sx) || !Double.isFinite(sy)) {
+                continue;
+            }
+            if (!started) {
+                path.moveTo(sx, sy);
+                started = true;
+            } else {
+                path.lineTo(sx, sy);
+            }
+        }
+        if (!started) {
+            return;
+        }
+        path.closePath();
+        g2.setColor(orbitColor);
+        g2.fill(dashedStroke.createStrokedShape(path));
     }
 
     /**

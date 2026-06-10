@@ -84,8 +84,13 @@ public final class ModelMapScene {
         }
         Set<Integer> definitiveIds = definitiveBodyIds(model, definitiveOnly);
         List<OrbitPolylineWorldXY> polys = new ArrayList<>();
+        boolean innerArrivalWideBinary = SystemOrbitGeometry.innerArrivalStellarPairBarycentreBodyId(bodies) >= 0;
         for (OrbitRing ring : model.orbitRingsAt(t)) {
             if (definitiveOnly && !ringIncludedInDefinitiveView(ring, definitiveIds, model)) {
+                continue;
+            }
+            if (innerArrivalWideBinary && SystemOrbitGeometry.shouldSkipModelOrbitRingForInnerArrivalDisplay(
+                    ring.bodyId(), ring.parentId(), bodies)) {
                 continue;
             }
             List<double[]> pts = ringPointsForDisplay(model, ring, t, proj0, proj1, viewTiltDeg, positionsMetres,
@@ -108,6 +113,12 @@ public final class ModelMapScene {
             if (display != null) {
                 polys.add(display);
             }
+        }
+        if (innerArrivalWideBinary) {
+            boolean useScreenChord = Double.isFinite(scalePixelsPerMetre) && scalePixelsPerMetre > 0.0;
+            SystemOrbitGeometry.appendInnerArrivalWideBinaryOrbitPolylines(
+                    polys, bodies, positionsMetres, proj0, proj1, legacySegments, useScreenChord,
+                    scalePixelsPerMetre, viewTiltDeg);
         }
         return List.copyOf(polys);
     }

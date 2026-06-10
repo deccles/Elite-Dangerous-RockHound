@@ -103,6 +103,6 @@ public final class SystemSessionFactory {
         if (bodies != null && !bodies.isEmpty()) {
             merged = CachedBodyJournalBridge.mergeMissingFromBodyInfo(systemName, merged, bodies);
         }
-        return JournalEventLogUtil.dedupeScansByDesignation(systemName, merged);
+        return JournalEventLogUtil.normalizeForSystemBuild(systemName, merged);
     }
 }

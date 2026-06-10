@@ -625,6 +625,18 @@ private Double lastFootTravelUpDeg;
         notifySessionStateChanged();
     }
 
+    /** Dismissed / recalled ship took off: no parked ship until the next {@code Touchdown}. */
+    private void clearParkedShipSurfaceFix() {
+        if (parkedShipLat == null && parkedShipLon == null && parkedShipHeadingDeg == null) {
+            return;
+        }
+        parkedShipLat = null;
+        parkedShipLon = null;
+        parkedShipHeadingDeg = null;
+        syncMapToPanel();
+        notifySessionStateChanged();
+    }
+
     private void applyParkedSrvSurfaceFix(double lat, double lon, Double headingDeg) {
         parkedSrvLat = lat;
         parkedSrvLon = lon;
@@ -698,7 +710,22 @@ private Double lastFootTravelUpDeg;
         try {
             Path dir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
             EliteJournalReader reader = new EliteJournalReader(dir);
-            EliteLogEvent raw = reader.findMostRecentEvent(EliteEventType.TOUCHDOWN, 8);
+            List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(8);
+            EliteLogEvent raw = null;
+            for (int i = events.size() - 1; i >= 0; i--) {
+                EliteLogEvent candidate = events.get(i);
+                if (candidate == null) {
+                    continue;
+                }
+                // A Liftoff newer than the last Touchdown means the ship is airborne (player or dismissed).
+                if (candidate.getType() == EliteEventType.LIFTOFF) {
+                    return;
+                }
+                if (candidate instanceof TouchdownEvent) {
+                    raw = candidate;
+                    break;
+                }
+            }
             if (!(raw instanceof TouchdownEvent)) {
                 return;
             }
@@ -743,6 +770,7 @@ private Double lastFootTravelUpDeg;
 
     /**
      * When away from the SRV, recover the last SRV {@code Touchdown} ({@code PlayerControlled:false}).
+     * A newer {@code DockSRV} / {@code SRVDestroyed} means the SRV is aboard — do not resurrect the marker.
      */
     private void tryRestoreParkedSrvFromJournal() {
         if (parkedSrvLat != null && parkedSrvLon != null) {
@@ -757,6 +785,10 @@ private Double lastFootTravelUpDeg;
             List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(8);
             for (int i = events.size() - 1; i >= 0; i--) {
                 EliteLogEvent raw = events.get(i);
+                if (raw != null && (raw.getType() == EliteEventType.DOCK_SRV
+                        || raw.getType() == EliteEventType.SRV_DESTROYED)) {
+                    return;
+                }
                 if (!(raw instanceof TouchdownEvent)) {
                     continue;
                 }
@@ -809,6 +841,18 @@ private Double lastFootTravelUpDeg;
     /** Status lat/lon tracks the commander, not the parked ship. */
     private static boolean isCommanderAwayFromShip(StatusEvent e) {
         return e != null && (e.isOnFoot() || e.isInSrv());
+    }
+
+    /**
+     * {@code Liftoff.PlayerControlled}: {@code false} when a dismissed / recalled ship departs on its own.
+     * Defaults to {@code true} (player takeoff) when the field is absent.
+     */
+    private static boolean liftoffIsPlayerControlled(EliteLogEvent event) {
+        if (event == null || event.getRawJson() == null) {
+            return true;
+        }
+        com.google.gson.JsonElement pc = event.getRawJson().get("PlayerControlled");
+        return pc == null || pc.isJsonNull() || pc.getAsBoolean();
     }
 
     /** SRV position updates only while driving the SRV (not on foot in suit). */
@@ -1191,6 +1235,16 @@ private Double lastFootTravelUpDeg;
 
         if (event instanceof TouchdownEvent) {
             handleTouchdown((TouchdownEvent) event);
+            return;
+        }
+
+        if (event.getType() == EliteEventType.DOCK_SRV || event.getType() == EliteEventType.SRV_DESTROYED) {
+            clearParkedSrvSurfaceFix();
+            return;
+        }
+
+        if (event.getType() == EliteEventType.LIFTOFF && !liftoffIsPlayerControlled(event)) {
+            clearParkedShipSurfaceFix();
             return;
         }
 
