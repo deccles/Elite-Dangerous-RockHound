@@ -252,6 +252,18 @@ class GoogleSheetsBackendUpsertAndCellTest {
                     "Byua Aim WZ-V Tritium Hotspot");
             assertEquals(1, idx);
         }
+
+        @Test
+        void sameAsteroidLetter_differentRun_matchesOnlyRequestedRun() {
+            List<List<Object>> values = new ArrayList<>();
+            values.add(List.of("Run", "A", "T", "Mat", "0", "0", "0", "0", "c", "0", "Sys", "Body", "Cmdr"));
+            values.add(dataRow(12, "E", "Tritium", "Eol Prou", "6", "UkeBard"));
+            values.add(dataRow(13, "E", "Tritium", "Eol Prou", "6", "UkeBard"));
+            assertEquals(1, GoogleSheetsBackend.findProspectorUpsertRowIndex(
+                    values, 12, "E", "Tritium", "UkeBard", "Eol Prou", "6"));
+            assertEquals(2, GoogleSheetsBackend.findProspectorUpsertRowIndex(
+                    values, 13, "E", "Tritium", "UkeBard", "Eol Prou", "6"));
+        }
     }
 
     @Nested

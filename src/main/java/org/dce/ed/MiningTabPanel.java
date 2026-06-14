@@ -1921,16 +1921,19 @@ return EdoUi.User.MAIN_TEXT;
 		// Also recompute when we haven't written any rows this run yet (e.g. after docking),
 		// so we advance to the next run number instead of appending to the previous run.
 		int previousRun = activeRun;
-		if (activeRun <= 0 || nextMiningStartsNewRun || !wroteRowsThisRun) {
-			int computed = computeRunNumberForWrite(commander, sys, body, nextMiningStartsNewRun);
-			if (computed != activeRun) {
-				activeRun = computed;
-				// New run: first write should be treated as fresh so it gets a start time.
-				wroteRowsThisRun = false;
-			}
-			if (nextMiningStartsNewRun) {
-				nextMiningStartsNewRun = false;
-			}
+		// Always reconcile with the sheet-backed resolver. Stale session activeRun (e.g. 12) with
+		// wroteRowsThisRun=true used to skip recompute and upsert the wrong (run, asteroid) row
+		// when the log had already advanced to run 13.
+		int computed = computeRunNumberForWrite(commander, sys, body, nextMiningStartsNewRun);
+		if (nextMiningStartsNewRun) {
+			nextMiningStartsNewRun = false;
+		}
+		if (computed != activeRun) {
+			activeRun = computed;
+			// Run id changed: first write should be treated as fresh so it gets a start time when due.
+			wroteRowsThisRun = false;
+		} else if (activeRun <= 0) {
+			activeRun = computed;
 		}
 		int run = activeRun;
 		if (!wroteRowsThisRun && run > 0) {
@@ -2212,6 +2215,7 @@ return EdoUi.User.MAIN_TEXT;
 			prospectorLimpetSeenThisTrip = false;
 			loggedCargoSinceLastProspector = false;
 			wroteRowsThisRun = false;
+			activeRun = 0;
 			miningLoggingArmed = false;
 			haveActiveAsteroid = false;
 			asteroidBaselineTons = new HashMap<>();
@@ -2237,6 +2241,7 @@ return EdoUi.User.MAIN_TEXT;
 		prospectorLimpetSeenThisTrip = false;
 		loggedCargoSinceLastProspector = false;
 		wroteRowsThisRun = false;
+		activeRun = 0;
 		miningLoggingArmed = false;
 		haveActiveAsteroid = false;
 		asteroidBaselineTons = new HashMap<>();
@@ -2418,9 +2423,6 @@ return EdoUi.User.MAIN_TEXT;
 	 * (continuing an open run). No-op once we have written this trip or when the backend has no rows for that run.
 	 */
 	private void syncAsteroidCounterFromBackendForCurrentLocation(boolean forceNewRun) {
-		if (wroteRowsThisRun) {
-			return;
-		}
 		String commander = OverlayPreferences.getMiningLogCommanderName();
 		if (commander == null || commander.isBlank()) {
 			commander = "-";
@@ -2428,6 +2430,10 @@ return EdoUi.User.MAIN_TEXT;
 		String sys = resolveSystemNameForMiningLog();
 		String body = resolveBodyNameForMiningLog();
 		int run = computeRunNumberForWrite(commander, sys, body, forceNewRun);
+		activeRun = run;
+		if (wroteRowsThisRun) {
+			return;
+		}
 		try {
 			List<ProspectorLogRow> existing = loadRowsForRunResolution();
 			int maxIdx = maxAsteroidIndexForRun(existing, run);
@@ -3283,7 +3289,7 @@ matches.sort(Comparator.comparingDouble(Row::getProportionPercent).reversed());
 		miningLoggingArmed = true;
 		// First limpet after overlay start (or mid-run resume): match lettering to the log so we do not restart at A
 		// while {@link #computeRunNumberForWrite} continues an open run.
-		if (!prospectorLimpetSeenThisTrip && !wroteRowsThisRun) {
+		if (!prospectorLimpetSeenThisTrip) {
 			syncAsteroidCounterFromBackendForCurrentLocation(nextMiningStartsNewRun);
 		}
 		// New limpet after the first: advance the letter only if the *previous* rock produced logged cargo (not a dud).
