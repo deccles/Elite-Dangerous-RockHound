@@ -20,6 +20,7 @@ import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.tools.EdoSqliteDatabaseFrame;
 import org.dce.ed.tools.SystemHierarchyGraphFrame;
 import org.dce.ed.ui.ShowConsoleAction;
+import org.dce.ed.util.ArdentQueryTool;
 import org.dce.ed.util.EdsmQueryTool;
 import org.dce.ed.util.GithubMsiUpdater;
 import org.dce.ed.util.OverlayAppRestart;
@@ -298,6 +299,17 @@ public final class OverlayToolsLaunchers {
                         JOptionPane.ERROR_MESSAGE);
             }
         });
+    }
+
+    public static void launchArdentQueryTool(Component parent) {
+        try {
+            ArdentQueryTool.showDefaultOrBringToFront(parent);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(parent,
+                    "Unable to launch Ardent Market Query Tool:\n" + ex.getMessage(),
+                    "Launch Error",
+                    JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     public static void showConsole() {

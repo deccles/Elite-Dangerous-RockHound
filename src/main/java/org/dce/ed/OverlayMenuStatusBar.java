@@ -432,6 +432,11 @@ public final class OverlayMenuStatusBar {
         edsm.addActionListener(e -> OverlayToolsLaunchers.launchEdsmQueryTools(parent));
         toolsMenu.add(edsm);
 
+        JMenuItem ardent = new JMenuItem("Ardent market query tool…");
+        styleMenuItem(ardent);
+        ardent.addActionListener(e -> OverlayToolsLaunchers.launchArdentQueryTool(parent));
+        toolsMenu.add(ardent);
+
         JMenuItem sqlite = new JMenuItem("SQLite cache browser…");
         styleMenuItem(sqlite);
         sqlite.addActionListener(e -> OverlayToolsLaunchers.launchSqliteCacheBrowser(parent));
