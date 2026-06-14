@@ -27,6 +27,8 @@ import javax.swing.Timer;
 
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
+import org.dce.ed.logreader.OwnedFleetCarrierJournalBootstrap;
+import org.dce.ed.logreader.OwnedFleetCarrierTracker;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
@@ -57,6 +59,9 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	private final String defaultStatusText = "Drag a Spansh route file onto RockHound to import";
 
 	private volatile boolean spanshRouteLoaded = false;
+	private volatile boolean pendingJumpFromOwnedCarrier;
+
+	private final OwnedFleetCarrierTracker ownedFleetCarrierTracker;
 
 	private final SpanshClient spanshClient = new SpanshClient();
 	private final JPanel bottomBar;
@@ -66,7 +71,14 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	private final JButton calculateButton;
 
 	public FleetCarrierTabPanel(BooleanSupplier passThroughEnabledSupplier) {
+		this(passThroughEnabledSupplier, new OwnedFleetCarrierTracker());
+	}
+
+	public FleetCarrierTabPanel(BooleanSupplier passThroughEnabledSupplier, OwnedFleetCarrierTracker ownedFleetCarrierTracker) {
 		super(passThroughEnabledSupplier);
+		this.ownedFleetCarrierTracker = ownedFleetCarrierTracker != null
+				? ownedFleetCarrierTracker
+				: new OwnedFleetCarrierTracker();
 
 		setHeaderLabelText("Fleet Carrier: (no data)");
 
@@ -168,8 +180,8 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		statusLabel.setText("Calculating route…");
 		new Thread(() -> {
 			try {
-				long sourceAddr = routeSession.getCurrentSystemAddress();
-				String sourceName = routeSession.getCurrentSystemName();
+				long sourceAddr = ownedFleetCarrierTracker.getOwnedSystemAddress();
+				String sourceName = ownedFleetCarrierTracker.getOwnedSystemName();
 				Long sourceId = sourceAddr != 0L ? Long.valueOf(sourceAddr) : null;
 				if (sourceId == null && sourceName != null && !sourceName.isBlank()) {
 					sourceId = spanshClient.resolveSystemId64(sourceName);
@@ -177,7 +189,12 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 				if (sourceId == null || sourceId == 0L) {
 					SwingUtilities.invokeLater(() -> {
 						calculateButton.setEnabled(true);
-						statusLabel.setText("Could not resolve current system. Jump once or wait for Location.");
+						if (!ownedFleetCarrierTracker.hasOwnedCarrierLocation()) {
+							statusLabel.setText(
+									"Unknown owned carrier location. Open your carrier management or wait for your carrier to jump.");
+						} else {
+							statusLabel.setText("Could not resolve owned carrier system for Spansh.");
+						}
 					});
 					return;
 				}
@@ -257,11 +274,25 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			return;
 		}
 		FleetCarrierSessionData d = FleetCarrierSessionMapper.fromRouteSession(routeSession);
-		if (destinationField != null) {
-			String t = destinationField.getText();
-			d.setSpanshDestinationQuery(t != null && !t.isBlank() ? t.trim() : null);
-		}
-		state.setFleetCarrier(d);
+        if (destinationField != null) {
+            String t = destinationField.getText();
+            d.setSpanshDestinationQuery(t != null && !t.isBlank() ? t.trim() : null);
+        }
+        if (ownedFleetCarrierTracker != null) {
+            d.setOwnedCarrierId(ownedFleetCarrierTracker.hasOwnedCarrierId()
+                    ? Long.valueOf(ownedFleetCarrierTracker.getOwnedCarrierId()) : null);
+            d.setOwnedCarrierSystemName(ownedFleetCarrierTracker.getOwnedSystemName());
+            d.setOwnedCarrierSystemAddress(ownedFleetCarrierTracker.getOwnedSystemAddress() != 0L
+                    ? Long.valueOf(ownedFleetCarrierTracker.getOwnedSystemAddress()) : null);
+            d.setOwnedCarrierStarPos(ownedFleetCarrierTracker.getOwnedStarPos());
+            if (ownedFleetCarrierTracker.hasOwnedCarrierLocation()) {
+                d.setCurrentSystemName(ownedFleetCarrierTracker.getOwnedSystemName());
+                d.setCurrentSystemAddress(ownedFleetCarrierTracker.getOwnedSystemAddress() != 0L
+                        ? Long.valueOf(ownedFleetCarrierTracker.getOwnedSystemAddress()) : null);
+                d.setCurrentStarPos(ownedFleetCarrierTracker.getOwnedStarPos());
+            }
+        }
+        state.setFleetCarrier(d);
 	}
 
 	@Override
@@ -272,11 +303,13 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		if (state.getFleetCarrier() != null) {
 			FleetCarrierSessionData d = state.getFleetCarrier();
 			FleetCarrierSessionMapper.applyToRouteSession(routeSession, d);
+			restoreOwnedCarrierFromSession(d);
 			if (destinationField != null) {
 				String q = d.getSpanshDestinationQuery();
 				destinationField.setText(q != null ? q : "");
 			}
 		}
+		bootstrapOwnedFleetCarrierFromJournalIfNeeded();
 		int n = state.getFleetCarrier() != null ? state.getFleetCarrier().baseRouteEntriesOrEmpty().size() : 0;
 		spanshRouteLoaded = n > 0;
 		if (spanshRouteLoaded) {
@@ -290,10 +323,15 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	}
 
 	@Override
+	protected void reconcileRouteCurrentWithPostRescanCache() {
+		if (ownedFleetCarrierTracker.hasOwnedCarrierLocation()) {
+			applyOwnedCarrierLocationToRouteSession();
+		}
+	}
+
+	@Override
 	protected boolean shouldUpdateOnCarrierJump(CarrierJumpEvent jump) {
-		// Fleet Carrier tab updates from every carrier jump (regardless of docked status),
-		// per user request.
-		return true;
+		return ownedFleetCarrierTracker.isOwnedCarrierJump(jump, pendingJumpFromOwnedCarrier);
 	}
 
 	@Override
@@ -341,31 +379,102 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		}
 		// Only update on carrier events; ignore everything else so ship jumps / NavRoute don't affect this tab.
 		if (event instanceof CarrierJumpRequestEvent req) {
+			if (!acceptOwnedCarrierRequest(req)) {
+				return;
+			}
+			pendingJumpFromOwnedCarrier = true;
 			applyScheduledJumpDestinationIfNeeded(req);
 			startPendingJumpBlink(req.getSystemName(), req.getSystemAddress(), req.getDepartureTime());
 			return;
 		}
 		if (event.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
+			pendingJumpFromOwnedCarrier = false;
 			stopPendingJumpBlink();
 			return;
 		}
 		if (event instanceof CarrierJumpEvent jump) {
+			if (!ownedFleetCarrierTracker.isOwnedCarrierJump(jump, pendingJumpFromOwnedCarrier)) {
+				return;
+			}
+			pendingJumpFromOwnedCarrier = false;
+			ownedFleetCarrierTracker.onOwnedCarrierJumpCompleted(jump);
+			syncOwnedCarrierRouteMarker();
 			super.handleLogEvent(event);
 			if (spanshRouteLoaded) {
 				SwingUtilities.invokeLater(() -> copyNextSystemFromBaseRoute(jump.getSystemAddress()));
 			}
 		} else if (event instanceof CarrierLocationEvent loc) {
+			if (!ownedFleetCarrierTracker.isOwnedCarrierId(loc.getCarrierId())) {
+				return;
+			}
 			// CarrierLocation often appears before CarrierJump when aboard; with a Spansh route we only advance
 			// on jump completion. Off-carrier owners get CarrierLocation at DepartureTime instead of CarrierJump.
 			if (!spanshRouteLoaded) {
+				ownedFleetCarrierTracker.onOwnedCarrierLocationArrival(loc);
+				syncOwnedCarrierRouteMarker();
 				super.handleLogEvent(event);
 				return;
 			}
 			if (routeSession.isPendingCarrierJumpArrival(loc)) {
+				pendingJumpFromOwnedCarrier = false;
+				ownedFleetCarrierTracker.onOwnedCarrierLocationArrival(loc);
+				syncOwnedCarrierRouteMarker();
 				super.handleLogEvent(event);
 				SwingUtilities.invokeLater(() -> copyNextSystemFromBaseRoute(loc.getSystemAddress()));
 			}
 		}
+	}
+
+	private boolean acceptOwnedCarrierRequest(CarrierJumpRequestEvent req) {
+		if (req == null) {
+			return false;
+		}
+		if (ownedFleetCarrierTracker.hasOwnedCarrierId()) {
+			return ownedFleetCarrierTracker.isOwnedCarrierId(req.getCarrierId());
+		}
+		return req.getCarrierId() == 0L;
+	}
+
+	private void restoreOwnedCarrierFromSession(FleetCarrierSessionData d) {
+		if (d == null) {
+			return;
+		}
+		ownedFleetCarrierTracker.applyPersisted(
+				d.getOwnedCarrierId(),
+				d.getOwnedCarrierSystemName(),
+				d.getOwnedCarrierSystemAddress(),
+				d.getOwnedCarrierStarPos());
+		applyOwnedCarrierLocationToRouteSession();
+	}
+
+	private void applyOwnedCarrierLocationToRouteSession() {
+		if (!ownedFleetCarrierTracker.hasOwnedCarrierLocation()) {
+			return;
+		}
+		routeSession.applyKnownCurrentSystem(
+				ownedFleetCarrierTracker.getOwnedSystemName(),
+				ownedFleetCarrierTracker.getOwnedSystemAddress(),
+				ownedFleetCarrierTracker.getOwnedStarPos());
+		rebuildDisplayedEntries();
+	}
+
+	void bootstrapOwnedFleetCarrierFromJournalIfNeeded() {
+		boolean needId = !ownedFleetCarrierTracker.hasOwnedCarrierId();
+		boolean needLoc = !ownedFleetCarrierTracker.hasOwnedCarrierLocation();
+		if (!needId && !needLoc) {
+			syncOwnedCarrierRouteMarker();
+			return;
+		}
+		OwnedFleetCarrierJournalBootstrap.replayInto(ownedFleetCarrierTracker);
+		syncOwnedCarrierRouteMarker();
+	}
+
+	public void syncOwnedCarrierRouteMarker() {
+		applyOwnedCarrierLocationToRouteSession();
+	}
+
+	OwnedFleetCarrierTracker ownedFleetCarrierTrackerForTests() {
+		return ownedFleetCarrierTracker;
 	}
 
 	void applyScheduledJumpDestinationIfNeeded(CarrierJumpRequestEvent req) {

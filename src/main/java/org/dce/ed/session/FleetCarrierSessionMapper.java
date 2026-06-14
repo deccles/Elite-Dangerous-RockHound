@@ -47,10 +47,13 @@ public final class FleetCarrierSessionMapper {
         if (session == null || d == null) {
             return;
         }
+        String currentName = preferOwnedCarrierSystemName(d);
+        Long currentAddress = preferOwnedCarrierSystemAddress(d);
+        double[] currentStarPos = preferOwnedCarrierStarPos(d);
         RoutePersistenceSnapshot snap = new RoutePersistenceSnapshot(
-                d.getCurrentSystemName(),
-                d.getCurrentSystemAddress(),
-                d.getCurrentStarPos(),
+                currentName,
+                currentAddress,
+                currentStarPos,
                 d.getTargetSystemName(),
                 d.getTargetSystemAddress(),
                 d.getDestinationSystemAddress(),
@@ -68,6 +71,27 @@ public final class FleetCarrierSessionMapper {
             }
         }
         session.replaceBaseRouteEntries(entries);
+    }
+
+    private static String preferOwnedCarrierSystemName(FleetCarrierSessionData d) {
+        if (d.getOwnedCarrierSystemName() != null && !d.getOwnedCarrierSystemName().isBlank()) {
+            return d.getOwnedCarrierSystemName();
+        }
+        return d.getCurrentSystemName();
+    }
+
+    private static Long preferOwnedCarrierSystemAddress(FleetCarrierSessionData d) {
+        if (d.getOwnedCarrierSystemAddress() != null && d.getOwnedCarrierSystemAddress().longValue() != 0L) {
+            return d.getOwnedCarrierSystemAddress();
+        }
+        return d.getCurrentSystemAddress();
+    }
+
+    private static double[] preferOwnedCarrierStarPos(FleetCarrierSessionData d) {
+        if (d.getOwnedCarrierStarPos() != null && d.getOwnedCarrierStarPos().length >= 3) {
+            return d.getOwnedCarrierStarPos();
+        }
+        return d.getCurrentStarPos();
     }
 
     public static RouteEntryPersisted toPersisted(RouteEntry e) {

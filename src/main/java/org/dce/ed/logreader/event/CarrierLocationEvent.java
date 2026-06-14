@@ -13,19 +13,26 @@ import com.google.gson.JsonObject;
  */
 public class CarrierLocationEvent extends EliteLogEvent implements IFsdJump {
 
+    private final long carrierId;
     private final String starSystem;
     private final long systemAddress;
     private final int bodyId;
 
     public CarrierLocationEvent(Instant timestamp,
                                 JsonObject json,
+                                long carrierId,
                                 String starSystem,
                                 long systemAddress,
                                 int bodyId) {
         super(timestamp, EliteEventType.CARRIER_LOCATION, json);
+        this.carrierId = carrierId;
         this.starSystem = starSystem;
         this.systemAddress = systemAddress;
         this.bodyId = bodyId;
+    }
+
+    public long getCarrierId() {
+        return carrierId;
     }
 
     @Override

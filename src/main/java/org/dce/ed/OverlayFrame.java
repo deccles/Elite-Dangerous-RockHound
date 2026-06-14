@@ -869,6 +869,9 @@ private void installCarrierJumpTitleUpdater() {
         monitor.addListener(event -> {
             if (event instanceof CarrierJumpRequestEvent) {
                 CarrierJumpRequestEvent e = (CarrierJumpRequestEvent) event;
+                if (!acceptOwnedCarrierJumpRequest(e)) {
+                    return;
+                }
                 if (e.getDepartureTime() != null) {
                     Instant dep = e.getDepartureTime();
                     String sys = e.getSystemName();
@@ -922,6 +925,24 @@ private void installCarrierJumpTitleUpdater() {
     } catch (Exception ex) {
         ex.printStackTrace();
     }
+}
+
+private boolean acceptOwnedCarrierJumpRequest(CarrierJumpRequestEvent req) {
+    if (req == null) {
+        return false;
+    }
+    EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+    if (tabs == null) {
+        return req.getCarrierId() == 0L;
+    }
+    org.dce.ed.logreader.OwnedFleetCarrierTracker tracker = tabs.getOwnedFleetCarrierTracker();
+    if (tracker == null) {
+        return req.getCarrierId() == 0L;
+    }
+    if (tracker.hasOwnedCarrierId()) {
+        return tracker.isOwnedCarrierId(req.getCarrierId());
+    }
+    return req.getCarrierId() == 0L;
 }
 
 private void onCarrierJumpCompleted(Instant arrivalTime) {

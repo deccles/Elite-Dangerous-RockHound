@@ -615,6 +615,7 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
     }
 
     private CarrierLocationEvent parseCarrierLocation(Instant ts, JsonObject obj) {
+        long carrierId = getLong(obj, "CarrierID");
         String starSystem = obj.has("StarSystem") && !obj.get("StarSystem").isJsonNull()
                 ? obj.get("StarSystem").getAsString()
                 : null;
@@ -624,7 +625,7 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
         int bodyId = obj.has("BodyID") && !obj.get("BodyID").isJsonNull()
                 ? obj.get("BodyID").getAsInt()
                 : -1;
-        return new CarrierLocationEvent(ts, obj, starSystem, systemAddress, bodyId);
+        return new CarrierLocationEvent(ts, obj, carrierId, starSystem, systemAddress, bodyId);
     }
 
     private FsdTargetEvent parseFsdTarget(Instant ts, JsonObject obj) {

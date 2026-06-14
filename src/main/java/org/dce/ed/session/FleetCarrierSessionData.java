@@ -26,6 +26,12 @@ public final class FleetCarrierSessionData {
      */
     private String spanshDestinationQuery;
 
+    /** Journal {@code CarrierID} of the commander's owned fleet carrier ({@code CarrierStats}). */
+    private Long ownedCarrierId;
+    private String ownedCarrierSystemName;
+    private Long ownedCarrierSystemAddress;
+    private double[] ownedCarrierStarPos;
+
     public FleetCarrierSessionData() {
     }
 
@@ -131,6 +137,38 @@ public final class FleetCarrierSessionData {
 
     public void setSpanshDestinationQuery(String spanshDestinationQuery) {
         this.spanshDestinationQuery = spanshDestinationQuery;
+    }
+
+    public Long getOwnedCarrierId() {
+        return ownedCarrierId;
+    }
+
+    public void setOwnedCarrierId(Long ownedCarrierId) {
+        this.ownedCarrierId = ownedCarrierId;
+    }
+
+    public String getOwnedCarrierSystemName() {
+        return ownedCarrierSystemName;
+    }
+
+    public void setOwnedCarrierSystemName(String ownedCarrierSystemName) {
+        this.ownedCarrierSystemName = ownedCarrierSystemName;
+    }
+
+    public Long getOwnedCarrierSystemAddress() {
+        return ownedCarrierSystemAddress;
+    }
+
+    public void setOwnedCarrierSystemAddress(Long ownedCarrierSystemAddress) {
+        this.ownedCarrierSystemAddress = ownedCarrierSystemAddress;
+    }
+
+    public double[] getOwnedCarrierStarPos() {
+        return ownedCarrierStarPos;
+    }
+
+    public void setOwnedCarrierStarPos(double[] ownedCarrierStarPos) {
+        this.ownedCarrierStarPos = ownedCarrierStarPos;
     }
 
     /** Gson may deserialize null; normalize to mutable list. */

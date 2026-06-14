@@ -54,6 +54,9 @@ import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.EliteLogFileLocator;
+import org.dce.ed.logreader.OwnedFleetCarrierTracker;
+import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
+import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.FssDiscoveryScanEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
@@ -121,6 +124,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private final MiningTabPanel miningTab;
 	private final MissionsTabPanel missionsTab;
 	private final NearbyTabPanel nearbyTab;
+	private final OwnedFleetCarrierTracker ownedFleetCarrierTracker;
 	private final FleetCarrierTabPanel fleetCarrierTab;
 
 	private JButton missionsButton;
@@ -263,7 +267,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 				() -> lastKnownSystemName,
 				() -> lastKnownStationName);
 		miningTab.setMissionTracker(missionsTab.getTracker(), hoverSwitchEnabled);
-		this.fleetCarrierTab = new FleetCarrierTabPanel(hoverSwitchEnabled);
+		this.ownedFleetCarrierTracker = new OwnedFleetCarrierTracker();
+		this.fleetCarrierTab = new FleetCarrierTabPanel(hoverSwitchEnabled, ownedFleetCarrierTracker);
 
 		cardPanel.add(routeTab, CARD_ROUTE);
 		cardPanel.add(systemTab, CARD_SYSTEM);
@@ -429,7 +434,41 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * Threading: invoked on the same thread as {@link org.dce.ed.logreader.LiveJournalMonitor#dispatch}
 	 * (the {@code Elite-LiveJournalMonitor} worker), not automatically on the EDT.
 	 */
+	private void applyOwnedFleetCarrierTrackerFromJournal(EliteLogEvent event) {
+		if (event == null) {
+			return;
+		}
+		String prevName = ownedFleetCarrierTracker.getOwnedSystemName();
+		long prevAddr = ownedFleetCarrierTracker.getOwnedSystemAddress();
+		boolean hadLoc = ownedFleetCarrierTracker.hasOwnedCarrierLocation();
+		if (event.getType() == EliteEventType.CARRIER_STATS) {
+			ownedFleetCarrierTracker.onCarrierStats(
+					OwnedFleetCarrierTracker.carrierIdFromJson(event.getRawJson()));
+		} else if (event instanceof CarrierJumpRequestEvent req) {
+			ownedFleetCarrierTracker.onCarrierJumpRequest(req);
+		} else if (event instanceof CarrierLocationEvent loc) {
+			ownedFleetCarrierTracker.onCarrierLocation(loc);
+		}
+		if (ownedCarrierLocationChanged(hadLoc, prevName, prevAddr)) {
+			fleetCarrierTab.syncOwnedCarrierRouteMarker();
+		}
+	}
+
+	private boolean ownedCarrierLocationChanged(boolean hadLoc, String prevName, long prevAddr) {
+		if (!hadLoc && ownedFleetCarrierTracker.hasOwnedCarrierLocation()) {
+			return true;
+		}
+		String name = ownedFleetCarrierTracker.getOwnedSystemName();
+		long addr = ownedFleetCarrierTracker.getOwnedSystemAddress();
+		return (name != null && !name.equals(prevName)) || (addr != 0L && addr != prevAddr);
+	}
+
+	public void bootstrapOwnedFleetCarrierFromJournalIfNeeded() {
+		fleetCarrierTab.bootstrapOwnedFleetCarrierFromJournalIfNeeded();
+	}
+
 	public void processJournalEvent(EliteLogEvent event) {
+		applyOwnedFleetCarrierTrackerFromJournal(event);
 		this.handleLogEvent(event);
 
 		if (event instanceof LoadGameEvent lg) {
@@ -469,6 +508,21 @@ public class EliteOverlayTabbedPane extends JPanel {
 				if (raw.has("StarSystem") && !raw.get("StarSystem").isJsonNull()) {
 					lastKnownSystemName = raw.get("StarSystem").getAsString();
 				}
+				String stationType = raw.has("StationType") && !raw.get("StationType").isJsonNull()
+						? raw.get("StationType").getAsString()
+						: null;
+				if (stationType != null && "FleetCarrier".equalsIgnoreCase(stationType.trim())) {
+					long systemAddress = raw.has("SystemAddress") && !raw.get("SystemAddress").isJsonNull()
+							? raw.get("SystemAddress").getAsLong()
+							: 0L;
+					String starSystem = raw.has("StarSystem") && !raw.get("StarSystem").isJsonNull()
+							? raw.get("StarSystem").getAsString()
+							: null;
+					ownedFleetCarrierTracker.onDockedFleetCarrier(
+							OwnedFleetCarrierTracker.marketIdFromDockedJson(raw),
+							starSystem,
+							systemAddress);
+				}
 			}
 		} else if (event.getType() == EliteEventType.UNDOCKED) {
 			lastKnownStationName = null;
@@ -503,6 +557,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	public FleetCarrierTabPanel getFleetCarrierTabPanel() {
 		return fleetCarrierTab;
+	}
+
+	public OwnedFleetCarrierTracker getOwnedFleetCarrierTracker() {
+		return ownedFleetCarrierTracker;
 	}
 
 	public MiningTabPanel getMiningTabPanel() {

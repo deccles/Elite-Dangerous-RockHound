@@ -35,6 +35,7 @@ class SystemEventProcessorCarrierLocationTest {
         CarrierLocationEvent loc = new CarrierLocationEvent(
                 Instant.parse("2026-05-17T19:48:10Z"),
                 new JsonObject(),
+                0L,
                 "Byua Aim SZ-G d10-2113",
                 72611866382299L,
                 0);
@@ -55,6 +56,7 @@ class SystemEventProcessorCarrierLocationTest {
         CarrierLocationEvent loc = new CarrierLocationEvent(
                 Instant.parse("2025-12-02T04:25:10Z"),
                 new JsonObject(),
+                3714348544L,
                 "Ploea Eurl TH-N c22-2",
                 638709240514L,
                 0);
@@ -122,6 +124,7 @@ class SystemEventProcessorCarrierLocationTest {
         CarrierLocationEvent loc = new CarrierLocationEvent(
                 Instant.parse("2026-05-17T19:48:10Z"),
                 new JsonObject(),
+                0L,
                 "Byua Aim SZ-G d10-2113",
                 72611866382299L,
                 0);

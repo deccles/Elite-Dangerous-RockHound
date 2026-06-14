@@ -2,12 +2,14 @@ package org.dce.ed;
 
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.InvocationTargetException;
 import java.time.Instant;
 
 import javax.swing.SwingUtilities;
 
+import org.dce.ed.logreader.OwnedFleetCarrierTracker;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.junit.jupiter.api.Test;
 
@@ -46,12 +48,40 @@ class FleetCarrierTabPanelIsolationTest {
         assertEquals("Sagittarius A*", fleet.destinationQueryForTests());
     }
 
+    @Test
+    void carrierJumpRequestFromFriendCarrier_isIgnoredForDestinationQuery() throws Exception {
+        OwnedFleetCarrierTracker tracker = new OwnedFleetCarrierTracker();
+        tracker.onCarrierStats(111L);
+        FleetCarrierTabPanel fleet = new FleetCarrierTabPanel(() -> false, tracker);
+        CarrierJumpRequestEvent request = carrierJumpRequest("Col 285 Sector ZZ-Y b15-0", 999L);
+
+        runOnEdtAndWait(() -> fleet.handleLogEvent(request));
+
+        assertTrue(fleet.destinationQueryForTests() == null || fleet.destinationQueryForTests().isBlank());
+    }
+
+    @Test
+    void carrierJumpRequestFromOwnedCarrier_populatesBlankDestinationQuery() throws Exception {
+        OwnedFleetCarrierTracker tracker = new OwnedFleetCarrierTracker();
+        tracker.onCarrierStats(123456789L);
+        FleetCarrierTabPanel fleet = new FleetCarrierTabPanel(() -> false, tracker);
+        CarrierJumpRequestEvent request = carrierJumpRequest("Col 285 Sector ZZ-Y b15-0", 123456789L);
+
+        runOnEdtAndWait(() -> fleet.handleLogEvent(request));
+
+        assertEquals("Col 285 Sector ZZ-Y b15-0", fleet.destinationQueryForTests());
+    }
+
     private static CarrierJumpRequestEvent carrierJumpRequest(String systemName) {
+        return carrierJumpRequest(systemName, 123456789L);
+    }
+
+    private static CarrierJumpRequestEvent carrierJumpRequest(String systemName, long carrierId) {
         return new CarrierJumpRequestEvent(
                 Instant.parse("2026-05-26T20:45:00Z"),
                 null,
                 "FleetCarrier",
-                123456789L,
+                carrierId,
                 systemName,
                 systemName + " A",
                 12345L,
