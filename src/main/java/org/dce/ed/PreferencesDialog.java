@@ -195,6 +195,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
 
 	private JSpinner bioValuableThresholdMillionSpinner;
+	private JComboBox<OverlayPreferences.BiologyMapDisplayMode> biologyMapDisplayModeComboBox;
 	private JCheckBox autoExpandBioOnTargetedBodyCheckBox;
 
 	/** Root tabbed pane (Colors, Exobiology, …); used to jump to a specific tab from helpers. */
@@ -1393,6 +1394,31 @@ public class PreferencesDialog extends JDialog {
 				"When enabled, the System tab expands exobiology detail lines for your navigation target and collapses them when the target clears.");
 		box.add(autoExpandBioOnTargetedBodyCheckBox, gbc);
 
+		gbc.gridy = 2;
+		JLabel biologyMapDisplayLabel = new JLabel("ExoBio map display:");
+		biologyMapDisplayLabel.setToolTipText(
+				"<html>Rays draw lines from your position to each sample pin with distance and heading.<br>"
+						+ "Points place a dot at each sample (clipped to the map edge when off-screen) with the label inside the map.</html>");
+		box.add(biologyMapDisplayLabel, gbc);
+		gbc.gridx = 1;
+		biologyMapDisplayModeComboBox = new JComboBox<>(OverlayPreferences.BiologyMapDisplayMode.values());
+		biologyMapDisplayModeComboBox.setRenderer(new DefaultListCellRenderer() {
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public Component getListCellRendererComponent(
+					JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+				if (value instanceof OverlayPreferences.BiologyMapDisplayMode mode) {
+					setText(mode.displayName());
+				}
+				return c;
+			}
+		});
+		biologyMapDisplayModeComboBox.setSelectedItem(OverlayPreferences.getBiologyMapDisplayMode());
+		biologyMapDisplayModeComboBox.setToolTipText(biologyMapDisplayLabel.getToolTipText());
+		box.add(biologyMapDisplayModeComboBox, gbc);
+
 		panel.add(box, BorderLayout.NORTH);
 		return panel;
 	}
@@ -2353,6 +2379,12 @@ public class PreferencesDialog extends JDialog {
         }
         if (autoExpandBioOnTargetedBodyCheckBox != null) {
             OverlayPreferences.setAutoExpandBioOnTargetedBody(autoExpandBioOnTargetedBodyCheckBox.isSelected());
+        }
+        if (biologyMapDisplayModeComboBox != null) {
+            Object selected = biologyMapDisplayModeComboBox.getSelectedItem();
+            if (selected instanceof OverlayPreferences.BiologyMapDisplayMode mode) {
+                OverlayPreferences.setBiologyMapDisplayMode(mode);
+            }
         }
 
         OverlayPreferences.flushBackingStore();

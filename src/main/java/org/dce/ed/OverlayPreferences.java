@@ -151,6 +151,8 @@ public final class OverlayPreferences {
     private static final String KEY_SYSTEM_TAB_PANEL_TABLE_SPLIT = "system.panel.splitTable";
     /** Vertical split: fraction of Biology tab height for the specimen table (top pane). */
     private static final String KEY_BIOLOGY_PANEL_TABLE_SPLIT = "biology.panel.splitTable";
+    /** Biology tab surface map: rays from centre vs points at sample location. */
+    private static final String KEY_BIOLOGY_MAP_DISPLAY_MODE = "biology.map.displayMode";
 
     // Mining: low-limpet reminder
     private static final String KEY_MINING_LIMPET_REMINDER_ENABLED = "mining.limpetReminder.enabled";
@@ -1186,6 +1188,38 @@ public static Engine getSpeechEngine() {
 
     public static void setBiologyPanelTableSplitRatio(double ratio) {
         PREFS.put(KEY_BIOLOGY_PANEL_TABLE_SPLIT, Double.toString(clampSplitRatio(ratio)));
+    }
+
+    /**
+     * How the ExoBio surface map draws incomplete / parked sample pins:
+     * rays from the map centre, or points at the sample bearing with distance/heading labels.
+     */
+    public enum BiologyMapDisplayMode {
+        RAYS,
+        POINTS;
+
+        public String displayName() {
+            return this == POINTS ? "Points at location" : "Rays from centre";
+        }
+    }
+
+    public static BiologyMapDisplayMode getBiologyMapDisplayMode() {
+        String v = PREFS.get(KEY_BIOLOGY_MAP_DISPLAY_MODE, BiologyMapDisplayMode.RAYS.name());
+        if (v == null) {
+            return BiologyMapDisplayMode.RAYS;
+        }
+        try {
+            return BiologyMapDisplayMode.valueOf(v.trim().toUpperCase());
+        } catch (Exception e) {
+            return BiologyMapDisplayMode.RAYS;
+        }
+    }
+
+    public static void setBiologyMapDisplayMode(BiologyMapDisplayMode mode) {
+        if (mode == null) {
+            mode = BiologyMapDisplayMode.RAYS;
+        }
+        PREFS.put(KEY_BIOLOGY_MAP_DISPLAY_MODE, mode.name());
     }
 
     private static double clampSplitRatio(double ratio) {

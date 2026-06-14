@@ -2868,6 +2868,10 @@ private final class BioMapPanel extends JPanel {
             double maxDistM = computeMaxDistM(rows, haveAbandonedPins);
             double fitSpanM = Math.max(25.0, maxDistM / mapZoomFactor);
             double scale = (fit * 0.42) / fitSpanM;
+            int plotRx2 = x0 + plotW;
+            int plotRy2 = y0 + plotH;
+            boolean pointsMode =
+                    OverlayPreferences.getBiologyMapDisplayMode() == OverlayPreferences.BiologyMapDisplayMode.POINTS;
 
             java.util.List<BioMapRayLabel> rayLabels = new ArrayList<>();
 
@@ -2910,29 +2914,65 @@ private final class BioMapPanel extends JPanel {
             }
 
             if (haveSamplePins) {
-                g2.setStroke(new BasicStroke(2f));
-                if (showParkedPins && abandonedByKey != null) {
-                    for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
-                        if (e.getValue() == null || e.getValue().isEmpty()) {
-                            continue;
-                        }
-                        Color parkedColor = activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())
-                                ? BIO_MAP_RESUMED_GENUS_HISTORY
-                                : BIO_MAP_ABANDONED_SAMPLE;
-                        for (BodyInfo.BioSamplePoint p : e.getValue()) {
-                            drawBioSampleRayLine(g2, viewCx, viewCy, scale, parkedColor, p);
-                            queueBioSampleRayLabel(rayLabels, viewCx, viewCy, scale, p, e.getKey(), 2);
+                if (pointsMode) {
+                    if (showParkedPins && abandonedByKey != null) {
+                        for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
+                            if (e.getValue() == null || e.getValue().isEmpty()) {
+                                continue;
+                            }
+                            Color parkedColor = activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())
+                                    ? BIO_MAP_RESUMED_GENUS_HISTORY
+                                    : BIO_MAP_ABANDONED_SAMPLE;
+                            for (BodyInfo.BioSamplePoint p : e.getValue()) {
+                                int[] clipped = clipSampleDisplayPoint(
+                                        viewCx, viewCy, scale, p, x0, y0, plotRx2, plotRy2);
+                                drawBioSamplePointMarker(g2, clipped[0], clipped[1], parkedColor);
+                                queueBioSamplePointLabel(
+                                        rayLabels, viewCx, viewCy, scale, p, e.getKey(), 2,
+                                        x0, y0, plotRx2, plotRy2);
+                            }
                         }
                     }
-                }
-                if (rows != null) {
-                    for (BioRow row : rows) {
-                        if (row == null || row.analysed || row.points == null || row.points.isEmpty()) {
-                            continue;
+                    if (rows != null) {
+                        for (BioRow row : rows) {
+                            if (row == null || row.analysed || row.points == null || row.points.isEmpty()) {
+                                continue;
+                            }
+                            for (BodyInfo.BioSamplePoint p : row.points) {
+                                int[] clipped = clipSampleDisplayPoint(
+                                        viewCx, viewCy, scale, p, x0, y0, plotRx2, plotRy2);
+                                drawBioSamplePointMarker(g2, clipped[0], clipped[1], BIO_MAP_ACTIVE_SAMPLE);
+                                queueBioSamplePointLabel(
+                                        rayLabels, viewCx, viewCy, scale, p, row.displayName, 3,
+                                        x0, y0, plotRx2, plotRy2);
+                            }
                         }
-                        for (BodyInfo.BioSamplePoint p : row.points) {
-                            drawBioSampleRayLine(g2, viewCx, viewCy, scale, BIO_MAP_ACTIVE_SAMPLE, p);
-                            queueBioSampleRayLabel(rayLabels, viewCx, viewCy, scale, p, row.displayName, 3);
+                    }
+                } else {
+                    g2.setStroke(new BasicStroke(2f));
+                    if (showParkedPins && abandonedByKey != null) {
+                        for (Map.Entry<String, List<BodyInfo.BioSamplePoint>> e : abandonedByKey.entrySet()) {
+                            if (e.getValue() == null || e.getValue().isEmpty()) {
+                                continue;
+                            }
+                            Color parkedColor = activeIncompleteBioKey != null && activeIncompleteBioKey.equals(e.getKey())
+                                    ? BIO_MAP_RESUMED_GENUS_HISTORY
+                                    : BIO_MAP_ABANDONED_SAMPLE;
+                            for (BodyInfo.BioSamplePoint p : e.getValue()) {
+                                drawBioSampleRayLine(g2, viewCx, viewCy, scale, parkedColor, p);
+                                queueBioSampleRayLabel(rayLabels, viewCx, viewCy, scale, p, e.getKey(), 2);
+                            }
+                        }
+                    }
+                    if (rows != null) {
+                        for (BioRow row : rows) {
+                            if (row == null || row.analysed || row.points == null || row.points.isEmpty()) {
+                                continue;
+                            }
+                            for (BodyInfo.BioSamplePoint p : row.points) {
+                                drawBioSampleRayLine(g2, viewCx, viewCy, scale, BIO_MAP_ACTIVE_SAMPLE, p);
+                                queueBioSampleRayLabel(rayLabels, viewCx, viewCy, scale, p, row.displayName, 3);
+                            }
                         }
                     }
                 }
@@ -2946,7 +2986,7 @@ private final class BioMapPanel extends JPanel {
                 queueVehicleRayLabel(rayLabels, viewCx, viewCy, srvPx[0], srvPx[1], shipLat, shipLon, srvLat, srvLon, 1);
             }
 
-            deconflictAndDrawRayLabels(g2, rayLabels);
+            deconflictAndDrawRayLabels(g2, rayLabels, x0, y0, plotRx2, plotRy2);
 
             if (!mapBookmarks.isEmpty()) {
                 for (BioMapBookmark b : mapBookmarks) {
@@ -3477,7 +3517,7 @@ private final class BioMapPanel extends JPanel {
             int priority) {
         double d = greatCircleMeters(fromLat, fromLon, toLat, toLon, shipRadiusM);
         double brng = bearingDeg(fromLat, fromLon, toLat, toLon);
-        queue.add(new BioMapRayLabel(cx, cy, vx, vy, "", mapPinRayMetaLabel(d, brng), BIO_MAP_RAY_LABEL, priority));
+        queue.add(new BioMapRayLabel(cx, cy, vx, vy, "", mapPinRayMetaLabel(d, brng), BIO_MAP_RAY_LABEL, priority, false));
     }
 
     private void drawBioSampleRayLine(Graphics2D g2, int cx, int cy, double scale, Color lineColor, BodyInfo.BioSamplePoint p) {
@@ -3487,8 +3527,42 @@ private final class BioMapPanel extends JPanel {
         int[] end = sampleRayEndPx(cx, cy, scale, p);
         g2.setColor(lineColor);
         g2.draw(new Line2D.Double(cx, cy, end[0], end[1]));
+        drawBioSamplePointMarker(g2, end[0], end[1], lineColor);
+    }
+
+    private static void drawBioSamplePointMarker(Graphics2D g2, int px, int py, Color color) {
         int r = 4;
-        g2.fill(new Ellipse2D.Double(end[0] - r, end[1] - r, r * 2, r * 2));
+        g2.setColor(color);
+        g2.fill(new Ellipse2D.Double(px - r, py - r, r * 2, r * 2));
+    }
+
+    /** Clip an off-screen sample pin to the nearest map edge along the line from the view centre. */
+    private int[] clipSampleDisplayPoint(
+            int cx,
+            int cy,
+            double scale,
+            BodyInfo.BioSamplePoint p,
+            int rx1,
+            int ry1,
+            int rx2,
+            int ry2) {
+        int[] end = sampleRayEndPx(cx, cy, scale, p);
+        return clipDisplayPointToMapPlot(cx, cy, end[0], end[1], rx1, ry1, rx2, ry2);
+    }
+
+    private static int[] clipDisplayPointToMapPlot(
+            int cx, int cy, int px, int py, int rx1, int ry1, int rx2, int ry2) {
+        if (px >= rx1 && px <= rx2 && py >= ry1 && py <= ry2) {
+            return new int[] { px, py };
+        }
+        int[] seg = clipSegmentToRect(cx, cy, px, py, rx1, ry1, rx2, ry2);
+        if (seg == null) {
+            return new int[] {
+                    Math.max(rx1, Math.min(rx2, px)),
+                    Math.max(ry1, Math.min(ry2, py))
+            };
+        }
+        return new int[] { seg[2], seg[3] };
     }
 
     /** Small upward triangle for a species completed to 3/3 samples (no ray from map centre). */
@@ -3526,7 +3600,33 @@ private final class BioMapPanel extends JPanel {
         double brng = bearingDeg(oLat, oLon, p.getLatitude(), p.getLongitude());
         String genus = BiologyTabPanel.mapPinGenusLabel(displayNameOrKey);
         String meta = BiologyTabPanel.mapPinRayMetaLabel(d, brng);
-        queue.add(new BioMapRayLabel(cx, cy, end[0], end[1], genus, meta, BIO_MAP_RAY_LABEL, priority));
+        queue.add(new BioMapRayLabel(cx, cy, end[0], end[1], genus, meta, BIO_MAP_RAY_LABEL, priority, false));
+    }
+
+    private void queueBioSamplePointLabel(
+            java.util.List<BioMapRayLabel> queue,
+            int cx,
+            int cy,
+            double scale,
+            BodyInfo.BioSamplePoint p,
+            String displayNameOrKey,
+            int priority,
+            int rx1,
+            int ry1,
+            int rx2,
+            int ry2) {
+        if (p == null) {
+            return;
+        }
+        int[] clipped = clipSampleDisplayPoint(cx, cy, scale, p, rx1, ry1, rx2, ry2);
+        double oLat = mapOriginLat();
+        double oLon = mapOriginLon();
+        double d = greatCircleMeters(oLat, oLon, p.getLatitude(), p.getLongitude(), shipRadiusM);
+        double brng = bearingDeg(oLat, oLon, p.getLatitude(), p.getLongitude());
+        String genus = BiologyTabPanel.mapPinGenusLabel(displayNameOrKey);
+        String meta = BiologyTabPanel.mapPinRayMetaLabel(d, brng);
+        queue.add(new BioMapRayLabel(
+                cx, cy, clipped[0], clipped[1], genus, meta, BIO_MAP_RAY_LABEL, priority, true));
     }
 
     private int[] sampleRayEndPx(int cx, int cy, double scale, BodyInfo.BioSamplePoint p) {
@@ -3623,8 +3723,19 @@ private final class BioMapPanel extends JPanel {
         final String meta;
         final Color color;
         final int priority;
+        /** When true, label sits beside the sample point (points display mode). */
+        final boolean pointStyle;
 
-        BioMapRayLabel(int cx, int cy, int tx, int ty, String genus, String meta, Color color, int priority) {
+        BioMapRayLabel(
+                int cx,
+                int cy,
+                int tx,
+                int ty,
+                String genus,
+                String meta,
+                Color color,
+                int priority,
+                boolean pointStyle) {
             this.cx = cx;
             this.cy = cy;
             this.tx = tx;
@@ -3633,6 +3744,7 @@ private final class BioMapPanel extends JPanel {
             this.meta = meta != null ? meta : "";
             this.color = color;
             this.priority = priority;
+            this.pointStyle = pointStyle;
         }
     }
 
@@ -3641,7 +3753,13 @@ private final class BioMapPanel extends JPanel {
     };
     private static final int[] BIO_LABEL_NORMAL_OFFSETS_PX = { 0, 12, -12, 22, -22, 34, -34 };
 
-    private void deconflictAndDrawRayLabels(Graphics2D g2, java.util.List<BioMapRayLabel> labels) {
+    private void deconflictAndDrawRayLabels(
+            Graphics2D g2,
+            java.util.List<BioMapRayLabel> labels,
+            int plotRx1,
+            int plotRy1,
+            int plotRx2,
+            int plotRy2) {
         if (labels == null || labels.isEmpty()) {
             return;
         }
@@ -3649,12 +3767,21 @@ private final class BioMapPanel extends JPanel {
         FontMetrics fm = g2.getFontMetrics();
         java.util.List<Rectangle> placed = new ArrayList<>();
         for (BioMapRayLabel lab : labels) {
-            LabelPlacement pick = findRayLabelPlacement(lab, fm, placed);
+            LabelPlacement pick = lab.pointStyle
+                    ? findPointLabelPlacement(lab, fm, placed, plotRx1, plotRy1, plotRx2, plotRy2)
+                    : findRayLabelPlacement(lab, fm, placed);
             if (pick == null) {
-                int mx = (lab.cx + lab.tx) / 2;
-                int my = (lab.cy + lab.ty) / 2;
-                double angleRad = readableRayLabelAngleRad(lab.cx, lab.cy, lab.tx, lab.ty);
-                pick = new LabelPlacement(mx, my, angleRad, labelBlockBounds(mx, my, angleRad, fm, lab.genus, lab.meta));
+                if (lab.pointStyle) {
+                    int[] shifted = shiftLabelCenterInsidePlot(
+                            lab.tx, lab.ty, 0, fm, lab.genus, lab.meta, plotRx1, plotRy1, plotRx2, plotRy2);
+                    Rectangle bounds = labelBlockBounds(shifted[0], shifted[1], 0, fm, lab.genus, lab.meta);
+                    pick = new LabelPlacement(shifted[0], shifted[1], 0, bounds);
+                } else {
+                    int mx = (lab.cx + lab.tx) / 2;
+                    int my = (lab.cy + lab.ty) / 2;
+                    double angleRad = readableRayLabelAngleRad(lab.cx, lab.cy, lab.tx, lab.ty);
+                    pick = new LabelPlacement(mx, my, angleRad, labelBlockBounds(mx, my, angleRad, fm, lab.genus, lab.meta));
+                }
             }
             placed.add(pick.bounds);
             drawSplitLabelsAt(g2, pick.mx, pick.my, pick.angleRad, lab.genus, lab.meta, lab.color, fm);
@@ -3696,6 +3823,81 @@ private final class BioMapPanel extends JPanel {
             }
         }
         return null;
+    }
+
+    private LabelPlacement findPointLabelPlacement(
+            BioMapRayLabel lab,
+            FontMetrics fm,
+            java.util.List<Rectangle> placed,
+            int rx1,
+            int ry1,
+            int rx2,
+            int ry2) {
+        double dx = lab.cx - lab.tx;
+        double dy = lab.cy - lab.ty;
+        double len = Math.hypot(dx, dy);
+        if (len < 1.0) {
+            dx = 0.0;
+            dy = -1.0;
+            len = 1.0;
+        }
+        double ux = dx / len;
+        double uy = dy / len;
+        double nx = -uy;
+        double ny = ux;
+        int[] inward = { 12, 18, 26, 34, 42, 50, 58 };
+        for (int off : inward) {
+            for (int normOff : BIO_LABEL_NORMAL_OFFSETS_PX) {
+                int mx = (int) Math.round(lab.tx + ux * off + nx * normOff);
+                int my = (int) Math.round(lab.ty + uy * off + ny * normOff);
+                int[] shifted = shiftLabelCenterInsidePlot(mx, my, 0, fm, lab.genus, lab.meta, rx1, ry1, rx2, ry2);
+                mx = shifted[0];
+                my = shifted[1];
+                Rectangle bounds = labelBlockBounds(mx, my, 0, fm, lab.genus, lab.meta);
+                if (bounds.x >= rx1
+                        && bounds.y >= ry1
+                        && bounds.x + bounds.width <= rx2
+                        && bounds.y + bounds.height <= ry2
+                        && !intersectsAny(bounds, placed)) {
+                    return new LabelPlacement(mx, my, 0, bounds);
+                }
+            }
+        }
+        return null;
+    }
+
+    private static int[] shiftLabelCenterInsidePlot(
+            int mx,
+            int my,
+            double angleRad,
+            FontMetrics fm,
+            String genus,
+            String meta,
+            int rx1,
+            int ry1,
+            int rx2,
+            int ry2) {
+        for (int pass = 0; pass < 4; pass++) {
+            Rectangle b = labelBlockBounds(mx, my, angleRad, fm, genus, meta);
+            int dx = 0;
+            int dy = 0;
+            if (b.x < rx1) {
+                dx = rx1 - b.x;
+            } else if (b.x + b.width > rx2) {
+                dx = rx2 - (b.x + b.width);
+            }
+            if (b.y < ry1) {
+                dy = ry1 - b.y;
+            } else if (b.y + b.height > ry2) {
+                dy = ry2 - (b.y + b.height);
+            }
+            if (dx == 0 && dy == 0) {
+                return new int[] { mx, my };
+            }
+            mx += dx;
+            my += dy;
+        }
+        return new int[] { mx, my };
     }
 
     private static double readableRayLabelAngleRad(int cx, int cy, int tx, int ty) {
