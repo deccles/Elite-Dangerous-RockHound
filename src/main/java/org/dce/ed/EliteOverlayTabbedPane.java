@@ -45,6 +45,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.TransferHandler;
 
+import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.mining.ProspectorLogBackendFactory;
 import org.dce.ed.OverlayPreferences.MiningLimpetReminderMode;
 import org.dce.ed.tts.PollyTtsCached;
@@ -86,7 +87,7 @@ import java.util.function.Consumer;
  * Custom transparent "tabbed pane" for the overlay.
  * Does not extend JTabbedPane to avoid opaque background painting.
  *
- * Main tabs: Route, System, ExoBio, Mining, Fleet Carrier (visibility from preferences). Nearby panel is kept in the card stack but has no tab button.
+ * Main tabs: Route, System, ExoBio, Mining, Fleet Carrier, Exec (visibility from preferences). Nearby panel is kept in the card stack but has no tab button.
  */
 public class EliteOverlayTabbedPane extends JPanel {
 
@@ -103,6 +104,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private static final String CARD_MISSIONS = "MISSIONS";
 	private static final String CARD_NEARBY = "NEARBY";
 	private static final String CARD_FLEET_CARRIER = "FLEET_CARRIER";
+	private static final String CARD_EXEC = "EXEC";
 
 	private static final int TAB_HOVER_DELAY_MS = 500;	private static final Color TAB_WHITE = EdoUi.Internal.WHITE_ALPHA_230;
 
@@ -126,6 +128,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private final NearbyTabPanel nearbyTab;
 	private final OwnedFleetCarrierTracker ownedFleetCarrierTracker;
 	private final FleetCarrierTabPanel fleetCarrierTab;
+	private final ExecTabPanel execTab;
 
 	private JButton missionsButton;
 
@@ -156,6 +159,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 	/** Nearby tab content is kept for data/journals; no tab button (see preferences / future use). */
 	private JButton nearbyButton;
 	private JButton fleetCarrierButton;
+	private JButton execButton;
+
+	private ExecTriggerService execTriggerService;
 
 	public EliteOverlayTabbedPane() {
 		this(() -> true);
@@ -181,6 +187,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		missionsButton = createTabButton("Missions");
 		nearbyButton = null;
 		fleetCarrierButton = createTabButton("Fleet Carrier");
+		execButton = createTabButton("Exec");
 
 		group.add(routeButton);
 		group.add(systemButton);
@@ -188,6 +195,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		group.add(miningButton);
 		group.add(missionsButton);
 		group.add(fleetCarrierButton);
+		group.add(execButton);
 
 		tabBar.add(routeButton);
 		tabBar.add(systemButton);
@@ -195,6 +203,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		tabBar.add(miningButton);
 		tabBar.add(missionsButton);
 		tabBar.add(fleetCarrierButton);
+		tabBar.add(execButton);
 
 		// ----- Card area with the actual tab contents -----
 		cardLayout = new CardLayout();
@@ -269,6 +278,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		miningTab.setMissionTracker(missionsTab.getTracker(), hoverSwitchEnabled);
 		this.ownedFleetCarrierTracker = new OwnedFleetCarrierTracker();
 		this.fleetCarrierTab = new FleetCarrierTabPanel(hoverSwitchEnabled, ownedFleetCarrierTracker);
+		this.execTab = new ExecTabPanel();
 
 		cardPanel.add(routeTab, CARD_ROUTE);
 		cardPanel.add(systemTab, CARD_SYSTEM);
@@ -277,6 +287,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		cardPanel.add(missionsTab, CARD_MISSIONS);
 		cardPanel.add(nearbyTab, CARD_NEARBY);
 		cardPanel.add(fleetCarrierTab, CARD_FLEET_CARRIER);
+		cardPanel.add(execTab, CARD_EXEC);
 
 		applyTabButtonStyle(routeButton);
 		applyTabButtonStyle(systemButton);
@@ -284,6 +295,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(missionsButton);
 		applyTabButtonStyle(fleetCarrierButton);
+		applyTabButtonStyle(execButton);
 		// SystemTabPanel already refreshes cache in its constructor.
 		// Avoid triggering a second startup load path.
 
@@ -330,6 +342,13 @@ public class EliteOverlayTabbedPane extends JPanel {
 			}
 		});
 
+		execButton.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				selectTab(CARD_EXEC, execButton);
+			}
+		});
+
 		// Hover-to-switch: resting over a tab for a short time activates it
 		installHoverSwitch(routeButton, TAB_HOVER_DELAY_MS, () -> routeButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(systemButton, TAB_HOVER_DELAY_MS, () -> systemButton.doClick(), hoverSwitchEnabled);
@@ -337,6 +356,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		installHoverSwitch(miningButton, TAB_HOVER_DELAY_MS, () -> miningButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(missionsButton, TAB_HOVER_DELAY_MS, () -> missionsButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(fleetCarrierButton, TAB_HOVER_DELAY_MS, () -> fleetCarrierButton.doClick(), hoverSwitchEnabled);
+		installHoverSwitch(execButton, TAB_HOVER_DELAY_MS, () -> execButton.doClick(), hoverSwitchEnabled);
 
 		applyOverlayTabBarVisibility();
 		selectFirstVisibleTab();
@@ -469,6 +489,12 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	public void processJournalEvent(EliteLogEvent event) {
 		applyOwnedFleetCarrierTrackerFromJournal(event);
+		if (execTriggerService != null) {
+			execTriggerService.onJournalEvent(event, ownedFleetCarrierTracker);
+			if (event != null && event.getType() == EliteEventType.CARRIER_STATS) {
+				SwingUtilities.invokeLater(execTab::refreshFuelLevelLabel);
+			}
+		}
 		this.handleLogEvent(event);
 
 		if (event instanceof LoadGameEvent lg) {
@@ -574,6 +600,18 @@ public class EliteOverlayTabbedPane extends JPanel {
 	public MissionsTabPanel getMissionsTabPanel() {
 		return missionsTab;
 	}
+
+	public ExecTabPanel getExecTabPanel() {
+		return execTab;
+	}
+
+	public void wireExecTriggerService(ExecTriggerService service) {
+		this.execTriggerService = service;
+		if (execTab != null) {
+			execTab.setExecTriggerService(service);
+		}
+	}
+
 	static LoadoutEvent loadoutEventx = null;
 
 	private final CopyOnWriteArrayList<Consumer<Boolean>> dockedListeners = new CopyOnWriteArrayList<>();
@@ -979,6 +1017,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonLayoutSize(miningButton);
 		applyTabButtonLayoutSize(missionsButton);
 		applyTabButtonLayoutSize(fleetCarrierButton);
+		applyTabButtonLayoutSize(execButton);
 		if (scrollableTabBar != null) {
 			scrollableTabBar.refreshLayout();
 		}
@@ -1003,8 +1042,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 		boolean m = OverlayPreferences.isOverlayTabMiningVisible();
 		boolean ms = OverlayPreferences.isOverlayTabMissionsVisible();
 		boolean f = OverlayPreferences.isOverlayTabFleetCarrierVisible();
-		if (!r && !s && !b && !m && !ms && !f) {
-			r = s = b = m = ms = f = true;
+		boolean x = OverlayPreferences.isOverlayTabExecVisible();
+		if (!r && !s && !b && !m && !ms && !f && !x) {
+			r = s = b = m = ms = f = x = true;
 		}
 		if (routeButton != null) {
 			routeButton.setVisible(r);
@@ -1024,6 +1064,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (fleetCarrierButton != null) {
 			fleetCarrierButton.setVisible(f);
 		}
+		if (execButton != null) {
+			execButton.setVisible(x);
+		}
 		refreshAllTabButtonSizes();
 	}
 
@@ -1031,8 +1074,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * Selects the first tab that is visible in the bar (order: Route … Fleet Carrier).
 	 */
 	private void selectFirstVisibleTab() {
-		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton, fleetCarrierButton };
-		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_MISSIONS, CARD_FLEET_CARRIER };
+		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton, fleetCarrierButton, execButton };
+		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_MISSIONS, CARD_FLEET_CARRIER, CARD_EXEC };
 		for (int i = 0; i < buttons.length; i++) {
 			JButton b = buttons[i];
 			if (b != null && b.isVisible()) {
@@ -1070,6 +1113,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (fleetCarrierButton != null) {
 			fleetCarrierButton.setSelected(selectedButton == fleetCarrierButton);
 		}
+		if (execButton != null) {
+			execButton.setSelected(selectedButton == execButton);
+		}
 
 		applyTabButtonStyle(routeButton);
 		applyTabButtonStyle(systemButton);
@@ -1077,6 +1123,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(missionsButton);
 		applyTabButtonStyle(fleetCarrierButton);
+		applyTabButtonStyle(execButton);
 
 		cardLayout.show(cardPanel, cardName);
 		visibleCardName = cardName;
@@ -1349,8 +1396,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * Order: Route → System → ExoBio → Mining → Fleet Carrier.
 	 */
 	public void selectNextVisibleTab() {
-		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton, fleetCarrierButton };
-		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_MISSIONS, CARD_FLEET_CARRIER };
+		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton, fleetCarrierButton, execButton };
+		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_MISSIONS, CARD_FLEET_CARRIER, CARD_EXEC };
 
 		int selected = -1;
 		for (int i = 0; i < buttons.length; i++) {
@@ -1447,6 +1494,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(missionsButton);
 		applyTabButtonStyle(fleetCarrierButton);
+		applyTabButtonStyle(execButton);
 
 		if (routeTab != null) {
 			routeTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
@@ -1456,6 +1504,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 		}
 		if (fleetCarrierTab != null) {
 			fleetCarrierTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
+		}
+		if (execTab != null) {
+			execTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
 		}
 
 		revalidate();
@@ -1673,6 +1724,9 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 		miningTab.applyUiFontPreferences();
 		missionsTab.refreshFromSavedOverlayPreferences();
 		nearbyTab.applyUiFontPreferences();
+		if (execTab != null) {
+			execTab.applyUiFont(OverlayPreferences.getUiFont());
+		}
 		revalidate();
 		repaint();
 	}
@@ -1685,6 +1739,9 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 		miningTab.applyUiFont(font);
 		missionsTab.refreshFromSavedOverlayPreferences();
 		nearbyTab.applyUiFont(font);
+		if (execTab != null) {
+			execTab.applyUiFont(font);
+		}
 		revalidate();
 		repaint();
 	}

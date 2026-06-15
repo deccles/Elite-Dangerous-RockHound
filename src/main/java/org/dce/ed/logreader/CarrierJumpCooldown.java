@@ -3,14 +3,21 @@ package org.dce.ed.logreader;
 import java.time.Instant;
 
 /**
- * Shared fleet-carrier jump cooldown timing (journal {@code CarrierJump} anchor).
+ * Shared fleet-carrier jump cooldown timing.
+ * <p>
+ * Aboard-carrier jumps log {@code CarrierJump} at arrival; off-carrier owners get {@code CarrierLocation} at
+ * {@code DepartureTime}. Each anchor aligns differently with the in-game 5-minute cooldown UI.
  */
 public final class CarrierJumpCooldown {
 
     public static final int COOLDOWN_SECONDS = 5 * 60;
-    /** Empirical correction vs in-game UI when anchored to {@code CarrierJump} journal time. */
+    /** Empirical correction vs in-game UI when anchored to aboard {@code CarrierJump} journal time. */
     public static final int COOLDOWN_END_CORRECTION_SECONDS = -(10 + 60);
-    public static final int COOLDOWN_SECONDS_EFFECTIVE = COOLDOWN_SECONDS + COOLDOWN_END_CORRECTION_SECONDS;
+    /** Aboard {@code CarrierJump} completion (legacy effective duration). */
+    public static final int COOLDOWN_SECONDS_ABOARD_EFFECTIVE = COOLDOWN_SECONDS + COOLDOWN_END_CORRECTION_SECONDS;
+    /** @deprecated use {@link #COOLDOWN_SECONDS_ABOARD_EFFECTIVE} or {@link #cooldownDurationSeconds(boolean)} */
+    @Deprecated
+    public static final int COOLDOWN_SECONDS_EFFECTIVE = COOLDOWN_SECONDS_ABOARD_EFFECTIVE;
 
     /** Restore in-flight countdown after restart for this long past {@code DepartureTime}. */
     public static final long HYPERSPACE_RESTORE_MAX_AGE_SECONDS = 20L * 60L;
@@ -23,14 +30,38 @@ public final class CarrierJumpCooldown {
     /** Allow journal timestamps slightly ahead of the local clock. */
     public static final long LIVE_JUMP_FUTURE_SKEW_SECONDS = 120L;
 
+    /** Fire fleet-cooldown exec bindings this many seconds after the in-game cooldown ends. */
+    public static final int EXEC_TRIGGER_DELAY_AFTER_COOLDOWN_SECONDS = 20;
+
     private CarrierJumpCooldown() {
     }
 
+    public static int cooldownDurationSeconds(boolean offCarrierCompletion) {
+        return offCarrierCompletion ? COOLDOWN_SECONDS : COOLDOWN_SECONDS_ABOARD_EFFECTIVE;
+    }
+
+    /** Aboard {@code CarrierJump} anchor (applies empirical correction). */
     public static Instant cooldownEndFromJump(Instant jumpTimestamp) {
+        return cooldownEndFromJump(jumpTimestamp, false);
+    }
+
+    public static Instant cooldownEndFromJump(Instant jumpTimestamp, boolean offCarrierCompletion) {
         if (jumpTimestamp == null) {
             return null;
         }
-        return jumpTimestamp.plusSeconds(COOLDOWN_SECONDS_EFFECTIVE);
+        return jumpTimestamp.plusSeconds(cooldownDurationSeconds(offCarrierCompletion));
+    }
+
+    public static Instant execTriggerTimeFromCooldownEnd(Instant cooldownEnd) {
+        if (cooldownEnd == null) {
+            return null;
+        }
+        return cooldownEnd.plusSeconds(EXEC_TRIGGER_DELAY_AFTER_COOLDOWN_SECONDS);
+    }
+
+    public static boolean isExecTriggerDue(Instant cooldownEnd, Instant now) {
+        Instant triggerTime = execTriggerTimeFromCooldownEnd(cooldownEnd);
+        return triggerTime != null && now != null && !now.isBefore(triggerTime);
     }
 
     public static boolean isJumpTimestampLive(Instant jumpTimestamp, Instant now) {
@@ -46,6 +77,15 @@ public final class CarrierJumpCooldown {
             Instant jumpTimestamp,
             Instant existingCooldownEnd,
             Instant now) {
+        return shouldStartOrResyncCooldown(hadPendingCountdown, jumpTimestamp, existingCooldownEnd, now, false);
+    }
+
+    public static boolean shouldStartOrResyncCooldown(
+            boolean hadPendingCountdown,
+            Instant jumpTimestamp,
+            Instant existingCooldownEnd,
+            Instant now,
+            boolean offCarrierCompletion) {
         if (hadPendingCountdown) {
             return true;
         }
@@ -55,7 +95,7 @@ public final class CarrierJumpCooldown {
         if (isJumpTimestampLive(jumpTimestamp, now)) {
             return true;
         }
-        Instant newEnd = cooldownEndFromJump(jumpTimestamp);
+        Instant newEnd = cooldownEndFromJump(jumpTimestamp, offCarrierCompletion);
         return existingCooldownEnd != null && newEnd != null && newEnd.isBefore(existingCooldownEnd);
     }
 

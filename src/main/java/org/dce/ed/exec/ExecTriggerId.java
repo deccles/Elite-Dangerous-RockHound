@@ -1,0 +1,24 @@
+package org.dce.ed.exec;
+
+/** Journal / overlay events that can launch configured JARs. */
+public enum ExecTriggerId {
+
+    MANUAL("Manual (Run now)"),
+    FLEET_COOLDOWN_COMPLETE("Fleet cooldown complete"),
+    FLEET_TRITIUM_LOW("Fleet carrier tritium low");
+
+    private final String label;
+
+    ExecTriggerId(String label) {
+        this.label = label;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    /** Triggers available in the Exec tab dropdown (excludes {@link #MANUAL}). */
+    public static ExecTriggerId[] configurableValues() {
+        return new ExecTriggerId[] { FLEET_COOLDOWN_COMPLETE, FLEET_TRITIUM_LOW };
+    }
+}

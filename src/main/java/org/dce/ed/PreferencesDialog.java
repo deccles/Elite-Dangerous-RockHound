@@ -193,6 +193,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabMiningVisibleCheckBox;
 	private JCheckBox overlayTabMissionsVisibleCheckBox;
 	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
+	private JCheckBox overlayTabExecVisibleCheckBox;
 
 	private JSpinner bioValuableThresholdMillionSpinner;
 	private JComboBox<OverlayPreferences.BiologyMapDisplayMode> biologyMapDisplayModeComboBox;
@@ -489,6 +490,12 @@ public class PreferencesDialog extends JDialog {
 		overlayTabFleetCarrierVisibleCheckBox.setOpaque(false);
 		overlayTabFleetCarrierVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabFleetCarrierVisible());
 		tabsPanel.add(overlayTabFleetCarrierVisibleCheckBox, tgc);
+
+		tgc.gridy++;
+		overlayTabExecVisibleCheckBox = new JCheckBox("Exec");
+		overlayTabExecVisibleCheckBox.setOpaque(false);
+		overlayTabExecVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabExecVisible());
+		tabsPanel.add(overlayTabExecVisibleCheckBox, tgc);
 
 		content.add(tabsPanel, outer);
 
@@ -2123,8 +2130,9 @@ public class PreferencesDialog extends JDialog {
             boolean m = overlayTabMiningVisibleCheckBox != null && overlayTabMiningVisibleCheckBox.isSelected();
             boolean ms = overlayTabMissionsVisibleCheckBox != null && overlayTabMissionsVisibleCheckBox.isSelected();
             boolean f = overlayTabFleetCarrierVisibleCheckBox != null && overlayTabFleetCarrierVisibleCheckBox.isSelected();
-            if (!r && !s && !b && !m && !ms && !f) {
-                r = s = b = m = ms = f = true;
+            boolean ex = overlayTabExecVisibleCheckBox != null && overlayTabExecVisibleCheckBox.isSelected();
+            if (!r && !s && !b && !m && !ms && !f && !ex) {
+                r = s = b = m = ms = f = ex = true;
             }
             OverlayPreferences.setOverlayTabRouteVisible(r);
             OverlayPreferences.setOverlayTabSystemVisible(s);
@@ -2132,6 +2140,7 @@ public class PreferencesDialog extends JDialog {
             OverlayPreferences.setOverlayTabMiningVisible(m);
             OverlayPreferences.setOverlayTabMissionsVisible(ms);
             OverlayPreferences.setOverlayTabFleetCarrierVisible(f);
+            OverlayPreferences.setOverlayTabExecVisible(ex);
         }
 
         if (autoSwitchGalaxyMapToRouteCheckBox != null) {

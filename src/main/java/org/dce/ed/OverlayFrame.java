@@ -61,6 +61,7 @@ import org.dce.ed.session.FleetCarrierSessionData;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.LiveJournalMonitor;
 import org.dce.ed.logreader.CarrierJumpCooldown;
+import org.dce.ed.logreader.OwnedFleetCarrierTracker;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
@@ -81,6 +82,7 @@ import com.google.gson.JsonObject;
 import com.sun.jna.Native;
 import org.dce.ed.util.WindowsNativeMousePassThrough;
 
+import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.ui.EdoUi;
 
 public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
@@ -150,6 +152,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private final JMenu toolsMenu;
     private final OverlayContentPanel contentPanel;
 	private final OverlayBackgroundPanel backgroundPanel;
+    private final ExecTriggerService execTriggerService = new ExecTriggerService();
 
     /** When non-null+not expired, overrides Low Limpet Warning red status. */
     private volatile String exceptionLeftStatusText;
@@ -627,6 +630,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         // Register before any listener that starts LiveJournalMonitor so CarrierJump is not missed at startup.
         installCarrierJumpTitleUpdater();
         installTabbedPaneJournalListener();
+        installExecTriggers();
         installExoCreditsTracker();
         installGeoSurveyCreditsTracker();
     }
@@ -673,6 +677,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     /** Rebind session + mission board after {@link OverlayContentPanel#rebuildTabbedPane()}. */
     public void onTabbedPaneRebuilt() {
         installSessionPersistence();
+        installExecTriggers();
         if (titleBar != null) {
             titleBar.setPassThrough(passThroughEnabled);
         }
@@ -853,6 +858,18 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         }
     }
 
+    private void installExecTriggers() {
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs == null) {
+            return;
+        }
+        tabs.wireExecTriggerService(execTriggerService);
+        execTriggerService.setCarrierSystemSupplier(() -> {
+            OwnedFleetCarrierTracker tracker = tabs.getOwnedFleetCarrierTracker();
+            return tracker != null ? tracker.getOwnedSystemName() : null;
+        });
+    }
+
     public void setTitleBarText(String text) {
         if (titleBar != null) {
             titleBar.setTitleText(text);
@@ -888,7 +905,7 @@ private void installCarrierJumpTitleUpdater() {
 
             if (event.getType() == EliteEventType.CARRIER_JUMP && event instanceof CarrierJumpEvent) {
                 Instant jumpTs = event.getTimestamp();
-                SwingUtilities.invokeLater(() -> onCarrierJumpCompleted(jumpTs));
+                SwingUtilities.invokeLater(() -> onCarrierJumpCompleted(jumpTs, false));
                 return;
             }
 
@@ -899,15 +916,7 @@ private void installCarrierJumpTitleUpdater() {
                     if (carrierJumpDepartureTime == null) {
                         return;
                     }
-                    boolean aboard = false;
-                    EliteOverlayTabbedPane tabPane =
-                            (contentPanel != null) ? contentPanel.getTabbedPane() : null;
-                    SystemTabPanel systemTab =
-                            (tabPane != null) ? tabPane.getSystemTabPanel() : null;
-                    SystemState st = (systemTab != null) ? systemTab.getState() : null;
-                    if (st != null) {
-                        aboard = st.isCommanderAboardFleetCarrier();
-                    }
+                    boolean aboard = isCommanderAboardFleetCarrier();
                     if (!CarrierJumpCooldown.shouldTreatCarrierLocationAsJumpCompletion(
                             aboard,
                             locTs,
@@ -918,7 +927,7 @@ private void installCarrierJumpTitleUpdater() {
                             carrierJumpTargetSystemAddress)) {
                         return;
                     }
-                    onCarrierJumpCompleted(locTs);
+                    onCarrierJumpCompleted(locTs, true);
                 });
             }
         });
@@ -945,16 +954,25 @@ private boolean acceptOwnedCarrierJumpRequest(CarrierJumpRequestEvent req) {
     return req.getCarrierId() == 0L;
 }
 
-private void onCarrierJumpCompleted(Instant arrivalTime) {
+private void onCarrierJumpCompleted(Instant arrivalTime, boolean offCarrierCompletion) {
     boolean hadPendingCountdown = carrierJumpDepartureTime != null;
     clearCarrierJumpCountdownStateOnly();
     Instant now = Instant.now();
     if (!CarrierJumpCooldown.shouldStartOrResyncCooldown(
-            hadPendingCountdown, arrivalTime, carrierJumpCooldownEndTime, now)) {
+            hadPendingCountdown, arrivalTime, carrierJumpCooldownEndTime, now, offCarrierCompletion)) {
         return;
     }
     Instant cooldownStart = arrivalTime != null ? arrivalTime : now;
-    startCarrierJumpCooldown(cooldownStart);
+    startCarrierJumpCooldown(cooldownStart, offCarrierCompletion);
+}
+
+private boolean isCommanderAboardFleetCarrier() {
+    EliteOverlayTabbedPane tabPane =
+            (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+    SystemTabPanel systemTab =
+            (tabPane != null) ? tabPane.getSystemTabPanel() : null;
+    SystemState st = (systemTab != null) ? systemTab.getState() : null;
+    return st != null && st.isCommanderAboardFleetCarrier();
 }
 
 private void startCarrierJumpCountdown(Instant departureTime, String targetSystem, long targetSystemAddress) {
@@ -995,12 +1013,12 @@ private void clearCarrierJumpCountdownStateOnly() {
 }
 
 private void startCarrierJumpCooldown() {
-    startCarrierJumpCooldown(Instant.now());
+    startCarrierJumpCooldown(Instant.now(), false);
 }
 
-private void startCarrierJumpCooldown(Instant startTime) {
+private void startCarrierJumpCooldown(Instant startTime, boolean offCarrierCompletion) {
     Instant effectiveStart = startTime != null ? startTime : Instant.now();
-    carrierJumpCooldownEndTime = CarrierJumpCooldown.cooldownEndFromJump(effectiveStart);
+    carrierJumpCooldownEndTime = CarrierJumpCooldown.cooldownEndFromJump(effectiveStart, offCarrierCompletion);
     if (carrierJumpCooldownTimer != null) {
         carrierJumpCooldownTimer.stop();
     }
@@ -1027,6 +1045,7 @@ private void updateCarrierJumpCooldown() {
         }
         carrierJumpCooldownEndTime = null;
         CARRIER_JUMP_TTS.speakf("Cooldown complete");
+        execTriggerService.onFleetCooldownComplete();
         setTitleBarText(DEFAULT_TITLE_BAR_TITLE);
         updateRightStatusDefault();
         saveSessionState();

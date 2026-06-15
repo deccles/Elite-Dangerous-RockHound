@@ -82,6 +82,7 @@ public final class OverlayPreferences {
     private static final String KEY_OVERLAY_TAB_MINING_VISIBLE = "overlay.tab.mining.visible";
     private static final String KEY_OVERLAY_TAB_MISSIONS_VISIBLE = "overlay.tab.missions.visible";
     private static final String KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE = "overlay.tab.fleetCarrier.visible";
+    private static final String KEY_OVERLAY_TAB_EXEC_VISIBLE = "overlay.tab.exec.visible";
 
     // --- Auto-switching / tab behavior ---
     private static final String KEY_AUTOSWITCH_GUIFOCUS_GALAXYMAP = "overlay.autoswitch.guiFocus.galaxyMap";
@@ -341,6 +342,14 @@ public final class OverlayPreferences {
 
     public static void setOverlayTabFleetCarrierVisible(boolean visible) {
         PREFS.putBoolean(KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE, visible);
+    }
+
+    public static boolean isOverlayTabExecVisible() {
+        return PREFS.getBoolean(KEY_OVERLAY_TAB_EXEC_VISIBLE, true);
+    }
+
+    public static void setOverlayTabExecVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_EXEC_VISIBLE, visible);
     }
 
     public static int getPassThroughTransparencyPercent() {

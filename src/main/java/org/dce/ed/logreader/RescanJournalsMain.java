@@ -239,6 +239,7 @@ public class RescanJournalsMain {
 		EliteLogEvent latestCarrierEvent = null;
 		CarrierJumpRequestEvent openCarrierJumpRequest = null;
 		Instant carrierJumpCompletionTime = null;
+		boolean carrierJumpCompletionOffCarrier = false;
 
 		MissionTracker missionReplayTracker = new MissionTracker();
 		EdoSessionState missionReplaySeed = EdoSessionPersistence.load();
@@ -280,6 +281,7 @@ public class RescanJournalsMain {
 				openCarrierJumpRequest = null;
 				if (ts != null) {
 					carrierJumpCompletionTime = ts;
+					carrierJumpCompletionOffCarrier = false;
 					if (latestCarrierEvent == null || ts.isAfter(latestCarrierEvent.getTimestamp())) {
 						latestCarrierEvent = event;
 					}
@@ -295,6 +297,7 @@ public class RescanJournalsMain {
 								req.getSystemName(),
 								Long.valueOf(req.getSystemAddress()))) {
 					carrierJumpCompletionTime = ts;
+					carrierJumpCompletionOffCarrier = true;
 					openCarrierJumpRequest = null;
 				}
 			}
@@ -428,7 +431,8 @@ public class RescanJournalsMain {
 			Instant now = Instant.now();
 			sessionState.setCarrierJumpDepartureTime(null);
 			sessionState.setCarrierJumpTargetSystem(null);
-			Instant cooldownEnd = CarrierJumpCooldown.cooldownEndFromJump(carrierJumpCompletionTime);
+			Instant cooldownEnd = CarrierJumpCooldown.cooldownEndFromJump(
+					carrierJumpCompletionTime, carrierJumpCompletionOffCarrier);
 			if (cooldownEnd != null && cooldownEnd.isAfter(now)) {
 				sessionState.setCarrierJumpCooldownEndTime(cooldownEnd.toString());
 			} else {

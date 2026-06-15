@@ -40,11 +40,38 @@ class CarrierJumpCooldownTest {
     }
 
     @Test
-    void cooldownEnd_usesEffectiveDuration() {
+    void cooldownEnd_aboardCarrierJump_usesEffectiveDuration() {
         Instant jump = Instant.parse("2026-05-17T12:00:00Z");
         assertEquals(
-                jump.plusSeconds(CarrierJumpCooldown.COOLDOWN_SECONDS_EFFECTIVE),
+                jump.plusSeconds(CarrierJumpCooldown.COOLDOWN_SECONDS_ABOARD_EFFECTIVE),
                 CarrierJumpCooldown.cooldownEndFromJump(jump));
+        assertEquals(
+                jump.plusSeconds(CarrierJumpCooldown.COOLDOWN_SECONDS_ABOARD_EFFECTIVE),
+                CarrierJumpCooldown.cooldownEndFromJump(jump, false));
+    }
+
+    @Test
+    void cooldownEnd_offCarrierLocation_usesFullFiveMinutes() {
+        Instant location = Instant.parse("2026-06-15T21:14:06Z");
+        Instant end = CarrierJumpCooldown.cooldownEndFromJump(location, true);
+        assertEquals(location.plusSeconds(5 * 60), end);
+        // Regression: off-carrier CarrierLocation aligns with full in-game cooldown (~17:19 local).
+        assertEquals(Instant.parse("2026-06-15T21:19:06Z"), end);
+    }
+
+    @Test
+    void cooldownDuration_offCarrierIsLongerThanAboard() {
+        assertTrue(CarrierJumpCooldown.cooldownDurationSeconds(true)
+                > CarrierJumpCooldown.cooldownDurationSeconds(false));
+    }
+
+    @Test
+    void execTrigger_firesTwentySecondsAfterCooldownEnd() {
+        Instant end = Instant.parse("2026-06-15T21:19:06Z");
+        Instant trigger = CarrierJumpCooldown.execTriggerTimeFromCooldownEnd(end);
+        assertEquals(Instant.parse("2026-06-15T21:19:26Z"), trigger);
+        assertFalse(CarrierJumpCooldown.isExecTriggerDue(end, Instant.parse("2026-06-15T21:19:25Z")));
+        assertTrue(CarrierJumpCooldown.isExecTriggerDue(end, Instant.parse("2026-06-15T21:19:26Z")));
     }
 
     @Test
