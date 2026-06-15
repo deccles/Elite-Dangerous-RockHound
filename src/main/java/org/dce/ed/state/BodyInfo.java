@@ -645,6 +645,36 @@ public class BodyInfo {
 		return wasMapped;
 	}
 
+	/**
+	 * True when this body appears in the player's journals (FSS discovery {@code Scan}, detailed scan, signals, etc.),
+	 * as opposed to rows created only from EDSM enrichment.
+	 */
+	public boolean isJournalScanned() {
+		if (orbitalEpochMillis != null) {
+			return true;
+		}
+		if (wasMapped != null || wasFootfalled != null) {
+			return true;
+		}
+		if (hasBio || hasGeo) {
+			return true;
+		}
+		if (observedBioDisplayNames != null && !observedBioDisplayNames.isEmpty()) {
+			return true;
+		}
+		if (observedGenusPrefixes != null && !observedGenusPrefixes.isEmpty()) {
+			return true;
+		}
+		if (!bioSampleCountsByDisplayName.isEmpty()) {
+			return true;
+		}
+		if (atmosphereComposition != null && !atmosphereComposition.isEmpty()) {
+			return true;
+		}
+		String vol = volcanism;
+		return vol != null && !vol.isBlank();
+	}
+
 	public boolean hasAnyBioSamples() {
 		for (Integer v : bioSampleCountsByDisplayName.values()) {
 			if (v != null && v.intValue() > 0) {

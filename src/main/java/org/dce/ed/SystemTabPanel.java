@@ -2206,7 +2206,8 @@ public class SystemTabPanel extends JPanel {
             try {
                 BodiesResponse edsmBodies = edsmClient.showBodies(systemName);
                 if (edsmBodies != null) {
-                    edsmClient.mergeBodiesFromEdsm(state, edsmBodies);
+                    // Supplement journal/cache bodies only — do not materialize EDSM-only rows in the table.
+                    SystemCache.getInstance().mergeBodiesFromEdsm(state, edsmBodies);
                 }
             } catch (Exception ex) {
                 // EDSM is best-effort; overlay should still work from cache/logs.
@@ -2340,6 +2341,19 @@ public class SystemTabPanel extends JPanel {
         // debugDumpBioRowsToConsole();
     }
 
+    static int countJournalScannedBodies(Map<Integer, BodyInfo> bodies) {
+        if (bodies == null || bodies.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (BodyInfo body : bodies.values()) {
+            if (body != null && !body.isScanBarycentreRow() && body.isJournalScanned()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     static Map<Integer, BodyInfo> systemTableBodiesExcludingBarycentres(Map<Integer, BodyInfo> bodies) {
         if (bodies == null || bodies.isEmpty()) {
             return Collections.emptyMap();
@@ -2347,7 +2361,7 @@ public class SystemTabPanel extends JPanel {
         Map<Integer, BodyInfo> tableBodies = new LinkedHashMap<>(bodies.size());
         for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
             BodyInfo body = e.getValue();
-            if (body == null || body.isScanBarycentreRow()) {
+            if (body == null || body.isScanBarycentreRow() || !body.isJournalScanned()) {
                 continue;
             }
             tableBodies.put(e.getKey(), body);
@@ -2949,7 +2963,7 @@ public class SystemTabPanel extends JPanel {
         StringBuilder sb = new StringBuilder();
 
         if (state.getTotalBodies() != null) {
-            int scanned = state.getBodies().size();
+            int scanned = countJournalScannedBodies(state.getBodies());
             sb.append("  |  Bodies: ").append(scanned)
               .append('/').append(state.getTotalBodies());
 
