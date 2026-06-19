@@ -73,8 +73,13 @@ public final class VoicePackManager {
      * AWS synthesis off will auto re-download and replace the selected voice’s cache at startup.
      * After TTS cache-key changes (e.g. {@code |pcm=v2} in {@link PollyTtsCached}), republish all
      * {@code voice-*.zip} assets and bump this in the same release so clients replace stale clips.
+     *
+     * <p><b>Maintainer / agent:</b> when adding a new speech line (new {@code .speakf} template,
+     * {@link VoiceCacheWarmer#REQUIRED_WARMUP_TEMPLATES} entry, or {@code *_REMINDER_SPEECH} constant),
+     * bump this revision, rebuild/warm packs, and upload new {@code voice-*.zip} assets — otherwise
+     * pack-only clients keep stale audio until they manually clear the cache.
      */
-    public static final int SPEECH_PACK_REVISION = 3;
+    public static final int SPEECH_PACK_REVISION = 4;
 
     private static final String VOICE_PACK_PREFIX = "voice-";
     private static final String VOICE_PACK_SUFFIX = ".zip";

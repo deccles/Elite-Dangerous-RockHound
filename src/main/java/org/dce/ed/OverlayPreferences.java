@@ -61,7 +61,7 @@ public final class OverlayPreferences {
     private static final String KEY_SPEECH_ENABLED = "speech.enabled";
     private static final String KEY_SPEECH_USE_AWS = "speech.useAwsSynthesis"; // allow AWS to generate missing speech
     private static final String KEY_SPEECH_ENGINE = "speech.engine"; // "standard" or "neural" (we'll default to standard)
-    private static final String KEY_SPEECH_VOICE = "speech.voiceId"; // e.g. "Joanna"
+    private static final String KEY_SPEECH_VOICE = "speech.voiceId"; // e.g. "Matthew"
     private static final String KEY_SPEECH_REGION = "speech.awsRegion"; // e.g. "us-east-1"
     private static final String KEY_SPEECH_AWS_PROFILE = "speech.awsProfile"; // optional, blank means default chain
     private static final String KEY_SPEECH_CACHE_DIR = "speech.cacheDir";
@@ -751,17 +751,17 @@ public static Engine getSpeechEngine() {
     }
 
     public static String getSpeechVoiceName() {
-        // Default voice: "Joanna" (standard, decent baseline)
-        String v = PREFS.get(KEY_SPEECH_VOICE, "Joanna");
+        // Default voice: "Matthew" (standard US English male)
+        String v = PREFS.get(KEY_SPEECH_VOICE, "Matthew");
         if (v == null || v.isBlank() || "null".equalsIgnoreCase(v.trim())) {
-            return "Joanna";
+            return "Matthew";
         }
         return v.trim();
     }
 
     public static void setSpeechVoiceId(String voiceId) {
         if (voiceId == null || voiceId.isBlank() || "null".equalsIgnoreCase(voiceId.trim())) {
-            voiceId = "Joanna";
+            voiceId = "Matthew";
         }
         PREFS.put(KEY_SPEECH_VOICE, voiceId.trim());
     }

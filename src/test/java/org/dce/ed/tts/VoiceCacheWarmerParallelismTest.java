@@ -42,4 +42,10 @@ class VoiceCacheWarmerParallelismTest {
     void requiredWarmupTemplatesIncludeFirstDiscoveredSystem() {
         assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests().contains("First Discovered System"));
     }
+
+    @Test
+    void requiredWarmupTemplatesIncludeFighterPilotReminder() {
+        assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests()
+                .contains("Did you forget to assign your fighter pilot again, commander?"));
+    }
 }

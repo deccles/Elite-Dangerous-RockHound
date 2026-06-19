@@ -1365,7 +1365,7 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
             voiceName = voicePreview.voiceName().trim();
         }
         if (voiceName == null || voiceName.isBlank()) {
-            voiceName = "Joanna";
+            voiceName = "Matthew";
         }
 
         Engine engine = OverlayPreferences.getSpeechEngine();

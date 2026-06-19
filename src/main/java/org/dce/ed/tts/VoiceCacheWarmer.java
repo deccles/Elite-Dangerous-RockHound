@@ -64,8 +64,16 @@ public final class VoiceCacheWarmer {
             Pattern.MULTILINE);
     private static final Pattern SPEAK_LITERAL = Pattern.compile("\\.speak(?:Blocking)?\\s*\\(\\s*\"((?:\\\\.|[^\"\\\\])*)\"", Pattern.MULTILINE);
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{([a-zA-Z0-9_]+)\\}");
+    /**
+     * Templates not discoverable by scraping {@code .speakf("...")} literals (e.g. constant references).
+     *
+     * <p><b>Maintainer / agent:</b> when adding a line here (or any new runtime speech), also bump
+     * {@link VoicePackManager#SPEECH_PACK_REVISION}, warm packs, and publish new {@code voice-*.zip}
+     * assets so offline clients auto-refresh on next startup.
+     */
     private static final Set<String> REQUIRED_WARMUP_TEMPLATES = Set.of(
-            "First Discovered System");
+            "First Discovered System",
+            "Did you forget to assign your fighter pilot again, commander?");
 
     @FunctionalInterface
     private interface ItemWarm<T> {
