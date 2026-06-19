@@ -46,6 +46,6 @@ class VoiceCacheWarmerParallelismTest {
     @Test
     void requiredWarmupTemplatesIncludeFighterPilotReminder() {
         assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests()
-                .contains("Did you forget to assign your fighter pilot again, commander?"));
+                .contains("Did you forget your fighter pilot again, commander?"));
     }
 }
