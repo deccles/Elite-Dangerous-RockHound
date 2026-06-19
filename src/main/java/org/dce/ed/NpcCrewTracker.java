@@ -26,9 +26,9 @@ import com.google.gson.JsonObject;
 public final class NpcCrewTracker {
 
 	public static final String FIGHTER_PILOT_REMINDER_SPEECH =
-			"Did you forget to assign your fighter pilot again, commander?";
+			"Did you forget your fighter pilot again, commander?";
 
-	public static final String FIGHTER_PILOT_STATUS_WARNING = "No Fighter Pilot Warning!";
+	public static final String FIGHTER_PILOT_STATUS_WARNING = "No assigned fighter pilot!";
 
 	private static final NpcCrewTracker INSTANCE = new NpcCrewTracker();
 
