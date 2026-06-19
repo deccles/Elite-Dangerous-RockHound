@@ -177,6 +177,7 @@ public class PreferencesDialog extends JDialog {
 
 	// Mining tab: limpet reminder
 	private JCheckBox miningLowLimpetReminderEnabledCheckBox;
+	private JCheckBox fighterPilotReminderEnabledCheckBox;
 	private JRadioButton miningLowLimpetReminderCountRadio;
 	private JSpinner miningLowLimpetReminderThresholdSpinner;
 	private JRadioButton miningLowLimpetReminderPercentRadio;
@@ -226,6 +227,7 @@ public class PreferencesDialog extends JDialog {
 		PREFERENCE_SPEECH_TEST_CLIPS = new PreferenceSpeechTestClip[] {
 				new PreferenceSpeechTestClip("Welcome commander"),
 				new PreferenceSpeechTestClip("Did you forget your limpets again commander?"),
+				new PreferenceSpeechTestClip(NpcCrewTracker.FIGHTER_PILOT_REMINDER_SPEECH),
 				new PreferenceSpeechTestClip("First Discovered System"),
 				new PreferenceSpeechTestClip("Jump complete"),
 				new PreferenceSpeechTestClip("Cooldown complete"),
@@ -1293,6 +1295,15 @@ public class PreferencesDialog extends JDialog {
 		outer.add(limpetWrap);
 		outer.add(Box.createVerticalStrut(10));
 
+		JPanel fighterPilotRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+		fighterPilotRow.setOpaque(false);
+		fighterPilotReminderEnabledCheckBox = new JCheckBox("Fighter pilot announcement");
+		fighterPilotReminderEnabledCheckBox.setOpaque(false);
+		fighterPilotReminderEnabledCheckBox.setSelected(OverlayPreferences.isFighterPilotReminderEnabled());
+		fighterPilotRow.add(fighterPilotReminderEnabledCheckBox);
+		outer.add(fighterPilotRow);
+		outer.add(Box.createVerticalStrut(10));
+
 		// -----------------------------------------------------------------
 		// Mining scatter gather animation sizes (gun + asteroid line-art)
 		// -----------------------------------------------------------------
@@ -2324,6 +2335,10 @@ public class PreferencesDialog extends JDialog {
 
         if (miningLowLimpetReminderEnabledCheckBox != null) {
             OverlayPreferences.setMiningLowLimpetReminderEnabled(miningLowLimpetReminderEnabledCheckBox.isSelected());
+        }
+
+        if (fighterPilotReminderEnabledCheckBox != null) {
+            OverlayPreferences.setFighterPilotReminderEnabled(fighterPilotReminderEnabledCheckBox.isSelected());
         }
 
         if (miningLowLimpetReminderCountRadio != null && miningLowLimpetReminderPercentRadio != null) {

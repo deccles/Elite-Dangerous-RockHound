@@ -432,25 +432,55 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
      * Decorated window status bar: {@code rightStatusHtml} is usually {@link #buildRightStatusHtml()} from the
      * pass-through frame listener; optionally append the limpet warning in red.
      */
-    static String buildDecoratedMenuStatusHtml(String rightStatusHtml, boolean limpet) {
+    static String buildDecoratedMenuStatusHtml(String rightStatusHtml, boolean limpet, boolean fighterPilot) {
         String right = rightStatusHtml != null ? rightStatusHtml.trim() : "";
         OverlayFrame f = OverlayFrame.overlayFrame;
         boolean noVisibleRight = (f != null)
                 ? f.isRightStatusEffectivelyEmpty()
-                : right.isEmpty();
-        String limpetSpan = "<span style='color:" + EdoUi.htmlRgb(EdoUi.User.ERROR) + ";'>"
-                + (noVisibleRight ? "" : "  |  ") + "Low Limpet Warning!</span>";
-        if (!limpet) {
+                : isRightStatusHtmlVisuallyEmpty(right);
+        String warningSpan = buildStatusWarningSpan(noVisibleRight, limpet, fighterPilot);
+        if (warningSpan.isEmpty()) {
             return right;
         }
-        if (right.isEmpty()) {
-            return "<html>" + limpetSpan + "</html>";
+        if (noVisibleRight || right.isEmpty()) {
+            return "<html>" + warningSpan + "</html>";
         }
         if (right.startsWith("<html>") && right.endsWith("</html>")) {
             String inner = right.substring(6, right.length() - 7);
-            return "<html>" + inner + limpetSpan + "</html>";
+            return "<html>" + inner + warningSpan + "</html>";
         }
-        return "<html>" + EdoUi.escapeHtmlMinimal(right) + limpetSpan + "</html>";
+        return "<html>" + EdoUi.escapeHtmlMinimal(right) + warningSpan + "</html>";
+    }
+
+    static String buildStatusWarningSpan(boolean noVisibleRight, boolean limpet, boolean fighterPilot) {
+        String sep = noVisibleRight ? "" : "  |  ";
+        String color = EdoUi.htmlRgb(EdoUi.User.ERROR);
+        StringBuilder sb = new StringBuilder();
+        if (limpet) {
+            sb.append("<span style='color:").append(color).append(";'>")
+                    .append(sep).append("Low Limpet Warning!</span>");
+            sep = "  |  ";
+        }
+        if (fighterPilot) {
+            sb.append("<span style='color:").append(color).append(";'>")
+                    .append(sep).append(NpcCrewTracker.FIGHTER_PILOT_STATUS_WARNING).append("</span>");
+        }
+        return sb.toString();
+    }
+
+    static boolean isRightStatusHtmlVisuallyEmpty(String rightStatusHtml) {
+        if (rightStatusHtml == null || rightStatusHtml.isBlank()) {
+            return true;
+        }
+        String right = rightStatusHtml.trim();
+        if (!right.startsWith("<html>") || !right.endsWith("</html>")) {
+            return false;
+        }
+        String inner = right.substring(6, right.length() - 7).trim();
+        if (inner.isEmpty()) {
+            return true;
+        }
+        return inner.replaceAll("<[^>]+>", "").trim().isEmpty();
     }
 
     /**
@@ -1307,6 +1337,8 @@ private void installLowLimpetStatusUpdater() {
         tp.addLoadoutChangeListener(this::refreshPassThroughUnifiedStatus);
     }
 
+    NpcCrewTracker.getInstance().addListener(this::refreshPassThroughUnifiedStatus);
+
     CargoMonitor.getInstance().addListener(snap -> {
         lastCargoSnapshot = snap;
         refreshPassThroughUnifiedStatus();
@@ -1345,6 +1377,7 @@ private void refreshPassThroughUnifiedStatus() {
         EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
         boolean docked = tp != null && tp.isCurrentlyDocked();
         boolean limpet = EliteOverlayTabbedPane.shouldShowLowLimpetWarning(docked, lastCargoSnapshot);
+        boolean fighterPilot = EliteOverlayTabbedPane.shouldShowNoFighterPilotWarning(docked);
         Instant until = exceptionLeftStatusUntil;
         String err = exceptionLeftStatusText;
         boolean showErr = err != null && until != null && Instant.now().isBefore(until);
@@ -1353,8 +1386,9 @@ private void refreshPassThroughUnifiedStatus() {
         boolean showMiningErr = miningErr != null && !miningErr.isBlank();
 
         boolean rightEmpty = isRightStatusEffectivelyEmpty();
+        boolean showWarning = limpet || fighterPilot;
 
-        if (!showErr && !showMiningErr && !limpet && rightEmpty) {
+        if (!showErr && !showMiningErr && !showWarning && rightEmpty) {
             // Keep the status row visually clear when there is no content.
             // A visible placeholder dash is confusing after totals reset (e.g., after SellOrganicData).
             passThroughStatusLabel.setText("");
@@ -1381,13 +1415,11 @@ private void refreshPassThroughUnifiedStatus() {
                 html.append(sep);
                 appendRightStatusInnerHtml(html);
             }
-        } else if (limpet) {
-            appendRightStatusInnerHtml(html);
-            html.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.ERROR)).append(";'>");
+        } else if (showWarning) {
             if (!rightEmpty) {
-                html.append("  |  ");
+                appendRightStatusInnerHtml(html);
             }
-            html.append("Low Limpet Warning!</span>");
+            html.append(buildStatusWarningSpan(rightEmpty, limpet, fighterPilot));
         } else {
             appendRightStatusInnerHtml(html);
         }

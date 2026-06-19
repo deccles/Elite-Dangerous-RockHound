@@ -155,6 +155,10 @@ public final class OverlayPreferences {
     /** Biology tab surface map: rays from centre vs points at sample location. */
     private static final String KEY_BIOLOGY_MAP_DISPLAY_MODE = "biology.map.displayMode";
 
+    // Fighter pilot reminder (fighter hangar + stocked SLF, no Active NPC crew)
+    private static final String KEY_FIGHTER_PILOT_REMINDER_ENABLED = "fighterPilotReminder.enabled";
+    private static final String KEY_NPC_CREW_ACTIVE_SHIP_PREFIX = "npcCrew.active.ship.";
+
     // Mining: low-limpet reminder
     private static final String KEY_MINING_LIMPET_REMINDER_ENABLED = "mining.limpetReminder.enabled";
     private static final String KEY_MINING_LIMPET_REMINDER_MODE = "mining.limpetReminder.mode"; // COUNT or PERCENT
@@ -1384,6 +1388,49 @@ public static Engine getSpeechEngine() {
     // ----------------------------
     // Mining value estimation (Mining tab)
     // ----------------------------
+
+    // ----------------------------
+    // Fighter pilot reminder
+    // ----------------------------
+
+    /**
+     * If enabled, warn (status bar + optional speech on undock) when the current ship has a fighter
+     * hangar with stocked SLFs but no NPC crew member is set Active.
+     */
+    public static boolean isFighterPilotReminderEnabled() {
+        return PREFS.getBoolean(KEY_FIGHTER_PILOT_REMINDER_ENABLED, true);
+    }
+
+    public static void setFighterPilotReminderEnabled(boolean enabled) {
+        PREFS.putBoolean(KEY_FIGHTER_PILOT_REMINDER_ENABLED, enabled);
+    }
+
+    /**
+     * Last known Active NPC crew member for a given ship id ({@code ShipID} from journal Loadout).
+     * Survives overlay restarts so we can remember assignment when Elite does not rewrite {@code CrewAssign}.
+     */
+    public static String getNpcCrewActiveName(int shipId) {
+        if (shipId < 0) {
+            return null;
+        }
+        String v = PREFS.get(KEY_NPC_CREW_ACTIVE_SHIP_PREFIX + shipId, "");
+        if (v == null || v.isBlank()) {
+            return null;
+        }
+        return v.trim();
+    }
+
+    public static void setNpcCrewActiveName(int shipId, String name) {
+        if (shipId < 0) {
+            return;
+        }
+        String key = KEY_NPC_CREW_ACTIVE_SHIP_PREFIX + shipId;
+        if (name == null || name.isBlank()) {
+            PREFS.remove(key);
+        } else {
+            PREFS.put(key, name.trim());
+        }
+    }
 
     // ----------------------------
     // Mining: low-limpet reminder

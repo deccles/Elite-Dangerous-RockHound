@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.dce.ed.NpcCrewTracker;
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.exobiology.ExobiologyData.SpeciesConstraint;
 import org.dce.ed.exobiology.ExobiologyDataConstraints;
@@ -73,7 +74,7 @@ public final class VoiceCacheWarmer {
      */
     private static final Set<String> REQUIRED_WARMUP_TEMPLATES = Set.of(
             "First Discovered System",
-            "Did you forget to assign your fighter pilot again, commander?");
+            NpcCrewTracker.FIGHTER_PILOT_REMINDER_SPEECH);
 
     @FunctionalInterface
     private interface ItemWarm<T> {

@@ -262,6 +262,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (initialLoadout != null && initialLoadout.getShip() != null && !initialLoadout.getShip().isBlank()) {
 			miningTab.updateCurrentShipType(initialLoadout.getShip());
 		}
+		Path journalDir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
+		NpcCrewTracker.getInstance().bootstrapFromJournal(journalDir, initialLoadout);
 		// Treat docking as the end of a mining "trip": when we transition to docked,
 		// flush any pending mining gains and advance the run counter if needed.
 		addDockedStateListener(docked -> {
@@ -669,10 +671,13 @@ public class EliteOverlayTabbedPane extends JPanel {
 	public void handleLogEvent(EliteLogEvent event) {
         if (event instanceof LoadoutEvent e) {
         	loadoutEventx = e;
+        	NpcCrewTracker.getInstance().onLoadout(e);
         	for (Runnable r : loadoutChangeListeners) {
         		SwingUtilities.invokeLater(r);
         	}
         }
+
+		NpcCrewTracker.getInstance().applyJournalEvent(event);
 
         if (event instanceof org.dce.ed.logreader.event.StatusEvent se) {
         	// Do not tie limpet reminders to Status dock transitions: when Elite exits, Status.json often
@@ -691,7 +696,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		if (event.getType() == EliteEventType.UNDOCKED) {
 			setCurrentlyDocked(false);
-			SwingUtilities.invokeLater(() -> maybeRemindAboutLimpets());
+			SwingUtilities.invokeLater(() -> {
+				maybeRemindAboutLimpets();
+				maybeRemindAboutFighterPilot();
+			});
 		}
 
 		if (event.getType() == EliteEventType.CARRIER_STATS) {
@@ -1512,6 +1520,38 @@ public class EliteOverlayTabbedPane extends JPanel {
 		revalidate();
 		repaint();
 	}
+
+	public static boolean shouldShowNoFighterPilotWarning(boolean docked) {
+		return NpcCrewTracker.shouldShowNoFighterPilotWarning(docked, getLatestLoadout());
+	}
+
+	public static void maybeRemindAboutFighterPilot() {
+		if (!OverlayPreferences.isSpeechEnabled()) {
+			return;
+		}
+		if (!OverlayPreferences.isFighterPilotReminderEnabled()) {
+			return;
+		}
+
+		LoadoutEvent loadout = getLatestLoadout();
+		if (loadout == null) {
+			Path journalDir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
+			if (journalDir != null && Files.isDirectory(journalDir)) {
+				try {
+					EliteJournalReader r = new EliteJournalReader(journalDir);
+					loadout = (LoadoutEvent) r.findMostRecentEvent(EliteEventType.LOADOUT, 1);
+				} catch (IOException e) {
+					return;
+				}
+			}
+		}
+
+		if (!NpcCrewTracker.shouldShowNoFighterPilotWarning(true, loadout)) {
+			return;
+		}
+		tts.speakf(NpcCrewTracker.FIGHTER_PILOT_REMINDER_SPEECH);
+	}
+
 	public static boolean shouldShowLowLimpetWarning(boolean docked, CargoMonitor.Snapshot snap) {
 		// Only while docked.
 		if (!docked) {

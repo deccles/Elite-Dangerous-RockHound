@@ -248,15 +248,16 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		Runnable r = () -> {
 			OverlayFrame.updateFleetCarrierTimeBadgeExternal(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
 			boolean limpet = shouldShowLowLimpetWarning();
+			boolean fighterPilot = shouldShowNoFighterPilotWarning();
 			String right = lastRightStatusText != null ? lastRightStatusText.trim() : "";
-			String full = OverlayFrame.buildDecoratedMenuStatusHtml(right, limpet);
+			String full = OverlayFrame.buildDecoratedMenuStatusHtml(right, limpet, fighterPilot);
 			if (full.isEmpty()) {
 				statusLabel.setText("");
 				statusLabel.setVisible(false);
 				return;
 			}
 			statusLabel.setText(full);
-			if (limpet) {
+			if (limpet || fighterPilot) {
 				statusLabel.setForeground(EdoUi.User.ERROR);
 				statusLabel.setCursor(Cursor.getDefaultCursor());
 			} else if (full.contains("New version")) {
@@ -283,6 +284,12 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 				docked,
 				lastCargoSnapshot
 		);
+	}
+
+	private boolean shouldShowNoFighterPilotWarning() {
+		EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
+		boolean docked = tp != null && tp.isCurrentlyDocked();
+		return EliteOverlayTabbedPane.shouldShowNoFighterPilotWarning(docked);
 	}
 
 	private JMenuBar createMenuBar() {
