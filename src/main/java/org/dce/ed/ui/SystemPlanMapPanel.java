@@ -1326,7 +1326,9 @@ public final class SystemPlanMapPanel extends JPanel {
 
     /** One-line trace for HUD-target auto-zoom framing regressions (hub pick, member dots, end zoom). */
     private void logHudTargetZoomDebug(int mapKey, int frameHub, double targetZ) {
-        Set<Integer> members = membersForHudTargetSubsystem(frameHub, orbitGeomBodies, mapResolvedParents());
+        AutoZoomFrameSpec spec = buildAutoZoomFrameSpec(mapKey);
+        Set<Integer> members = spec != null ? spec.members
+                : membersForHudTargetSubsystem(frameHub, orbitGeomBodies, mapResolvedParents());
         int dotCount = 0;
         for (BodyDot d : dots) {
             if (d != null && members.contains(Integer.valueOf(d.bodyId))
@@ -1342,6 +1344,7 @@ public final class SystemPlanMapPanel extends JPanel {
         double scaleAtTarget = mapPlotScaleForZoom(targetZ, availW, availH, layoutSpanX, layoutSpanY);
         double visLs = estimateVisibleLightSecondsAcrossMinPlotAxis(availW, availH, scaleAtTarget);
         System.out.println("[EDO][OrbitMap][HudZoom] body=" + mapKey + " hub=" + frameHub
+                + " broad=" + (spec != null && spec.broadContext)
                 + " members=" + members.size() + " memberDots=" + dotCount
                 + " targetZoom=" + String.format(java.util.Locale.ROOT, "%.1f", targetZ)
                 + " visLsAtTarget=" + String.format(java.util.Locale.ROOT, "%.1f", visLs)
@@ -1362,18 +1365,117 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Hierarchy subsystem for HUD auto-zoom: wide-binary branch star (e.g. {@code B} for {@code B 4 a}), else the moon
-     * host or common parent of the target — matching zoomed-out lump / hierarchy framing, not planet surface.
+     * Orbit-cluster hub for auto-zoom framing (HUD, {@code ApproachBody}, orbit-reset snap). Prefer
+     * {@link #buildAutoZoomFrameSpec(int)} when members and broad-context zoom are needed.
      */
     private int resolveHudTargetSubsystemHub(int bodyId) {
+        AutoZoomFrameSpec spec = buildAutoZoomFrameSpec(bodyId);
+        return spec != null ? spec.frameHub : -1;
+    }
+
+    /**
+     * Auto-zoom prefers multi-body context: cluster centroid framing, never a lone body when siblings or a wider
+     * hierarchy level can be shown. Wide binaries default to both barycentric stars unless the target is a branch star
+     * with orbiting bodies (frame that branch only) or a body on a branch (frame that branch’s subtree).
+     */
+    private record AutoZoomFrameSpec(int frameHub, Set<Integer> members, boolean broadContext) {
+    }
+
+    private AutoZoomFrameSpec buildAutoZoomFrameSpec(int bodyId) {
         Map<Integer, BodyInfo> bodies = orbitGeomBodies;
         Map<Integer, Integer> resolvedParents = mapResolvedParents();
         if (bodies == null || bodyId < 0 || !bodies.containsKey(Integer.valueOf(bodyId))) {
-            return -1;
+            return null;
         }
-        int wideBinaryBranchStar = resolveWideBinaryBranchStarHubForHud(bodyId, bodies, resolvedParents);
-        if (wideBinaryBranchStar >= 0) {
-            return wideBinaryBranchStar;
+        int frameHub;
+        Set<Integer> members;
+        boolean broadContext = false;
+        if (mapModel != null && mapModel.classification().wideBinary()) {
+            int branchStar = resolveWideBinaryBranchStarHubForHud(bodyId, bodies, resolvedParents);
+            if (branchStar >= 0
+                    && bodyId == branchStar
+                    && !branchStarHasOrbitingBodies(branchStar, bodies, resolvedParents)) {
+                broadContext = true;
+                frameHub = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+                members = collectWideBinaryPairMembers(bodies, resolvedParents);
+                members.add(Integer.valueOf(bodyId));
+            } else if (branchStar >= 0) {
+                frameHub = branchStar;
+                members = new HashSet<>(membersForHudTargetSubsystem(frameHub, bodies, resolvedParents));
+                members.add(Integer.valueOf(bodyId));
+            } else {
+                frameHub = resolveContextualAutoZoomHub(bodyId, bodies, resolvedParents);
+                members = new HashSet<>(membersForHudTargetSubsystem(frameHub, bodies, resolvedParents));
+                members.add(Integer.valueOf(bodyId));
+            }
+        } else {
+            frameHub = resolveContextualAutoZoomHub(bodyId, bodies, resolvedParents);
+            members = new HashSet<>(membersForHudTargetSubsystem(frameHub, bodies, resolvedParents));
+            members.add(Integer.valueOf(bodyId));
+        }
+        members = expandAutoZoomMembersIfSingleBody(members, bodyId, frameHub, bodies, resolvedParents);
+        if (mapModel != null && mapModel.classification().wideBinary()
+                && isWideBinaryPairFraming(members, bodies, resolvedParents)) {
+            broadContext = true;
+            frameHub = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+        }
+        return new AutoZoomFrameSpec(frameHub, members, broadContext);
+    }
+
+    /** True when members span every barycentric branch star (A+B wide-binary pair view). */
+    private boolean isWideBinaryPairFraming(Set<Integer> members, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        Set<Integer> stars = collectWideBinaryBarycentreStarIds(bodies);
+        if (stars.size() < 2) {
+            return false;
+        }
+        for (Integer sid : stars) {
+            if (sid == null || !members.contains(sid)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Set<Integer> collectWideBinaryBarycentreStarIds(Map<Integer, BodyInfo> bodies) {
+        Set<Integer> stars = mapModel != null ? mapModel.wideBinarySystemBarycentreStarIds() : new HashSet<>();
+        if (!stars.isEmpty() || bodies == null) {
+            return stars;
+        }
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+                continue;
+            }
+            int id = e.getKey().intValue();
+            if (SystemMapRules.isMapStellarBody(e.getValue())
+                    && SystemOrbitGeometry.orbitsWideBinarySystemBarycentre(e.getValue(), bodies, id)) {
+                stars.add(Integer.valueOf(id));
+            }
+        }
+        return stars;
+    }
+
+    private Set<Integer> collectWideBinaryPairMembers(Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        Set<Integer> out = new HashSet<>();
+        for (Integer starId : collectWideBinaryBarycentreStarIds(bodies)) {
+            if (starId == null) {
+                continue;
+            }
+            out.add(starId);
+            out.addAll(membersUnderApproachHub(starId.intValue(), bodies, resolvedParents));
+        }
+        return out;
+    }
+
+    /**
+     * Moon-host / branch hub for non-wide-binary auto-zoom — same rules as the pre-wide-binary
+     * {@link #resolveHudTargetSubsystemHub} path.
+     */
+    private int resolveContextualAutoZoomHub(int bodyId, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        if (bodies == null || bodyId < 0 || !bodies.containsKey(Integer.valueOf(bodyId))) {
+            return -1;
         }
         if (subsystemHubLumpBodyIds.contains(Integer.valueOf(bodyId))) {
             return bodyId;
@@ -1394,6 +1496,56 @@ public final class SystemPlanMapPanel extends JPanel {
             }
         }
         return approachFrameHubId(bodyId, bodies, resolvedParents);
+    }
+
+    private int countPlottedMemberDots(Set<Integer> members) {
+        if (members == null || members.isEmpty()) {
+            return 0;
+        }
+        int n = 0;
+        for (BodyDot d : dots) {
+            if (d != null && members.contains(Integer.valueOf(d.bodyId))
+                    && Double.isFinite(d.wx) && Double.isFinite(d.wy)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * When framing would show only one plotted body, widen to siblings, the hub subtree, or (wide binary) both stars.
+     */
+    private Set<Integer> expandAutoZoomMembersIfSingleBody(Set<Integer> members, int bodyId, int frameHub,
+            Map<Integer, BodyInfo> bodies, Map<Integer, Integer> resolvedParents) {
+        Set<Integer> out = new HashSet<>(members);
+        if (countPlottedMemberDots(out) >= 2) {
+            return out;
+        }
+        int parent = resolvedParentFromMap(bodyId, resolvedParents);
+        if (parent >= 0) {
+            for (Map.Entry<Integer, Integer> e : resolvedParents.entrySet()) {
+                if (e.getKey() != null && e.getValue() != null && e.getValue().intValue() == parent) {
+                    out.add(e.getKey());
+                }
+            }
+            if (bodies.containsKey(Integer.valueOf(parent))) {
+                out.add(Integer.valueOf(parent));
+            }
+        }
+        if (countPlottedMemberDots(out) >= 2) {
+            return out;
+        }
+        if (frameHub >= 0) {
+            out.add(Integer.valueOf(frameHub));
+            out.addAll(membersUnderApproachHub(frameHub, bodies, resolvedParents));
+        }
+        if (countPlottedMemberDots(out) >= 2) {
+            return out;
+        }
+        if (mapModel != null && mapModel.classification().wideBinary() && out.size() < 2) {
+            out.addAll(collectWideBinaryPairMembers(bodies, resolvedParents));
+        }
+        return out;
     }
 
     /**
@@ -1430,6 +1582,27 @@ public final class SystemPlanMapPanel extends JPanel {
                 continue;
             }
             if (e.getValue().intValue() == bodyId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** True when a wide-binary branch star has at least one non-stellar body in its orbit subtree. */
+    private static boolean branchStarHasOrbitingBodies(int branchStar, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        if (branchStar < 0 || bodies == null) {
+            return false;
+        }
+        if (bodyHostsDirectOrbitChildren(branchStar, resolvedParents)) {
+            return true;
+        }
+        for (Integer id : membersUnderApproachHub(branchStar, bodies, resolvedParents)) {
+            if (id == null || id.intValue() == branchStar) {
+                continue;
+            }
+            BodyInfo b = bodies.get(id);
+            if (b != null && !b.isScanBarycentreRow() && !SystemMapRules.isMapStellarBody(b)) {
                 return true;
             }
         }
@@ -1611,11 +1784,16 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     private double[] computeApproachSubsystemFrame(int bodyId, int frameHub, double[] approachedXY,
-            boolean hudTightFit) {
+            boolean hudTargetZoom) {
         int rootId = orbitGeomBodies != null ? SystemOrbitGeometry.primaryAnchorBodyMapKey(orbitGeomBodies) : 0;
         double fallbackZ = (bodyId == rootId) ? SUBSYSTEM_HOP_TARGET_ZOOM_STAR : SUBSYSTEM_HOP_TARGET_ZOOM_MOON_CLUSTER;
         fallbackZ = clamp(fallbackZ, zoomMinFit, ZOOM_MAX);
-        if (orbitGeomBodies == null || orbitGeomPositions == null || frameHub < 0 || approachedXY == null) {
+        AutoZoomFrameSpec spec = buildAutoZoomFrameSpec(bodyId);
+        if (spec == null || approachedXY == null) {
+            return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
+        }
+        frameHub = spec.frameHub;
+        if (orbitGeomBodies == null || orbitGeomPositions == null || frameHub < 0) {
             return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
         }
 
@@ -1630,16 +1808,8 @@ public final class SystemPlanMapPanel extends JPanel {
             return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
         }
 
-        Map<Integer, Integer> resolvedParents = mapResolvedParents();
-        Set<Integer> members = hudTightFit
-                ? membersForHudTargetSubsystem(frameHub, orbitGeomBodies, resolvedParents)
-                : membersUnderApproachHub(frameHub, orbitGeomBodies, resolvedParents);
-        if (!hudTightFit) {
-            members.add(Integer.valueOf(frameHub));
-            members.add(Integer.valueOf(bodyId));
-        } else {
-            members.add(Integer.valueOf(bodyId));
-        }
+        Set<Integer> members = spec.members;
+        boolean tightHud = hudTargetZoom && !spec.broadContext;
 
         double minX = Double.POSITIVE_INFINITY;
         double maxX = Double.NEGATIVE_INFINITY;
@@ -1676,16 +1846,9 @@ public final class SystemPlanMapPanel extends JPanel {
 
         double focusWx = (minX + maxX) * 0.5;
         double focusWy = (minY + maxY) * 0.5;
-        if (!hudTightFit) {
-            BodyDot targetDot = findBodyDot(bodyId);
-            if (targetDot != null && Double.isFinite(targetDot.wx) && Double.isFinite(targetDot.wy)) {
-                focusWx = targetDot.wx;
-                focusWy = targetDot.wy;
-            }
-        }
 
-        double fitMargin = hudTightFit ? HUD_TARGET_FIT_MARGIN : APPROACH_SUBSYSTEM_FIT_MARGIN;
-        double minHalfSpan = hudTightFit ? HUD_TARGET_MIN_HALF_SPAN_METRES : SUBSYSTEM_FRAME_MIN_HALF_SPAN_METRES;
+        double fitMargin = tightHud ? HUD_TARGET_FIT_MARGIN : APPROACH_SUBSYSTEM_FIT_MARGIN;
+        double minHalfSpan = tightHud ? HUD_TARGET_MIN_HALF_SPAN_METRES : SUBSYSTEM_FRAME_MIN_HALF_SPAN_METRES;
         double minSpan = Math.max(layoutSpanX, layoutSpanY) * 1e-5;
         double halfW = Math.max((maxX - minX) * 0.5, minHalfSpan);
         double halfH = Math.max((maxY - minY) * 0.5, minHalfSpan);
@@ -1695,7 +1858,7 @@ public final class SystemPlanMapPanel extends JPanel {
         halfH = Math.max(halfH, minSpan * 0.5);
 
         double[] halfExtents = new double[] { halfW, halfH };
-        appendOrbitStrokeExtentsAroundFocus(frameHub, focusWx, focusWy, halfExtents);
+        appendOrbitStrokeExtentsAroundFocus(frameHub, focusWx, focusWy, halfExtents, spec.broadContext, members);
         halfW = halfExtents[0];
         halfH = halfExtents[1];
 
@@ -1703,12 +1866,16 @@ public final class SystemPlanMapPanel extends JPanel {
         double hSpan = 2.0 * halfH * (1.0 + 2.0 * fitMargin);
 
         double zFit = zoomFactorToFitWorldSpans(availW, availH, layoutSpanX, layoutSpanY, wSpan, hSpan);
-        double zoomFit = clamp(Math.max(zFit, Math.max(fallbackZ, SUBSYSTEM_FRAME_MIN_ZOOM_FACTOR)),
-                zoomMinFit, ZOOM_MAX);
+        double minZoom = spec.broadContext ? zoomMinFit : Math.max(fallbackZ, SUBSYSTEM_FRAME_MIN_ZOOM_FACTOR);
+        double zoomFit = clamp(Math.max(zFit, minZoom), zoomMinFit, ZOOM_MAX);
         double spanM = Math.max(wSpan, hSpan);
         zoomFit = capZoomFactorToVisibleWorldSpan(zoomFit, spanM, availW, availH, layoutSpanX, layoutSpanY, fitMargin);
-        if (hudTightFit) {
+        if (tightHud) {
             zoomFit = capHudZoomToSubsystemVisibleSpan(zoomFit, spanM, availW, availH, layoutSpanX, layoutSpanY, fitMargin);
+        }
+        if (spec.broadContext) {
+            double systemZoom = clamp(1.0, zoomMinFit, ZOOM_MAX);
+            zoomFit = Math.min(zoomFit, systemZoom);
         }
         return new double[] { focusWx, focusWy, zoomFit };
     }
@@ -1785,6 +1952,11 @@ public final class SystemPlanMapPanel extends JPanel {
      */
     private void appendOrbitStrokeExtentsAroundFocus(int frameHub, double focusWx, double focusWy,
             double[] halfExtentsMetres) {
+        appendOrbitStrokeExtentsAroundFocus(frameHub, focusWx, focusWy, halfExtentsMetres, false, null);
+    }
+
+    private void appendOrbitStrokeExtentsAroundFocus(int frameHub, double focusWx, double focusWy,
+            double[] halfExtentsMetres, boolean broadContext, Set<Integer> members) {
         if (orbitLines == null || orbitLines.isEmpty() || frameHub < 0 || halfExtentsMetres == null
                 || halfExtentsMetres.length < 2) {
             return;
@@ -1795,7 +1967,10 @@ public final class SystemPlanMapPanel extends JPanel {
             if (pl == null || pl.wx == null || pl.wy == null || pl.wx.length != pl.wy.length) {
                 continue;
             }
-            if (!includeOrbitPolyForApproachFrame(pl.bodyId, frameHub, orbitGeomBodies, resolvedParents)) {
+            boolean include = broadContext && members != null && !members.isEmpty()
+                    ? members.contains(Integer.valueOf(pl.bodyId))
+                    : includeOrbitPolyForApproachFrame(pl.bodyId, frameHub, orbitGeomBodies, resolvedParents);
+            if (!include) {
                 continue;
             }
             for (int i = 0; i < pl.wx.length; i++) {
@@ -2676,17 +2851,15 @@ public final class SystemPlanMapPanel extends JPanel {
         if (mapKey < 0 || orbitGeomBodies == null || !orbitGeomBodies.containsKey(Integer.valueOf(mapKey))) {
             return;
         }
-        int hubId = resolveHudTargetSubsystemHub(mapKey);
-        if (hubId < 0) {
-            hubId = mapKey;
-        }
-        double[] xy = new double[2];
-        if (!worldXYForBody(hubId, xy)) {
+        double[] target = new double[2];
+        if (!worldXYForBody(mapKey, target)) {
             return;
         }
-        viewCenterWx = xy[0];
-        viewCenterWy = xy[1];
-        subsystemScreenLockHubId = hubId;
+        AutoZoomFrameSpec spec = buildAutoZoomFrameSpec(mapKey);
+        double[] frame = computeApproachSubsystemFrame(mapKey, spec != null ? spec.frameHub : -1, target, true);
+        viewCenterWx = frame[0];
+        viewCenterWy = frame[1];
+        subsystemScreenLockHubId = spec != null ? spec.frameHub : mapKey;
         repaint();
     }
 
@@ -7601,8 +7774,16 @@ public final class SystemPlanMapPanel extends JPanel {
 
     final Set<Integer> hudTargetSubsystemMemberIdsForTests(int bodyIdOrJournal) {
         int mapKey = resolveMapKeyForBody(bodyIdOrJournal, orbitGeomBodies);
-        int frameHub = resolveHudTargetSubsystemHub(mapKey);
-        return membersForHudTargetSubsystem(frameHub, orbitGeomBodies, mapResolvedParents());
+        AutoZoomFrameSpec spec = buildAutoZoomFrameSpec(mapKey);
+        return spec != null ? Set.copyOf(spec.members)
+                : membersForHudTargetSubsystem(resolveHudTargetSubsystemHub(mapKey), orbitGeomBodies,
+                        mapResolvedParents());
+    }
+
+    final boolean hudTargetAutoZoomBroadContextForTests(int bodyIdOrJournal) {
+        int mapKey = resolveMapKeyForBody(bodyIdOrJournal, orbitGeomBodies);
+        AutoZoomFrameSpec spec = buildAutoZoomFrameSpec(mapKey);
+        return spec != null && spec.broadContext;
     }
 
     final String dotLabelForTests(int bodyId) {
