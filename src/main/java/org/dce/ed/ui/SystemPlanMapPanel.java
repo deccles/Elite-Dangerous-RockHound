@@ -285,9 +285,11 @@ public final class SystemPlanMapPanel extends JPanel {
     private static final int SUBSYSTEM_HOP_TICK_MS = 32;
     private static final int SUBSYSTEM_HOP_OUT_TICKS = 12;
     private static final int SUBSYSTEM_HOP_IN_TICKS = 14;
-    /** HUD target: zoom out to full-system context, then zoom in to frame the cluster. */
-    private static final int HUD_TARGET_SUBSYSTEM_ZOOM_OUT_MS = 1600;
-    private static final int HUD_TARGET_SUBSYSTEM_ZOOM_IN_MS = 2400;
+    /** HUD target fly-to: coupled pan+zoom; wall-clock duration (not tick count — paint can exceed {@link #SUBSYSTEM_HOP_TICK_MS}). */
+    private static final int HUD_TARGET_SUBSYSTEM_ZOOM_TOTAL_MS = 8000;
+    private static final int HUD_TARGET_SUBSYSTEM_ZOOM_MAX_MS = 8000;
+    /** Reference out-leg length when computing how much of {@link #HUD_TARGET_SUBSYSTEM_ZOOM_TOTAL_MS} is zoom-out. */
+    private static final int HUD_TARGET_SUBSYSTEM_ZOOM_OUT_REF_MS = 1200;
     /** When already at fit-all zoom, skip the zoom-out phase if within this factor of {@code 1.0}. */
     private static final double HUD_TARGET_SYSTEM_ZOOM_EPS = 0.04;
     /** Tight HUD framing: padding around the dot bbox (ss2-style moon cluster fill). */
@@ -298,6 +300,19 @@ public final class SystemPlanMapPanel extends JPanel {
      * HUD end zoom: stay near hierarchy subsystem lump scale ({@link #SUBSYSTEM_MOON_LABEL_VISIBLE_LS}), not planet surface.
      */
     private static final double HUD_TARGET_MAX_VISIBLE_LS = SUBSYSTEM_MOON_LABEL_VISIBLE_LS;
+    /** When the HUD destination lies outside this inset of the current view, use a full fly-to arc. */
+    private static final double HUD_FLY_DEST_IN_VIEW_INSET = 0.92;
+    /** Snap instantly when centre and zoom are already effectively the same. */
+    private static final double HUD_FLY_INSTANT_SNAP_MAX_PX = 6.0;
+    private static final double HUD_FLY_INSTANT_SNAP_MAX_ZOOM_REL = 0.06;
+    /** Short hop when dest centre is within this × min(plotW, plotH) at current zoom. */
+    private static final double HUD_FLY_SHORT_HOP_MAX_SCREEN_FRAC = 0.28;
+    /** Short hop when end zoom differs from current by at most this relative fraction. */
+    private static final double HUD_FLY_SHORT_HOP_MAX_ZOOM_REL = 0.38;
+    /** Duration for a nearby in-cluster HUD jump (ms). */
+    private static final int HUD_TARGET_SUBSYSTEM_ZOOM_SHORT_MS = 2250;
+    /** Padding when fitting both fly endpoints into the apex view from the chord midpoint. */
+    private static final double HUD_FLY_APEX_FIT_MARGIN = 0.14;
     private static final double SUBSYSTEM_HOP_TARGET_ZOOM_MOON_CLUSTER = 11.0;
     private static final double SUBSYSTEM_HOP_TARGET_ZOOM_STAR = 4.0;
     /** When framing an {@code ApproachBody} view, leave this fraction of the plot empty around the fitted subsystem. */
@@ -442,6 +457,9 @@ public final class SystemPlanMapPanel extends JPanel {
     private double subHopY1;
     private double subHopX2;
     private double subHopY2;
+    /** Wall-clock HUD fly-to budget; {@link #subsystemHopStartMs} is set when the hop timer starts. */
+    private int subsystemHopDurationMs;
+    private long subsystemHopStartMs;
 
     /** Middle-button drag pans the plan map (wheel still zooms about the pointer). */
     private boolean mapPanDragActive;
@@ -1277,8 +1295,9 @@ public final class SystemPlanMapPanel extends JPanel {
     }
 
     /**
-     * Ease the plan map toward the orbit cluster for a HUD-selected body: when zoomed in, ~2 s zoom out to the
-     * full-system view, then ~3 s zoom in to a framed subsystem (see {@link #computeApproachSubsystemFrame}).
+     * Google Earth–style HUD fly-to: one continuous move — pan and zoom change together along the same timeline.
+     * Zoom eases out toward an apex (chord midpoint, both endpoints in view) then eases in on the destination.
+     * Nearby targets use a shorter hop with a shallow apex only.
      */
     public void focusCameraOnHudTargetSubsystem(int bodyId) {
         if (!SwingUtilities.isEventDispatchThread()) {
@@ -1293,35 +1312,117 @@ public final class SystemPlanMapPanel extends JPanel {
             return;
         }
         rebuildOrbitPolylines(false, true);
-        double[] target = new double[2];
-        if (!worldXYForBody(mapKey, target)) {
-            return;
-        }
-
         int frameHub = resolveHudTargetSubsystemHub(mapKey);
-        double[] frame = computeApproachSubsystemFrame(mapKey, frameHub, target, true);
+        double[] approachHint = new double[2];
+        double[] approachArg = worldXYForBody(mapKey, approachHint) ? approachHint : null;
+        double[] frame = computeApproachSubsystemFrame(mapKey, frameHub, approachArg, true);
         double targetX = frame[0];
         double targetY = frame[1];
         double targetZ = frame[2];
         logHudTargetZoomDebug(mapKey, frameHub, targetZ);
 
-        double systemZoom = clamp(1.0, zoomMinFit, ZOOM_MAX);
-        boolean zoomedPastSystem = zoomFactor > systemZoom * (1.0 + HUD_TARGET_SYSTEM_ZOOM_EPS);
+        int w = getWidth();
+        int h = getHeight();
+        int plotH = Math.max(88, h - MAP_BOTTOM_INSET);
+        double availW = w - 2.0 * PAD;
+        double availH = plotH - 2.0 * PAD;
 
-        /*
-         * Google Earth–style fly-to: (1) zoom out in place only as far as needed to see the destination;
-         * (2) zoom in with the destination fixed at the view centre
-         * ({@link #tickSubsystemProximityHop} does not pan during the in leg — centre snaps to target before zoom-in).
-         */
-        int maxOutTicks = subsystemHopTicksForDurationMs(HUD_TARGET_SUBSYSTEM_ZOOM_OUT_MS);
-        SubsystemHopMid hopMid = computeSubsystemHopMid(viewCenterWx, viewCenterWy, zoomFactor, targetX, targetY,
-                true, maxOutTicks);
-        int outTicks = zoomedPastSystem ? hopMid.outTicks : 0;
-        double zoomMid = zoomedPastSystem ? hopMid.zoomMid : zoomFactor;
-        int inTicks = subsystemHopTicksForDurationMs(HUD_TARGET_SUBSYSTEM_ZOOM_IN_MS);
-        beginSubsystemCameraHop(zoomFactor, zoomMid, targetZ, viewCenterWx, viewCenterWy, hopMid.panMidX, hopMid.panMidY,
-                targetX, targetY, outTicks, inTicks);
+        double scale0 = mapPlotScaleForZoom(zoomFactor, availW, availH, layoutSpanX, layoutSpanY);
+        double distPx = Double.isFinite(scale0) && scale0 > 0.0
+                ? Math.hypot(targetX - viewCenterWx, targetY - viewCenterWy) * scale0
+                : Double.POSITIVE_INFINITY;
+        double zDenom = Math.max(1.0, Math.max(targetZ, zoomFactor));
+        double zRel = Math.abs(targetZ - zoomFactor) / zDenom;
+
+        if (distPx <= HUD_FLY_INSTANT_SNAP_MAX_PX && zRel <= HUD_FLY_INSTANT_SNAP_MAX_ZOOM_REL) {
+            cancelSubsystemProximityHop();
+            viewCenterWx = targetX;
+            viewCenterWy = targetY;
+            zoomFactor = clamp(targetZ, zoomMinFit, ZOOM_MAX);
+            repaint();
+            return;
+        }
+
+        boolean distant = hudTargetOutsideCurrentView(targetX, targetY, viewCenterWx, viewCenterWy, zoomFactor,
+                availW, availH);
+        boolean shortHop = !distant
+                && distPx <= Math.min(availW, availH) * HUD_FLY_SHORT_HOP_MAX_SCREEN_FRAC
+                && zRel <= HUD_FLY_SHORT_HOP_MAX_ZOOM_REL;
+
+        double x0 = viewCenterWx;
+        double y0 = viewCenterWy;
+        double z0 = zoomFactor;
+        double zApex = computeHudFlyApexZoom(x0, y0, z0, targetX, targetY, targetZ, availW, availH, shortHop);
+        int durationMs = shortHop ? HUD_TARGET_SUBSYSTEM_ZOOM_SHORT_MS : HUD_TARGET_SUBSYSTEM_ZOOM_TOTAL_MS;
+        durationMs = Math.min(HUD_TARGET_SUBSYSTEM_ZOOM_MAX_MS, durationMs);
+        beginSubsystemCameraHop(z0, zApex, targetZ, x0, y0, x0, y0, targetX, targetY, 0, 1);
+        subsystemHopDurationMs = durationMs;
+        subsystemHopStartMs = System.currentTimeMillis();
         hudTargetSubsystemHopActive = true;
+    }
+
+    /**
+     * Widest zoom (lowest factor) for the fly apex: viewport centred on the chord midpoint must contain both
+     * the start and destination framing centres, with margin.
+     */
+    private double computeHudFlyApexZoom(double x0, double y0, double z0, double x2, double y2, double z2,
+            double availW, double availH, boolean shortHop) {
+        if (shortHop) {
+            return Math.min(z0, z2) * 0.97;
+        }
+        double midX = (x0 + x2) * 0.5;
+        double midY = (y0 + y2) * 0.5;
+        double margin = HUD_FLY_APEX_FIT_MARGIN;
+        double halfW = Math.max(Math.abs(x0 - midX), Math.abs(x2 - midX)) * (1.0 + 2.0 * margin);
+        double halfH = Math.max(Math.abs(y0 - midY), Math.abs(y2 - midY)) * (1.0 + 2.0 * margin);
+        halfW = Math.max(halfW, SUBSYSTEM_FRAME_MIN_HALF_SPAN_METRES * 0.2);
+        halfH = Math.max(halfH, SUBSYSTEM_FRAME_MIN_HALF_SPAN_METRES * 0.2);
+        double zFit = zoomFactorToFitWorldSpans(availW, availH, layoutSpanX, layoutSpanY, 2.0 * halfW, 2.0 * halfH);
+        double systemZoom = clamp(1.0, zoomMinFit, ZOOM_MAX);
+        double zApex = Math.min(zFit, Math.min(z0, z2));
+        zApex = Math.min(zApex, systemZoom);
+        zApex = clamp(zApex, zoomMinFit, ZOOM_MAX);
+        return ensureHudFlyApexShowsEndpoints(zApex, midX, midY, x0, y0, x2, y2, availW, availH);
+    }
+
+    /** Largest zoom factor (least zoom-out) at the apex that still shows both fly endpoints from the midpoint. */
+    private double ensureHudFlyApexShowsEndpoints(double zApex, double midX, double midY,
+            double x0, double y0, double x2, double y2, double availW, double availH) {
+        double lo = zoomMinFit;
+        double hi = zApex;
+        for (int i = 0; i < 48; i++) {
+            double mid = (lo + hi) * 0.5;
+            double scale = mapPlotScaleForZoom(mid, availW, availH, layoutSpanX, layoutSpanY);
+            if (!Double.isFinite(scale) || scale <= 0.0) {
+                hi = mid;
+                continue;
+            }
+            double halfW = availW / (2.0 * scale);
+            double halfH = availH / (2.0 * scale);
+            boolean ok = Math.abs(x0 - midX) <= halfW && Math.abs(y0 - midY) <= halfH
+                    && Math.abs(x2 - midX) <= halfW && Math.abs(y2 - midY) <= halfH;
+            if (ok) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        return clamp(lo, zoomMinFit, zApex);
+    }
+
+    /** True when {@code dest} lies outside the current plot window at {@code currentZoom}. */
+    private boolean hudTargetOutsideCurrentView(double destX, double destY, double viewX, double viewY,
+            double currentZoom, double availW, double availH) {
+        if (!Double.isFinite(destX) || !Double.isFinite(destY) || availW < 32.0 || availH < 32.0) {
+            return true;
+        }
+        double scale = mapPlotScaleForZoom(currentZoom, availW, availH, layoutSpanX, layoutSpanY);
+        if (!Double.isFinite(scale) || scale <= 0.0) {
+            return true;
+        }
+        double halfW = availW / (2.0 * scale) * HUD_FLY_DEST_IN_VIEW_INSET;
+        double halfH = availH / (2.0 * scale) * HUD_FLY_DEST_IN_VIEW_INSET;
+        return Math.abs(destX - viewX) > halfW || Math.abs(destY - viewY) > halfH;
     }
 
     /** One-line trace for HUD-target auto-zoom framing regressions (hub pick, member dots, end zoom). */
@@ -1378,7 +1479,8 @@ public final class SystemPlanMapPanel extends JPanel {
      * hierarchy level can be shown. Wide binaries default to both barycentric stars unless the target is a branch star
      * with orbiting bodies (frame that branch only) or a body on a branch (frame that branch’s subtree).
      */
-    private record AutoZoomFrameSpec(int frameHub, Set<Integer> members, boolean broadContext) {
+    private record AutoZoomFrameSpec(int frameHub, Set<Integer> members, boolean broadContext,
+            boolean capZoomAtSystemFit) {
     }
 
     private AutoZoomFrameSpec buildAutoZoomFrameSpec(int bodyId) {
@@ -1390,23 +1492,35 @@ public final class SystemPlanMapPanel extends JPanel {
         int frameHub;
         Set<Integer> members;
         boolean broadContext = false;
+        boolean capZoomAtSystemFit = false;
         if (mapModel != null && mapModel.classification().wideBinary()) {
-            int branchStar = resolveWideBinaryBranchStarHubForHud(bodyId, bodies, resolvedParents);
-            if (branchStar >= 0
-                    && bodyId == branchStar
-                    && !branchStarHasOrbitingBodies(branchStar, bodies, resolvedParents)) {
+            int innerBary = SystemOrbitGeometry.innerArrivalStellarPairBarycentreBodyId(bodies);
+            if (innerBary >= 0
+                    && isInnerStellarPairMapStar(bodyId, innerBary, bodies, resolvedParents)
+                    && !innerStellarPairStarHasOrbitingBodies(bodyId, innerBary, bodies, resolvedParents)) {
                 broadContext = true;
                 frameHub = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
-                members = collectWideBinaryPairMembers(bodies, resolvedParents);
-                members.add(Integer.valueOf(bodyId));
-            } else if (branchStar >= 0) {
-                frameHub = branchStar;
-                members = new HashSet<>(membersForHudTargetSubsystem(frameHub, bodies, resolvedParents));
+                members = collectInnerStellarPairStarMembers(innerBary, bodies, resolvedParents);
                 members.add(Integer.valueOf(bodyId));
             } else {
-                frameHub = resolveContextualAutoZoomHub(bodyId, bodies, resolvedParents);
-                members = new HashSet<>(membersForHudTargetSubsystem(frameHub, bodies, resolvedParents));
-                members.add(Integer.valueOf(bodyId));
+                int branchStar = resolveWideBinaryBranchStarHubForHud(bodyId, bodies, resolvedParents);
+                if (branchStar >= 0
+                        && bodyId == branchStar
+                        && !branchStarHasOrbitingBodies(branchStar, bodies, resolvedParents)) {
+                    broadContext = true;
+                    capZoomAtSystemFit = true;
+                    frameHub = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
+                    members = collectWideBinaryPairMembers(bodies, resolvedParents);
+                    members.add(Integer.valueOf(bodyId));
+                } else if (branchStar >= 0) {
+                    frameHub = branchStar;
+                    members = new HashSet<>(membersForHudTargetSubsystem(frameHub, bodies, resolvedParents));
+                    members.add(Integer.valueOf(bodyId));
+                } else {
+                    frameHub = resolveContextualAutoZoomHub(bodyId, bodies, resolvedParents);
+                    members = new HashSet<>(membersForHudTargetSubsystem(frameHub, bodies, resolvedParents));
+                    members.add(Integer.valueOf(bodyId));
+                }
             }
         } else {
             frameHub = resolveContextualAutoZoomHub(bodyId, bodies, resolvedParents);
@@ -1417,9 +1531,90 @@ public final class SystemPlanMapPanel extends JPanel {
         if (mapModel != null && mapModel.classification().wideBinary()
                 && isWideBinaryPairFraming(members, bodies, resolvedParents)) {
             broadContext = true;
+            capZoomAtSystemFit = true;
             frameHub = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
         }
-        return new AutoZoomFrameSpec(frameHub, members, broadContext);
+        return new AutoZoomFrameSpec(frameHub, members, broadContext, capZoomAtSystemFit);
+    }
+
+    /**
+     * Stellar member of an inner-arrival wide-binary pair (A+B at {@code Null:1}), not the outer branch (e.g. C at
+     * {@code Null:0}).
+     */
+    private static boolean isInnerStellarPairMapStar(int bodyId, int innerBaryMapKey, Map<Integer, BodyInfo> bodies,
+            Map<Integer, Integer> resolvedParents) {
+        BodyInfo target = bodies != null ? bodies.get(Integer.valueOf(bodyId)) : null;
+        if (target == null || !SystemMapRules.isMapStellarBody(target)) {
+            return false;
+        }
+        if (target.getImmediateParentBodyId() == innerBaryMapKey) {
+            return true;
+        }
+        int cur = bodyId;
+        for (int guard = 0; guard < 64 && cur >= 0; guard++) {
+            if (cur == innerBaryMapKey) {
+                return true;
+            }
+            BodyInfo b = bodies.get(Integer.valueOf(cur));
+            if (b != null && SystemMapRules.isMapStellarBody(b)
+                    && SystemOrbitGeometry.orbitsWideBinarySystemBarycentre(b, bodies, cur)) {
+                return false;
+            }
+            int next = resolvedParentFromMap(cur, resolvedParents);
+            if (next < 0 || next == cur) {
+                break;
+            }
+            cur = next;
+        }
+        return false;
+    }
+
+    private static Set<Integer> collectInnerStellarPairStarMembers(int innerBaryMapKey,
+            Map<Integer, BodyInfo> bodies, Map<Integer, Integer> resolvedParents) {
+        Set<Integer> out = new HashSet<>();
+        if (bodies == null || innerBaryMapKey < 0) {
+            return out;
+        }
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || !SystemMapRules.isMapStellarBody(e.getValue())) {
+                continue;
+            }
+            if (isInnerStellarPairMapStar(e.getKey().intValue(), innerBaryMapKey, bodies, resolvedParents)) {
+                out.add(e.getKey());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Planets under the inner barycentre hub count for the pair; a bare A or B with no worlds in the AB subtree still
+     * frames both inner stars together.
+     */
+    private static boolean innerStellarPairStarHasOrbitingBodies(int bodyId, int innerBaryMapKey,
+            Map<Integer, BodyInfo> bodies, Map<Integer, Integer> resolvedParents) {
+        if (bodies == null || innerBaryMapKey < 0) {
+            return false;
+        }
+        for (Integer id : membersUnderApproachHub(bodyId, bodies, resolvedParents)) {
+            if (id == null || id.intValue() == bodyId) {
+                continue;
+            }
+            BodyInfo b = bodies.get(id);
+            if (b != null && !b.isScanBarycentreRow() && !SystemMapRules.isMapStellarBody(b)) {
+                return true;
+            }
+        }
+        for (Map.Entry<Integer, BodyInfo> e : bodies.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getValue().isScanBarycentreRow()) {
+                continue;
+            }
+            BodyInfo b = e.getValue();
+            if (!SystemMapRules.isMapStellarBody(b)
+                    && resolvedParentFromMap(e.getKey().intValue(), resolvedParents) == innerBaryMapKey) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True when members span every barycentric branch star (A+B wide-binary pair view). */
@@ -1538,6 +1733,13 @@ public final class SystemPlanMapPanel extends JPanel {
         if (frameHub >= 0) {
             out.add(Integer.valueOf(frameHub));
             out.addAll(membersUnderApproachHub(frameHub, bodies, resolvedParents));
+        }
+        if (countPlottedMemberDots(out) >= 2) {
+            return out;
+        }
+        int innerBary = SystemOrbitGeometry.innerArrivalStellarPairBarycentreBodyId(bodies);
+        if (innerBary >= 0 && isInnerStellarPairMapStar(bodyId, innerBary, bodies, resolvedParents)) {
+            out.addAll(collectInnerStellarPairStarMembers(innerBary, bodies, resolvedParents));
         }
         if (countPlottedMemberDots(out) >= 2) {
             return out;
@@ -1789,12 +1991,12 @@ public final class SystemPlanMapPanel extends JPanel {
         double fallbackZ = (bodyId == rootId) ? SUBSYSTEM_HOP_TARGET_ZOOM_STAR : SUBSYSTEM_HOP_TARGET_ZOOM_MOON_CLUSTER;
         fallbackZ = clamp(fallbackZ, zoomMinFit, ZOOM_MAX);
         AutoZoomFrameSpec spec = buildAutoZoomFrameSpec(bodyId);
-        if (spec == null || approachedXY == null) {
-            return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
+        if (spec == null) {
+            return fallbackApproachFrame(bodyId, frameHub, approachedXY, fallbackZ);
         }
         frameHub = spec.frameHub;
         if (orbitGeomBodies == null || orbitGeomPositions == null || frameHub < 0) {
-            return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
+            return fallbackApproachFrame(bodyId, frameHub, approachedXY, fallbackZ);
         }
 
         int w = getWidth();
@@ -1805,7 +2007,7 @@ public final class SystemPlanMapPanel extends JPanel {
         if (availW < 32.0 || availH < 32.0
                 || !Double.isFinite(layoutSpanX) || !Double.isFinite(layoutSpanY)
                 || layoutSpanX <= 0.0 || layoutSpanY <= 0.0) {
-            return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
+            return fallbackApproachFrame(bodyId, frameHub, approachedXY, fallbackZ);
         }
 
         Set<Integer> members = spec.members;
@@ -1815,33 +2017,36 @@ public final class SystemPlanMapPanel extends JPanel {
         double maxX = Double.NEGATIVE_INFINITY;
         double minY = Double.POSITIVE_INFINITY;
         double maxY = Double.NEGATIVE_INFINITY;
-        int dotCount = 0;
+        int memberCount = 0;
 
-        for (BodyDot d : dots) {
-            if (d == null || !members.contains(Integer.valueOf(d.bodyId))) {
+        for (Integer memberId : members) {
+            if (memberId == null) {
                 continue;
             }
-            if (Double.isFinite(d.wx) && Double.isFinite(d.wy)) {
-                minX = Math.min(minX, d.wx);
-                maxX = Math.max(maxX, d.wx);
-                minY = Math.min(minY, d.wy);
-                maxY = Math.max(maxY, d.wy);
-                dotCount++;
+            double x = Double.NaN;
+            double y = Double.NaN;
+            BodyDot d = findBodyDot(memberId.intValue());
+            if (d != null && Double.isFinite(d.wx) && Double.isFinite(d.wy)) {
+                x = d.wx;
+                y = d.wy;
+            } else {
+                double[] xy = new double[2];
+                if (worldXYForBody(memberId.intValue(), xy)) {
+                    x = xy[0];
+                    y = xy[1];
+                }
+            }
+            if (Double.isFinite(x) && Double.isFinite(y)) {
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+                memberCount++;
             }
         }
 
-        if (dotCount == 0) {
-            double[] xy = new double[2];
-            BodyDot targetDotOnly = findBodyDot(bodyId);
-            if (targetDotOnly != null && Double.isFinite(targetDotOnly.wx) && Double.isFinite(targetDotOnly.wy)) {
-                double z = Math.max(fallbackZ, SUBSYSTEM_FRAME_MIN_ZOOM_FACTOR);
-                return new double[] { targetDotOnly.wx, targetDotOnly.wy, z };
-            }
-            if (worldXYForBody(bodyId, xy) || worldXYForBody(frameHub, xy)) {
-                double z = Math.max(fallbackZ, SUBSYSTEM_FRAME_MIN_ZOOM_FACTOR);
-                return new double[] { xy[0], xy[1], z };
-            }
-            return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
+        if (memberCount == 0) {
+            return fallbackApproachFrame(bodyId, frameHub, approachedXY, fallbackZ);
         }
 
         double focusWx = (minX + maxX) * 0.5;
@@ -1867,17 +2072,34 @@ public final class SystemPlanMapPanel extends JPanel {
 
         double zFit = zoomFactorToFitWorldSpans(availW, availH, layoutSpanX, layoutSpanY, wSpan, hSpan);
         double minZoom = spec.broadContext ? zoomMinFit : Math.max(fallbackZ, SUBSYSTEM_FRAME_MIN_ZOOM_FACTOR);
-        double zoomFit = clamp(Math.max(zFit, minZoom), zoomMinFit, ZOOM_MAX);
+        double zoomFit = tightHud
+                ? clamp(zFit, zoomMinFit, ZOOM_MAX)
+                : clamp(Math.max(zFit, minZoom), zoomMinFit, ZOOM_MAX);
         double spanM = Math.max(wSpan, hSpan);
         zoomFit = capZoomFactorToVisibleWorldSpan(zoomFit, spanM, availW, availH, layoutSpanX, layoutSpanY, fitMargin);
         if (tightHud) {
             zoomFit = capHudZoomToSubsystemVisibleSpan(zoomFit, spanM, availW, availH, layoutSpanX, layoutSpanY, fitMargin);
         }
-        if (spec.broadContext) {
+        if (spec.broadContext && spec.capZoomAtSystemFit) {
             double systemZoom = clamp(1.0, zoomMinFit, ZOOM_MAX);
             zoomFit = Math.min(zoomFit, systemZoom);
         }
         return new double[] { focusWx, focusWy, zoomFit };
+    }
+
+    private double[] fallbackApproachFrame(int bodyId, int frameHub, double[] approachedXY, double fallbackZ) {
+        if (approachedXY != null && Double.isFinite(approachedXY[0]) && Double.isFinite(approachedXY[1])) {
+            return new double[] { approachedXY[0], approachedXY[1], fallbackZ };
+        }
+        BodyDot targetDot = findBodyDot(bodyId);
+        if (targetDot != null && Double.isFinite(targetDot.wx) && Double.isFinite(targetDot.wy)) {
+            return new double[] { targetDot.wx, targetDot.wy, fallbackZ };
+        }
+        double[] xy = new double[2];
+        if (worldXYForBody(bodyId, xy) || (frameHub >= 0 && worldXYForBody(frameHub, xy))) {
+            return new double[] { xy[0], xy[1], fallbackZ };
+        }
+        return new double[] { 0.0, 0.0, fallbackZ };
     }
 
     /**
@@ -2434,6 +2656,8 @@ public final class SystemPlanMapPanel extends JPanel {
     private void cancelSubsystemProximityHop() {
         subsystemProximityHopActive = false;
         hudTargetSubsystemHopActive = false;
+        subsystemHopDurationMs = 0;
+        subsystemHopStartMs = 0L;
         subsystemHopTick = 0;
         subsystemHopOutTicks = SUBSYSTEM_HOP_OUT_TICKS;
         subsystemHopInTicks = SUBSYSTEM_HOP_IN_TICKS;
@@ -2474,6 +2698,25 @@ public final class SystemPlanMapPanel extends JPanel {
         return Math.max(1, (durationMs + SUBSYSTEM_HOP_TICK_MS - 1) / SUBSYSTEM_HOP_TICK_MS);
     }
 
+    /**
+     * Split a HUD fly-to into out/in tick counts totalling at most {@link #HUD_TARGET_SUBSYSTEM_ZOOM_MAX_MS}.
+     * When {@code outTicksRequested} is zero the full budget is zoom-in (already near the needed scale).
+     */
+    private static int[] hudTargetHopTickSplit(int outTicksRequested, int maxOutTicksRef) {
+        int totalMs = Math.min(HUD_TARGET_SUBSYSTEM_ZOOM_MAX_MS, HUD_TARGET_SUBSYSTEM_ZOOM_TOTAL_MS);
+        int totalTicks = subsystemHopTicksForDurationMs(totalMs);
+        if (outTicksRequested <= 0) {
+            return new int[] { 0, totalTicks };
+        }
+        int ref = Math.max(1, maxOutTicksRef);
+        double frac = clamp((double) outTicksRequested / ref, 0.22, 0.48);
+        int out = Math.max(1, (int) Math.round(totalTicks * frac));
+        if (out >= totalTicks) {
+            out = Math.max(1, totalTicks - 1);
+        }
+        return new int[] { out, totalTicks - out };
+    }
+
     private static double hopEaseInOut(double t) {
         if (t <= 0) {
             return 0.0;
@@ -2509,6 +2752,30 @@ public final class SystemPlanMapPanel extends JPanel {
 
     private static double hopLerp(double a, double b, double u) {
         return a + (b - a) * u;
+    }
+
+    /**
+     * Coupled HUD fly frame: pan and zoom share timeline {@code u}. Pan is smoothstep start→dest; zoom dips through
+     * apex at {@code u=0.5} with ease-out on the way out (so zoom keeps pace with pan) and ease-in on the way in.
+     */
+    private static double hudFlyZoomAt(double u, double z0, double zApex, double z2) {
+        double l0 = Math.log(Math.max(z0, 1e-12));
+        double lA = Math.log(Math.max(zApex, 1e-12));
+        double l2 = Math.log(Math.max(z2, 1e-12));
+        double lz;
+        if (u <= 0.5) {
+            lz = hopLerp(l0, lA, hopEaseOut(u * 2.0));
+        } else {
+            lz = hopLerp(lA, l2, hopEaseIn((u - 0.5) * 2.0));
+        }
+        return Math.exp(lz);
+    }
+
+    private void applyHudFlyFrame(double u) {
+        double panT = hopEaseInOut(u);
+        viewCenterWx = hopLerp(subHopX0, subHopX2, panT);
+        viewCenterWy = hopLerp(subHopY0, subHopY2, panT);
+        zoomFactor = hudFlyZoomAt(u, subHopZ0, subHopZ1, subHopZ2);
     }
 
     private BodyDot findBodyDot(int bodyId) {
@@ -2629,28 +2896,29 @@ public final class SystemPlanMapPanel extends JPanel {
         int total = out + inn;
         int tick = subsystemHopTick++;
         boolean hudFly = hudTargetSubsystemHopActive;
-        if (tick < out) {
-            double t = out > 0 ? (tick + 1.0) / out : 1.0;
-            double u = hudFly ? hopEaseOut(t) : hopEaseInOut(t);
-            zoomFactor = hopLerp(subHopZ0, subHopZ1, u);
-            if (hudFly) {
-                viewCenterWx = subHopX0;
-                viewCenterWy = subHopY0;
-            } else {
-                viewCenterWx = hopLerp(subHopX0, subHopX1, u);
-                viewCenterWy = hopLerp(subHopY0, subHopY1, u);
-            }
-        } else if (tick < total) {
-            int lt = tick - out;
-            double u = hudFly ? hopEaseIn((lt + 1.0) / inn) : hopEaseInOut((lt + 1.0) / inn);
-            zoomFactor = hopLerp(subHopZ1, subHopZ2, u);
-            if (hudFly) {
+        if (hudFly) {
+            int budgetMs = Math.max(1, subsystemHopDurationMs);
+            long elapsedMs = Math.max(0L, System.currentTimeMillis() - subsystemHopStartMs);
+            double u = Math.min(1.0, elapsedMs / (double) budgetMs);
+            applyHudFlyFrame(u);
+            if (u >= 1.0) {
+                zoomFactor = clamp(subHopZ2, zoomMinFit, ZOOM_MAX);
                 viewCenterWx = subHopX2;
                 viewCenterWy = subHopY2;
-            } else {
-                viewCenterWx = hopLerp(subHopX1, subHopX2, u);
-                viewCenterWy = hopLerp(subHopY1, subHopY2, u);
+                cancelSubsystemProximityHop();
             }
+        } else if (tick < out) {
+            double t = out > 0 ? (tick + 1.0) / out : 1.0;
+            double u = hopEaseInOut(t);
+            zoomFactor = hopLerp(subHopZ0, subHopZ1, u);
+            viewCenterWx = hopLerp(subHopX0, subHopX1, u);
+            viewCenterWy = hopLerp(subHopY0, subHopY1, u);
+        } else if (tick < total) {
+            int lt = tick - out;
+            double u = hopEaseInOut((lt + 1.0) / Math.max(1, inn));
+            zoomFactor = hopLerp(subHopZ1, subHopZ2, u);
+            viewCenterWx = hopLerp(subHopX1, subHopX2, u);
+            viewCenterWy = hopLerp(subHopY1, subHopY2, u);
         } else {
             zoomFactor = clamp(subHopZ2, zoomMinFit, ZOOM_MAX);
             viewCenterWx = subHopX2;
@@ -7759,12 +8027,13 @@ public final class SystemPlanMapPanel extends JPanel {
     /** {@code [focusWx, focusWy, targetZoom]} for HUD auto-zoom regression tests. */
     final double[] hudTargetSubsystemFrameForTests(int bodyIdOrJournal) {
         int mapKey = resolveMapKeyForBody(bodyIdOrJournal, orbitGeomBodies);
-        double[] target = new double[2];
-        if (!worldXYForBody(mapKey, target)) {
+        if (mapKey < 0) {
             return null;
         }
         int frameHub = resolveHudTargetSubsystemHub(mapKey);
-        return computeApproachSubsystemFrame(mapKey, frameHub, target, true);
+        double[] approachHint = new double[2];
+        double[] approachArg = worldXYForBody(mapKey, approachHint) ? approachHint : null;
+        return computeApproachSubsystemFrame(mapKey, frameHub, approachArg, true);
     }
 
     final int hudTargetSubsystemHubForTests(int bodyIdOrJournal) {

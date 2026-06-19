@@ -18,6 +18,7 @@ class SystemPlanMapPanelAutoZoomTest {
 
     private static Map<Integer, BodyInfo> twoStarBodies;
     private static Map<Integer, BodyInfo> wideBinaryPlanetsBodies;
+    private static Map<Integer, BodyInfo> innerAbBareCBodies;
 
     @BeforeAll
     static void loadFixtures() throws Exception {
@@ -25,6 +26,8 @@ class SystemPlanMapPanelAutoZoomTest {
         twoStarBodies = twoStar.toBodies();
         SystemMapFixture withPlanets = SystemMapFixtureLoader.loadClasspath("st-x-c15-294-wide-binary-planets.json");
         wideBinaryPlanetsBodies = withPlanets.toBodies();
+        SystemMapFixture innerAb = SystemMapFixtureLoader.loadClasspath("inner-arrival-ab-bare-c-with-planets.json");
+        innerAbBareCBodies = innerAb.toBodies();
     }
 
     private static SystemPlanMapPanel panelFor(Map<Integer, BodyInfo> bodies, String systemName) {
@@ -73,5 +76,27 @@ class SystemPlanMapPanelAutoZoomTest {
         assertTrue(members.size() >= 2, "A 1 framing should include at least star A and planet A 1");
         assertTrue(members.contains(0));
         assertTrue(members.contains(2));
+    }
+
+    @Test
+    void innerArrivalBareAOrB_framesAbPairNotOuterC() {
+        SystemPlanMapPanel panel = panelFor(innerAbBareCBodies, "Inner Arrival AB Bare C Planets");
+        for (int starId : new int[] { 2, 3 }) {
+            Set<Integer> members = panel.hudTargetSubsystemMemberIdsForTests(starId);
+            assertTrue(members.contains(2), "A should be framed");
+            assertTrue(members.contains(3), "B should be framed");
+            assertFalse(members.contains(4), "outer star C should not be in AB framing");
+            assertFalse(members.contains(5), "C 1 should not be in AB framing");
+        }
+    }
+
+    @Test
+    void innerArrivalCWithPlanet_framesCBranchOnly() {
+        SystemPlanMapPanel panel = panelFor(innerAbBareCBodies, "Inner Arrival AB Bare C Planets");
+        Set<Integer> members = panel.hudTargetSubsystemMemberIdsForTests(4);
+        assertTrue(members.contains(4));
+        assertTrue(members.contains(5));
+        assertFalse(members.contains(2));
+        assertFalse(members.contains(3));
     }
 }

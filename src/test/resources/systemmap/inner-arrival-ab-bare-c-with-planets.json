@@ -1,0 +1,53 @@
+{
+  "name": "Inner Arrival AB Bare C Planets",
+  "notes": "Hierarchical wide binary: A+B inner pair at Null:1 (no planets), C at Null:0 with one planet.",
+  "bodies": [
+    {
+      "id": 1,
+      "bodyName": "Test System barycentre 1",
+      "shortName": "bary 1",
+      "distanceLs": 0.0,
+      "scanBarycentreRow": true,
+      "journalParents": ["Null:0"]
+    },
+    {
+      "id": 2,
+      "bodyName": "Test System A",
+      "shortName": "A",
+      "distanceLs": 0.0,
+      "starType": "G",
+      "immediateParentBodyId": 1,
+      "journalParents": ["Null:1", "Null:0"]
+    },
+    {
+      "id": 3,
+      "bodyName": "Test System B",
+      "shortName": "B",
+      "distanceLs": 787.857479,
+      "starType": "K",
+      "immediateParentBodyId": 1,
+      "journalParents": ["Null:1", "Null:0"]
+    },
+    {
+      "id": 4,
+      "bodyName": "Test System C",
+      "shortName": "C",
+      "distanceLs": 69803.926051,
+      "starType": "M",
+      "parentIsBarycentre": true,
+      "journalParents": ["Null:0"]
+    },
+    {
+      "id": 5,
+      "bodyName": "Test System C 1",
+      "shortName": "C 1",
+      "distanceLs": 69830.0,
+      "planetClass": "High metal content body",
+      "immediateParentBodyId": 4
+    }
+  ],
+  "expect": {
+    "layoutKind": "WIDE_BINARY",
+    "mapStellarCount": 3
+  }
+}
