@@ -34,8 +34,9 @@ class MiningTabPanelProspectorUpdateTest {
     }
 
     @AfterEach
-    void restoreDisableSpeechProperty() {
+    void restoreSpeechTestProperties() {
         System.setProperty(DisableSpeechExtension.PROPERTY, "true");
+        System.setProperty(DisableSpeechExtension.ALLOW_SPEECH_GATING_PROPERTY, "false");
     }
 
     private static class RecordingTtsSprintf extends TtsSprintf {

@@ -27,6 +27,9 @@ public final class TestEnvironment {
         if (System.getProperty("edo.test.disableSpeech") == null) {
             System.setProperty("edo.test.disableSpeech", "true");
         }
+        if (System.getProperty("edo.test.allowSpeechGating") == null) {
+            System.setProperty("edo.test.allowSpeechGating", "false");
+        }
     }
 
     private static volatile boolean initialized;

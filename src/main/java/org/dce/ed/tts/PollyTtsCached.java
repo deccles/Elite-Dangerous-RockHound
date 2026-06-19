@@ -335,24 +335,9 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
 
         for (int idx : missingIdx) {
             String mark = markNames.get(idx);
-            Integer startMsObj = markTimesMs.get(mark);
-            if (startMsObj == null) {
-                throw new IllegalStateException("Missing SSML mark time for: " + mark);
-            }
-            int startMs = startMsObj;
+            int startMs = resolveSsmlMarkStartMs(idx, mark, markNames, markTimesMs);
 
-            int endMs;
-            if (idx + 1 < markNames.size()) {
-                String nextMark = markNames.get(idx + 1);
-                Integer endMsObj = markTimesMs.get(nextMark);
-                if (endMsObj == null) {
-                    endMs = totalMs;
-                } else {
-                    endMs = endMsObj;
-                }
-            } else {
-                endMs = totalMs;
-            }
+            int endMs = resolveSsmlMarkEndMs(idx, markNames, markTimesMs, totalMs);
 
             if (endMs < startMs) {
                 endMs = startMs;
@@ -444,6 +429,9 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
      * levels jump between separately cached clips.
      */
     void playCombinedWavsBlocking(List<Path> wavPaths) throws Exception {
+        if (isTestSpeechSuppressed()) {
+            return;
+        }
         if (wavPaths == null || wavPaths.isEmpty()) {
             return;
         }
@@ -1106,6 +1094,42 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
         return out;
     }
 
+    /**
+     * Polly sometimes omits the first SSML mark timestamp (often {@code C0}) in the JSON marks response,
+     * especially for child voices (e.g. Ivy). Treat a missing first mark as 0 ms; later missing marks inherit
+     * the nearest preceding mark time.
+     */
+    static int resolveSsmlMarkStartMs(int chunkIdx, String mark, List<String> markNames,
+            Map<String, Integer> markTimesMs) {
+        Integer t = markTimesMs.get(mark);
+        if (t != null) {
+            return t;
+        }
+        if (chunkIdx <= 0) {
+            return 0;
+        }
+        for (int i = chunkIdx - 1; i >= 0; i--) {
+            Integer prev = markTimesMs.get(markNames.get(i));
+            if (prev != null) {
+                return prev;
+            }
+        }
+        return 0;
+    }
+
+    static int resolveSsmlMarkEndMs(int chunkIdx, List<String> markNames, Map<String, Integer> markTimesMs,
+            int totalMs) {
+        if (chunkIdx + 1 < markNames.size()) {
+            for (int i = chunkIdx + 1; i < markNames.size(); i++) {
+                Integer t = markTimesMs.get(markNames.get(i));
+                if (t != null) {
+                    return t;
+                }
+            }
+        }
+        return totalMs;
+    }
+
     private static String extractJsonString(String line, String key) {
         int idx = line.indexOf("\"" + key + "\"");
         if (idx < 0) {
@@ -1183,6 +1207,9 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
     }
 
     private void playAudioBlocking(AudioInputStream ais) throws Exception {
+        if (isTestSpeechSuppressed()) {
+            return;
+        }
         Clip clip = AudioSystem.getClip();
         CountDownLatch done = new CountDownLatch(1);
 

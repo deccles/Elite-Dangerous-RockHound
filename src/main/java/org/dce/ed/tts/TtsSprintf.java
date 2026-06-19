@@ -152,6 +152,9 @@ public class TtsSprintf {
     }
 
     private void speakAssembledBlocking(SpeechPlan plan, PollyTtsCached.SpeechSynthesisVoicePreview voicePreview) throws Exception {
+        if (Boolean.getBoolean("edo.test.disableSpeech")) {
+            return;
+        }
         if (plan == null || plan.chunkTexts.isEmpty()) {
             return;
         }

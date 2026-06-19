@@ -711,8 +711,10 @@ public final class OverlayPreferences {
     // ----------------------------
 
     public static boolean isSpeechEnabled() {
-        // Deterministic tests: disable speech/TTS side effects during `mvn test`.
-        if (Boolean.getBoolean("edo.test.disableSpeech")) {
+        // Deterministic tests: treat speech as off unless @AllowSpeechForTest opts into gating checks.
+        // Audio playback is separately suppressed via edo.test.disableSpeech in PollyTtsCached / TtsSprintf.
+        if (Boolean.getBoolean("edo.test.disableSpeech")
+                && !Boolean.getBoolean("edo.test.allowSpeechGating")) {
             return false;
         }
         return PREFS.getBoolean(KEY_SPEECH_ENABLED, false);
