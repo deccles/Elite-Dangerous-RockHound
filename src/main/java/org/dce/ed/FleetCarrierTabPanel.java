@@ -25,6 +25,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.Timer;
 
+import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.OwnedFleetCarrierJournalBootstrap;
@@ -55,6 +56,11 @@ import com.google.gson.JsonParser;
  */
 public class FleetCarrierTabPanel extends RouteTabPanel {
 	private static final long serialVersionUID = 1L;
+
+	@Override
+	protected ExecTriggerId copyNextDestinationTrigger() {
+		return ExecTriggerId.FLEET_CARRIER_COPY_NEXT_DESTINATION;
+	}
 
 	private final String defaultStatusText = "Drag a Spansh route file onto RockHound to import";
 

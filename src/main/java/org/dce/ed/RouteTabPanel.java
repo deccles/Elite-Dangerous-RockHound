@@ -62,7 +62,8 @@ import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 
-import org.dce.ed.ui.DistanceToggleIcons;
+import org.dce.ed.exec.ExecTriggerId;
+import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 
@@ -85,6 +86,7 @@ import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.DistanceToggleIcons;
 import org.dce.ed.ui.HoverCopyButtonSupport;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
 import org.dce.ed.ui.EdoUi.User;
@@ -111,7 +113,6 @@ import com.google.gson.JsonParser;
 public class RouteTabPanel extends JPanel {
 	private static final long serialVersionUID = 1L;
 	private Font uiFont = OverlayPreferences.getUiFont();
-	// Orange / gray checkmarks for fully discovered systems.
 	private static final Icon ICON_FULLY_DISCOVERED_VISITED =
 			new StatusCircleIcon(EdoUi.User.MAIN_TEXT, "\u2713");
 	private static final Icon ICON_FULLY_DISCOVERED_NOT_VISITED =
@@ -175,6 +176,7 @@ public class RouteTabPanel extends JPanel {
 	private final Timer copyNextDestinationRefreshTimer;
 	private final RouteTableModel tableModel;
 	private SystemTableHoverCopyManager systemTableHoverCopyManager;
+	private ExecTriggerService execTriggerService;
 	private StatusHoverPopupManager statusHoverPopupManager;
 	private final EdsmClient edsmClient;
 	private final BooleanSupplier passThroughEnabledSupplier;
@@ -787,6 +789,22 @@ public class RouteTabPanel extends JPanel {
 
 		int viewRow = table.convertRowIndexToView(modelRow);
 		systemTableHoverCopyManager.copySystemNameAtViewRow(viewRow);
+		afterDestinationCopiedToClipboard(nextName);
+	}
+
+	/** Override on {@link FleetCarrierTabPanel} for auto-copy after carrier jumps. */
+	protected ExecTriggerId copyNextDestinationTrigger() {
+		return ExecTriggerId.ROUTE_COPY_NEXT_DESTINATION;
+	}
+
+	public void setExecTriggerService(ExecTriggerService service) {
+		this.execTriggerService = service;
+	}
+
+	protected void afterDestinationCopiedToClipboard(String destination) {
+		if (execTriggerService != null) {
+			execTriggerService.onCopyNextDestination(copyNextDestinationTrigger(), destination);
+		}
 	}
 
 	protected void setHeaderLabelText(String text) {
@@ -2759,6 +2777,7 @@ public class RouteTabPanel extends JPanel {
 		Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(next), null);
 		Component anchor = copyNextDestinationButton != null ? copyNextDestinationButton : table;
 		SystemTableHoverCopyManager.showCopiedToast((JComponent) anchor, next);
+		afterDestinationCopiedToClipboard(next);
 	}
 
 	private static void styleRoutePrimaryCopyButton(JButton b, Font uiFont) {

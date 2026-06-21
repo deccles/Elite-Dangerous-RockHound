@@ -71,7 +71,8 @@ public final class ExecTabPanel extends JPanel {
 
         JLabel intro = new JLabel(
                 "<html>Run external JARs on journal/overlay events. Uses <code>java -jar</code>; "
-                        + "passes <code>EDO_TRIGGER</code> and related env vars.</html>");
+                        + "passes <code>EDO_TRIGGER</code> and related env vars "
+                        + "(e.g. <code>EDO_DESTINATION</code> on copy-next-destination triggers).</html>");
         intro.setOpaque(false);
         add(intro, BorderLayout.NORTH);
 

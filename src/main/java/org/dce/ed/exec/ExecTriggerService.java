@@ -52,6 +52,22 @@ public final class ExecTriggerService {
         return store;
     }
 
+    /** Fires bindings for Route / Fleet Carrier copy-next-destination (clipboard already set). */
+    public void onCopyNextDestination(ExecTriggerId triggerId, String destination) {
+        if (triggerId == null || destination == null || destination.isBlank()) {
+            return;
+        }
+        if (triggerId != ExecTriggerId.ROUTE_COPY_NEXT_DESTINATION
+                && triggerId != ExecTriggerId.FLEET_CARRIER_COPY_NEXT_DESTINATION) {
+            return;
+        }
+        String trimmed = destination.trim();
+        fireTrigger(triggerId, ExecLaunchContext.builder(triggerId)
+                .destination(trimmed)
+                .clipboard(trimmed)
+                .build());
+    }
+
     public void onFleetCooldownComplete() {
         int delayMs = CarrierJumpCooldown.EXEC_TRIGGER_DELAY_AFTER_COOLDOWN_SECONDS * 1000;
         publishStatus("Cooldown ended — running macro in "
@@ -125,6 +141,8 @@ public final class ExecTriggerService {
                 .carrierFuelThreshold(base.getCarrierFuelThreshold())
                 .carrierCallsign(base.getCarrierCallsign())
                 .carrierName(base.getCarrierName())
+                .destination(base.getDestination())
+                .clipboard(base.getClipboard())
                 .build();
     }
 

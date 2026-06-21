@@ -5,7 +5,9 @@ public enum ExecTriggerId {
 
     MANUAL("Manual (Run now)"),
     FLEET_COOLDOWN_COMPLETE("Fleet cooldown complete"),
-    FLEET_TRITIUM_LOW("Fleet carrier tritium low");
+    FLEET_TRITIUM_LOW("Fleet carrier tritium low"),
+    ROUTE_COPY_NEXT_DESTINATION("Copy next destination (Route)"),
+    FLEET_CARRIER_COPY_NEXT_DESTINATION("Copy next destination (Fleet Carrier)");
 
     private final String label;
 
@@ -19,6 +21,11 @@ public enum ExecTriggerId {
 
     /** Triggers available in the Exec tab dropdown (excludes {@link #MANUAL}). */
     public static ExecTriggerId[] configurableValues() {
-        return new ExecTriggerId[] { FLEET_COOLDOWN_COMPLETE, FLEET_TRITIUM_LOW };
+        return new ExecTriggerId[] {
+                FLEET_COOLDOWN_COMPLETE,
+                FLEET_TRITIUM_LOW,
+                ROUTE_COPY_NEXT_DESTINATION,
+                FLEET_CARRIER_COPY_NEXT_DESTINATION
+        };
     }
 }

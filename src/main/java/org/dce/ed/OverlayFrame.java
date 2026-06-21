@@ -900,6 +900,10 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         });
     }
 
+    public ExecTriggerService getExecTriggerService() {
+        return execTriggerService;
+    }
+
     public void setTitleBarText(String text) {
         if (titleBar != null) {
             titleBar.setTitleText(text);

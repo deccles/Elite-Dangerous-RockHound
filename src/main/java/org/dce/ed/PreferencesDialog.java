@@ -67,6 +67,7 @@ public class PreferencesDialog extends JDialog {
 
 	/** Index of the Mining tab in {@link #PreferencesDialog(Window, String)}'s tabbed pane (Colors, Exobiology, Fonts, Logging, Mining, …). */
 	public static final int MINING_TAB_INDEX = 4;
+	public static final int EXEC_TAB_INDEX = 7;
 
 	/**
 	 * Shows preferences, or brings the existing modeless window to the front if one is already open.
@@ -82,6 +83,7 @@ public class PreferencesDialog extends JDialog {
 	public static void show(Window owner, String clientKey, int initialTabIndex) {
 		for (Window w : Window.getWindows()) {
 			if (w instanceof PreferencesDialog pd && w.isDisplayable()) {
+				pd.wireExecFromOwner();
 				w.toFront();
 				if (initialTabIndex >= 0) {
 					pd.selectTabIfPossible(initialTabIndex);
@@ -100,6 +102,14 @@ public class PreferencesDialog extends JDialog {
 	void selectTabIfPossible(int index) {
 		if (preferenceTabs != null && index >= 0 && index < preferenceTabs.getTabCount()) {
 			preferenceTabs.setSelectedIndex(index);
+		}
+	}
+
+	void wireExecFromOwner() {
+		Window owner = getOwner();
+		if (owner instanceof OverlayFrame frame && execTabPanel != null) {
+			execTabPanel.setExecTriggerService(frame.getExecTriggerService());
+			execTabPanel.refreshFuelLevelLabel();
 		}
 	}
 
@@ -194,7 +204,8 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabMiningVisibleCheckBox;
 	private JCheckBox overlayTabMissionsVisibleCheckBox;
 	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
-	private JCheckBox overlayTabExecVisibleCheckBox;
+
+	private ExecTabPanel execTabPanel;
 
 	private JSpinner bioValuableThresholdMillionSpinner;
 	private JComboBox<OverlayPreferences.BiologyMapDisplayMode> biologyMapDisplayModeComboBox;
@@ -368,9 +379,14 @@ public class PreferencesDialog extends JDialog {
 		preferenceTabs.addTab("Mining", createMiningPanel());
 		preferenceTabs.addTab("Overlay", createOverlayPanel());
 		preferenceTabs.addTab("Speech", createSpeechPanel());
+		preferenceTabs.addTab("Exec", createExecPanel());
 
 		add(preferenceTabs, BorderLayout.CENTER);
 		add(createButtonPanel(), BorderLayout.SOUTH);
+
+		if (owner instanceof OverlayFrame overlayFrame && execTabPanel != null) {
+			execTabPanel.setExecTriggerService(overlayFrame.getExecTriggerService());
+		}
 
 		pack();
 		setLocationRelativeTo(owner);
@@ -387,6 +403,17 @@ public class PreferencesDialog extends JDialog {
 				revertLivePreviewIfNeeded();
 			}
 		});
+	}
+
+	private JPanel createExecPanel() {
+		execTabPanel = new ExecTabPanel();
+		JScrollPane scroll = new JScrollPane(execTabPanel);
+		scroll.setBorder(null);
+		scroll.getVerticalScrollBar().setUnitIncrement(16);
+		JPanel wrapper = new JPanel(new BorderLayout());
+		wrapper.setOpaque(false);
+		wrapper.add(scroll, BorderLayout.CENTER);
+		return wrapper;
 	}
 
 	private JPanel createOverlayPanel() {
@@ -493,12 +520,6 @@ public class PreferencesDialog extends JDialog {
 		overlayTabFleetCarrierVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabFleetCarrierVisible());
 		tabsPanel.add(overlayTabFleetCarrierVisibleCheckBox, tgc);
 
-		tgc.gridy++;
-		overlayTabExecVisibleCheckBox = new JCheckBox("Exec");
-		overlayTabExecVisibleCheckBox.setOpaque(false);
-		overlayTabExecVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabExecVisible());
-		tabsPanel.add(overlayTabExecVisibleCheckBox, tgc);
-
 		content.add(tabsPanel, outer);
 
 		outer.gridy++;
@@ -551,8 +572,9 @@ public class PreferencesDialog extends JDialog {
 		systemPlanMapAutoZoomHudTargetCheckBox.setOpaque(false);
 		systemPlanMapAutoZoomHudTargetCheckBox.setToolTipText(
 				"<html>When <b>HUD target (sticky)</b> is selected and you target a body on the HUD, "
-						+ "the plan map eases out to the full system (~2 s when zoomed in), then in to frame "
-						+ "that body’s orbit cluster (~3 s).<br>"
+						+ "the plan map smoothly pans and zooms to frame a useful cluster "
+						+ "(≤7 s; skips zoom-out when already near scale).<br>"
+						+ "Wide binaries: both stars (A+B) unless you target a branch star that has planets.<br>"
 						+ "Does not apply in Approach body mode.</html>");
 		systemTabPrefsPanel.add(systemPlanMapAutoZoomHudTargetCheckBox, stc);
 		stc.gridwidth = 1;
@@ -2141,9 +2163,8 @@ public class PreferencesDialog extends JDialog {
             boolean m = overlayTabMiningVisibleCheckBox != null && overlayTabMiningVisibleCheckBox.isSelected();
             boolean ms = overlayTabMissionsVisibleCheckBox != null && overlayTabMissionsVisibleCheckBox.isSelected();
             boolean f = overlayTabFleetCarrierVisibleCheckBox != null && overlayTabFleetCarrierVisibleCheckBox.isSelected();
-            boolean ex = overlayTabExecVisibleCheckBox != null && overlayTabExecVisibleCheckBox.isSelected();
-            if (!r && !s && !b && !m && !ms && !f && !ex) {
-                r = s = b = m = ms = f = ex = true;
+            if (!r && !s && !b && !m && !ms && !f) {
+                r = s = b = m = ms = f = true;
             }
             OverlayPreferences.setOverlayTabRouteVisible(r);
             OverlayPreferences.setOverlayTabSystemVisible(s);
@@ -2151,7 +2172,6 @@ public class PreferencesDialog extends JDialog {
             OverlayPreferences.setOverlayTabMiningVisible(m);
             OverlayPreferences.setOverlayTabMissionsVisible(ms);
             OverlayPreferences.setOverlayTabFleetCarrierVisible(f);
-            OverlayPreferences.setOverlayTabExecVisible(ex);
         }
 
         if (autoSwitchGalaxyMapToRouteCheckBox != null) {
