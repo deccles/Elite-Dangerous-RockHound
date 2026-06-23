@@ -2,6 +2,7 @@ package org.dce.ed.tts;
 
 import java.awt.Component;
 import java.awt.Dialog;
+import java.awt.Window;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -48,8 +49,9 @@ import com.google.gson.JsonParser;
  * <p><b>Where to publish packs (maintainers):</b> upload each {@code voice-*.zip} as a
  * <b>release binary asset</b> (the “Attach binaries” area when editing a release).
  * Links in the release description are <em>not</em> visible to the GitHub API and will
- * not be found. Prefer a release tagged {@value #VOICE_PACKS_RELEASE_TAG}; otherwise
- * the app tries {@code /releases/latest}, then scans recent releases for the asset.
+     * not be found. Prefer a release with git tag {@value #VOICE_PACKS_RELEASE_TAG} (release title
+     * is often {@value #VOICE_PACKS_RELEASE_TITLE}); otherwise the app tries {@code /releases/latest},
+     * then scans recent releases for the asset.
  *
  * <p>Bump {@link #SPEECH_PACK_REVISION} whenever you publish new pack zips so clients with
  * “Use AWS” disabled refresh their cache on next startup.
@@ -65,8 +67,15 @@ public final class VoicePackManager {
     /**
      * Git tag for the release that holds voice-pack zips. One long-lived release;
      * update its assets when packs change — not tied to app version tags.
+     * (GitHub release <em>title</em> is {@link #VOICE_PACKS_RELEASE_TITLE}; the tag is what the API uses.)
      */
-    public static final String VOICE_PACKS_RELEASE_TAG = "tts-voice-packs";
+    public static final String VOICE_PACKS_RELEASE_TAG = "1.0.1";
+
+    /** GitHub release title for {@link #VOICE_PACKS_RELEASE_TAG} (informational only). */
+    public static final String VOICE_PACKS_RELEASE_TITLE = "tts-voice-packs";
+
+    /** Older mistaken tag name; kept as a lookup fallback only. */
+    private static final String VOICE_PACKS_RELEASE_TAG_LEGACY = "tts-voice-packs";
 
     /**
      * Increment when GitHub {@code voice-*.zip} assets change. Users with speech enabled and
@@ -200,6 +209,7 @@ public final class VoicePackManager {
             dialog.getContentPane().add(bar, java.awt.BorderLayout.CENTER);
             dialog.setSize(400, 100);
             dialog.setLocationRelativeTo(parent);
+            raiseAboveOverlay(dialog);
         }
 
         final JDialog dialogFinal = dialog;
@@ -239,19 +249,22 @@ public final class VoicePackManager {
                         msg = failure.getClass().getSimpleName();
                     }
 
-                    if (!msg.contains("not found")) {
-                        if (showProgressDialog) {
-                            JOptionPane.showMessageDialog(parent,
-                                    "Unable to download voice pack:\n" + msg,
-                                    "Voice Pack Download Failed",
-                                    JOptionPane.WARNING_MESSAGE);
-                        } else {
-                            System.err.println("[EDO] Voice pack auto-update failed: " + msg);
-                        }
-                    } else {
+                    if (showProgressDialog) {
+                        String dialogMsg = msg.contains("not found")
+                                ? "Voice pack not found on GitHub: " + zipName
+                                        + "\n\nExpected on release tagged " + VOICE_PACKS_RELEASE_TAG
+                                        + " (\"" + VOICE_PACKS_RELEASE_TITLE + "\")."
+                                        + "\nUpload " + zipName
+                                        + " as a release binary (Assets), not only a link in the description."
+                                : "Unable to download voice pack:\n" + msg;
+                        showVoicePackWarningDialog(parent, dialogMsg);
+                    } else if (msg.contains("not found")) {
                         System.out.println("Voice pack not available for download: " + voiceNameFinal + " (" + zipName + ")");
                         System.out.println("Hint: upload " + zipName
+                                + " to release tagged " + VOICE_PACKS_RELEASE_TAG
                                 + " as a release binary (Assets on GitHub), not only a link in the description.");
+                    } else {
+                        System.err.println("[EDO] Voice pack auto-update failed: " + msg);
                     }
                 } else {
                     OverlayPreferences.setSpeechPackInstalledInfo(SPEECH_PACK_REVISION, voiceNameFinal);
@@ -268,26 +281,44 @@ public final class VoicePackManager {
         worker.execute();
         if (dialogFinal != null) {
             dialogFinal.setVisible(true);
+            dialogFinal.toFront();
         }
+    }
+
+    /** EDO overlay windows are always-on-top; child dialogs need the same to stay visible. */
+    private static void raiseAboveOverlay(Window window) {
+        if (window == null) {
+            return;
+        }
+        window.setAlwaysOnTop(true);
+        window.toFront();
+    }
+
+    private static void showVoicePackWarningDialog(Component parent, String message) {
+        JOptionPane pane = new JOptionPane(message, JOptionPane.WARNING_MESSAGE);
+        JDialog dialog = pane.createDialog(parent, "Voice Pack Download Failed");
+        raiseAboveOverlay(dialog);
+        dialog.setVisible(true);
     }
 
     /**
      * Find the download URL for a voice pack: release tagged {@link #VOICE_PACKS_RELEASE_TAG},
-     * then {@code /releases/latest}, then recent releases (e.g. tag {@code 1.0.1}).
+     * then {@code /releases/latest}, then recent releases.
      */
     private static String findVoicePackAssetUrl(String zipName) throws IOException, InterruptedException {
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(HTTP_TIMEOUT)
                 .build();
 
-        String tagged = apiUrlForReleaseByTag(VOICE_PACKS_RELEASE_TAG);
-        String url = findVoicePackAssetUrlInRelease(client, zipName, tagged);
-        if (url != null) {
-            return url;
+        for (String tag : new String[] { VOICE_PACKS_RELEASE_TAG, VOICE_PACKS_RELEASE_TAG_LEGACY }) {
+            String url = findVoicePackAssetUrlInRelease(client, zipName, apiUrlForReleaseByTag(tag));
+            if (url != null) {
+                return url;
+            }
         }
 
         String latest = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
-        url = findVoicePackAssetUrlInRelease(client, zipName, latest);
+        String url = findVoicePackAssetUrlInRelease(client, zipName, latest);
         if (url != null) {
             return url;
         }
@@ -301,7 +332,7 @@ public final class VoicePackManager {
     private static String findVoicePackAssetUrlInRecentReleases(HttpClient client, String zipName)
             throws IOException, InterruptedException {
 
-        String apiUrl = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases?per_page=40";
+        String apiUrl = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases?per_page=100";
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrl))
                 .timeout(HTTP_TIMEOUT)

@@ -1,6 +1,7 @@
 package org.dce.ed;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -108,6 +109,20 @@ class NpcCrewTrackerTest {
 
 		assertFalse(tracker.hasActiveNpcCrew());
 		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, fighter));
+	}
+
+	@Test
+	void crewAssignOnShoreLeaveClearsActiveAndPersistence() {
+		OverlayPreferences.setNpcCrewActiveName(1, "Roscoe Francis");
+		LoadoutEvent loadout = loadoutWithFighterHangar(1, 1);
+		NpcCrewTracker.getInstance().onLoadout(loadout);
+		assertTrue(NpcCrewTracker.getInstance().hasActiveNpcCrew());
+
+		applyCrewEvent("{\"event\":\"CrewAssign\",\"Name\":\"Roscoe Francis\",\"Role\":\"OnShoreLeave\"}");
+
+		assertFalse(NpcCrewTracker.getInstance().hasActiveNpcCrew());
+		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, loadout));
+		assertNull(OverlayPreferences.getNpcCrewActiveName(1));
 	}
 
 	@Test

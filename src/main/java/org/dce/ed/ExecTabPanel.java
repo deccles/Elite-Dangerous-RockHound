@@ -72,7 +72,8 @@ public final class ExecTabPanel extends JPanel {
         JLabel intro = new JLabel(
                 "<html>Run external JARs on journal/overlay events. Uses <code>java -jar</code>; "
                         + "passes <code>EDO_TRIGGER</code> and related env vars "
-                        + "(e.g. <code>EDO_DESTINATION</code> on copy-next-destination triggers).</html>");
+                        + "(e.g. <code>EDO_DESTINATION</code> / <code>EDO_CLIPBOARD</code> when copying the next "
+                        + "Fleet Carrier hop on cooldown complete or copy-next-destination).</html>");
         intro.setOpaque(false);
         add(intro, BorderLayout.NORTH);
 

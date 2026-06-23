@@ -1692,11 +1692,17 @@ public class PreferencesDialog extends JDialog {
 				return;
 			}
 			try {
+				OverlayPreferences.setSpeechCacheDir(pathStr);
 				deleteSpeechCacheDirectoryContents(root);
 				JOptionPane.showMessageDialog(PreferencesDialog.this,
 						"Speech cache cleared.",
 						"Speech cache",
 						JOptionPane.INFORMATION_MESSAGE);
+				if (speechEnabledCheckBox != null && speechEnabledCheckBox.isSelected()
+						&& speechVoiceCombo != null && speechVoiceCombo.getSelectedItem() != null) {
+					String voice = speechVoiceCombo.getSelectedItem().toString();
+					VoicePackManager.downloadAndInstallVoicePack(this, voice, null);
+				}
 			} catch (Exception ex) {
 				String msg = ex.getMessage();
 				if (msg == null || msg.isBlank()) {
@@ -2212,6 +2218,10 @@ public class PreferencesDialog extends JDialog {
             OverlayPreferences.setSpeechEngine(speechEngineCombo.getSelectedItem().toString());
         }
 
+        if (speechCacheDirField != null) {
+            OverlayPreferences.setSpeechCacheDir(speechCacheDirField.getText().trim());
+        }
+
         if (speechVoiceCombo != null && speechVoiceCombo.getSelectedItem() != null) {
             String newVoice = speechVoiceCombo.getSelectedItem().toString();
             OverlayPreferences.setSpeechVoiceId(newVoice);
@@ -2220,10 +2230,6 @@ public class PreferencesDialog extends JDialog {
             if (!VoicePackManager.isVoicePackInstalled(newVoice)) {
                 VoicePackManager.downloadAndInstallVoicePack(this, newVoice, null);
             }
-        }
-
-        if (speechCacheDirField != null) {
-            OverlayPreferences.setSpeechCacheDir(speechCacheDirField.getText().trim());
         }
 
         if (speechSampleRateField != null) {

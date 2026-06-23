@@ -267,14 +267,20 @@ public final class NpcCrewTracker {
 			persistActiveCrewName(name);
 			return true;
 		}
-		if ("Inactive".equalsIgnoreCase(role)) {
-			if (name != null && name.equals(activeCrewName)) {
-				activeCrewName = null;
-				persistActiveCrewName(null);
-				return true;
-			}
+		// Inactive, OnShoreLeave, and any other non-Active role mean the pilot is not assigned.
+		if (name == null || name.isBlank()) {
+			return false;
 		}
-		return false;
+		boolean changed = false;
+		if (name.equals(activeCrewName)) {
+			activeCrewName = null;
+			changed = true;
+		}
+		if (name.equals(OverlayPreferences.getNpcCrewActiveName(currentShipId))) {
+			persistActiveCrewName(null);
+			changed = true;
+		}
+		return changed;
 	}
 
 	private boolean onCrewHire(JsonObject raw) {

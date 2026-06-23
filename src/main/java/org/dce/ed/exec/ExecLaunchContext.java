@@ -17,6 +17,7 @@ public final class ExecLaunchContext {
     private final String carrierName;
     private final String destination;
     private final String clipboard;
+    private final boolean clipboardCleared;
 
     private ExecLaunchContext(Builder builder) {
         this.trigger = builder.trigger;
@@ -29,6 +30,7 @@ public final class ExecLaunchContext {
         this.carrierName = builder.carrierName;
         this.destination = builder.destination;
         this.clipboard = builder.clipboard;
+        this.clipboardCleared = builder.clipboardCleared;
     }
 
     public ExecTriggerId getTrigger() {
@@ -71,6 +73,10 @@ public final class ExecLaunchContext {
         return clipboard;
     }
 
+    public boolean isClipboardCleared() {
+        return clipboardCleared;
+    }
+
     public Map<String, String> toEnvironment() {
         Map<String, String> env = new LinkedHashMap<>();
         env.put("EDO_TRIGGER", trigger.name().toLowerCase());
@@ -87,6 +93,9 @@ public final class ExecLaunchContext {
         putIfPresent(env, "EDO_CARRIER_NAME", carrierName);
         putIfPresent(env, "EDO_DESTINATION", destination);
         putIfPresent(env, "EDO_CLIPBOARD", clipboard != null ? clipboard : destination);
+        if (clipboardCleared) {
+            env.put("EDO_CLIPBOARD_CLEARED", "1");
+        }
         return env;
     }
 
@@ -111,6 +120,7 @@ public final class ExecLaunchContext {
         private String carrierName;
         private String destination;
         private String clipboard;
+        private boolean clipboardCleared;
 
         private Builder(ExecTriggerId trigger) {
             this.trigger = trigger;
@@ -158,6 +168,11 @@ public final class ExecLaunchContext {
 
         public Builder clipboard(String clipboard) {
             this.clipboard = clipboard;
+            return this;
+        }
+
+        public Builder clipboardCleared(boolean clipboardCleared) {
+            this.clipboardCleared = clipboardCleared;
             return this;
         }
 

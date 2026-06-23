@@ -64,6 +64,7 @@ import javax.swing.table.TableColumnModel;
 
 import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.exec.FleetCooldownClipboardPrep;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 
@@ -2770,14 +2771,53 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	private void copyNextRouteDestinationToClipboard() {
+		String next = copyNextRouteDestinationForExec();
+		if (next != null) {
+			afterDestinationCopiedToClipboard(next);
+		}
+	}
+
+	/**
+	 * Prepares clipboard for fleet cooldown exec: copies the next hop, or clears the clipboard at end of route.
+	 */
+	public FleetCooldownClipboardPrep prepareFleetCooldownDestinationClipboard() {
 		String next = nextRouteDestinationSystemName(routeSession);
 		if (next == null || next.isBlank()) {
-			return;
+			clearRouteClipboard();
+			return FleetCooldownClipboardPrep.cleared();
 		}
-		Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(next), null);
+		return FleetCooldownClipboardPrep.copied(copyDestinationNameToClipboard(next));
+	}
+
+	/**
+	 * Copies the next plotted route system to the clipboard and shows the “Copied: …” toast.
+	 * Does not fire exec bindings — callers attach their own trigger (e.g. fleet cooldown complete).
+	 * Does not clear the clipboard when there is no next hop.
+	 *
+	 * @return trimmed system name, or {@code null} if there is no next hop
+	 */
+	public String copyNextRouteDestinationForExec() {
+		String next = nextRouteDestinationSystemName(routeSession);
+		if (next == null || next.isBlank()) {
+			return null;
+		}
+		return copyDestinationNameToClipboard(next);
+	}
+
+	private String copyDestinationNameToClipboard(String systemName) {
+		String trimmed = systemName.trim();
+		Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(trimmed), null);
 		Component anchor = copyNextDestinationButton != null ? copyNextDestinationButton : table;
-		SystemTableHoverCopyManager.showCopiedToast((JComponent) anchor, next);
-		afterDestinationCopiedToClipboard(next);
+		SystemTableHoverCopyManager.showCopiedToast((JComponent) anchor, trimmed);
+		return trimmed;
+	}
+
+	private static void clearRouteClipboard() {
+		try {
+			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(""), null);
+		} catch (IllegalStateException ignored) {
+			// Clipboard busy (another app owns it); best-effort only.
+		}
 	}
 
 	private static void styleRoutePrimaryCopyButton(JButton b, Font uiFont) {

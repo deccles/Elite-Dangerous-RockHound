@@ -23,6 +23,8 @@ public final class ExecTriggerService {
     private volatile Supplier<ExecBindingsConfig> configSupplier;
     private volatile Consumer<String> statusListener;
     private volatile Supplier<String> carrierSystemSupplier;
+    /** Fleet Carrier tab: copy next route hop (or clear clipboard at end of route) before cooldown exec. */
+    private volatile Supplier<FleetCooldownClipboardPrep> fleetCooldownClipboardPrepSupplier;
 
     public ExecTriggerService() {
         this(new ExecBindingsStore());
@@ -42,6 +44,10 @@ public final class ExecTriggerService {
 
     public void setCarrierSystemSupplier(Supplier<String> carrierSystemSupplier) {
         this.carrierSystemSupplier = carrierSystemSupplier;
+    }
+
+    public void setFleetCooldownClipboardPrepSupplier(Supplier<FleetCooldownClipboardPrep> fleetCooldownClipboardPrepSupplier) {
+        this.fleetCooldownClipboardPrepSupplier = fleetCooldownClipboardPrepSupplier;
     }
 
     public CarrierFuelTracker fuelTracker() {
@@ -74,11 +80,35 @@ public final class ExecTriggerService {
                 + CarrierJumpCooldown.EXEC_TRIGGER_DELAY_AFTER_COOLDOWN_SECONDS + "s…");
         Timer timer = new Timer(delayMs, e -> fireTrigger(
                 ExecTriggerId.FLEET_COOLDOWN_COMPLETE,
-                ExecLaunchContext.builder(ExecTriggerId.FLEET_COOLDOWN_COMPLETE)
-                        .carrierSystemName(carrierSystemName())
-                        .build()));
+                buildFleetCooldownLaunchContext()));
         timer.setRepeats(false);
         timer.start();
+    }
+
+    ExecLaunchContext buildFleetCooldownLaunchContext() {
+        FleetCooldownClipboardPrep prep = resolveFleetCooldownClipboardPrep();
+        ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.FLEET_COOLDOWN_COMPLETE)
+                .carrierSystemName(carrierSystemName());
+        if (prep != null && prep.destination() != null && !prep.destination().isBlank()) {
+            String destination = prep.destination().trim();
+            builder.destination(destination).clipboard(destination);
+        } else if (prep != null && prep.clipboardCleared()) {
+            builder.clipboardCleared(true);
+        }
+        return builder.build();
+    }
+
+    private FleetCooldownClipboardPrep resolveFleetCooldownClipboardPrep() {
+        Supplier<FleetCooldownClipboardPrep> supplier = fleetCooldownClipboardPrepSupplier;
+        if (supplier == null) {
+            return null;
+        }
+        try {
+            FleetCooldownClipboardPrep prep = supplier.get();
+            return prep != null ? prep : FleetCooldownClipboardPrep.unavailable();
+        } catch (Exception ignored) {
+            return FleetCooldownClipboardPrep.unavailable();
+        }
     }
 
     public void onJournalEvent(EliteLogEvent event, OwnedFleetCarrierTracker ownedTracker) {
@@ -143,6 +173,7 @@ public final class ExecTriggerService {
                 .carrierName(base.getCarrierName())
                 .destination(base.getDestination())
                 .clipboard(base.getClipboard())
+                .clipboardCleared(base.isClipboardCleared())
                 .build();
     }
 
