@@ -30,6 +30,7 @@ public class SystemState {
      */
     private Long exobiologyCreditsTotalUnsold;
     private Long geoSurveyCreditsTotal;
+    private Long bountyCreditsTotalUnclaimed;
 
     private boolean visitedByMe;
     /**
@@ -117,6 +118,14 @@ public class SystemState {
 
     public void setGeoSurveyCreditsTotal(Long geoSurveyCreditsTotal) {
         this.geoSurveyCreditsTotal = geoSurveyCreditsTotal;
+    }
+
+    public Long getBountyCreditsTotalUnclaimed() {
+        return bountyCreditsTotalUnclaimed;
+    }
+
+    public void setBountyCreditsTotalUnclaimed(Long bountyCreditsTotalUnclaimed) {
+        this.bountyCreditsTotalUnclaimed = bountyCreditsTotalUnclaimed;
     }
 
     // ------------------------------------------------------------

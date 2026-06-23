@@ -45,9 +45,7 @@ import javax.swing.event.HyperlinkListener;
 
 import org.dce.ed.OverlayPreferences;
 
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.polly.PollyClient;
@@ -130,8 +128,8 @@ public class PollyTtsCached implements Closeable {
 
     public PollyTtsCached() {
         var b = PollyClient.builder()
-                .region(software.amazon.awssdk.regions.Region.of(OverlayPreferences.getSpeechAwsRegion()));
-        b.credentialsProvider(resolveSpeechCredentialsProvider());
+                .region(resolvePollyRegion());
+        b.credentialsProvider(DefaultCredentialsProvider.create());
         this.polly = b.build();
         this.cachePathStripes = new Object[64];
         for (int i = 0; i < cachePathStripes.length; i++) {
@@ -144,14 +142,15 @@ public class PollyTtsCached implements Closeable {
         return cachePathStripes[Math.floorMod(h, cachePathStripes.length)];
     }
 
-    private static AwsCredentialsProvider resolveSpeechCredentialsProvider() {
-        String profile = OverlayPreferences.getSpeechAwsProfile();
-        if (profile != null && !profile.isBlank()) {
-            return ProfileCredentialsProvider.builder()
-                    .profileName(profile.trim())
-                    .build();
+    private static software.amazon.awssdk.regions.Region resolvePollyRegion() {
+        String env = System.getenv("AWS_REGION");
+        if (env == null || env.isBlank()) {
+            env = System.getenv("AWS_DEFAULT_REGION");
         }
-        return DefaultCredentialsProvider.create();
+        if (env != null && !env.isBlank()) {
+            return software.amazon.awssdk.regions.Region.of(env.trim());
+        }
+        return software.amazon.awssdk.regions.Region.US_EAST_1;
     }
 
     static boolean isMissingAwsCredentialsError(Throwable t) {
@@ -188,7 +187,7 @@ public class PollyTtsCached implements Closeable {
                 speakBlocking(text);
             } catch (Exception e) {
                 if (isMissingAwsCredentialsError(e)) {
-                    System.err.println("[EDO] TTS skipped: Amazon Polly needs AWS credentials (see earlier dialog or Preferences).");
+                    System.err.println("[EDO] TTS skipped: Amazon Polly needs AWS credentials (see earlier dialog).");
                 } else {
                     e.printStackTrace();
                 }
@@ -885,8 +884,10 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
               + "<body style='font-family:sans-serif; font-size:12px;'>"
               + "Could not use Amazon Polly for <b>" + escapeHtml(voiceName) + "</b> because no AWS credentials were found.<br><br>"
               + "Fix: set environment variables <code>AWS_ACCESS_KEY_ID</code> and <code>AWS_SECRET_ACCESS_KEY</code>, "
-              + "or create a credentials file (see link below). In EDO Preferences you can set the AWS region and optional profile name.<br><br>"
-              + "Alternatively, turn off on-demand AWS synthesis and use only cached speech clips if you already have them.<br><br>"
+              + "or configure the shared AWS credentials file (see link below). "
+              + "Optional: <code>AWS_REGION</code> or <code>AWS_DEFAULT_REGION</code> (defaults to us-east-1), "
+              + "and <code>AWS_PROFILE</code> for a named profile.<br><br>"
+              + "This path is for maintainers running VoiceCacheWarmer; normal EDO playback uses cached voice packs only.<br><br>"
               + "IAM access keys overview:<br>"
               + "<a href='" + url + "'>" + url + "</a>"
               + "</body>"
@@ -985,9 +986,9 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
                 SPEECH_CACHE_MISS_BANNER_MAX_SPOKEN_CHARS);
         int n = missing.size();
         if (n <= 1) {
-            return "TTS: no clip for \"" + fragment + "\" — AWS or pack";
+            return "TTS: no clip for \"" + fragment + "\" — install voice pack";
         }
-        return "TTS: no clip for \"" + fragment + "\" +" + (n - 1) + " — AWS or pack";
+        return "TTS: no clip for \"" + fragment + "\" +" + (n - 1) + " — install voice pack";
     }
 
     private static void showMissingSpeechCachePopup(String voiceName, Path voiceDir, List<String> missing) {
@@ -996,7 +997,7 @@ if (!OverlayPreferences.isSpeechUseAwsSynthesis()) {
         }
 
         String vn = voiceName != null && !voiceName.isBlank() ? voiceName.trim() : "selected voice";
-        String detailMsg = "Speech cache: " + missing.size() + " clip(s) missing (" + vn + ") — enable AWS or voice pack";
+        String detailMsg = "Speech cache: " + missing.size() + " clip(s) missing (" + vn + ") — install or update voice pack";
         Consumer<String> rep = speechCacheMissBannerReporter;
         if (rep != null) {
             String banner = formatSpeechCacheMissBannerText(missing);

@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.dce.ed.BountyScanTracker;
 import org.dce.ed.NpcCrewTracker;
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.exobiology.ExobiologyData.SpeciesConstraint;
@@ -55,6 +56,10 @@ import software.amazon.awssdk.services.polly.model.VoiceId;
  *
  * <p><b>Parallelism:</b> warming runs several worker threads (default {@code min(8, availableProcessors)},
  * at least 2). Override with JVM flag {@code -Dedo.voiceWarmParallelism=N}. Polly rate limits may require lowering N.
+ *
+ * <p><b>AWS credentials:</b> standard SDK provider chain only (not EDO preferences): environment variables
+ * {@code AWS_ACCESS_KEY_ID} / {@code AWS_SECRET_ACCESS_KEY}, optional {@code AWS_PROFILE}, shared credentials file,
+ * or instance/task role. Region: {@code AWS_REGION} or {@code AWS_DEFAULT_REGION}, else {@code us-east-1}.
  */
 public final class VoiceCacheWarmer {
 
@@ -74,7 +79,9 @@ public final class VoiceCacheWarmer {
      */
     private static final Set<String> REQUIRED_WARMUP_TEMPLATES = Set.of(
             "First Discovered System",
-            NpcCrewTracker.FIGHTER_PILOT_REMINDER_SPEECH);
+            NpcCrewTracker.FIGHTER_PILOT_REMINDER_SPEECH,
+            BountyScanTracker.FIRST_BOUNTY_SPEECH,
+            BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH);
 
     @FunctionalInterface
     private interface ItemWarm<T> {
@@ -156,16 +163,14 @@ public final class VoiceCacheWarmer {
             throw new IllegalArgumentException("Unknown Polly voice: " + voiceName);
         }
 
-        boolean priorUseAws = OverlayPreferences.isSpeechUseAwsSynthesis();
         String priorVoice = OverlayPreferences.getSpeechVoiceName();
         try {
-            // Warmer must synthesize via Polly; respect user's "use AWS" choice in UI otherwise skips generation.
-            OverlayPreferences.setSpeechUseAwsSynthesis(true);
+            OverlayPreferences.setSpeechUseAwsSynthesisForWarmer(true);
             OverlayPreferences.setSpeechVoiceId(canon);
             OverlayPreferences.flushBackingStore();
             warmAllUsingCurrentPreferences();
         } finally {
-            OverlayPreferences.setSpeechUseAwsSynthesis(priorUseAws);
+            OverlayPreferences.setSpeechUseAwsSynthesisForWarmer(false);
             if (priorVoice != null && !priorVoice.isBlank()) {
                 OverlayPreferences.setSpeechVoiceId(priorVoice);
             }

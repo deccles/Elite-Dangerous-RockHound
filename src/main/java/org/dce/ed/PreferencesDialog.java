@@ -147,11 +147,12 @@ public class PreferencesDialog extends JDialog {
 	// Speech-tab fields so OK can read them
 	private JCheckBox speechEnabledCheckBox;
 	private JCheckBox firstDiscoveredSystemAnnouncementCheckBox;
-	private JCheckBox speechUseAwsCheckBox;
+	private JCheckBox bountyScanFirstAnnouncementCheckBox;
+	private JCheckBox bountyScanAdditionalAnnouncementCheckBox;
+	private JCheckBox miningLowLimpetReminderEnabledCheckBox;
+	private JCheckBox fighterPilotReminderEnabledCheckBox;
 	private JComboBox<String> speechEngineCombo;
 	private JComboBox<String> speechVoiceCombo;
-	private JTextField speechRegionField;
-	private JTextField speechAwsProfileField;
 	private JTextField speechCacheDirField;
 	private JTextField speechSampleRateField;
 
@@ -185,9 +186,7 @@ public class PreferencesDialog extends JDialog {
 	private JButton miningGoogleMigrateLegacyButton;
 	private JButton miningGoogleRepairLayoutButton;
 
-	// Mining tab: limpet reminder
-	private JCheckBox miningLowLimpetReminderEnabledCheckBox;
-	private JCheckBox fighterPilotReminderEnabledCheckBox;
+	// Mining tab: limpet reminder thresholds (announcement toggle is on Speech tab)
 	private JRadioButton miningLowLimpetReminderCountRadio;
 	private JSpinner miningLowLimpetReminderThresholdSpinner;
 	private JRadioButton miningLowLimpetReminderPercentRadio;
@@ -239,6 +238,9 @@ public class PreferencesDialog extends JDialog {
 				new PreferenceSpeechTestClip("Welcome commander"),
 				new PreferenceSpeechTestClip("Did you forget your limpets again commander?"),
 				new PreferenceSpeechTestClip(NpcCrewTracker.FIGHTER_PILOT_REMINDER_SPEECH),
+				new PreferenceSpeechTestClip(BountyScanTracker.FIRST_BOUNTY_SPEECH, Long.valueOf(250_000L)),
+				new PreferenceSpeechTestClip(BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH,
+						Long.valueOf(60_000L), Long.valueOf(310_000L)),
 				new PreferenceSpeechTestClip("First Discovered System"),
 				new PreferenceSpeechTestClip("Jump complete"),
 				new PreferenceSpeechTestClip("Cooldown complete"),
@@ -1206,21 +1208,16 @@ public class PreferencesDialog extends JDialog {
 		outer.add(Box.createVerticalStrut(10));
 
 		// -----------------------------------------------------------------
-		// Limpet reminder (checkbox + two radio rows)
+		// Limpet reminder thresholds (announcement toggle is on Speech tab)
 		// -----------------------------------------------------------------
 		JPanel limpetPanel = new JPanel();
 		limpetPanel.setOpaque(false);
 		limpetPanel.setLayout(new BoxLayout(limpetPanel, BoxLayout.Y_AXIS));
 
-		JPanel limpetCheckRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-		limpetCheckRow.setOpaque(false);
-
-		miningLowLimpetReminderEnabledCheckBox = new JCheckBox("Low limpet announcement");
-		miningLowLimpetReminderEnabledCheckBox.setOpaque(false);
-		miningLowLimpetReminderEnabledCheckBox.setSelected(OverlayPreferences.isMiningLowLimpetReminderEnabled());
-
-		limpetCheckRow.add(miningLowLimpetReminderEnabledCheckBox);
-		limpetPanel.add(limpetCheckRow);
+		JPanel limpetIntroRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+		limpetIntroRow.setOpaque(false);
+		limpetIntroRow.add(new JLabel("Low limpet reminder thresholds (announce on Speech tab):"));
+		limpetPanel.add(limpetIntroRow);
 
 		// Row 1: COUNT (indented)
 		JPanel limpetCountRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -1286,24 +1283,18 @@ public class PreferencesDialog extends JDialog {
 		}
 
 		Runnable updateLimpetEnabled = () -> {
-			boolean enabled = miningLowLimpetReminderEnabledCheckBox.isSelected();
-			boolean percentSelected = miningLowLimpetReminderPercentRadio.isSelected();
-			boolean countSelected = !percentSelected;
+			boolean countSelected = miningLowLimpetReminderCountRadio.isSelected();
 
-			// Radios themselves should remain clickable when enabled
-			miningLowLimpetReminderCountRadio.setEnabled(enabled);
-			miningLowLimpetReminderPercentRadio.setEnabled(enabled);
+			miningLowLimpetReminderCountRadio.setEnabled(true);
+			miningLowLimpetReminderPercentRadio.setEnabled(true);
 
-			// COUNT line: disable everything except the radio when not selected
-			miningLowLimpetReminderThresholdSpinner.setEnabled(enabled && countSelected);
-			limpetCountUnitsLabel.setEnabled(enabled && countSelected);
+			miningLowLimpetReminderThresholdSpinner.setEnabled(countSelected);
+			limpetCountUnitsLabel.setEnabled(countSelected);
 
-			// PERCENT line: disable everything except the radio when not selected
-			miningLowLimpetReminderPercentSpinner.setEnabled(enabled && percentSelected);
-			limpetPercentUnitsLabel.setEnabled(enabled && percentSelected);
+			miningLowLimpetReminderPercentSpinner.setEnabled(!countSelected);
+			limpetPercentUnitsLabel.setEnabled(!countSelected);
 		};
 
-		miningLowLimpetReminderEnabledCheckBox.addActionListener(e -> updateLimpetEnabled.run());
 		miningLowLimpetReminderCountRadio.addActionListener(e -> updateLimpetEnabled.run());
 		miningLowLimpetReminderPercentRadio.addActionListener(e -> updateLimpetEnabled.run());
 		updateLimpetEnabled.run();
@@ -1315,15 +1306,6 @@ public class PreferencesDialog extends JDialog {
 		limpetWrap.add(limpetPanel, BorderLayout.WEST);
 
 		outer.add(limpetWrap);
-		outer.add(Box.createVerticalStrut(10));
-
-		JPanel fighterPilotRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-		fighterPilotRow.setOpaque(false);
-		fighterPilotReminderEnabledCheckBox = new JCheckBox("Fighter pilot announcement");
-		fighterPilotReminderEnabledCheckBox.setOpaque(false);
-		fighterPilotReminderEnabledCheckBox.setSelected(OverlayPreferences.isFighterPilotReminderEnabled());
-		fighterPilotRow.add(fighterPilotReminderEnabledCheckBox);
-		outer.add(fighterPilotRow);
 		outer.add(Box.createVerticalStrut(10));
 
 		// -----------------------------------------------------------------
@@ -1582,6 +1564,47 @@ public class PreferencesDialog extends JDialog {
 				OverlayPreferences.isFirstDiscoveredSystemAnnouncementEnabled());
 		content.add(firstDiscoveredSystemAnnouncementCheckBox, gbc);
 
+		gbc.gridx = 0;
+		gbc.gridy++;
+		JLabel bountyScanFirstLabel = new JLabel("Bounty scan announcement:");
+		content.add(bountyScanFirstLabel, gbc);
+		gbc.gridx = 1;
+		bountyScanFirstAnnouncementCheckBox = new JCheckBox();
+		bountyScanFirstAnnouncementCheckBox.setOpaque(false);
+		bountyScanFirstAnnouncementCheckBox.setSelected(OverlayPreferences.isBountyScanFirstAnnouncementEnabled());
+		content.add(bountyScanFirstAnnouncementCheckBox, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
+		JLabel bountyScanAdditionalLabel = new JLabel("Additional bounty (KWS) announcement:");
+		content.add(bountyScanAdditionalLabel, gbc);
+		gbc.gridx = 1;
+		bountyScanAdditionalAnnouncementCheckBox = new JCheckBox();
+		bountyScanAdditionalAnnouncementCheckBox.setOpaque(false);
+		bountyScanAdditionalAnnouncementCheckBox.setSelected(
+				OverlayPreferences.isBountyScanAdditionalAnnouncementEnabled());
+		content.add(bountyScanAdditionalAnnouncementCheckBox, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
+		JLabel lowLimpetAnnouncementLabel = new JLabel("Low limpet announcement:");
+		content.add(lowLimpetAnnouncementLabel, gbc);
+		gbc.gridx = 1;
+		miningLowLimpetReminderEnabledCheckBox = new JCheckBox();
+		miningLowLimpetReminderEnabledCheckBox.setOpaque(false);
+		miningLowLimpetReminderEnabledCheckBox.setSelected(OverlayPreferences.isMiningLowLimpetReminderEnabled());
+		content.add(miningLowLimpetReminderEnabledCheckBox, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
+		JLabel fighterPilotAnnouncementLabel = new JLabel("Fighter pilot announcement:");
+		content.add(fighterPilotAnnouncementLabel, gbc);
+		gbc.gridx = 1;
+		fighterPilotReminderEnabledCheckBox = new JCheckBox();
+		fighterPilotReminderEnabledCheckBox.setOpaque(false);
+		fighterPilotReminderEnabledCheckBox.setSelected(OverlayPreferences.isFighterPilotReminderEnabled());
+		content.add(fighterPilotReminderEnabledCheckBox, gbc);
+
 		// Voice (keep list small and “safe”) — used for Polly and for offline voice packs
 		gbc.gridx = 0;
 		gbc.gridy++;
@@ -1592,6 +1615,16 @@ public class PreferencesDialog extends JDialog {
 		speechVoiceCombo = new JComboBox<>(STANDARD_US_ENGLISH_VOICES);
 		speechVoiceCombo.setSelectedItem(OverlayPreferences.getSpeechVoiceName());
 		content.add(speechVoiceCombo, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
+		JLabel engineLabel = new JLabel("Engine:");
+		content.add(engineLabel, gbc);
+
+		gbc.gridx = 1;
+		speechEngineCombo = new JComboBox<>(new String[] { "standard", "neural" });
+		speechEngineCombo.setSelectedItem(OverlayPreferences.getSpeechEngine());
+		content.add(speechEngineCombo, gbc);
 
 		// Cache dir
 		gbc.gridx = 0;
@@ -1704,7 +1737,7 @@ public class PreferencesDialog extends JDialog {
 		JButton previewProspectorSpeechButton = new JButton("Test Speech");
 		previewProspectorSpeechButton.setToolTipText(
 				"Each click plays the next sample. Strings match speakf() calls in the source (same set VoiceCacheWarmer warms) "
-						+ "so offline packs should already have clips. Uses voice, cache folder, engine, region, and sample rate from this dialog.");
+						+ "so offline packs should already have clips. Uses voice, cache folder, engine, and sample rate from this dialog.");
 		previewProspectorSpeechButton.addActionListener(e -> {
 			if (!speechEnabledCheckBox.isSelected()) {
 				return;
@@ -1722,74 +1755,14 @@ public class PreferencesDialog extends JDialog {
 		});
 		content.add(previewProspectorSpeechButton, gbc);
 
-		// --- AWS / Polly (bottom block) ---
-		gbc.gridx = 0;
-		gbc.gridy++;
-		gbc.gridwidth = 2;
-		gbc.fill = GridBagConstraints.HORIZONTAL;
-		gbc.weightx = 1.0;
-		gbc.insets = new Insets(16, 4, 4, 4);
-
-		JPanel awsPanel = new JPanel(new GridBagLayout());
-		awsPanel.setOpaque(false);
-		awsPanel.setBorder(BorderFactory.createTitledBorder(
-				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120, 1),
-				"AWS (Amazon Polly)"));
-
-		GridBagConstraints agbc = new GridBagConstraints();
-		agbc.gridx = 0;
-		agbc.gridy = 0;
-		agbc.anchor = GridBagConstraints.WEST;
-		agbc.insets = new Insets(4, 8, 4, 4);
-
-		JLabel useAwsLabel = new JLabel("Use AWS to generate speech:");
-		awsPanel.add(useAwsLabel, agbc);
-		agbc.gridx = 1;
-		speechUseAwsCheckBox = new JCheckBox();
-		speechUseAwsCheckBox.setOpaque(false);
-		speechUseAwsCheckBox.setSelected(OverlayPreferences.isSpeechUseAwsSynthesis());
-		awsPanel.add(speechUseAwsCheckBox, agbc);
-
-		agbc.gridx = 0;
-		agbc.gridy++;
-		JLabel engineLabel = new JLabel("Engine:");
-		awsPanel.add(engineLabel, agbc);
-		agbc.gridx = 1;
-		speechEngineCombo = new JComboBox<>(new String[] { "standard", "neural" });
-		speechEngineCombo.setSelectedItem(OverlayPreferences.getSpeechEngine());
-		awsPanel.add(speechEngineCombo, agbc);
-
-		agbc.gridx = 0;
-		agbc.gridy++;
-		JLabel regionLabel = new JLabel("AWS Region:");
-		awsPanel.add(regionLabel, agbc);
-		agbc.gridx = 1;
-		speechRegionField = new JTextField(12);
-		speechRegionField.setText(OverlayPreferences.getSpeechAwsRegion());
-		awsPanel.add(speechRegionField, agbc);
-
-		agbc.gridx = 0;
-		agbc.gridy++;
-		JLabel profileLabel = new JLabel("AWS profile (optional):");
-		awsPanel.add(profileLabel, agbc);
-		agbc.gridx = 1;
-		speechAwsProfileField = new JTextField(18);
-		speechAwsProfileField.setText(OverlayPreferences.getSpeechAwsProfile());
-		awsPanel.add(speechAwsProfileField, agbc);
-
-		content.add(awsPanel, gbc);
-		gbc.gridwidth = 1;
-		gbc.fill = GridBagConstraints.NONE;
-		gbc.weightx = 0;
-		gbc.insets = new Insets(4, 4, 4, 4);
-
-		// Enable/disable: speech master switch; AWS fields only when “Use AWS” is checked
+		// Enable/disable speech-tab controls from master switch
 		Runnable updateSpeechPanelEnabled = () -> {
 			boolean speechOn = speechEnabledCheckBox.isSelected();
-			boolean awsOn = speechOn && speechUseAwsCheckBox.isSelected();
 
 			voiceLabel.setEnabled(speechOn);
 			speechVoiceCombo.setEnabled(speechOn);
+			engineLabel.setEnabled(speechOn);
+			speechEngineCombo.setEnabled(speechOn);
 			firstDiscoveredSystemAnnouncementLabel.setEnabled(speechOn);
 			firstDiscoveredSystemAnnouncementCheckBox.setEnabled(speechOn);
 			cacheDirLabel.setEnabled(speechOn);
@@ -1800,19 +1773,8 @@ public class PreferencesDialog extends JDialog {
 			speechSampleRateField.setEnabled(speechOn);
 			prospectorSampleLabel.setEnabled(speechOn);
 			previewProspectorSpeechButton.setEnabled(speechOn);
-
-			useAwsLabel.setEnabled(speechOn);
-			speechUseAwsCheckBox.setEnabled(speechOn);
-
-			engineLabel.setEnabled(awsOn);
-			speechEngineCombo.setEnabled(awsOn);
-			regionLabel.setEnabled(awsOn);
-			speechRegionField.setEnabled(awsOn);
-			profileLabel.setEnabled(awsOn);
-			speechAwsProfileField.setEnabled(awsOn);
 		};
 		speechEnabledCheckBox.addActionListener(e -> updateSpeechPanelEnabled.run());
-		speechUseAwsCheckBox.addActionListener(e -> updateSpeechPanelEnabled.run());
 		updateSpeechPanelEnabled.run();
 
 		panel.add(content, BorderLayout.NORTH);
@@ -2228,8 +2190,22 @@ public class PreferencesDialog extends JDialog {
                     firstDiscoveredSystemAnnouncementCheckBox.isSelected());
         }
 
-        if (speechUseAwsCheckBox != null) {
-            OverlayPreferences.setSpeechUseAwsSynthesis(speechUseAwsCheckBox.isSelected());
+        if (bountyScanFirstAnnouncementCheckBox != null) {
+            OverlayPreferences.setBountyScanFirstAnnouncementEnabled(
+                    bountyScanFirstAnnouncementCheckBox.isSelected());
+        }
+
+        if (bountyScanAdditionalAnnouncementCheckBox != null) {
+            OverlayPreferences.setBountyScanAdditionalAnnouncementEnabled(
+                    bountyScanAdditionalAnnouncementCheckBox.isSelected());
+        }
+
+        if (miningLowLimpetReminderEnabledCheckBox != null) {
+            OverlayPreferences.setMiningLowLimpetReminderEnabled(miningLowLimpetReminderEnabledCheckBox.isSelected());
+        }
+
+        if (fighterPilotReminderEnabledCheckBox != null) {
+            OverlayPreferences.setFighterPilotReminderEnabled(fighterPilotReminderEnabledCheckBox.isSelected());
         }
 
         if (speechEngineCombo != null && speechEngineCombo.getSelectedItem() != null) {
@@ -2244,14 +2220,6 @@ public class PreferencesDialog extends JDialog {
             if (!VoicePackManager.isVoicePackInstalled(newVoice)) {
                 VoicePackManager.downloadAndInstallVoicePack(this, newVoice, null);
             }
-        }
-
-        if (speechRegionField != null) {
-            OverlayPreferences.setSpeechAwsRegion(speechRegionField.getText().trim());
-        }
-
-        if (speechAwsProfileField != null) {
-            OverlayPreferences.setSpeechAwsProfile(speechAwsProfileField.getText().trim());
         }
 
         if (speechCacheDirField != null) {
@@ -2352,14 +2320,6 @@ public class PreferencesDialog extends JDialog {
         persistNonBlankMiningGoogleField(miningGoogleSheetsUrlField, OverlayPreferences::setMiningGoogleSheetsUrl);
         persistNonBlankMiningGoogleField(miningGoogleClientIdField, OverlayPreferences::setMiningGoogleSheetsClientId);
         persistNonBlankMiningGoogleField(miningGoogleClientSecretField, OverlayPreferences::setMiningGoogleSheetsClientSecret);
-
-        if (miningLowLimpetReminderEnabledCheckBox != null) {
-            OverlayPreferences.setMiningLowLimpetReminderEnabled(miningLowLimpetReminderEnabledCheckBox.isSelected());
-        }
-
-        if (fighterPilotReminderEnabledCheckBox != null) {
-            OverlayPreferences.setFighterPilotReminderEnabled(fighterPilotReminderEnabledCheckBox.isSelected());
-        }
 
         if (miningLowLimpetReminderCountRadio != null && miningLowLimpetReminderPercentRadio != null) {
             if (miningLowLimpetReminderPercentRadio.isSelected()) {

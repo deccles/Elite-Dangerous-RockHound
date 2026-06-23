@@ -1852,6 +1852,9 @@ public final class SystemCache implements SystemStore {
             if (state.getGeoSurveyCreditsTotal() != null) {
                 s.setGeoSurveyCreditsTotal(state.getGeoSurveyCreditsTotal());
             }
+            if (state.getBountyCreditsTotalUnclaimed() != null) {
+                s.setBountyCreditsTotalUnclaimed(state.getBountyCreditsTotalUnclaimed());
+            }
             saveEdoSessionState(s);
         } catch (Exception ex) {
             System.err.println("SystemCache: mergeEdoSessionBlobFromStoreSystem failed: " + ex.getMessage());

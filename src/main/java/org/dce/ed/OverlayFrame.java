@@ -192,6 +192,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 
     private long exoCreditsTotal;
     private long geoSurveyCreditsTotal;
+    private final BountyCreditsTracker bountyCreditsTracker = new BountyCreditsTracker();
     private final Set<Long> countedGeoSurveyBodyKeys = new HashSet<>();
 
     /** Debounced save of session state (500 ms after last tab change). */
@@ -316,7 +317,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 return "Cooldown " + time;
             }
         }
-        return formatScienceCredits(exoCreditsTotal, geoSurveyCreditsTotal);
+        return formatScienceCredits(exoCreditsTotal, geoSurveyCreditsTotal, bountyCreditsTracker.getUnclaimedTotal());
     }
 
     /**
@@ -333,7 +334,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         if (carrierJumpCooldownEndTime != null) {
             return "Cooldown";
         }
-        return formatScienceCredits(exoCreditsTotal, geoSurveyCreditsTotal);
+        return formatScienceCredits(exoCreditsTotal, geoSurveyCreditsTotal, bountyCreditsTracker.getUnclaimedTotal());
     }
 
     private String getFleetCarrierTimeBadgeTextOnly() {
@@ -631,6 +632,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         exoCreditsTotal = cached != null ? cached.longValue() : 0L;
         Long geoCached = loadGeoSurveyCreditsTotalFromSystemCache();
         geoSurveyCreditsTotal = geoCached != null ? geoCached.longValue() : 0L;
+        Long bountyCached = loadBountyCreditsTotalFromSystemCache();
+        bountyCreditsTracker.setUnclaimedTotal(bountyCached != null ? bountyCached.longValue() : 0L);
         updateRightStatusDefault();
 
         // Transparent content panel with tabbed pane
@@ -663,6 +666,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         installExecTriggers();
         installExoCreditsTracker();
         installGeoSurveyCreditsTracker();
+        installBountyCreditsTracker();
     }
 
     /**
@@ -743,6 +747,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getBiologyTabPanel().fillSessionState(state);
         state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
         state.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+        state.setBountyCreditsTotalUnclaimed(Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
         fillCarrierSessionState(state);
         EdoSessionPersistence.save(state);
     }
@@ -782,6 +787,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             geoSurveyCreditsTotal = state.getGeoSurveyCreditsTotal().longValue();
         } else {
             geoSurveyCreditsTotal = 0L;
+        }
+        if (state.getBountyCreditsTotalUnclaimed() != null) {
+            bountyCreditsTracker.setUnclaimedTotal(state.getBountyCreditsTotalUnclaimed().longValue());
+        } else {
+            bountyCreditsTracker.setUnclaimedTotal(0L);
         }
         updateRightStatusDefault();
     }
@@ -1145,16 +1155,43 @@ private static String formatGeoSurveyCredits(long credits) {
     return "Geo: " + nf.format(credits) + " Cr";
 }
 
-private static String formatScienceCredits(long exoCredits, long geoCredits) {
+private static String formatBountyCredits(long credits) {
+    if (credits <= 0) {
+        return "";
+    }
+    double d = credits;
+    if (credits >= 1_000_000_000L) {
+        return String.format(Locale.US, "Bounty: %.1fB Cr", d / 1_000_000_000d);
+    }
+    if (credits >= 1_000_000L) {
+        return String.format(Locale.US, "Bounty: %.1fM Cr", d / 1_000_000d);
+    }
+    if (credits >= 1_000L) {
+        return String.format(Locale.US, "Bounty: %.1fK Cr", d / 1_000d);
+    }
+    NumberFormat nf = NumberFormat.getIntegerInstance(Locale.US);
+    return "Bounty: " + nf.format(credits) + " Cr";
+}
+
+private static String formatScienceCredits(long exoCredits, long geoCredits, long bountyCredits) {
     String bio = formatExoCredits(exoCredits);
     String geo = formatGeoSurveyCredits(geoCredits);
-    if (!bio.isBlank() && !geo.isBlank()) {
-        return bio + " · " + geo;
+    String bounty = formatBountyCredits(bountyCredits);
+    StringBuilder sb = new StringBuilder();
+    appendStatusCreditSegment(sb, bio);
+    appendStatusCreditSegment(sb, geo);
+    appendStatusCreditSegment(sb, bounty);
+    return sb.toString();
+}
+
+private static void appendStatusCreditSegment(StringBuilder sb, String segment) {
+    if (segment == null || segment.isBlank()) {
+        return;
     }
-    if (!bio.isBlank()) {
-        return bio;
+    if (sb.length() > 0) {
+        sb.append(" · ");
     }
-    return geo;
+    sb.append(segment);
 }
 
 private Long loadExoCreditsTotalFromSystemCache() {
@@ -1174,6 +1211,15 @@ private Long loadGeoSurveyCreditsTotalFromSystemCache() {
     }
 }
 
+private Long loadBountyCreditsTotalFromSystemCache() {
+    try {
+        EdoSessionState s = SystemCache.getInstance().loadEdoSessionState();
+        return s != null ? s.getBountyCreditsTotalUnclaimed() : null;
+    } catch (Exception ignored) {
+        return null;
+    }
+}
+
 private void persistExoCreditsTotal() {
     try {
         SystemCache cache = SystemCache.getInstance();
@@ -1183,12 +1229,14 @@ private void persistExoCreditsTotal() {
         if (st != null) {
             st.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
             st.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+            st.setBountyCreditsTotalUnclaimed(Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
             // Merge from live SystemState so journal fields (e.g. carrier orbit) are not dropped by load+save of credits only.
             cache.mergeCommanderSessionFromReplayedState(st);
         } else {
             EdoSessionState s = cache.loadEdoSessionState();
             s.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
             s.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+            s.setBountyCreditsTotalUnclaimed(Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
             cache.saveEdoSessionState(s);
         }
     } catch (Exception ignored) {
@@ -1204,10 +1252,12 @@ private void persistGeoSurveyCreditsTotal() {
         SystemState st = (systemTab != null) ? systemTab.getState() : null;
         if (st != null) {
             st.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+            st.setBountyCreditsTotalUnclaimed(Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
             cache.mergeCommanderSessionFromReplayedState(st);
         } else {
             EdoSessionState s = cache.loadEdoSessionState();
             s.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
+            s.setBountyCreditsTotalUnclaimed(Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
             cache.saveEdoSessionState(s);
         }
     } catch (Exception ignored) {
@@ -1327,6 +1377,21 @@ private void installGeoSurveyCreditsTracker() {
             }
             geoSurveyCreditsTotal += estimate;
             persistGeoSurveyCreditsTotal();
+            updateRightStatusDefault();
+        });
+    } catch (Exception ex) {
+        ex.printStackTrace();
+    }
+}
+
+private void installBountyCreditsTracker() {
+    try {
+        LiveJournalMonitor monitor = LiveJournalMonitor.getInstance(EliteDangerousOverlay.clientKey);
+        monitor.addListener(event -> {
+            if (!bountyCreditsTracker.applyJournalEvent(event)) {
+                return;
+            }
+            persistExoCreditsTotal();
             updateRightStatusDefault();
         });
     } catch (Exception ex) {

@@ -16,7 +16,9 @@ import org.dce.ed.logreader.EliteLogEvent.GenericEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
+import org.dce.ed.BountyCreditsTracker;
 import org.dce.ed.logreader.event.ApproachBodyEvent;
+import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.TouchdownEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
@@ -40,10 +42,12 @@ import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.ReceiveTextEvent;
+import org.dce.ed.logreader.event.RedeemVoucherEvent;
 import org.dce.ed.logreader.event.SaasignalsFoundEvent;
 import org.dce.ed.logreader.event.ScanBaryCentreEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
+import org.dce.ed.logreader.event.ShipTargetedEvent;
 import org.dce.ed.logreader.event.StartJumpEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.logreader.event.SupercruiseExitEvent;
@@ -164,6 +168,8 @@ public class EliteLogParser {
 
             case PROSPECTED_ASTEROID:
                 return parseProspectedAsteroid(ts, obj);
+            case SHIP_TARGETED:
+                return parseShipTargeted(ts, obj);
             case MISSIONS:
                 return new MissionsEvent(ts, obj);
             case MISSION_ACCEPTED:
@@ -178,10 +184,44 @@ public class EliteLogParser {
                 return new MissionRedirectedEvent(ts, obj);
             case CARGO_DEPOT:
                 return new CargoDepotEvent(ts, obj);
+            case BOUNTY:
+                return parseBounty(ts, obj);
+            case REDEEM_VOUCHER:
+                return parseRedeemVoucher(ts, obj);
             default:
                 // For everything else, fall back to generic event.
                 return new GenericEvent(ts, type, obj);
         }
+    }
+
+    private BountyEvent parseBounty(Instant ts, JsonObject obj) {
+        return new BountyEvent(ts, obj, BountyCreditsTracker.earnedAmountFromJson(obj));
+    }
+
+    private RedeemVoucherEvent parseRedeemVoucher(Instant ts, JsonObject obj) {
+        String type = getString(obj, "Type");
+        long amount = BountyCreditsTracker.redeemedBountyAmountFromJson(obj);
+        return new RedeemVoucherEvent(ts, obj, type, amount);
+    }
+
+    private ShipTargetedEvent parseShipTargeted(Instant ts, JsonObject obj) {
+        boolean targetLocked = getBoolean(obj, "TargetLocked", false);
+        int scanStage = getInt(obj, "ScanStage", 0);
+        String pilotName = getString(obj, "PilotName_Localised");
+        if (pilotName == null || pilotName.isBlank()) {
+            pilotName = getString(obj, "PilotName");
+        }
+        Long bounty = null;
+        if (obj.has("Bounty") && !obj.get("Bounty").isJsonNull()) {
+            try {
+                long b = Math.round(obj.get("Bounty").getAsDouble());
+                if (b > 0L) {
+                    bounty = Long.valueOf(b);
+                }
+            } catch (RuntimeException ignored) {
+            }
+        }
+        return new ShipTargetedEvent(ts, obj, targetLocked, scanStage, pilotName, bounty);
     }
 
     private ProspectedAsteroidEvent parseProspectedAsteroid(Instant ts, JsonObject obj) {

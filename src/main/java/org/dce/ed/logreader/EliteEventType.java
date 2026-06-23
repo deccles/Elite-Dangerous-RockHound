@@ -61,10 +61,15 @@ public enum EliteEventType {
     SELL_ORGANIC_DATA("SellOrganicData"),
     /** Cartographics / exploration data sale (e.g. Universal Cartographics). */
     SELL_EXPLORATION_DATA("SellExplorationData"),
+    /** Combat bounty awarded for a kill. */
+    BOUNTY("Bounty"),
+    /** Bounty or combat bond voucher redemption at a station or broker. */
+    REDEEM_VOUCHER("RedeemVoucher"),
     RECEIVE_TEXT("ReceiveText"),
     MUSIC("Music"),
     RESERVOIR_REPLENISHED("ReservoirReplenished"),
     PROSPECTED_ASTEROID("ProspectedAsteroid"),
+    SHIP_TARGETED("ShipTargeted"),
     STATUS("Status"), // from Status.json or live journal
     // Catch-all for events we don't model explicitly yet:
     SCAN_ORGANIC("ScanOrganic"),

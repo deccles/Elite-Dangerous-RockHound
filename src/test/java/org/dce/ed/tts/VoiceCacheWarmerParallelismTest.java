@@ -3,6 +3,7 @@ package org.dce.ed.tts;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.dce.ed.BountyScanTracker;
 import org.junit.jupiter.api.Test;
 
 class VoiceCacheWarmerParallelismTest {
@@ -47,5 +48,13 @@ class VoiceCacheWarmerParallelismTest {
     void requiredWarmupTemplatesIncludeFighterPilotReminder() {
         assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests()
                 .contains("Did you forget your fighter pilot again, commander?"));
+    }
+
+    @Test
+    void requiredWarmupTemplatesIncludeBountyScanPhrases() {
+        assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests()
+                .contains(BountyScanTracker.FIRST_BOUNTY_SPEECH));
+        assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests()
+                .contains(BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH));
     }
 }

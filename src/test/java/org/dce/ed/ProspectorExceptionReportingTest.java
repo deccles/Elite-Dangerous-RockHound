@@ -30,7 +30,8 @@ class ProspectorExceptionReportingTest {
         });
 
         try {
-            try (MiningSheetPrefsTestGuard ignored = new MiningSheetPrefsTestGuard()) {
+            try (MiningSheetPrefsTestGuard ignored = new MiningSheetPrefsTestGuard();
+                    ProspectorPrefsTestGuard prospectorPrefsGuard = new ProspectorPrefsTestGuard()) {
                 // Force buildProspectorAnnouncement() to reach event.getTimestamp().toString()
                 // by ensuring we have at least one "match" row (so it doesn't return null early).
                 OverlayPreferences.setProspectorMaterialsCsv("platinum");

@@ -143,7 +143,7 @@ public class TtsSprintf {
                 speakAssembledBlocking(plan, previewForWorker);
             } catch (Exception e) {
                 if (PollyTtsCached.isMissingAwsCredentialsError(e)) {
-                    System.err.println("[EDO] TTS skipped: Amazon Polly needs AWS credentials (see earlier dialog or Preferences).");
+                    System.err.println("[EDO] TTS skipped: Amazon Polly needs AWS credentials (see earlier dialog).");
                 } else {
                     e.printStackTrace();
                 }
@@ -331,7 +331,7 @@ public class TtsSprintf {
                 speakAssembledBlocking(plan, null);
             } catch (Exception e) {
                 if (PollyTtsCached.isMissingAwsCredentialsError(e)) {
-                    System.err.println("[EDO] TTS skipped: Amazon Polly needs AWS credentials (see earlier dialog or Preferences).");
+                    System.err.println("[EDO] TTS skipped: Amazon Polly needs AWS credentials (see earlier dialog).");
                 } else {
                     e.printStackTrace();
                 }

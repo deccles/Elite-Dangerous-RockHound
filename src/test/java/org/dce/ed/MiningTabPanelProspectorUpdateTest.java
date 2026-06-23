@@ -22,6 +22,7 @@ import org.dce.ed.mining.ProspectorLogRow;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -33,8 +34,19 @@ class MiningTabPanelProspectorUpdateTest {
         TestEnvironment.ensureTestIsolation();
     }
 
+    private ProspectorPrefsTestGuard prospectorPrefsGuard;
+
+    @BeforeEach
+    void saveProspectorPrefs() {
+        prospectorPrefsGuard = new ProspectorPrefsTestGuard();
+    }
+
     @AfterEach
-    void restoreSpeechTestProperties() {
+    void restoreTestState() {
+        if (prospectorPrefsGuard != null) {
+            prospectorPrefsGuard.close();
+            prospectorPrefsGuard = null;
+        }
         System.setProperty(DisableSpeechExtension.PROPERTY, "true");
         System.setProperty(DisableSpeechExtension.ALLOW_SPEECH_GATING_PROPERTY, "false");
     }

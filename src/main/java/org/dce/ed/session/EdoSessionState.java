@@ -64,6 +64,8 @@ public final class EdoSessionState {
     private Long exobiologyCreditsTotalUnsold;
     /** Running geo survey estimate total (toolbar). */
     private Long geoSurveyCreditsTotal;
+    /** Unclaimed combat bounty credits total (toolbar). */
+    private Long bountyCreditsTotalUnclaimed;
     /** Last known docked flag from journals / Status. */
     private Boolean docked;
     /**
@@ -448,6 +450,14 @@ public final class EdoSessionState {
 
     public void setGeoSurveyCreditsTotal(Long geoSurveyCreditsTotal) {
         this.geoSurveyCreditsTotal = geoSurveyCreditsTotal;
+    }
+
+    public Long getBountyCreditsTotalUnclaimed() {
+        return bountyCreditsTotalUnclaimed;
+    }
+
+    public void setBountyCreditsTotalUnclaimed(Long bountyCreditsTotalUnclaimed) {
+        this.bountyCreditsTotalUnclaimed = bountyCreditsTotalUnclaimed;
     }
 
     public Boolean getDocked() {

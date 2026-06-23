@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.dce.ed.logreader.EliteLogFileLocator;
 
@@ -68,6 +69,10 @@ public final class OverlayPreferences {
     private static final String KEY_SPEECH_SAMPLE_RATE = "speech.sampleRate"; // PCM sample rate in Hz (as string)
     private static final String KEY_SPEECH_FIRST_DISCOVERED_SYSTEM_ENABLED =
             "speech.announcement.firstDiscoveredSystem.enabled";
+    private static final String KEY_SPEECH_BOUNTY_SCAN_FIRST_ENABLED =
+            "speech.announcement.bountyScan.first.enabled";
+    private static final String KEY_SPEECH_BOUNTY_SCAN_ADDITIONAL_ENABLED =
+            "speech.announcement.bountyScan.additional.enabled";
     /** Last {@link org.dce.ed.tts.VoicePackManager#SPEECH_PACK_REVISION} successfully installed while AWS synthesis was off. */
     private static final String KEY_SPEECH_PACK_INSTALLED_REVISION = "speech.packInstalledRevision";
     /** Voice id matching the last successful GitHub pack install (see {@link #KEY_SPEECH_PACK_INSTALLED_REVISION}). */
@@ -710,6 +715,11 @@ public final class OverlayPreferences {
     // Speech / Polly getters/setters
     // ----------------------------
 
+    /** Persisted {@link #KEY_SPEECH_ENABLED} only; ignores test speech gating in {@link #isSpeechEnabled()}. */
+    static boolean isSpeechEnabledPersisted() {
+        return PREFS.getBoolean(KEY_SPEECH_ENABLED, true);
+    }
+
     public static boolean isSpeechEnabled() {
         // Deterministic tests: treat speech as off unless @AllowSpeechForTest opts into gating checks.
         // Audio playback is separately suppressed via edo.test.disableSpeech in PollyTtsCached / TtsSprintf.
@@ -717,7 +727,7 @@ public final class OverlayPreferences {
                 && !Boolean.getBoolean("edo.test.allowSpeechGating")) {
             return false;
         }
-        return PREFS.getBoolean(KEY_SPEECH_ENABLED, false);
+        return isSpeechEnabledPersisted();
     }
 
     public static void setSpeechEnabled(boolean enabled) {
@@ -732,16 +742,44 @@ public final class OverlayPreferences {
         PREFS.putBoolean(KEY_SPEECH_FIRST_DISCOVERED_SYSTEM_ENABLED, enabled);
     }
 
-    
+    public static boolean isBountyScanFirstAnnouncementEnabled() {
+        return PREFS.getBoolean(KEY_SPEECH_BOUNTY_SCAN_FIRST_ENABLED, true);
+    }
 
-public static boolean isSpeechUseAwsSynthesis() {
-    // Default: enabled (for now)
-    return PREFS.getBoolean(KEY_SPEECH_USE_AWS, true);
-}
+    public static void setBountyScanFirstAnnouncementEnabled(boolean enabled) {
+        PREFS.putBoolean(KEY_SPEECH_BOUNTY_SCAN_FIRST_ENABLED, enabled);
+    }
 
-public static void setSpeechUseAwsSynthesis(boolean useAws) {
-    PREFS.putBoolean(KEY_SPEECH_USE_AWS, useAws);
-}
+    public static boolean isBountyScanAdditionalAnnouncementEnabled() {
+        return PREFS.getBoolean(KEY_SPEECH_BOUNTY_SCAN_ADDITIONAL_ENABLED, true);
+    }
+
+    public static void setBountyScanAdditionalAnnouncementEnabled(boolean enabled) {
+        PREFS.putBoolean(KEY_SPEECH_BOUNTY_SCAN_ADDITIONAL_ENABLED, enabled);
+    }
+
+    /**
+     * When true, {@link org.dce.ed.tts.PollyTtsCached} may call Amazon Polly for missing cache clips.
+     * Runtime playback is cache-only; only {@link org.dce.ed.tts.VoiceCacheWarmer} toggles this flag.
+     */
+    private static final AtomicBoolean speechUseAwsSynthesisWarmer = new AtomicBoolean(false);
+
+    /**
+     * Enables Polly synthesis while {@link org.dce.ed.tts.VoiceCacheWarmer} runs; runtime playback leaves this false.
+     */
+    public static void setSpeechUseAwsSynthesisForWarmer(boolean useAws) {
+        speechUseAwsSynthesisWarmer.set(useAws);
+    }
+
+    public static boolean isSpeechUseAwsSynthesis() {
+        return speechUseAwsSynthesisWarmer.get();
+    }
+
+    /** @deprecated Runtime no longer reads or writes this preference; retained for migration only. */
+    @Deprecated
+    public static void setSpeechUseAwsSynthesis(boolean useAws) {
+        PREFS.putBoolean(KEY_SPEECH_USE_AWS, useAws);
+    }
 
 public static Engine getSpeechEngine() {
         // Defaults: as you requested, keep sane hardcoded defaults.
@@ -773,10 +811,12 @@ public static Engine getSpeechEngine() {
     }
 
     public static String getSpeechAwsRegion() {
-        // Default: us-east-1
+        // Legacy preference; runtime Polly uses AWS_REGION / AWS_DEFAULT_REGION env vars.
         return PREFS.get(KEY_SPEECH_REGION, "us-east-1");
     }
 
+    /** @deprecated No longer exposed in preferences; retained for stored-value migration only. */
+    @Deprecated
     public static void setSpeechAwsRegion(String region) {
         if (region == null || region.isBlank()) {
             region = "us-east-1";
@@ -785,10 +825,12 @@ public static Engine getSpeechEngine() {
     }
 
     public static String getSpeechAwsProfile() {
-        // Optional. Blank => DefaultCredentialsProvider chain.
+        // Legacy preference; runtime Polly uses the standard AWS SDK credential chain (incl. AWS_PROFILE).
         return PREFS.get(KEY_SPEECH_AWS_PROFILE, "");
     }
 
+    /** @deprecated No longer exposed in preferences; retained for stored-value migration only. */
+    @Deprecated
     public static void setSpeechAwsProfile(String profile) {
         if (profile == null) {
             profile = "";

@@ -657,6 +657,7 @@ public class EliteOverlayTabbedPane extends JPanel {
         }
 
 		NpcCrewTracker.getInstance().applyJournalEvent(event);
+		BountyScanTracker.getInstance().applyJournalEvent(event);
 
         if (event instanceof org.dce.ed.logreader.event.StatusEvent se) {
         	// Do not tie limpet reminders to Status dock transitions: when Elite exits, Status.json often
