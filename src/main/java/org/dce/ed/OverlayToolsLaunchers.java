@@ -21,7 +21,6 @@ import org.dce.ed.tools.EdoSqliteDatabaseFrame;
 import org.dce.ed.tools.SystemHierarchyGraphFrame;
 import org.dce.ed.ui.ShowConsoleAction;
 import org.dce.ed.util.ArdentQueryTool;
-import org.dce.ed.util.EdrRobotToolLauncher;
 import org.dce.ed.util.EdsmQueryTool;
 import org.dce.ed.util.GithubMsiUpdater;
 import org.dce.ed.util.OverlayAppRestart;
@@ -352,9 +351,5 @@ public final class OverlayToolsLaunchers {
                         JOptionPane.ERROR_MESSAGE);
             }
         });
-    }
-
-    public static void launchEdrRobotTool(Component parent) {
-        EdrRobotToolLauncher.launch(parent);
     }
 }

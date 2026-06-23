@@ -45,16 +45,16 @@ class BountyCreditsTrackerTest {
     }
 
     @Test
-    void redeemVoucherSubtractsBountyAmount() {
+    void redeemVoucherClearsTrackedTotal() {
         tracker.setUnclaimedTotal(12_280L);
         String line = "{ \"timestamp\":\"2016-06-10T14:32:03Z\", \"event\":\"RedeemVoucher\", "
                 + "\"Type\":\"bounty\", \"Amount\":1000 }";
         assertTrue(tracker.applyJournalEvent((RedeemVoucherEvent) parser.parseRecord(line)));
-        assertEquals(11_280L, tracker.getUnclaimedTotal());
+        assertEquals(0L, tracker.getUnclaimedTotal());
     }
 
     @Test
-    void redeemVoucherUsesFactionAmountsWhenPresent() {
+    void redeemVoucherClearsEvenWhenFactionAmountsLessThanTracked() {
         tracker.setUnclaimedTotal(5_000L);
         String line = "{ \"timestamp\":\"2016-06-10T14:32:03Z\", \"event\":\"RedeemVoucher\", "
                 + "\"Type\":\"bounty\", \"Factions\":["
@@ -62,7 +62,7 @@ class BountyCreditsTrackerTest {
                 + "{\"Faction\":\"Zac's Lads\",\"Amount\":2000}"
                 + "] }";
         assertTrue(tracker.applyJournalEvent((RedeemVoucherEvent) parser.parseRecord(line)));
-        assertEquals(2_000L, tracker.getUnclaimedTotal());
+        assertEquals(0L, tracker.getUnclaimedTotal());
     }
 
     @Test
@@ -71,6 +71,35 @@ class BountyCreditsTrackerTest {
         String line = "{ \"timestamp\":\"2016-06-10T14:32:03Z\", \"event\":\"RedeemVoucher\", "
                 + "\"Type\":\"bounty\", \"Amount\":3000 }";
         assertTrue(tracker.applyJournalEvent((RedeemVoucherEvent) parser.parseRecord(line)));
+        assertEquals(0L, tracker.getUnclaimedTotal());
+    }
+
+    @Test
+    void brokerRedeemClearsTrackedTotal() {
+        tracker.setUnclaimedTotal(693_300L);
+        String line = "{ \"timestamp\":\"2026-06-23T18:46:11Z\", \"event\":\"RedeemVoucher\", "
+                + "\"Type\":\"bounty\", \"Amount\":519975, "
+                + "\"Factions\":[{\"Faction\":\"Pioneers and eXplorers\",\"Amount\":519975}], "
+                + "\"BrokerPercentage\":25.000000 }";
+        assertTrue(tracker.applyJournalEvent((RedeemVoucherEvent) parser.parseRecord(line)));
+        assertEquals(0L, tracker.getUnclaimedTotal());
+    }
+
+    @Test
+    void redeemClearsEvenWhenNewBountiesWereEarnedBeforeTurnIn() {
+        String earn1 = "{ \"timestamp\":\"2026-06-23T18:05:53Z\", \"event\":\"Bounty\", \"TotalReward\":390900 }";
+        String earn2 = "{ \"timestamp\":\"2026-06-23T18:11:27Z\", \"event\":\"Bounty\", \"TotalReward\":302400 }";
+        String earn3 = "{ \"timestamp\":\"2026-06-23T18:12:27Z\", \"event\":\"Bounty\", \"TotalReward\":50000 }";
+        String redeem = "{ \"timestamp\":\"2026-06-23T18:46:11Z\", \"event\":\"RedeemVoucher\", "
+                + "\"Type\":\"bounty\", \"Amount\":519975, "
+                + "\"Factions\":[{\"Faction\":\"Pioneers and eXplorers\",\"Amount\":519975}], "
+                + "\"BrokerPercentage\":25.000000 }";
+
+        tracker.applyJournalEvent(parser.parseRecord(earn1));
+        tracker.applyJournalEvent(parser.parseRecord(earn2));
+        tracker.applyJournalEvent(parser.parseRecord(earn3));
+        assertEquals(743_300L, tracker.getUnclaimedTotal());
+        tracker.applyJournalEvent(parser.parseRecord(redeem));
         assertEquals(0L, tracker.getUnclaimedTotal());
     }
 

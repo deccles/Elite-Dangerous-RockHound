@@ -412,11 +412,6 @@ public final class OverlayMenuStatusBar {
         exoDbg.addActionListener(e -> OverlayToolsLaunchers.launchExoPredictionDebugger(parent));
         toolsMenu.add(exoDbg);
 
-        JMenuItem edrRobot = new JMenuItem("EDR Robot Tool…");
-        styleMenuItem(edrRobot);
-        edrRobot.addActionListener(e -> OverlayToolsLaunchers.launchEdrRobotTool(parent));
-        toolsMenu.add(edrRobot);
-
         JMenuItem journal = new JMenuItem("Journal Monitor");
         styleMenuItem(journal);
         journal.addActionListener(e -> OverlayToolsLaunchers.launchJournalMonitor(parent));

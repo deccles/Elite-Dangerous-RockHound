@@ -32,7 +32,7 @@ public final class BountyCreditsTracker {
             return addEarned(bounty.getTotalReward());
         }
         if (event instanceof RedeemVoucherEvent redeem && redeem.isBountyRedemption()) {
-            return subtractRedeemed(redeem.getRedeemedAmount());
+            return clearOnRedemption(redeem.getRedeemedAmount());
         }
         return false;
     }
@@ -45,13 +45,13 @@ public final class BountyCreditsTracker {
         return true;
     }
 
-    boolean subtractRedeemed(long amount) {
-        if (amount <= 0L) {
+    /** Clears the running total on any bounty turn-in. */
+    boolean clearOnRedemption(long redeemedNet) {
+        if (redeemedNet <= 0L || unclaimedTotal <= 0L) {
             return false;
         }
-        long before = unclaimedTotal;
-        unclaimedTotal = Math.max(0L, unclaimedTotal - amount);
-        return unclaimedTotal != before;
+        unclaimedTotal = 0L;
+        return true;
     }
 
     /** Face-value bounty earned from a {@code Bounty} journal line. */
@@ -89,8 +89,8 @@ public final class BountyCreditsTracker {
     }
 
     /**
-     * Gross bounty voucher value redeemed from a {@code RedeemVoucher} journal line.
-     * Prefers per-faction amounts when present; otherwise uses net {@code Amount}.
+     * Credits reported on a {@code RedeemVoucher} journal line.
+     * Prefers per-faction amounts when present; otherwise uses top-level {@code Amount}.
      */
     public static long redeemedBountyAmountFromJson(JsonObject obj) {
         if (obj == null) {
