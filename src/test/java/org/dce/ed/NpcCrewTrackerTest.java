@@ -4,14 +4,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 
 import org.dce.ed.logreader.EliteEventType;
+import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -22,6 +28,8 @@ class NpcCrewTrackerTest {
 	void resetTracker() {
 		OverlayPreferences.setNpcCrewActiveName(1, null);
 		OverlayPreferences.setNpcCrewActiveName(2, null);
+		OverlayPreferences.setNpcCrewActiveName(7, null);
+		OverlayPreferences.setNpcCrewActiveName(13, null);
 		NpcCrewTracker.getInstance().onLoadout(null);
 	}
 
@@ -137,6 +145,57 @@ class NpcCrewTrackerTest {
 
 		NpcCrewTracker.getInstance().onLoadout(loadout);
 		assertFalse(NpcCrewTracker.getInstance().hasActiveNpcCrew());
+	}
+
+	@Test
+	void fighterBayWithoutAmmoFieldCountsAsStocked() {
+		LoadoutEvent loadout = loadoutWithFighterBayItem(1, "int_fighterbay_size6_class1", -1);
+		assertTrue(NpcCrewTracker.hasDockedFighters(loadout));
+		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, loadout));
+	}
+
+	@Test
+	void bootstrapAfterShipSwapIgnoresPersistedPilot(@TempDir Path tempDir) throws IOException {
+		OverlayPreferences.setNpcCrewActiveName(7, "Roscoe Francis");
+		writeJournal(tempDir,
+				journalLoadoutLine("krait_mkii", 13, "2026-06-26T12:52:35Z"),
+				journalLoadoutLine("anaconda", 7, "2026-06-26T19:57:41Z"));
+
+		EliteJournalReader reader = new EliteJournalReader(tempDir);
+		LoadoutEvent anaconda = (LoadoutEvent) reader.findMostRecentEvent(EliteEventType.LOADOUT, 1);
+
+		NpcCrewTracker.getInstance().bootstrapFromJournal(tempDir, anaconda);
+
+		assertFalse(NpcCrewTracker.getInstance().hasActiveNpcCrew());
+		assertNull(OverlayPreferences.getNpcCrewActiveName(7));
+		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, anaconda));
+	}
+
+	@Test
+	void bootstrapDoesNotRestorePilotWhenLastAssignWasOnShoreLeave(@TempDir Path tempDir) throws IOException {
+		OverlayPreferences.setNpcCrewActiveName(7, "Roscoe Francis");
+		writeJournal(tempDir,
+				journalLoadoutLine("anaconda", 7, "2026-06-26T19:57:41Z"),
+				"{ \"timestamp\":\"2026-06-26T19:58:00Z\", \"event\":\"CrewAssign\", \"Name\":\"Roscoe Francis\", \"Role\":\"OnShoreLeave\" }");
+
+		EliteJournalReader reader = new EliteJournalReader(tempDir);
+		LoadoutEvent anaconda = (LoadoutEvent) reader.findMostRecentEvent(EliteEventType.LOADOUT, 1);
+
+		NpcCrewTracker.getInstance().bootstrapFromJournal(tempDir, anaconda);
+
+		assertFalse(NpcCrewTracker.getInstance().hasActiveNpcCrew());
+		assertNull(OverlayPreferences.getNpcCrewActiveName(7));
+		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, anaconda));
+	}
+
+	private static void writeJournal(Path dir, String... lines) throws IOException {
+		Path file = dir.resolve("Journal.2026-06-26T084957.01.log");
+		Files.writeString(file, String.join(System.lineSeparator(), lines) + System.lineSeparator(), StandardCharsets.UTF_8);
+	}
+
+	private static String journalLoadoutLine(String ship, int shipId, String timestamp) {
+		return "{ \"timestamp\":\"" + timestamp + "\", \"event\":\"Loadout\", \"Ship\":\"" + ship + "\", \"ShipID\":" + shipId
+				+ ", \"Modules\":[ { \"Slot\":\"Slot04_Size6\", \"Item\":\"int_fighterbay_size6_class1\", \"On\":true, \"Priority\":0 } ] }";
 	}
 
 	private static void applyCrewEvent(String json) {

@@ -171,7 +171,10 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
 		if (tp != null) {
 			tp.addDockedStateListener(docked -> updateStatusLabel());
+			tp.addLoadoutChangeListener(this::updateStatusLabel);
 		}
+
+		NpcCrewTracker.getInstance().addListener(this::updateStatusLabel);
 
 		CargoMonitor.getInstance().addListener(snap -> {
 			lastCargoSnapshot = snap;

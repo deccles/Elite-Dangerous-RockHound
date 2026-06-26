@@ -132,33 +132,100 @@ public final class NpcCrewTracker {
 			currentShipId = loadout.getShipId();
 		}
 
+		List<EliteLogEvent> events = List.of();
 		if (journalDir != null && Files.isDirectory(journalDir)) {
 			try {
 				EliteJournalReader reader = new EliteJournalReader(journalDir);
-				List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(8);
-				int start = 0;
-				if (loadout != null && loadout.getTimestamp() != null) {
-					Instant loadoutTs = loadout.getTimestamp();
-					for (int i = events.size() - 1; i >= 0; i--) {
-						EliteLogEvent e = events.get(i);
-						if (e instanceof LoadoutEvent lo && loadoutTs.equals(lo.getTimestamp())) {
-							start = i + 1;
-							break;
-						}
-					}
-				}
-				for (int i = start; i < events.size(); i++) {
-					applyJournalEvent(events.get(i));
-				}
+				events = reader.readEventsFromLastNJournalFiles(8);
 			} catch (IOException ignored) {
 				// Keep best-effort in-memory state.
 			}
 		}
 
-		if (loadout != null && !hasActiveNpcCrew()) {
-			activeCrewName = OverlayPreferences.getNpcCrewActiveName(currentShipId);
+		if (loadout != null && wasShipSwap(events, loadout)) {
+			requiresCrewLoungeAssign = true;
+			OverlayPreferences.setNpcCrewActiveName(loadout.getShipId(), null);
+		}
+
+		int start = 0;
+		if (loadout != null && loadout.getTimestamp() != null && !events.isEmpty()) {
+			Instant loadoutTs = loadout.getTimestamp();
+			for (int i = events.size() - 1; i >= 0; i--) {
+				EliteLogEvent e = events.get(i);
+				if (e instanceof LoadoutEvent lo && loadoutTs.equals(lo.getTimestamp())) {
+					start = i + 1;
+					break;
+				}
+			}
+		}
+		for (int i = start; i < events.size(); i++) {
+			applyJournalEvent(events.get(i));
+		}
+
+		if (loadout != null && !hasActiveNpcCrew() && !requiresCrewLoungeAssign) {
+			String persisted = OverlayPreferences.getNpcCrewActiveName(currentShipId);
+			if (persisted != null && shouldRestorePersistedActiveCrew(events, persisted)) {
+				activeCrewName = persisted;
+			} else if (persisted != null) {
+				OverlayPreferences.setNpcCrewActiveName(currentShipId, null);
+			}
 		}
 		notifyListeners();
+	}
+
+	private static boolean wasShipSwap(List<EliteLogEvent> events, LoadoutEvent current) {
+		if (current == null || events == null || events.isEmpty()) {
+			return false;
+		}
+		int currentIdx = -1;
+		for (int i = events.size() - 1; i >= 0; i--) {
+			EliteLogEvent e = events.get(i);
+			if (!(e instanceof LoadoutEvent lo)) {
+				continue;
+			}
+			if (current.getTimestamp().equals(lo.getTimestamp()) && current.getShipId() == lo.getShipId()) {
+				currentIdx = i;
+				break;
+			}
+		}
+		if (currentIdx <= 0) {
+			return false;
+		}
+		for (int i = currentIdx - 1; i >= 0; i--) {
+			if (events.get(i) instanceof LoadoutEvent previous) {
+				return previous.getShipId() != current.getShipId();
+			}
+		}
+		return false;
+	}
+
+	private static boolean shouldRestorePersistedActiveCrew(List<EliteLogEvent> events, String name) {
+		String lastRole = findLastCrewAssignRole(events, name);
+		if (lastRole == null) {
+			return true;
+		}
+		return "Active".equalsIgnoreCase(lastRole);
+	}
+
+	private static String findLastCrewAssignRole(List<EliteLogEvent> events, String name) {
+		if (events == null || name == null || name.isBlank()) {
+			return null;
+		}
+		String lastRole = null;
+		for (EliteLogEvent event : events) {
+			JsonObject raw = event.getRawJson();
+			if (raw == null || !raw.has("event")) {
+				continue;
+			}
+			if (!"CrewAssign".equals(raw.get("event").getAsString())) {
+				continue;
+			}
+			String crewName = getString(raw, "Name");
+			if (name.equals(crewName)) {
+				lastRole = getString(raw, "Role");
+			}
+		}
+		return lastRole;
 	}
 
 	private static boolean isFighterBayModuleItem(String item) {
