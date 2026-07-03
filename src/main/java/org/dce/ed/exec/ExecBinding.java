@@ -2,7 +2,7 @@ package org.dce.ed.exec;
 
 import java.util.UUID;
 
-/** One JAR launch rule bound to a trigger. */
+/** One external program launch rule bound to a trigger ({@code .jar} or {@code .exe}). */
 public final class ExecBinding {
 
     private String id;

@@ -2,6 +2,7 @@ package org.dce.ed;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -118,6 +119,53 @@ class BountyScanTrackerTest {
 
         OverlayPreferences.setBountyScanAdditionalAnnouncementEnabled(false);
         assertFalse(tracker.onShipTargeted(stage3("Carlos SpicyWeiner", 305_335L)).isPresent());
+    }
+
+    @Test
+    void targetedBountyInSightWhileLockedOnWantedShip() {
+        BountyScanTracker tracker = BountyScanTracker.getInstance();
+        tracker.updateTargetedBountyInSight(stage3("Carlos SpicyWeiner", 5_000_000L));
+        assertEquals(5_000_000L, tracker.getTargetedBountyInSight().longValue());
+    }
+
+    @Test
+    void targetedBountyInSightClearsOnUnlock() {
+        BountyScanTracker tracker = BountyScanTracker.getInstance();
+        tracker.updateTargetedBountyInSight(stage3("Carlos SpicyWeiner", 242_475L));
+        tracker.updateTargetedBountyInSight(new ShipTargetedEvent(
+                Instant.now(), new JsonObject(), false, 3, "Carlos SpicyWeiner", 242_475L));
+        assertNull(tracker.getTargetedBountyInSight());
+    }
+
+    @Test
+    void targetedBountyInSightClearsForCleanTarget() {
+        BountyScanTracker tracker = BountyScanTracker.getInstance();
+        tracker.updateTargetedBountyInSight(stage3("Carlos SpicyWeiner", 242_475L));
+        tracker.updateTargetedBountyInSight(new ShipTargetedEvent(
+                Instant.now(), new JsonObject(), true, 3, "DJNoNo Ulysses", null));
+        assertNull(tracker.getTargetedBountyInSight());
+    }
+
+    @Test
+    void targetedBountyInSightUpdatesOnKwsRescan() {
+        BountyScanTracker tracker = BountyScanTracker.getInstance();
+        tracker.updateTargetedBountyInSight(stage3("Carlos SpicyWeiner", 242_475L));
+        tracker.updateTargetedBountyInSight(stage3("Carlos SpicyWeiner", 305_335L));
+        assertEquals(305_335L, tracker.getTargetedBountyInSight().longValue());
+    }
+
+    @Test
+    void targetedBountyInSightNotShownBeforeStage3Scan() {
+        BountyScanTracker tracker = BountyScanTracker.getInstance();
+        tracker.updateTargetedBountyInSight(new ShipTargetedEvent(
+                Instant.now(), new JsonObject(), true, 2, "Carlos SpicyWeiner", null));
+        assertNull(tracker.getTargetedBountyInSight());
+    }
+
+    @Test
+    void targetedBountyInSightLabelUsesCompactMillions() {
+        assertEquals("Bounty: 5M", OverlayFrame.formatTargetedBountyInSightLabel(5_000_000L));
+        assertEquals("Bounty: 242K", OverlayFrame.formatTargetedBountyInSightLabel(242_475L));
     }
 
     private static ShipTargetedEvent stage3(String pilot, long bounty) {

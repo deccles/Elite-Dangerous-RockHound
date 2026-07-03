@@ -3,6 +3,7 @@ package org.dce.ed;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
@@ -61,13 +62,33 @@ public final class BountyScanTracker {
 
     private final Map<String, Long> lastBountyByPilot = new HashMap<>();
     private final Map<String, ScanState> stateByPilot = new HashMap<>();
+    private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
+
+    /** Pilot key of the currently locked combat target, when any. */
+    private volatile String lockedTargetPilotKey;
+    /** Bounty on the locked target when scan stage 3 reports a wanted pilot. */
+    private volatile Long targetedBountyInSight;
 
     private BountyScanTracker() {
+    }
+
+    public void addListener(Runnable listener) {
+        if (listener != null) {
+            listeners.add(listener);
+        }
+    }
+
+    /**
+     * Bounty credits on the ship currently locked in the combat HUD, or {@code null} when none.
+     */
+    public Long getTargetedBountyInSight() {
+        return targetedBountyInSight;
     }
 
     public void resetSession() {
         lastBountyByPilot.clear();
         stateByPilot.clear();
+        clearTargetedBountyInSight();
     }
 
     public void applyJournalEvent(EliteLogEvent event) {
@@ -78,6 +99,7 @@ public final class BountyScanTracker {
         if (!(event instanceof ShipTargetedEvent st)) {
             return;
         }
+        updateTargetedBountyInSight(st);
         Optional<SpeechRequest> speech = onShipTargeted(st);
         if (speech.isEmpty()) {
             return;
@@ -138,6 +160,65 @@ public final class BountyScanTracker {
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * Tracks the bounty shown on the combat HUD while a wanted target stays locked.
+     * Visible for unit tests (no speech).
+     */
+    void updateTargetedBountyInSight(ShipTargetedEvent event) {
+        if (event == null) {
+            return;
+        }
+        if (!event.isTargetLocked()) {
+            clearTargetedBountyInSight();
+            return;
+        }
+        String pilotKey = pilotKey(event.getPilotName());
+        if (pilotKey != null && lockedTargetPilotKey != null && !pilotKey.equals(lockedTargetPilotKey)) {
+            setTargetedBountyInSight(null);
+        }
+        if (pilotKey != null) {
+            lockedTargetPilotKey = pilotKey;
+        }
+        if (event.getScanStage() == 3) {
+            Long bounty = event.getBounty();
+            if (bounty != null && bounty > 0L) {
+                setTargetedBountyInSight(bounty);
+            } else {
+                setTargetedBountyInSight(null);
+            }
+        }
+    }
+
+    private void clearTargetedBountyInSight() {
+        boolean changed = lockedTargetPilotKey != null || targetedBountyInSight != null;
+        lockedTargetPilotKey = null;
+        targetedBountyInSight = null;
+        if (changed) {
+            notifyListeners();
+        }
+    }
+
+    private void setTargetedBountyInSight(Long bounty) {
+        Long previous = targetedBountyInSight;
+        if (previous != null && bounty != null && previous.longValue() == bounty.longValue()) {
+            return;
+        }
+        if (previous == null && bounty == null) {
+            return;
+        }
+        targetedBountyInSight = bounty;
+        notifyListeners();
+    }
+
+    private void notifyListeners() {
+        for (Runnable listener : listeners) {
+            try {
+                listener.run();
+            } catch (RuntimeException ignored) {
+            }
+        }
     }
 
     static String pilotKey(String pilotName) {

@@ -190,7 +190,7 @@ public final class ExecTriggerService {
     }
 
     private void launch(ExecBinding binding, ExecLaunchContext context) {
-        publishStatus("Running " + shortJarName(binding.getJarPath()) + "…");
+        publishStatus("Running " + shortProgramName(binding.getJarPath()) + "…");
         JarExecRunner.runAsync(binding, context, result -> SwingUtilities.invokeLater(() -> {
             if (result.exitCode() == 0) {
                 publishStatus("OK: " + result.detail());
@@ -227,11 +227,11 @@ public final class ExecTriggerService {
         }
     }
 
-    private static String shortJarName(String jarPath) {
-        if (jarPath == null || jarPath.isBlank()) {
-            return "(no JAR)";
+    private static String shortProgramName(String programPath) {
+        if (programPath == null || programPath.isBlank()) {
+            return "(no program)";
         }
-        int slash = Math.max(jarPath.lastIndexOf('/'), jarPath.lastIndexOf('\\'));
-        return slash >= 0 ? jarPath.substring(slash + 1) : jarPath;
+        int slash = Math.max(programPath.lastIndexOf('/'), programPath.lastIndexOf('\\'));
+        return slash >= 0 ? programPath.substring(slash + 1) : programPath;
     }
 }

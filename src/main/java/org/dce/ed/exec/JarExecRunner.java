@@ -13,9 +13,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 
-/** Launches a JAR with {@code java -jar} on a background thread. */
+/** Launches a bound program ({@code .exe} or {@code java -jar}) on a background thread. */
 public final class JarExecRunner {
 
     public record RunResult(int exitCode, String detail) {
@@ -40,19 +41,19 @@ public final class JarExecRunner {
         if (binding == null) {
             return new RunResult(-1, "No binding.");
         }
-        String jarPath = binding.getJarPath();
-        if (jarPath == null || jarPath.isBlank()) {
-            return new RunResult(-1, "JAR path is empty.");
+        String programPath = binding.getJarPath();
+        if (programPath == null || programPath.isBlank()) {
+            return new RunResult(-1, "Program path is empty.");
         }
-        Path jar = Paths.get(jarPath.trim());
-        if (!Files.isRegularFile(jar)) {
-            return new RunResult(-1, "JAR not found: " + jar);
+        Path program = Paths.get(programPath.trim());
+        if (!Files.isRegularFile(program)) {
+            return new RunResult(-1, "Program not found: " + program);
         }
 
-        List<String> command = buildCommand(jar, binding.getProgramArgs());
+        List<String> command = buildCommand(program, binding.getProgramArgs());
         try {
             ProcessBuilder pb = new ProcessBuilder(command);
-            pb.directory(jar.getParent() != null ? jar.getParent().toFile() : null);
+            pb.directory(program.getParent() != null ? program.getParent().toFile() : null);
             Map<String, String> env = pb.environment();
             if (context != null) {
                 env.putAll(context.toEnvironment());
@@ -75,24 +76,49 @@ public final class JarExecRunner {
             if (msg == null || msg.isBlank()) {
                 msg = e.getClass().getSimpleName();
             }
+            if (e instanceof IOException && msg.toLowerCase(Locale.ROOT).contains("cannot run program")) {
+                msg = msg + ". " + javaResolutionHint();
+            }
             return new RunResult(-1, msg);
         }
     }
 
-    static List<String> buildCommand(Path jar, String programArgs) {
+    static List<String> buildCommand(Path program, String programArgs) {
         List<String> command = new ArrayList<>();
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        String javaBinary = os.contains("win") ? "java.exe" : "java";
-        Path java = Path.of(System.getProperty("java.home"), "bin", javaBinary);
-        if (Files.isRegularFile(java)) {
-            command.add(java.toString());
+        if (isWindowsExecutable(program)) {
+            command.add(program.toAbsolutePath().normalize().toString());
+            appendProgramArgs(command, programArgs);
+            return command;
+        }
+        Optional<Path> packagedExe = JavaLauncher.resolvePackagedExeForJar(program);
+        if (packagedExe.isPresent()) {
+            command.add(packagedExe.get().toString());
+            appendProgramArgs(command, programArgs);
+            return command;
+        }
+        Optional<Path> java = JavaLauncher.resolve();
+        if (java.isPresent()) {
+            command.add(java.get().toString());
         } else {
-            command.add("java");
+            String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+            command.add(os.contains("win") ? "java.exe" : "java");
         }
         command.add("-jar");
-        command.add(jar.toString());
+        command.add(program.toString());
         appendProgramArgs(command, programArgs);
         return command;
+    }
+
+    static boolean isWindowsExecutable(Path path) {
+        if (path == null || path.getFileName() == null) {
+            return false;
+        }
+        return path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".exe");
+    }
+
+    static String javaResolutionHint() {
+        return "Java runtime not found. Use an installed RoboHound.exe path for RoboHound.jar, "
+                + "or install JDK 21+ and ensure JAVA_HOME is set.";
     }
 
     private static void appendProgramArgs(List<String> command, String programArgs) {

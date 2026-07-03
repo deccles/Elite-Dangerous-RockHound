@@ -38,7 +38,7 @@ import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.exec.ExecTriggerService;
 
 /**
- * Exec tab: configure JARs to run on overlay triggers (fleet cooldown complete, low tritium, etc.).
+ * Exec tab: configure programs to run on overlay triggers (fleet cooldown complete, low tritium, etc.).
  */
 public final class ExecTabPanel extends JPanel {
 
@@ -47,7 +47,7 @@ public final class ExecTabPanel extends JPanel {
     private static final int COL_ENABLED = 0;
     private static final int COL_TRIGGER = 1;
     private static final int COL_DELAY_SEC = 2;
-    private static final int COL_JAR = 3;
+    private static final int COL_PROGRAM = 3;
     private static final int COL_ARGS = 4;
 
     private final ExecBindingsStore store = new ExecBindingsStore();
@@ -70,8 +70,9 @@ public final class ExecTabPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         JLabel intro = new JLabel(
-                "<html>Run external JARs on journal/overlay events. Uses <code>java -jar</code>; "
-                        + "passes <code>EDO_TRIGGER</code> and related env vars "
+                "<html>Run external programs on journal/overlay events. Pick a <code>.exe</code> "
+                        + "(e.g. RoboHound) or a <code>.jar</code> (runs with bundled/Java <code>java -jar</code>). "
+                        + "Passes <code>EDO_TRIGGER</code> and related env vars "
                         + "(e.g. <code>EDO_DESTINATION</code> / <code>EDO_CLIPBOARD</code> when copying the next "
                         + "Fleet Carrier hop on cooldown complete or copy-next-destination).</html>");
         intro.setOpaque(false);
@@ -87,8 +88,8 @@ public final class ExecTabPanel extends JPanel {
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2 && table.columnAtPoint(e.getPoint()) == COL_JAR) {
-                    browseJarForRow(table.rowAtPoint(e.getPoint()));
+                if (e.getClickCount() == 2 && table.columnAtPoint(e.getPoint()) == COL_PROGRAM) {
+                    browseProgramForRow(table.rowAtPoint(e.getPoint()));
                 }
             }
         });
@@ -112,8 +113,8 @@ public final class ExecTabPanel extends JPanel {
         buttons.setOpaque(false);
         JButton addButton = new JButton("Add row");
         JButton removeButton = new JButton("Remove");
-        JButton browseButton = new JButton("Browse JAR…");
-        browseButton.setToolTipText("Select a table row, then pick a .jar file (or double-click the JAR cell)");
+        JButton browseButton = new JButton("Browse program…");
+        browseButton.setToolTipText("Select a table row, then pick a .exe or .jar (or double-click the Program cell)");
         JButton runNowButton = new JButton("Run now");
         buttons.add(addButton);
         buttons.add(removeButton);
@@ -150,7 +151,7 @@ public final class ExecTabPanel extends JPanel {
             persistConfig();
         });
 
-        browseButton.addActionListener(e -> browseJarForSelectedRow());
+        browseButton.addActionListener(e -> browseProgramForSelectedRow());
         runNowButton.addActionListener(e -> runSelectedRowNow());
 
         tritiumThresholdSpinner.addChangeListener(e -> {
@@ -221,21 +222,23 @@ public final class ExecTabPanel extends JPanel {
         table.getTableHeader().setFont(font);
     }
 
-    private void browseJarForSelectedRow() {
-        browseJarForRow(resolveSelectedModelRow(true));
+    private void browseProgramForSelectedRow() {
+        browseProgramForRow(resolveSelectedModelRow(true));
     }
 
-    private void browseJarForRow(int modelRow) {
+    private void browseProgramForRow(int modelRow) {
         if (modelRow < 0 || modelRow >= config.getBindings().size()) {
-            setStatus("Select a table row first (click the row), then Browse JAR…");
+            setStatus("Select a table row first (click the row), then Browse program…");
             return;
         }
         if (table.isEditing()) {
             table.getCellEditor().stopCellEditing();
         }
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select JAR to run");
-        chooser.setFileFilter(new FileNameExtensionFilter("Java JAR (*.jar)", "jar"));
+        chooser.setDialogTitle("Select program to run");
+        chooser.addChoosableFileFilter(new FileNameExtensionFilter("Windows executable (*.exe)", "exe"));
+        chooser.addChoosableFileFilter(new FileNameExtensionFilter("Java JAR (*.jar)", "jar"));
+        chooser.setAcceptAllFileFilterUsed(true);
         ExecBinding binding = config.getBindings().get(modelRow);
         if (binding.getJarPath() != null && !binding.getJarPath().isBlank()) {
             File existing = new File(binding.getJarPath());
@@ -255,13 +258,13 @@ public final class ExecTabPanel extends JPanel {
             return;
         }
         binding.setJarPath(file.getAbsolutePath());
-        tableModel.fireTableCellUpdated(modelRow, COL_JAR);
+        tableModel.fireTableCellUpdated(modelRow, COL_PROGRAM);
         table.setRowSelectionInterval(
                 table.convertRowIndexToView(modelRow),
                 table.convertRowIndexToView(modelRow));
         table.repaint();
         persistConfig();
-        setStatus("JAR set: " + file.getName());
+        setStatus("Program set: " + file.getName());
     }
 
     /** @param allowDefaultToFirstRow when true and nothing is selected, use row 0 */
@@ -322,7 +325,7 @@ public final class ExecTabPanel extends JPanel {
                 case COL_ENABLED -> "On";
                 case COL_TRIGGER -> "Trigger";
                 case COL_DELAY_SEC -> "Delay (s)";
-                case COL_JAR -> "JAR";
+                case COL_PROGRAM -> "Program";
                 case COL_ARGS -> "Args";
                 default -> "";
             };
@@ -351,7 +354,7 @@ public final class ExecTabPanel extends JPanel {
                 case COL_ENABLED -> b.isEnabled();
                 case COL_TRIGGER -> b.getTrigger();
                 case COL_DELAY_SEC -> b.getDelayMs() / 1000;
-                case COL_JAR -> b.getJarPath();
+                case COL_PROGRAM -> b.getJarPath();
                 case COL_ARGS -> b.getProgramArgs();
                 default -> "";
             };
@@ -379,7 +382,7 @@ public final class ExecTabPanel extends JPanel {
                     }
                     b.setDelayMs(sec * 1000);
                 }
-                case COL_JAR -> b.setJarPath(value != null ? value.toString() : "");
+                case COL_PROGRAM -> b.setJarPath(value != null ? value.toString() : "");
                 case COL_ARGS -> b.setProgramArgs(value != null ? value.toString() : "");
                 default -> {
                 }
@@ -424,12 +427,12 @@ public final class ExecTabPanel extends JPanel {
         check.setOpaque(false);
         table.getColumnModel().getColumn(COL_ENABLED).setCellEditor(new javax.swing.DefaultCellEditor(check));
 
-        JTextField jarField = new JTextField();
-        jarField.getDocument().addDocumentListener(new DocumentListener() {
+        JTextField programField = new JTextField();
+        programField.getDocument().addDocumentListener(new DocumentListener() {
             private void changed() {
                 int row = table.getEditingRow() >= 0 ? table.getEditingRow() : table.getSelectedRow();
                 if (row >= 0 && row < config.getBindings().size()
-                        && table.getEditingColumn() == COL_JAR) {
+                        && table.getEditingColumn() == COL_PROGRAM) {
                     persistConfig();
                 }
             }
@@ -449,6 +452,6 @@ public final class ExecTabPanel extends JPanel {
                 changed();
             }
         });
-        table.getColumnModel().getColumn(COL_JAR).setCellEditor(new javax.swing.DefaultCellEditor(jarField));
+        table.getColumnModel().getColumn(COL_PROGRAM).setCellEditor(new javax.swing.DefaultCellEditor(programField));
     }
 }

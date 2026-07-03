@@ -51,6 +51,7 @@ import javax.swing.event.ChangeListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
+import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.mining.GoogleSheetsAuth;
 import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.mining.ProspectorWriteResult;
@@ -106,11 +107,33 @@ public class PreferencesDialog extends JDialog {
 	}
 
 	void wireExecFromOwner() {
-		Window owner = getOwner();
-		if (owner instanceof OverlayFrame frame && execTabPanel != null) {
-			execTabPanel.setExecTriggerService(frame.getExecTriggerService());
+		if (execTabPanel == null) {
+			return;
+		}
+		ExecTriggerService service = resolveExecTriggerService(getOwner());
+		if (service != null) {
+			execTabPanel.setExecTriggerService(service);
 			execTabPanel.refreshFuelLevelLabel();
 		}
+	}
+
+	/**
+	 * {@link ExecTriggerService} always lives on {@link OverlayFrame}. Preferences may be owned by
+	 * {@link DecoratedOverlayDialog} when the user runs in normal (non-pass-through) window mode.
+	 */
+	static ExecTriggerService resolveExecTriggerService(Window window) {
+		for (Window w = window; w != null; w = w.getOwner()) {
+			if (w instanceof OverlayFrame frame) {
+				return frame.getExecTriggerService();
+			}
+			if (w instanceof DecoratedOverlayDialog decorated) {
+				ExecTriggerService service = decorated.getExecTriggerService();
+				if (service != null) {
+					return service;
+				}
+			}
+		}
+		return null;
 	}
 
 	public final String clientKey;
@@ -386,9 +409,13 @@ public class PreferencesDialog extends JDialog {
 		add(preferenceTabs, BorderLayout.CENTER);
 		add(createButtonPanel(), BorderLayout.SOUTH);
 
-		if (owner instanceof OverlayFrame overlayFrame && execTabPanel != null) {
-			execTabPanel.setExecTriggerService(overlayFrame.getExecTriggerService());
-		}
+		preferenceTabs.addChangeListener(e -> {
+			if (preferenceTabs.getSelectedIndex() == EXEC_TAB_INDEX) {
+				wireExecFromOwner();
+			}
+		});
+
+		wireExecFromOwner();
 
 		pack();
 		setLocationRelativeTo(owner);

@@ -126,6 +126,11 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		this.persistenceDelegate = overlayFrame;
 	}
 
+	/** Exec triggers live on the pass-through frame even when the decorated window is visible. */
+	public org.dce.ed.exec.ExecTriggerService getExecTriggerService() {
+		return persistenceDelegate != null ? persistenceDelegate.getExecTriggerService() : null;
+	}
+
 	/** Persist window bounds and session before {@link org.dce.ed.util.OverlayAppRestart}. */
 	public void prepareForApplicationRestart() {
 		if (persistenceDelegate != null) {

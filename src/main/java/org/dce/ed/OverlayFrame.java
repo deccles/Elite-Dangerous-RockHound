@@ -69,6 +69,7 @@ import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
+import org.dce.ed.util.ExplorationBodyCredits;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.SpanshBodyExobiologyInfo;
 import org.dce.ed.util.SpanshLandmark;
@@ -379,6 +380,17 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     }
 
     private void appendRightStatusInnerHtml(StringBuilder sb) {
+        Long targetedBounty = BountyScanTracker.getInstance().getTargetedBountyInSight();
+        boolean hasTargetedBounty = targetedBounty != null && targetedBounty.longValue() > 0L;
+        if (hasTargetedBounty) {
+            appendTargetedBountyInSightHtml(sb, targetedBounty.longValue());
+        }
+
+        boolean hasMainLine = carrierJumpDepartureTime != null || hasRightStatusMainSuffixContent();
+        if (hasTargetedBounty && hasMainLine) {
+            sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT)).append(";'> · </span>");
+        }
+
         if (carrierJumpDepartureTime != null) {
             appendFcJumpRightStatusHtml(sb);
         } else {
@@ -387,8 +399,10 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 main = "";
             }
             main = main.trim();
-            sb.append("<span style='color:").append(EdoUi.htmlRgb(getRightStatusMainForeground())).append(";'>")
-                    .append(EdoUi.escapeHtmlMinimal(main)).append("</span>");
+            if (!main.isEmpty()) {
+                sb.append("<span style='color:").append(EdoUi.htmlRgb(getRightStatusMainForeground())).append(";'>")
+                        .append(EdoUi.escapeHtmlMinimal(main)).append("</span>");
+            }
         }
         String hint = getRightStatusUpdateHintPlain();
         if (hint != null) {
@@ -396,6 +410,20 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                     .append(EdoUi.escapeHtmlMinimal(hint)).append("</span>");
         }
         appendSpeechCacheMissBannerHtml(sb);
+    }
+
+    private boolean hasRightStatusMainSuffixContent() {
+        String main = getRightStatusMainSuffixPlain();
+        return main != null && !main.trim().isEmpty();
+    }
+
+    private static void appendTargetedBountyInSightHtml(StringBuilder sb, long credits) {
+        sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.ERROR)).append(";'>")
+                .append(EdoUi.escapeHtmlMinimal(formatTargetedBountyInSightLabel(credits))).append("</span>");
+    }
+
+    static String formatTargetedBountyInSightLabel(long credits) {
+        return "Bounty: " + ExplorationBodyCredits.formatAbbreviatedCredits(credits);
     }
 
     private void appendSpeechCacheMissBannerHtml(StringBuilder sb) {
@@ -1414,6 +1442,7 @@ private void installLowLimpetStatusUpdater() {
     }
 
     NpcCrewTracker.getInstance().addListener(this::refreshPassThroughUnifiedStatus);
+    BountyScanTracker.getInstance().addListener(this::publishRightStatusText);
 
     CargoMonitor.getInstance().addListener(snap -> {
         lastCargoSnapshot = snap;
@@ -1433,6 +1462,10 @@ private void installLowLimpetStatusUpdater() {
  * Used by pass-through status and by {@link #buildDecoratedMenuStatusHtml} so a lone limpet warning does not get a leading {@code |}.
  */
 boolean isRightStatusEffectivelyEmpty() {
+    Long targetedBounty = BountyScanTracker.getInstance().getTargetedBountyInSight();
+    if (targetedBounty != null && targetedBounty.longValue() > 0L) {
+        return false;
+    }
     String main = getRightStatusMainSuffixPlain();
     if (main != null && !main.trim().isEmpty()) {
         return false;
