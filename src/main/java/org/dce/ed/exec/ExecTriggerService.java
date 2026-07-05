@@ -111,7 +111,9 @@ public final class ExecTriggerService {
     ExecLaunchContext buildFleetCooldownLaunchContext() {
         FleetCooldownClipboardPrep prep = resolveFleetCooldownClipboardPrep();
         ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.FLEET_COOLDOWN_COMPLETE)
-                .carrierSystemName(carrierSystemName());
+                .carrierSystemName(carrierSystemName())
+                .carrierCallsign(fuelTracker.getLastKnownCallsign())
+                .carrierName(fuelTracker.getLastKnownCarrierName());
         if (prep != null && prep.destination() != null && !prep.destination().isBlank()) {
             String destination = prep.destination().trim();
             builder.destination(destination).clipboard(destination);
@@ -189,15 +191,23 @@ public final class ExecTriggerService {
     private ExecLaunchContext buildJournalEventLaunchContext(EliteLogEvent event) {
         ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.JOURNAL_EVENT)
                 .carrierSystemName(carrierSystemName())
-                .journalEventType(event.getType());
+                .journalEventType(event.getType())
+                .carrierCallsign(fuelTracker.getLastKnownCallsign())
+                .carrierName(fuelTracker.getLastKnownCarrierName());
         if (event.getType() == EliteEventType.CARRIER_STATS) {
             JsonObject raw = event.getRawJson();
             int fuel = CarrierFuelTracker.fuelLevelFromJson(raw);
             if (fuel >= 0) {
                 builder.carrierFuelLevel(fuel);
             }
-            builder.carrierCallsign(CarrierFuelTracker.callsignFromJson(raw));
-            builder.carrierName(CarrierFuelTracker.carrierNameFromJson(raw));
+            String callsign = CarrierFuelTracker.callsignFromJson(raw);
+            if (callsign != null && !callsign.isBlank()) {
+                builder.carrierCallsign(callsign);
+            }
+            String name = CarrierFuelTracker.carrierNameFromJson(raw);
+            if (name != null && !name.isBlank()) {
+                builder.carrierName(name);
+            }
         }
         return builder.build();
     }
@@ -213,7 +223,9 @@ public final class ExecTriggerService {
                 .carrierSystemName(carrierSystemName())
                 .carrierFuelLevel(fuelTracker.getLastKnownFuelLevel() >= 0
                         ? Integer.valueOf(fuelTracker.getLastKnownFuelLevel()) : null)
-                .carrierFuelThreshold(config.getFleetTritiumLowThreshold());
+                .carrierFuelThreshold(config.getFleetTritiumLowThreshold())
+                .carrierCallsign(fuelTracker.getLastKnownCallsign())
+                .carrierName(fuelTracker.getLastKnownCarrierName());
         if (prep != null && prep.destination() != null && !prep.destination().isBlank()) {
             String destination = prep.destination().trim();
             builder.destination(destination).clipboard(destination);

@@ -34,6 +34,7 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 
+import org.dce.ed.edsm.UtilTable;
 import org.dce.ed.exec.ExecBinding;
 import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecBindingsStore;
@@ -199,10 +200,11 @@ public final class ExecTabPanel extends JPanel {
                 table.setRowSelectionInterval(last, last);
             }
             persistConfig();
+            autoSizeExecTableColumns();
         });
 
         removeButton.addActionListener(e -> {
-            int row = table.getSelectedRow();
+            int row = resolveSelectedModelRow(false);
             if (row < 0 || row >= config.getBindings().size()) {
                 setStatus("Select a row to remove.");
                 return;
@@ -210,6 +212,7 @@ public final class ExecTabPanel extends JPanel {
             config.getBindings().remove(row);
             tableModel.fireTableDataChanged();
             persistConfig();
+            autoSizeExecTableColumns();
         });
 
         browseButton.addActionListener(e -> browseProgramForSelectedRow());
@@ -281,6 +284,7 @@ public final class ExecTabPanel extends JPanel {
         fuelLevelLabel.setFont(font);
         table.setFont(font);
         table.getTableHeader().setFont(font);
+        autoSizeExecTableColumns();
     }
 
     private void browseProgramForSelectedRow() {
@@ -589,5 +593,11 @@ public final class ExecTabPanel extends JPanel {
             }
         });
         table.getColumnModel().getColumn(COL_ARGS).setCellEditor(new javax.swing.DefaultCellEditor(argsField));
+        autoSizeExecTableColumns();
+    }
+
+    private void autoSizeExecTableColumns() {
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+        SwingUtilities.invokeLater(() -> UtilTable.autoSizeTableColumns(table));
     }
 }

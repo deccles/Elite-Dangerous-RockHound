@@ -4,15 +4,26 @@ import com.google.gson.JsonObject;
 
 /**
  * Tracks owned fleet carrier fuel tank level from journal {@code CarrierStats.FuelLevel}
- * and detects crossing below a configurable threshold.
+ * and detects crossing below a configurable threshold. Also caches carrier {@code Name} and
+ * {@code Callsign} from the same events for Exec placeholders.
  */
 public final class CarrierFuelTracker {
 
     private int lastKnownFuelLevel = -1;
+    private String lastKnownCarrierName;
+    private String lastKnownCallsign;
     private boolean lowLatched;
 
     public int getLastKnownFuelLevel() {
         return lastKnownFuelLevel;
+    }
+
+    public String getLastKnownCarrierName() {
+        return lastKnownCarrierName;
+    }
+
+    public String getLastKnownCallsign() {
+        return lastKnownCallsign;
     }
 
     public boolean isLowLatched() {
@@ -20,33 +31,27 @@ public final class CarrierFuelTracker {
     }
 
     /**
-     * Records {@code FuelLevel} from a {@code CarrierStats} event for the owned carrier (or any carrier when
-     * owned id is not yet known).
+     * Records {@code Name}, {@code Callsign}, and {@code FuelLevel} from a {@code CarrierStats} event
+     * for the owned carrier (or any carrier when owned id is not yet known).
      */
-    public boolean recordFuelFromCarrierStats(JsonObject raw, long ownedCarrierId) {
-        if (raw == null) {
+    public boolean ingestCarrierStats(JsonObject raw, long ownedCarrierId) {
+        if (!matchesOwnedCarrier(raw, ownedCarrierId)) {
             return false;
         }
-        long carrierId = fuelCarrierIdFromJson(raw);
-        if (carrierId == 0L) {
-            return false;
-        }
-        if (ownedCarrierId != 0L && carrierId != ownedCarrierId) {
-            return false;
-        }
-        int fuel = fuelLevelFromJson(raw);
-        if (fuel < 0) {
-            return false;
-        }
-        lastKnownFuelLevel = fuel;
+        applyCarrierStatsFields(raw);
         return true;
+    }
+
+    /** @deprecated use {@link #ingestCarrierStats}; kept for bootstrap call sites */
+    public boolean recordFuelFromCarrierStats(JsonObject raw, long ownedCarrierId) {
+        return ingestCarrierStats(raw, ownedCarrierId);
     }
 
     /**
      * @return {@code true} when fuel crosses from not-low to low (edge trigger)
      */
     public boolean updateFromCarrierStats(JsonObject raw, long ownedCarrierId, int threshold, int hysteresis) {
-        if (!recordFuelFromCarrierStats(raw, ownedCarrierId)) {
+        if (!ingestCarrierStats(raw, ownedCarrierId)) {
             return false;
         }
         if (threshold < 0) {
@@ -64,6 +69,32 @@ public final class CarrierFuelTracker {
             return true;
         }
         return false;
+    }
+
+    private static boolean matchesOwnedCarrier(JsonObject raw, long ownedCarrierId) {
+        if (raw == null) {
+            return false;
+        }
+        long carrierId = fuelCarrierIdFromJson(raw);
+        if (carrierId == 0L) {
+            return false;
+        }
+        return ownedCarrierId == 0L || carrierId == ownedCarrierId;
+    }
+
+    private void applyCarrierStatsFields(JsonObject raw) {
+        String name = carrierNameFromJson(raw);
+        if (name != null && !name.isBlank()) {
+            lastKnownCarrierName = name.trim();
+        }
+        String callsign = callsignFromJson(raw);
+        if (callsign != null && !callsign.isBlank()) {
+            lastKnownCallsign = callsign.trim();
+        }
+        int fuel = fuelLevelFromJson(raw);
+        if (fuel >= 0) {
+            lastKnownFuelLevel = fuel;
+        }
     }
 
     public static int fuelLevelFromJson(JsonObject raw) {

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.List;
 import java.util.Map;
 
+import org.dce.ed.exec.CarrierFuelTracker;
 import org.dce.ed.exec.ExecLaunchContext;
 import org.dce.ed.exec.ExecTriggerId;
 import org.junit.jupiter.api.Test;
@@ -52,6 +53,19 @@ class ExecPlaceholderSubstitutorTest {
         ExecPlaceholderContext ctx = new ExecPlaceholderContext();
         assertEquals("Unknown",
                 ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.CARRIER_FUEL_LEVEL));
+    }
+
+    @Test
+    void carrierName_fromFuelTrackerWhenNoLaunchContext() {
+        CarrierFuelTracker tracker = new CarrierFuelTracker();
+        tracker.ingestCarrierStats(com.google.gson.JsonParser.parseString(
+                "{ \"CarrierID\": 1, \"Name\": \"My Carrier\", \"Callsign\": \"ABC-12X\" }").getAsJsonObject(), 0L);
+        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+        ctx.setCarrierFuelTrackerSupplier(() -> tracker);
+        assertEquals("My Carrier",
+                ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.CARRIER_NAME));
+        assertEquals("ABC-12X",
+                ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.CARRIER_CALLSIGN));
     }
 
     @Test

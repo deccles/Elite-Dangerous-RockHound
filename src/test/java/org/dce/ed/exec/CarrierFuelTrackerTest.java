@@ -14,6 +14,19 @@ class CarrierFuelTrackerTest {
     private static final long OWNED_ID = 3714348544L;
 
     @Test
+    void ingestCarrierStats_recordsNameAndCallsign() {
+        CarrierFuelTracker tracker = new CarrierFuelTracker();
+        JsonObject stats = JsonParser.parseString(
+                "{ \"CarrierID\": " + OWNED_ID
+                        + ", \"Name\": \"BLUE EVENT HORIZON\", \"Callsign\": \"JFZ-93T\", \"FuelLevel\": 455 }")
+                .getAsJsonObject();
+        assertTrue(tracker.ingestCarrierStats(stats, OWNED_ID));
+        assertEquals("BLUE EVENT HORIZON", tracker.getLastKnownCarrierName());
+        assertEquals("JFZ-93T", tracker.getLastKnownCallsign());
+        assertEquals(455, tracker.getLastKnownFuelLevel());
+    }
+
+    @Test
     void updateFromCarrierStats_firesOnceUntilHysteresisClears() {
         CarrierFuelTracker tracker = new CarrierFuelTracker();
         JsonObject low = JsonParser.parseString(

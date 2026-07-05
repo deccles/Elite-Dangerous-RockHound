@@ -62,13 +62,10 @@ public final class CarrierFuelJournalBootstrap {
             if (ownedId != 0L && carrierId != ownedId) {
                 continue;
             }
-            if (CarrierFuelTracker.fuelLevelFromJson(raw) < 0) {
-                continue;
-            }
             lastMatchingStats = raw;
         }
         if (lastMatchingStats != null) {
-            fuelTracker.recordFuelFromCarrierStats(lastMatchingStats, ownedId);
+            fuelTracker.ingestCarrierStats(lastMatchingStats, ownedId);
         }
     }
 }

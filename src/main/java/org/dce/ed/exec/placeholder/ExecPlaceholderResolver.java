@@ -65,15 +65,23 @@ public final class ExecPlaceholderResolver {
             }
             case CARRIER_NAME -> {
                 if (launch != null && launch.getCarrierName() != null) {
-                    yield blankOrNull(launch.getCarrierName());
+                    String fromLaunch = blankOrNull(launch.getCarrierName());
+                    if (fromLaunch != null) {
+                        yield fromLaunch;
+                    }
                 }
-                yield null;
+                CarrierFuelTracker ft = ctx.fuelTracker();
+                yield ft != null ? blankOrNull(ft.getLastKnownCarrierName()) : null;
             }
             case CARRIER_CALLSIGN -> {
                 if (launch != null && launch.getCarrierCallsign() != null) {
-                    yield blankOrNull(launch.getCarrierCallsign());
+                    String fromLaunch = blankOrNull(launch.getCarrierCallsign());
+                    if (fromLaunch != null) {
+                        yield fromLaunch;
+                    }
                 }
-                yield null;
+                CarrierFuelTracker ft = ctx.fuelTracker();
+                yield ft != null ? blankOrNull(ft.getLastKnownCallsign()) : null;
             }
             case CARRIER_FUEL_LEVEL -> {
                 CarrierFuelTracker ft = ctx.fuelTracker();
