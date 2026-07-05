@@ -22,7 +22,8 @@ class ExecBindingsStoreTest {
         config.setFleetTritiumLowHysteresis(15);
         ExecBinding binding = new ExecBinding();
         binding.setEnabled(true);
-        binding.setTrigger(ExecTriggerId.FLEET_COOLDOWN_COMPLETE);
+        binding.setTrigger(ExecTriggerId.JOURNAL_EVENT);
+        binding.setJournalEventType("Docked");
         binding.setDelayMs(10_000);
         binding.setJarPath("C:\\tools\\demo.jar");
         binding.setProgramArgs("--foo");
@@ -36,9 +37,10 @@ class ExecBindingsStoreTest {
         List<ExecBinding> rows = loaded.getBindings();
         assertEquals(1, rows.size());
         assertTrue(rows.get(0).isEnabled());
-        assertEquals(ExecTriggerId.FLEET_COOLDOWN_COMPLETE, rows.get(0).getTrigger());
+        assertEquals(ExecTriggerId.JOURNAL_EVENT, rows.get(0).getTrigger());
         assertEquals(10_000, rows.get(0).getDelayMs());
         assertEquals("C:\\tools\\demo.jar", rows.get(0).getJarPath());
         assertEquals("--foo", rows.get(0).getProgramArgs());
+        assertEquals("Docked", rows.get(0).getJournalEventType());
     }
 }

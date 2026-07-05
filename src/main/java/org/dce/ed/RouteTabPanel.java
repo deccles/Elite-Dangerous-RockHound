@@ -219,18 +219,34 @@ public class RouteTabPanel extends JPanel {
 		if (entries == null || entries.isEmpty()) {
 			return null;
 		}
-		int row = RouteGeometry.findSystemRow(entries, session.getCurrentSystemName(), session.getCurrentSystemAddress());
+		String curName = session.getCurrentSystemName();
+		long curAddr = session.getCurrentSystemAddress();
+		int row = RouteGeometry.findSystemRow(entries, curName, curAddr);
 		int start = row + 1;
 		if (row < 0) {
 			start = 0;
 		}
 		for (int i = start; i < entries.size(); i++) {
 			RouteEntry e = entries.get(i);
-			if (e != null && !e.isBodyRow && e.systemName != null && !e.systemName.isBlank()) {
-				return e.systemName.trim();
+			if (e == null || e.isBodyRow || e.systemName == null || e.systemName.isBlank()) {
+				continue;
 			}
+			if (isSameRouteSystem(e, curName, curAddr)) {
+				continue;
+			}
+			return e.systemName.trim();
 		}
 		return null;
+	}
+
+	static boolean isSameRouteSystem(RouteEntry entry, String systemName, long systemAddress) {
+		if (entry == null) {
+			return false;
+		}
+		if (systemAddress != 0L && entry.systemAddress != 0L && entry.systemAddress == systemAddress) {
+			return true;
+		}
+		return systemName != null && !systemName.isBlank() && systemName.equals(entry.systemName);
 	}
 
 	private final Map<Long, RouteScanStatus> lastKnownScanStatusByAddress = new ConcurrentHashMap<>();
@@ -240,6 +256,11 @@ public class RouteTabPanel extends JPanel {
 
 	/** Same-package test access (not part of public API). */
 	RouteSession routeSessionForTests() {
+		return routeSession;
+	}
+
+	/** Live route session for exec placeholders and adjacent tabs. */
+	public RouteSession getRouteSession() {
 		return routeSession;
 	}
 

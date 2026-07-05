@@ -6107,6 +6107,16 @@ static class Row {
         return state;
     }
 
+    /** Target body name for exec placeholders (may be null). */
+    public String getTargetBodyNameForExec() {
+        return targetBodyName;
+    }
+
+    /** Nearest body name for exec placeholders (may be null). */
+    public String getNearBodyNameForExec() {
+        return nearBodyName;
+    }
+
     private void injectIntermediateDestinationRow(List<Row> rows) {
         Integer parentId = targetDestinationParentBodyId;
         String name = targetDestinationName;

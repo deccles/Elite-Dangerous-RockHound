@@ -83,7 +83,9 @@ import com.google.gson.JsonObject;
 import com.sun.jna.Native;
 import org.dce.ed.util.WindowsNativeMousePassThrough;
 
+import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.exec.placeholder.ExecPlaceholderContext;
 import org.dce.ed.exec.FleetCooldownClipboardPrep;
 import org.dce.ed.ui.EdoUi;
 
@@ -155,6 +157,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private final OverlayContentPanel contentPanel;
 	private final OverlayBackgroundPanel backgroundPanel;
     private final ExecTriggerService execTriggerService = new ExecTriggerService();
+    private final ExecPlaceholderContext execPlaceholderContext = new ExecPlaceholderContext();
 
     /** When non-null+not expired, overrides Low Limpet Warning red status. */
     private volatile String exceptionLeftStatusText;
@@ -310,8 +313,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         if (time != null) {
             if (carrierJumpDepartureTime != null) {
                 String s = "FC jump " + time;
-                if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
-                    s += " → " + carrierJumpTargetSystem;
+                String tgt = resolveCarrierJumpTitleTarget();
+                if (tgt != null && !tgt.isBlank()) {
+                    s += " → " + tgt;
                 }
                 return s;
             }
@@ -328,8 +332,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private String getRightStatusMainSuffixPlain() {
         if (carrierJumpDepartureTime != null) {
             String s = "FC jump";
-            if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
-                s += " → " + carrierJumpTargetSystem;
+            String tgt = resolveCarrierJumpTitleTarget();
+            if (tgt != null && !tgt.isBlank()) {
+                s += " → " + tgt;
             }
             return s;
         }
@@ -441,7 +446,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         Color fg = getRightStatusMainForeground();
         String fgHtml = EdoUi.htmlRgb(fg);
         sb.append("<span style='color:").append(fgHtml).append(";'>FC jump</span>");
-        String tgt = carrierJumpTargetSystem;
+        String tgt = resolveCarrierJumpTitleTarget();
         if (tgt != null && !tgt.isBlank()) {
             String arrowRgb = EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT);
             sb.append("<span style='font-weight:700;font-size:1.22em;color:").append(arrowRgb)
@@ -932,6 +937,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         if (tabs == null) {
             return;
         }
+        execTriggerService.setPlaceholderContext(execPlaceholderContext);
+        wireExecPlaceholderContext(tabs);
+        tabs.setExecPlaceholderContext(execPlaceholderContext);
         tabs.wireExecTriggerService(execTriggerService);
         execTriggerService.setCarrierSystemSupplier(() -> {
             OwnedFleetCarrierTracker tracker = tabs.getOwnedFleetCarrierTracker();
@@ -943,6 +951,28 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                     ? fleetCarrierTab.prepareFleetCooldownDestinationClipboard()
                     : FleetCooldownClipboardPrep.unavailable();
         });
+    }
+
+    private void wireExecPlaceholderContext(EliteOverlayTabbedPane tabs) {
+        execPlaceholderContext.setCarrierJumpTargetSupplier(() -> carrierJumpTargetSystem);
+        execPlaceholderContext.setShipRouteSessionSupplier(() -> tabs.getRouteTabPanel().getRouteSession());
+        execPlaceholderContext.setFleetRouteSessionSupplier(() -> tabs.getFleetCarrierTabPanel().getRouteSession());
+        execPlaceholderContext.setSystemStateSupplier(() -> tabs.getSystemTabPanel().getState());
+        execPlaceholderContext.setTargetBodyNameSupplier(() -> tabs.getSystemTabPanel().getTargetBodyNameForExec());
+        execPlaceholderContext.setNearBodyNameSupplier(() -> tabs.getSystemTabPanel().getNearBodyNameForExec());
+        execPlaceholderContext.setExobiologyCreditsSupplier(() -> Long.valueOf(exoCreditsTotal));
+        execPlaceholderContext.setGeoSurveyCreditsSupplier(() -> Long.valueOf(geoSurveyCreditsTotal));
+        execPlaceholderContext.setBountyCreditsSupplier(() -> Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
+        execPlaceholderContext.setExecConfigSupplier(() -> {
+            ExecBindingsConfig config = execTriggerService.store().load();
+            return config;
+        });
+        execPlaceholderContext.setOwnedCarrierTrackerSupplier(tabs::getOwnedFleetCarrierTracker);
+        execPlaceholderContext.setCarrierFuelTrackerSupplier(execTriggerService::fuelTracker);
+    }
+
+    public ExecPlaceholderContext getExecPlaceholderContext() {
+        return execPlaceholderContext;
     }
 
     public ExecTriggerService getExecTriggerService() {
@@ -1071,6 +1101,25 @@ private void startCarrierJumpCountdown(Instant departureTime, String targetSyste
 
     updateCarrierJumpCountdown();
     saveSessionState();
+}
+
+/**
+ * Target shown in the title bar during an FC jump countdown. When a Spansh fleet route is loaded,
+ * prefer the next hop on that route over the raw in-game {@link CarrierJumpRequestEvent} target
+ * (which may be a manual off-route jump or a stale request).
+ */
+private String resolveCarrierJumpTitleTarget() {
+    EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+    if (tabs != null) {
+        FleetCarrierTabPanel fleet = tabs.getFleetCarrierTabPanel();
+        if (fleet != null && fleet.isSpanshRouteLoaded()) {
+            String routeNext = RouteTabPanel.nextRouteDestinationSystemName(fleet.getRouteSession());
+            if (routeNext != null && !routeNext.isBlank()) {
+                return routeNext;
+            }
+        }
+    }
+    return carrierJumpTargetSystem;
 }
 
 private void updateCarrierJumpCountdown() {

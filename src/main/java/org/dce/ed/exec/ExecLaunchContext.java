@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.dce.ed.logreader.EliteEventType;
+
 /** Environment passed to external JAR processes. */
 public final class ExecLaunchContext {
 
@@ -18,6 +20,7 @@ public final class ExecLaunchContext {
     private final String destination;
     private final String clipboard;
     private final boolean clipboardCleared;
+    private final EliteEventType journalEventType;
 
     private ExecLaunchContext(Builder builder) {
         this.trigger = builder.trigger;
@@ -31,6 +34,7 @@ public final class ExecLaunchContext {
         this.destination = builder.destination;
         this.clipboard = builder.clipboard;
         this.clipboardCleared = builder.clipboardCleared;
+        this.journalEventType = builder.journalEventType;
     }
 
     public ExecTriggerId getTrigger() {
@@ -77,6 +81,10 @@ public final class ExecLaunchContext {
         return clipboardCleared;
     }
 
+    public EliteEventType getJournalEventType() {
+        return journalEventType;
+    }
+
     public Map<String, String> toEnvironment() {
         Map<String, String> env = new LinkedHashMap<>();
         env.put("EDO_TRIGGER", trigger.name().toLowerCase());
@@ -95,6 +103,9 @@ public final class ExecLaunchContext {
         putIfPresent(env, "EDO_CLIPBOARD", clipboard != null ? clipboard : destination);
         if (clipboardCleared) {
             env.put("EDO_CLIPBOARD_CLEARED", "1");
+        }
+        if (journalEventType != null && journalEventType != EliteEventType.UNKNOWN) {
+            env.put("EDO_JOURNAL_EVENT", journalEventType.getJournalName());
         }
         return env;
     }
@@ -121,6 +132,7 @@ public final class ExecLaunchContext {
         private String destination;
         private String clipboard;
         private boolean clipboardCleared;
+        private EliteEventType journalEventType;
 
         private Builder(ExecTriggerId trigger) {
             this.trigger = trigger;
@@ -173,6 +185,11 @@ public final class ExecLaunchContext {
 
         public Builder clipboardCleared(boolean clipboardCleared) {
             this.clipboardCleared = clipboardCleared;
+            return this;
+        }
+
+        public Builder journalEventType(EliteEventType journalEventType) {
+            this.journalEventType = journalEventType;
             return this;
         }
 

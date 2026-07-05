@@ -1,6 +1,9 @@
 package org.dce.ed.logreader;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -95,5 +98,18 @@ public enum EliteEventType {
     public static EliteEventType fromJournalName(String name) {
         EliteEventType t = BY_NAME.get(name);
         return t != null ? t : UNKNOWN;
+    }
+
+    /** Journal events available in the Exec tab event picker (sorted by journal name). */
+    public static EliteEventType[] execSelectableValues() {
+        List<EliteEventType> out = new ArrayList<>();
+        for (EliteEventType t : values()) {
+            if (t == FILEHEADER || t == UNKNOWN) {
+                continue;
+            }
+            out.add(t);
+        }
+        out.sort(Comparator.comparing(EliteEventType::getJournalName, String.CASE_INSENSITIVE_ORDER));
+        return out.toArray(EliteEventType[]::new);
     }
 }

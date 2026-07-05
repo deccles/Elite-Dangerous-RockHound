@@ -1,5 +1,6 @@
 package org.dce.ed.exec;
 
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -10,6 +11,9 @@ import org.dce.ed.logreader.CarrierJumpCooldown;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.OwnedFleetCarrierTracker;
+
+import org.dce.ed.exec.placeholder.ExecPlaceholderContext;
+import org.dce.ed.exec.placeholder.ExecPlaceholderResolver;
 
 import com.google.gson.JsonObject;
 
@@ -25,6 +29,7 @@ public final class ExecTriggerService {
     private volatile Supplier<String> carrierSystemSupplier;
     /** Fleet Carrier tab: copy next route hop (or clear clipboard at end of route) before cooldown exec. */
     private volatile Supplier<FleetCooldownClipboardPrep> fleetCooldownClipboardPrepSupplier;
+    private volatile ExecPlaceholderContext placeholderContext;
 
     public ExecTriggerService() {
         this(new ExecBindingsStore());
@@ -48,6 +53,19 @@ public final class ExecTriggerService {
 
     public void setFleetCooldownClipboardPrepSupplier(Supplier<FleetCooldownClipboardPrep> fleetCooldownClipboardPrepSupplier) {
         this.fleetCooldownClipboardPrepSupplier = fleetCooldownClipboardPrepSupplier;
+    }
+
+    public void setPlaceholderContext(ExecPlaceholderContext placeholderContext) {
+        this.placeholderContext = placeholderContext;
+    }
+
+    public ExecPlaceholderContext placeholderContext() {
+        return placeholderContext;
+    }
+
+    /** Live placeholder values for UI tooltips (no launch context). */
+    public Map<String, String> resolvePlaceholdersForUi() {
+        return ExecPlaceholderResolver.resolveAll(placeholderContext, null);
     }
 
     public CarrierFuelTracker fuelTracker() {
@@ -112,9 +130,16 @@ public final class ExecTriggerService {
     }
 
     public void onJournalEvent(EliteLogEvent event, OwnedFleetCarrierTracker ownedTracker) {
-        if (event == null || event.getType() != EliteEventType.CARRIER_STATS) {
+        if (event == null) {
             return;
         }
+        if (event.getType() == EliteEventType.CARRIER_STATS) {
+            handleCarrierStatsTritium(event, ownedTracker);
+        }
+        dispatchJournalEventBindings(event);
+    }
+
+    private void handleCarrierStatsTritium(EliteLogEvent event, OwnedFleetCarrierTracker ownedTracker) {
         JsonObject raw = event.getRawJson();
         if (raw == null) {
             return;
@@ -138,17 +163,50 @@ public final class ExecTriggerService {
                 .build());
     }
 
+    private void dispatchJournalEventBindings(EliteLogEvent event) {
+        EliteEventType type = event.getType();
+        if (type == null || type == EliteEventType.UNKNOWN) {
+            return;
+        }
+        ExecBindingsConfig config = currentConfig();
+        for (ExecBinding binding : config.getBindings()) {
+            if (binding == null || !binding.isEnabled() || binding.getTrigger() != ExecTriggerId.JOURNAL_EVENT) {
+                continue;
+            }
+            if (!binding.matchesJournalEvent(type)) {
+                continue;
+            }
+            ExecLaunchContext context = mergeContext(buildJournalEventLaunchContext(event), binding);
+            scheduleAndRun(binding, context);
+        }
+    }
+
+    private ExecLaunchContext buildJournalEventLaunchContext(EliteLogEvent event) {
+        return ExecLaunchContext.builder(ExecTriggerId.JOURNAL_EVENT)
+                .carrierSystemName(carrierSystemName())
+                .journalEventType(event.getType())
+                .build();
+    }
+
     public void runBindingNow(ExecBinding binding) {
         if (binding == null) {
             publishStatus("Select a row to run.");
             return;
         }
-        ExecLaunchContext context = ExecLaunchContext.builder(ExecTriggerId.MANUAL)
+        ExecBindingsConfig config = currentConfig();
+        FleetCooldownClipboardPrep prep = resolveFleetCooldownClipboardPrep();
+        ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.MANUAL)
                 .carrierSystemName(carrierSystemName())
                 .carrierFuelLevel(fuelTracker.getLastKnownFuelLevel() >= 0
                         ? Integer.valueOf(fuelTracker.getLastKnownFuelLevel()) : null)
-                .build();
-        scheduleAndRun(binding, context);
+                .carrierFuelThreshold(config.getFleetTritiumLowThreshold());
+        if (prep != null && prep.destination() != null && !prep.destination().isBlank()) {
+            String destination = prep.destination().trim();
+            builder.destination(destination).clipboard(destination);
+        } else if (prep != null && prep.clipboardCleared()) {
+            builder.clipboardCleared(true);
+        }
+        scheduleAndRun(binding, builder.build());
     }
 
     private void fireTrigger(ExecTriggerId triggerId, ExecLaunchContext baseContext) {
@@ -174,6 +232,7 @@ public final class ExecTriggerService {
                 .destination(base.getDestination())
                 .clipboard(base.getClipboard())
                 .clipboardCleared(base.isClipboardCleared())
+                .journalEventType(base.getJournalEventType())
                 .build();
     }
 
@@ -191,7 +250,7 @@ public final class ExecTriggerService {
 
     private void launch(ExecBinding binding, ExecLaunchContext context) {
         publishStatus("Running " + shortProgramName(binding.getJarPath()) + "…");
-        JarExecRunner.runAsync(binding, context, result -> SwingUtilities.invokeLater(() -> {
+        JarExecRunner.runAsync(binding, context, placeholderContext, result -> SwingUtilities.invokeLater(() -> {
             if (result.exitCode() == 0) {
                 publishStatus("OK: " + result.detail());
             } else {

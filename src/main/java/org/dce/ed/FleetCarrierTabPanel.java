@@ -35,6 +35,7 @@ import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FssAllBodiesFoundEvent;
 import org.dce.ed.logreader.event.FssDiscoveryScanEvent;
+import org.dce.ed.route.RouteEntry;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.FleetCarrierSessionData;
 import org.dce.ed.session.FleetCarrierSessionMapper;
@@ -65,6 +66,11 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	private final String defaultStatusText = "Drag a Spansh route file onto RockHound to import";
 
 	private volatile boolean spanshRouteLoaded = false;
+
+	/** {@code true} when a Spansh fleet-carrier route is loaded on this tab. */
+	public boolean isSpanshRouteLoaded() {
+		return spanshRouteLoaded;
+	}
 	private volatile boolean pendingJumpFromOwnedCarrier;
 
 	private final OwnedFleetCarrierTracker ownedFleetCarrierTracker;
@@ -390,7 +396,16 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			}
 			pendingJumpFromOwnedCarrier = true;
 			applyScheduledJumpDestinationIfNeeded(req);
-			startPendingJumpBlink(req.getSystemName(), req.getSystemAddress(), req.getDepartureTime());
+			String blinkName = req.getSystemName();
+			long blinkAddr = req.getSystemAddress();
+			if (spanshRouteLoaded) {
+				String routeNext = RouteTabPanel.nextRouteDestinationSystemName(routeSession);
+				if (routeNext != null && !routeNext.isBlank()) {
+					blinkName = routeNext;
+					blinkAddr = routeSystemAddress(routeNext);
+				}
+			}
+			startPendingJumpBlink(blinkName, blinkAddr, req.getDepartureTime());
 			return;
 		}
 		if (event.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
@@ -514,6 +529,21 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		} else {
 			SwingUtilities.invokeLater(update);
 		}
+	}
+
+	private long routeSystemAddress(String systemName) {
+		if (systemName == null || systemName.isBlank()) {
+			return 0L;
+		}
+		for (RouteEntry e : routeSession.getBaseRouteEntries()) {
+			if (e == null || e.isBodyRow) {
+				continue;
+			}
+			if (systemName.equals(e.systemName)) {
+				return e.systemAddress;
+			}
+		}
+		return 0L;
 	}
 
 	String destinationQueryForTests() {

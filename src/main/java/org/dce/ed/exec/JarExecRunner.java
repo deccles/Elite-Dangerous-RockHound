@@ -16,6 +16,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
+import org.dce.ed.exec.placeholder.ExecPlaceholderContext;
+import org.dce.ed.exec.placeholder.ExecPlaceholderResolver;
+import org.dce.ed.exec.placeholder.ExecPlaceholderSubstitutor;
+
 /** Launches a bound program ({@code .exe} or {@code java -jar}) on a background thread. */
 public final class JarExecRunner {
 
@@ -26,9 +30,9 @@ public final class JarExecRunner {
     }
 
     public static void runAsync(ExecBinding binding, ExecLaunchContext context,
-            Consumer<RunResult> onComplete) {
+            ExecPlaceholderContext placeholderContext, Consumer<RunResult> onComplete) {
         Thread t = new Thread(() -> {
-            RunResult result = run(binding, context);
+            RunResult result = run(binding, context, placeholderContext);
             if (onComplete != null) {
                 onComplete.accept(result);
             }
@@ -37,7 +41,8 @@ public final class JarExecRunner {
         t.start();
     }
 
-    public static RunResult run(ExecBinding binding, ExecLaunchContext context) {
+    public static RunResult run(ExecBinding binding, ExecLaunchContext context,
+            ExecPlaceholderContext placeholderContext) {
         if (binding == null) {
             return new RunResult(-1, "No binding.");
         }
@@ -50,7 +55,8 @@ public final class JarExecRunner {
             return new RunResult(-1, "Program not found: " + program);
         }
 
-        List<String> command = buildCommand(program, binding.getProgramArgs());
+        Map<String, String> resolved = ExecPlaceholderResolver.resolveAll(placeholderContext, context);
+        List<String> command = buildCommand(program, binding.getProgramArgs(), placeholderContext, context, resolved);
         try {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.directory(program.getParent() != null ? program.getParent().toFile() : null);
@@ -84,16 +90,22 @@ public final class JarExecRunner {
     }
 
     static List<String> buildCommand(Path program, String programArgs) {
+        return buildCommand(program, programArgs, null, null, null);
+    }
+
+    static List<String> buildCommand(Path program, String programArgs,
+            ExecPlaceholderContext placeholderContext, ExecLaunchContext launchContext,
+            Map<String, String> resolved) {
         List<String> command = new ArrayList<>();
         if (isWindowsExecutable(program)) {
             command.add(program.toAbsolutePath().normalize().toString());
-            appendProgramArgs(command, programArgs);
+            appendProgramArgs(command, programArgs, placeholderContext, launchContext, resolved);
             return command;
         }
         Optional<Path> packagedExe = JavaLauncher.resolvePackagedExeForJar(program);
         if (packagedExe.isPresent()) {
             command.add(packagedExe.get().toString());
-            appendProgramArgs(command, programArgs);
+            appendProgramArgs(command, programArgs, placeholderContext, launchContext, resolved);
             return command;
         }
         Optional<Path> java = JavaLauncher.resolve();
@@ -105,7 +117,7 @@ public final class JarExecRunner {
         }
         command.add("-jar");
         command.add(program.toString());
-        appendProgramArgs(command, programArgs);
+        appendProgramArgs(command, programArgs, placeholderContext, launchContext, resolved);
         return command;
     }
 
@@ -121,8 +133,15 @@ public final class JarExecRunner {
                 + "or install JDK 21+ and ensure JAVA_HOME is set.";
     }
 
-    private static void appendProgramArgs(List<String> command, String programArgs) {
+    private static void appendProgramArgs(List<String> command, String programArgs,
+            ExecPlaceholderContext placeholderContext, ExecLaunchContext launchContext,
+            Map<String, String> resolved) {
         if (programArgs == null || programArgs.isBlank()) {
+            return;
+        }
+        if (placeholderContext != null) {
+            command.addAll(ExecPlaceholderSubstitutor.expandProgramArgs(
+                    programArgs, placeholderContext, launchContext, resolved));
             return;
         }
         for (String token : programArgs.trim().split("\\s+")) {

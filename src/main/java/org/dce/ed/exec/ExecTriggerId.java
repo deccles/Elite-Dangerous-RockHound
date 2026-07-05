@@ -7,7 +7,8 @@ public enum ExecTriggerId {
     FLEET_COOLDOWN_COMPLETE("Fleet cooldown complete"),
     FLEET_TRITIUM_LOW("Fleet carrier tritium low"),
     ROUTE_COPY_NEXT_DESTINATION("Copy next destination (Route)"),
-    FLEET_CARRIER_COPY_NEXT_DESTINATION("Copy next destination (Fleet Carrier)");
+    FLEET_CARRIER_COPY_NEXT_DESTINATION("Copy next destination (Fleet Carrier)"),
+    JOURNAL_EVENT("Journal event");
 
     private final String label;
 
@@ -25,7 +26,8 @@ public enum ExecTriggerId {
                 FLEET_COOLDOWN_COMPLETE,
                 FLEET_TRITIUM_LOW,
                 ROUTE_COPY_NEXT_DESTINATION,
-                FLEET_CARRIER_COPY_NEXT_DESTINATION
+                FLEET_CARRIER_COPY_NEXT_DESTINATION,
+                JOURNAL_EVENT
         };
     }
 }

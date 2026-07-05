@@ -46,6 +46,8 @@ import javax.swing.Timer;
 import javax.swing.TransferHandler;
 
 import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.exec.placeholder.ExecPlaceholderContext;
+import org.dce.ed.exec.placeholder.CommanderSnapshot;
 import org.dce.ed.mining.ProspectorLogBackendFactory;
 import org.dce.ed.OverlayPreferences.MiningLimpetReminderMode;
 import org.dce.ed.tts.PollyTtsCached;
@@ -60,6 +62,7 @@ import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.FssDiscoveryScanEvent;
+import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.LocationEvent;
@@ -159,6 +162,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private JButton fleetCarrierButton;
 
 	private ExecTriggerService execTriggerService;
+	private ExecPlaceholderContext execPlaceholderContext;
 
 	public EliteOverlayTabbedPane() {
 		this(() -> true);
@@ -474,6 +478,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 	public void processJournalEvent(EliteLogEvent event) {
 		applyOwnedFleetCarrierTrackerFromJournal(event);
+		updateExecPlaceholderSnapshot(event);
 		if (execTriggerService != null) {
 			execTriggerService.onJournalEvent(event, ownedFleetCarrierTracker);
 		}
@@ -567,6 +572,22 @@ public class EliteOverlayTabbedPane extends JPanel {
 		return fleetCarrierTab;
 	}
 
+	private void updateExecPlaceholderSnapshot(EliteLogEvent event) {
+		if (execPlaceholderContext == null || event == null) {
+			return;
+		}
+		CommanderSnapshot snap = execPlaceholderContext.commanderSnapshot();
+		if (event instanceof LoadGameEvent lg) {
+			snap.updateFromLoadGame(lg);
+		} else if (event instanceof LoadoutEvent lo) {
+			snap.updateFromLoadout(lo);
+		} else if (event instanceof StatusEvent se) {
+			snap.updateFromStatus(se);
+		} else if (event instanceof FsdTargetEvent ft) {
+			snap.updateFromFsdTarget(ft);
+		}
+	}
+
 	public OwnedFleetCarrierTracker getOwnedFleetCarrierTracker() {
 		return ownedFleetCarrierTracker;
 	}
@@ -591,6 +612,14 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (fleetCarrierTab != null) {
 			fleetCarrierTab.setExecTriggerService(service);
 		}
+	}
+
+	public void setExecPlaceholderContext(ExecPlaceholderContext context) {
+		this.execPlaceholderContext = context;
+	}
+
+	public ExecPlaceholderContext getExecPlaceholderContext() {
+		return execPlaceholderContext;
 	}
 
 	static LoadoutEvent loadoutEventx = null;
