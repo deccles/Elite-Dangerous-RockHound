@@ -969,6 +969,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         });
         execPlaceholderContext.setOwnedCarrierTrackerSupplier(tabs::getOwnedFleetCarrierTracker);
         execPlaceholderContext.setCarrierFuelTrackerSupplier(execTriggerService::fuelTracker);
+        execTriggerService.bootstrapFuelFromJournal(tabs.getOwnedFleetCarrierTracker());
     }
 
     public ExecPlaceholderContext getExecPlaceholderContext() {
@@ -1129,8 +1130,13 @@ private void updateCarrierJumpCountdown() {
     publishRightStatusText();
 }
 
-/** Clears only the jump countdown state and timer; does not touch cooldown or right status. */
-private void clearCarrierJumpCountdownStateOnly() {
+    /** True while an owned-carrier jump countdown is active (scheduled through arrival). */
+    public boolean hasCarrierJumpCountdown() {
+        return carrierJumpDepartureTime != null;
+    }
+
+    /** Clears only the jump countdown state and timer; does not touch cooldown or right status. */
+    private void clearCarrierJumpCountdownStateOnly() {
     carrierJumpDepartureTime = null;
     carrierJumpTargetSystem = null;
     carrierJumpTargetSystemAddress = null;

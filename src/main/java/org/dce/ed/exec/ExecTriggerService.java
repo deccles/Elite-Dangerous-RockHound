@@ -72,6 +72,11 @@ public final class ExecTriggerService {
         return fuelTracker;
     }
 
+    /** Load last {@code CarrierStats.FuelLevel} from recent journals (owned carrier when known). */
+    public void bootstrapFuelFromJournal(OwnedFleetCarrierTracker ownedTracker) {
+        CarrierFuelJournalBootstrap.replayInto(fuelTracker, ownedTracker);
+    }
+
     public ExecBindingsStore store() {
         return store;
     }
@@ -182,10 +187,19 @@ public final class ExecTriggerService {
     }
 
     private ExecLaunchContext buildJournalEventLaunchContext(EliteLogEvent event) {
-        return ExecLaunchContext.builder(ExecTriggerId.JOURNAL_EVENT)
+        ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.JOURNAL_EVENT)
                 .carrierSystemName(carrierSystemName())
-                .journalEventType(event.getType())
-                .build();
+                .journalEventType(event.getType());
+        if (event.getType() == EliteEventType.CARRIER_STATS) {
+            JsonObject raw = event.getRawJson();
+            int fuel = CarrierFuelTracker.fuelLevelFromJson(raw);
+            if (fuel >= 0) {
+                builder.carrierFuelLevel(fuel);
+            }
+            builder.carrierCallsign(CarrierFuelTracker.callsignFromJson(raw));
+            builder.carrierName(CarrierFuelTracker.carrierNameFromJson(raw));
+        }
+        return builder.build();
     }
 
     public void runBindingNow(ExecBinding binding) {

@@ -23,8 +23,7 @@ public final class ExecPlaceholderSubstitutor {
         for (String token : rawTokens) {
             Optional<ExecPlaceholderId> id = ExecPlaceholderId.fromToken(token);
             if (id.isPresent()) {
-                String value = valueFor(id.get(), ctx, launch, resolved);
-                out.add(value != null ? value : "");
+                out.add(ExecPlaceholderResolver.valueOrUnknown(valueFor(id.get(), ctx, launch, resolved)));
             } else {
                 out.add(token);
             }

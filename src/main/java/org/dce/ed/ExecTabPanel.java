@@ -37,8 +37,11 @@ import javax.swing.table.DefaultTableCellRenderer;
 import org.dce.ed.exec.ExecBinding;
 import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecBindingsStore;
+import org.dce.ed.exec.ExecReferenceHelp;
 import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.exec.NameDescriptionHelpDialog;
+import org.dce.ed.ui.HelpCircleIcon;
 import org.dce.ed.exec.placeholder.ExecPlaceholderFieldSupport;
 import org.dce.ed.exec.placeholder.ExecPlaceholderId;
 import org.dce.ed.logreader.EliteEventType;
@@ -163,10 +166,26 @@ public final class ExecTabPanel extends JPanel {
         buttons.add(browseButton);
         buttons.add(runNowButton);
 
+        JPanel helpRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        helpRow.setOpaque(false);
+        JButton eventHelpButton = new JButton("Event help");
+        HelpCircleIcon.applyTo(eventHelpButton);
+        eventHelpButton.setToolTipText("Journal events available for the Journal event trigger");
+        eventHelpButton.addActionListener(e -> NameDescriptionHelpDialog.show(this, "Journal events",
+                "Event", "Description", ExecReferenceHelp.journalEventRows()));
+        JButton variableHelpButton = new JButton("Variable help");
+        HelpCircleIcon.applyTo(variableHelpButton);
+        variableHelpButton.setToolTipText("$SYMBOL placeholders for Exec program args");
+        variableHelpButton.addActionListener(e -> NameDescriptionHelpDialog.show(this, "Exec variables",
+                "Variable", "Description", ExecReferenceHelp.variableRows()));
+        helpRow.add(eventHelpButton);
+        helpRow.add(variableHelpButton);
+
         JPanel south = new JPanel();
         south.setOpaque(false);
         south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
         south.add(buttons);
+        south.add(helpRow);
         statusLabel.setOpaque(false);
         statusLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 0, 4));
         south.add(statusLabel);

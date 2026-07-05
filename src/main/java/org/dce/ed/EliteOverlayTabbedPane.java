@@ -761,9 +761,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 	}
 
 	/**
-	 * System tab when Status shows a body/station target (non-zero Destination.Body); Route tab for system-only
-	 * ship hyperspace; Fleet Carrier tab when the commander is still docked during a carrier hyperspace jump
-	 * (normal FSD jumps are never docked).
+	 * Fleet Carrier tab for owned-carrier jumps; System tab when Status shows a body/station target; Route tab
+	 * for system-only ship hyperspace. Does not cross-switch (FC jump stays on FC tab; ship jump stays on Route).
 	 *
 	 * @param startJumpOrNull journal {@code StartJump} when this decision is tied to that event; otherwise null
 	 */
@@ -772,25 +771,22 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (!OverlayPreferences.isAutoSwitchTabOnFsdTarget()) {
 			return;
 		}
-		if (status != null && status.isDocked()) {
-			boolean hyperspaceStart = startJumpOrNull != null
-					&& "Hyperspace".equalsIgnoreCase(trimOrEmpty(startJumpOrNull.getJumpType()));
-			boolean jumpCharge = status.isFsdCharging() || status.isFsdHyperdriveCharging();
-			if (hyperspaceStart || jumpCharge) {
-				showFleetCarrierTabFromStatusWatcher();
-				return;
+		boolean fcPending = fleetCarrierTab != null && fleetCarrierTab.isOwnedCarrierJumpPending();
+		boolean fcCountdown = OverlayFrame.overlayFrame != null && OverlayFrame.overlayFrame.hasCarrierJumpCountdown();
+		AutoTabJumpLogic.JumpKind kind = AutoTabJumpLogic.classifyForAutoTabSwitch(
+				fcPending, fcCountdown, status, startJumpOrNull);
+		switch (kind) {
+			case FLEET_CARRIER -> showFleetCarrierTabFromStatusWatcher();
+			case SHIP_HYPERSPACE -> {
+				long cur = currentOverlaySystemAddressOrZero();
+				if (SystemTabTargetLogic.preferSystemTabForFsdTarget(status, jumpTargetSystemAddress, cur)) {
+					showSystemTabFromStatusWatcher();
+				} else {
+					showRouteTabFromStatusWatcher();
+				}
 			}
+			case NONE -> { /* unrelated Status noise */ }
 		}
-		long cur = currentOverlaySystemAddressOrZero();
-		if (SystemTabTargetLogic.preferSystemTabForFsdTarget(status, jumpTargetSystemAddress, cur)) {
-			showSystemTabFromStatusWatcher();
-		} else {
-			showRouteTabFromStatusWatcher();
-		}
-	}
-
-	private static String trimOrEmpty(String s) {
-		return s == null ? "" : s.trim();
 	}
 
 	private void showMiningTabFromStatusWatcher() {

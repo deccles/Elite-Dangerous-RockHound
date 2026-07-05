@@ -15,6 +15,8 @@ import org.dce.ed.state.SystemState;
 /** Resolves {@link ExecPlaceholderId} values from overlay state at exec trigger time. */
 public final class ExecPlaceholderResolver {
 
+    public static final String UNKNOWN = "Unknown";
+
     private ExecPlaceholderResolver() {
     }
 
@@ -24,19 +26,19 @@ public final class ExecPlaceholderResolver {
             return out;
         }
         for (ExecPlaceholderId id : ExecPlaceholderId.values()) {
-            String value = resolveOne(ctx, launch, id);
-            if (value != null) {
-                out.put(id.name(), value);
-            }
+            out.put(id.name(), resolveOne(ctx, launch, id));
         }
         return out;
     }
 
     public static String resolveOne(ExecPlaceholderContext ctx, ExecLaunchContext launch, ExecPlaceholderId id) {
-        if (ctx == null || id == null) {
-            return null;
+        if (id == null) {
+            return UNKNOWN;
         }
-        return switch (id) {
+        if (ctx == null) {
+            return UNKNOWN;
+        }
+        return valueOrUnknown(switch (id) {
             case FLEET_CARRIER_DESTINATION, DESTINATION -> blankOrNull(ExecPlaceholderContext.fleetNextDestination(ctx));
             case ROUTE_NEXT_DESTINATION -> blankOrNull(ExecPlaceholderContext.shipNextDestination(ctx));
             case ROUTE_CURRENT_SYSTEM -> routeField(ctx.shipRoute(), RouteSession::getCurrentSystemName);
@@ -86,7 +88,7 @@ public final class ExecPlaceholderResolver {
                 if (launch != null && launch.getCarrierFuelThreshold() != null) {
                     threshold = launch.getCarrierFuelThreshold().intValue();
                 }
-                yield threshold > 0 ? Integer.toString(threshold) : Integer.toString(threshold);
+                yield Integer.toString(threshold);
             }
             case CARRIER_PARKED_BODY_ID -> systemField(ctx.systemState(), s -> {
                 Integer id2 = s.getCarrierParkedBodyId();
@@ -125,10 +127,7 @@ public final class ExecPlaceholderResolver {
             case EXOBIOLOGY_CREDITS -> Long.toString(ctx.exobiologyCredits());
             case GEO_SURVEY_CREDITS -> Long.toString(ctx.geoSurveyCredits());
             case BOUNTY_CREDITS -> Long.toString(ctx.bountyCredits());
-            case CARGO -> {
-                double c = ctx.commanderSnapshot().getCargo();
-                yield String.format(Locale.ROOT, "%.2f", c);
-            }
+            case CARGO -> String.format(Locale.ROOT, "%.2f", ctx.commanderSnapshot().getCargo());
             case SHIP_TYPE -> blankOrNull(ctx.commanderSnapshot().getShipType());
             case SHIP_NAME -> blankOrNull(ctx.commanderSnapshot().getShipName());
             case SHIP_IDENT -> blankOrNull(ctx.commanderSnapshot().getShipIdent());
@@ -150,13 +149,18 @@ public final class ExecPlaceholderResolver {
                 yield Integer.toString((int) Math.round(100.0 * fuel / cap));
             }
             case LEGAL_STATE -> blankOrNull(ctx.commanderSnapshot().getLegalState());
-        };
+        });
     }
 
     public static String resolveToken(ExecPlaceholderContext ctx, ExecLaunchContext launch, String token) {
         return ExecPlaceholderId.fromToken(token)
                 .map(id -> resolveOne(ctx, launch, id))
-                .orElse(null);
+                .orElse(UNKNOWN);
+    }
+
+    /** Returns {@link #UNKNOWN} when the resolved value is null or blank. */
+    public static String valueOrUnknown(String s) {
+        return s == null || s.isBlank() ? UNKNOWN : s.trim();
     }
 
     private interface RouteStringFn {

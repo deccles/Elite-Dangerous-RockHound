@@ -322,6 +322,9 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			}
 		}
 		bootstrapOwnedFleetCarrierFromJournalIfNeeded();
+		if (isOwnedCarrierJumpPending()) {
+			pendingJumpFromOwnedCarrier = true;
+		}
 		int n = state.getFleetCarrier() != null ? state.getFleetCarrier().baseRouteEntriesOrEmpty().size() : 0;
 		spanshRouteLoaded = n > 0;
 		if (spanshRouteLoaded) {
@@ -444,6 +447,21 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 				SwingUtilities.invokeLater(() -> copyNextSystemFromBaseRoute(loc.getSystemAddress()));
 			}
 		}
+	}
+
+	/** True while an owned-carrier jump is scheduled or in progress (journal latch or route session pending hop). */
+	public boolean isOwnedCarrierJumpPending() {
+		if (pendingJumpFromOwnedCarrier) {
+			return true;
+		}
+		String locked = routeSession.getPendingJumpLockedName();
+		return (locked != null && !locked.isBlank()) || routeSession.getPendingJumpLockedAddress() != 0L;
+	}
+
+	@Override
+	protected void startPendingJumpBlink(String destName, long destAddress, java.time.Instant departureTime) {
+		pendingJumpFromOwnedCarrier = true;
+		super.startPendingJumpBlink(destName, destAddress, departureTime);
 	}
 
 	private boolean acceptOwnedCarrierRequest(CarrierJumpRequestEvent req) {

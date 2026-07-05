@@ -32,7 +32,7 @@ class JarExecRunnerPlaceholderTest {
         assertEquals("--play", command.get(1));
         assertEquals("fleet-map", command.get(2));
         assertEquals("Col 285 Sector IX-T b3-3", command.get(3));
-        assertEquals("", command.get(4));
+        assertEquals("Unknown", command.get(4));
         assertEquals(5, command.size());
     }
 }

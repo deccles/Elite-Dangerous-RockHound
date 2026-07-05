@@ -20,10 +20,11 @@ public final class CarrierFuelTracker {
     }
 
     /**
-     * @return {@code true} when fuel crosses from not-low to low (edge trigger)
+     * Records {@code FuelLevel} from a {@code CarrierStats} event for the owned carrier (or any carrier when
+     * owned id is not yet known).
      */
-    public boolean updateFromCarrierStats(JsonObject raw, long ownedCarrierId, int threshold, int hysteresis) {
-        if (raw == null || threshold < 0) {
+    public boolean recordFuelFromCarrierStats(JsonObject raw, long ownedCarrierId) {
+        if (raw == null) {
             return false;
         }
         long carrierId = fuelCarrierIdFromJson(raw);
@@ -38,6 +39,20 @@ public final class CarrierFuelTracker {
             return false;
         }
         lastKnownFuelLevel = fuel;
+        return true;
+    }
+
+    /**
+     * @return {@code true} when fuel crosses from not-low to low (edge trigger)
+     */
+    public boolean updateFromCarrierStats(JsonObject raw, long ownedCarrierId, int threshold, int hysteresis) {
+        if (!recordFuelFromCarrierStats(raw, ownedCarrierId)) {
+            return false;
+        }
+        if (threshold < 0) {
+            return false;
+        }
+        int fuel = lastKnownFuelLevel;
 
         int clearLevel = threshold + Math.max(0, hysteresis);
         if (fuel >= clearLevel) {
@@ -56,7 +71,7 @@ public final class CarrierFuelTracker {
             return -1;
         }
         try {
-            return raw.get("FuelLevel").getAsInt();
+            return (int) Math.round(raw.get("FuelLevel").getAsDouble());
         } catch (Exception ignored) {
             return -1;
         }

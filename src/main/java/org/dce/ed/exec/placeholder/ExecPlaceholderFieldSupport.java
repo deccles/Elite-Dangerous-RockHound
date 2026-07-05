@@ -1,6 +1,9 @@
 package org.dce.ed.exec.placeholder;
 
+import java.awt.IllegalComponentStateException;
 import java.awt.Point;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
@@ -40,17 +43,51 @@ public final class ExecPlaceholderFieldSupport {
         field.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                onDocumentChanged();
+                scheduleRefresh();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                onDocumentChanged();
+                scheduleRefresh();
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                onDocumentChanged();
+                scheduleRefresh();
+            }
+        });
+
+        field.addCaretListener(e -> scheduleRefresh());
+
+        field.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (popup == null || !popup.isVisible() || list == null) {
+                    return;
+                }
+                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                    hidePopup();
+                    e.consume();
+                    return;
+                }
+                if (e.getKeyCode() == KeyEvent.VK_ENTER || e.getKeyCode() == KeyEvent.VK_TAB) {
+                    if (list.getSelectedValue() != null) {
+                        applySelected();
+                        e.consume();
+                    }
+                    return;
+                }
+                if (e.getKeyCode() == KeyEvent.VK_DOWN) {
+                    int next = Math.min(list.getModel().getSize() - 1, list.getSelectedIndex() + 1);
+                    list.setSelectedIndex(next);
+                    e.consume();
+                    return;
+                }
+                if (e.getKeyCode() == KeyEvent.VK_UP) {
+                    int prev = Math.max(0, list.getSelectedIndex() - 1);
+                    list.setSelectedIndex(prev);
+                    e.consume();
+                }
             }
         });
 
@@ -67,6 +104,13 @@ public final class ExecPlaceholderFieldSupport {
                 field.setToolTipText(null);
             }
         });
+    }
+
+    private void scheduleRefresh() {
+        if (suppressEvents) {
+            return;
+        }
+        SwingUtilities.invokeLater(this::onDocumentChanged);
     }
 
     private void onDocumentChanged() {
@@ -88,6 +132,9 @@ public final class ExecPlaceholderFieldSupport {
     }
 
     private void showMatches(List<ExecPlaceholderId> matches) {
+        if (!field.isShowing()) {
+            return;
+        }
         ensurePopup();
         DefaultListModel<String> model = new DefaultListModel<>();
         for (ExecPlaceholderId id : matches) {
@@ -102,7 +149,11 @@ public final class ExecPlaceholderFieldSupport {
         list.setVisibleRowCount(Math.min(10, model.getSize()));
         int width = Math.max(field.getWidth(), 280);
         popup.setPopupSize(width, Math.min(220, list.getPreferredScrollableViewportSize().height + 4));
-        popup.show(field, 0, field.getHeight());
+        try {
+            popup.show(field, 0, field.getHeight());
+        } catch (IllegalComponentStateException ignored) {
+            // Field not on screen yet.
+        }
     }
 
     private void ensurePopup() {
@@ -113,17 +164,33 @@ public final class ExecPlaceholderFieldSupport {
         popup.setFocusable(false);
         list = new JList<>();
         list.setFocusable(false);
-        list.addMouseListener(new MouseAdapter() {
+        MouseAdapter pick = new MouseAdapter() {
             @Override
-            public void mouseClicked(MouseEvent e) {
-                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() >= 1) {
-                    applySelected();
-                }
+            public void mousePressed(MouseEvent e) {
+                pickRowAt(e);
             }
-        });
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                pickRowAt(e);
+            }
+        };
+        list.addMouseListener(pick);
         JScrollPane scroll = new JScrollPane(list);
         scroll.setBorder(null);
         popup.add(scroll);
+    }
+
+    private void pickRowAt(MouseEvent e) {
+        if (!SwingUtilities.isLeftMouseButton(e) || list == null) {
+            return;
+        }
+        int idx = list.locationToIndex(e.getPoint());
+        if (idx < 0) {
+            return;
+        }
+        list.setSelectedIndex(idx);
+        applySelected();
     }
 
     private void applySelected() {
@@ -145,6 +212,7 @@ public final class ExecPlaceholderFieldSupport {
             String updated = before + token + after;
             field.setText(updated);
             field.setCaretPosition(before.length() + token.length());
+            field.requestFocusInWindow();
         } finally {
             suppressEvents = false;
         }
@@ -174,9 +242,7 @@ public final class ExecPlaceholderFieldSupport {
                 }
                 Map<String, String> values = valuesSupplier != null ? valuesSupplier.get() : null;
                 String current = values != null ? values.get(id.name()) : null;
-                String valueLine = current == null || current.isBlank()
-                        ? "(empty — not available yet)"
-                        : current;
+                String valueLine = ExecPlaceholderResolver.valueOrUnknown(current);
                 field.setToolTipText("<html>" + id.token() + ": " + escapeHtml(valueLine)
                         + "<br>" + escapeHtml(id.getDescription()) + "</html>");
                 return;
@@ -204,9 +270,7 @@ public final class ExecPlaceholderFieldSupport {
             return null;
         }
         String current = values != null ? values.get(id.name()) : null;
-        String valueLine = current == null || current.isBlank()
-                ? "(empty — not available yet)"
-                : current;
+        String valueLine = ExecPlaceholderResolver.valueOrUnknown(current);
         return "<html>" + id.token() + ": " + escapeHtml(valueLine)
                 + "<br>" + escapeHtml(id.getDescription()) + "</html>";
     }

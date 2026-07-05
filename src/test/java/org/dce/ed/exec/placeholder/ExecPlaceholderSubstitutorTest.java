@@ -1,7 +1,6 @@
 package org.dce.ed.exec.placeholder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.util.List;
 import java.util.Map;
@@ -44,8 +43,15 @@ class ExecPlaceholderSubstitutorTest {
         ctx.setFleetRouteSessionSupplier(() -> null);
         String fleet = ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.FLEET_CARRIER_DESTINATION);
         String dest = ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.DESTINATION);
-        assertNull(fleet);
-        assertNull(dest);
+        assertEquals("Unknown", fleet);
+        assertEquals("Unknown", dest);
+    }
+
+    @Test
+    void carrierFuelLevel_unknownWhenNotLoaded() {
+        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+        assertEquals("Unknown",
+                ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.CARRIER_FUEL_LEVEL));
     }
 
     @Test
