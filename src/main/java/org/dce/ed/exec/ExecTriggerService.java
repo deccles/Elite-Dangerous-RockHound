@@ -328,9 +328,9 @@ public final class ExecTriggerService {
         publishStatus("Running " + shortProgramName(binding.getJarPath()) + "…");
         JarExecRunner.runAsync(binding, context, placeholderContext, result -> SwingUtilities.invokeLater(() -> {
             if (result.exitCode() == 0) {
-                publishStatus("OK: " + result.detail());
+                publishStatus("OK");
             } else {
-                publishStatus("Failed: " + result.detail());
+                publishStatus("Failed: " + JarExecRunner.formatConciseStatus(result));
             }
         }));
     }

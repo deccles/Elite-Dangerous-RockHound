@@ -3,6 +3,7 @@ package org.dce.ed.exec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -51,5 +52,23 @@ class JarExecRunnerTest {
         assertFalse(command.contains("-jar"));
         assertEquals("--play", command.get(1));
         assertEquals("fleet-map", command.get(2));
+    }
+
+    @Test
+    void formatConciseStatus_shortensLongFailures() {
+        JarExecRunner.RunResult focused = new JarExecRunner.RunResult(1,
+                "Exit 1 at 2026-01-01T00:00:00Z — Elite Dangerous is not focused (foreground: javaw.exe). Click the game.");
+        assertEquals("Elite not focused", JarExecRunner.formatConciseStatus(focused));
+
+        JarExecRunner.RunResult stderr = new JarExecRunner.RunResult(2,
+                "Exit 2 at 2026-01-01T00:00:00Z — java.lang.IllegalStateException: Go To navigation failed because reasons");
+        String shortErr = JarExecRunner.formatConciseStatus(stderr);
+        assertTrue(shortErr.startsWith("exit 2:"));
+        assertTrue(shortErr.contains("IllegalStateException"));
+        assertTrue(shortErr.length() < 80);
+
+        assertEquals("OK", JarExecRunner.formatConciseStatus(new JarExecRunner.RunResult(0, "Exit 0 at now")));
+        assertEquals("program not found", JarExecRunner.formatConciseStatus(
+                new JarExecRunner.RunResult(-1, "Program not found: C:\\missing\\RoboHound.jar")));
     }
 }

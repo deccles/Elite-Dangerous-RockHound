@@ -26,7 +26,71 @@ public final class JarExecRunner {
     public record RunResult(int exitCode, String detail) {
     }
 
+    private static final int CONCISE_STATUS_MAX_LEN = 56;
+
     private JarExecRunner() {
+    }
+
+    /**
+     * Short status text for the overlay bar (avoids long stderr / paths that clear before they can be read).
+     */
+    public static String formatConciseStatus(RunResult result) {
+        if (result == null) {
+            return "failed";
+        }
+        if (result.exitCode() == 0) {
+            return "OK";
+        }
+        String detail = result.detail();
+        if (detail == null || detail.isBlank()) {
+            return "exit " + result.exitCode();
+        }
+        String lower = detail.toLowerCase(Locale.ROOT);
+        if (lower.contains("not focused")) {
+            return "Elite not focused";
+        }
+        if (lower.startsWith("program not found")) {
+            return "program not found";
+        }
+        if (lower.contains("program path is empty") || lower.contains("no program")) {
+            return "no program configured";
+        }
+        if (lower.startsWith("no binding")) {
+            return "no binding";
+        }
+        if (lower.contains("java runtime not found") || lower.contains("cannot run program")) {
+            return "Java not found";
+        }
+
+        int sep = detail.indexOf(" — ");
+        String tail = sep >= 0 ? detail.substring(sep + 3).trim() : detail;
+        if (tail.isEmpty() || tail.regionMatches(true, 0, "Exit ", 0, 5)) {
+            return "exit " + result.exitCode();
+        }
+        String summary = truncateConcise(firstLine(tail), CONCISE_STATUS_MAX_LEN);
+        if (summary.isEmpty()) {
+            return "exit " + result.exitCode();
+        }
+        return "exit " + result.exitCode() + ": " + summary;
+    }
+
+    private static String firstLine(String text) {
+        if (text == null) {
+            return "";
+        }
+        int nl = text.indexOf('\n');
+        return (nl >= 0 ? text.substring(0, nl) : text).trim();
+    }
+
+    static String truncateConcise(String text, int maxLen) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String trimmed = text.trim();
+        if (trimmed.length() <= maxLen) {
+            return trimmed;
+        }
+        return trimmed.substring(0, Math.max(0, maxLen - 1)).trim() + "…";
     }
 
     public static void runAsync(ExecBinding binding, ExecLaunchContext context,

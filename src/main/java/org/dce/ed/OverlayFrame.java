@@ -207,6 +207,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private volatile boolean execOverlayStatusError;
     private Timer execOverlayStatusClearTimer;
     private static final int EXEC_OVERLAY_STATUS_CLEAR_MS = 20_000;
+    private static final int EXEC_OVERLAY_ERROR_CLEAR_MS = 35_000;
+    private static final int EXEC_OVERLAY_STATUS_MAX_LEN = 72;
 
     /** Transient TTS cache-miss hint (warning color); cleared automatically after a delay. */
     private volatile String speechCacheMissBanner;
@@ -266,7 +268,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 execOverlayStatusMessage = null;
                 execOverlayStatusError = false;
             } else {
-                execOverlayStatusMessage = message.trim();
+                execOverlayStatusMessage = truncateExecOverlayStatus(message.trim());
                 execOverlayStatusError = isExecStatusError(execOverlayStatusMessage);
             }
             restartExecOverlayStatusClearTimer();
@@ -288,7 +290,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         if (execOverlayStatusMessage == null) {
             return;
         }
-        execOverlayStatusClearTimer = new Timer(EXEC_OVERLAY_STATUS_CLEAR_MS, e -> {
+        execOverlayStatusClearTimer = new Timer(
+                execOverlayStatusError ? EXEC_OVERLAY_ERROR_CLEAR_MS : EXEC_OVERLAY_STATUS_CLEAR_MS, e -> {
             execOverlayStatusMessage = null;
             execOverlayStatusError = false;
             if (execOverlayStatusClearTimer != null) {
@@ -343,6 +346,17 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 || m.contains("not configured")
                 || m.startsWith("Select a row")
                 || m.startsWith("Action not configured");
+    }
+
+    private static String truncateExecOverlayStatus(String message) {
+        if (message == null || message.isBlank()) {
+            return message;
+        }
+        String trimmed = message.trim();
+        if (trimmed.length() <= EXEC_OVERLAY_STATUS_MAX_LEN) {
+            return trimmed;
+        }
+        return trimmed.substring(0, EXEC_OVERLAY_STATUS_MAX_LEN - 1).trim() + "…";
     }
 
     static String mergeExecIntoDecoratedStatus(String execFragment, String decoratedHtml) {
