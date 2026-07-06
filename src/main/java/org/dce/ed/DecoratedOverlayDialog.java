@@ -259,13 +259,22 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 			boolean fighterPilot = shouldShowNoFighterPilotWarning();
 			String right = lastRightStatusText != null ? lastRightStatusText.trim() : "";
 			String full = OverlayFrame.buildDecoratedMenuStatusHtml(right, limpet, fighterPilot);
+			OverlayFrame frame = OverlayFrame.overlayFrame;
+			String execFrag = frame != null ? frame.buildExecOverlayStatusHtmlFragment() : "";
+			boolean execErr = frame != null && frame.isExecOverlayStatusError();
+			if (!execFrag.isEmpty()) {
+				full = OverlayFrame.mergeExecIntoDecoratedStatus(execFrag, full);
+			}
 			if (full.isEmpty()) {
 				statusLabel.setText("");
 				statusLabel.setVisible(false);
 				return;
 			}
 			statusLabel.setText(full);
-			if (limpet || fighterPilot) {
+			if (execErr) {
+				statusLabel.setForeground(EdoUi.User.ERROR);
+				statusLabel.setCursor(Cursor.getDefaultCursor());
+			} else if (limpet || fighterPilot) {
 				statusLabel.setForeground(EdoUi.User.ERROR);
 				statusLabel.setCursor(Cursor.getDefaultCursor());
 			} else if (full.contains("New version")) {
@@ -381,6 +390,14 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         if (tabs != null) {
             tabs.getSystemTabPanel().refreshFromSavedOverlayPreferences();
+        }
+    }
+
+    @Override
+    public void refreshOverlayTabBarFromSavedPreferences() {
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs != null) {
+            tabs.refreshOverlayTabBarFromSavedPreferences();
         }
     }
 

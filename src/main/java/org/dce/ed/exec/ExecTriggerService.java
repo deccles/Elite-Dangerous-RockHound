@@ -81,7 +81,6 @@ public final class ExecTriggerService {
         return store;
     }
 
-    /** Fires bindings for Route / Fleet Carrier copy-next-destination (clipboard already set). */
     public void onCopyNextDestination(ExecTriggerId triggerId, String destination) {
         if (triggerId == null || destination == null || destination.isBlank()) {
             return;
@@ -95,6 +94,31 @@ public final class ExecTriggerService {
                 .destination(trimmed)
                 .clipboard(trimmed)
                 .build());
+    }
+
+    /** Fires enabled bindings whose shortcut key matches (global F-key hook). */
+    public void onShortcutKeyPressed(int keyCode) {
+        if (!ExecShortcutKeys.isSupported(keyCode)) {
+            return;
+        }
+        ExecBindingsConfig config = currentConfig();
+        for (ExecBinding binding : config.getBindings()) {
+            if (binding == null || !binding.isEnabled() || binding.getTrigger() != ExecTriggerId.SHORTCUT_KEY) {
+                continue;
+            }
+            if (binding.getShortcutKeyCode() != keyCode) {
+                continue;
+            }
+            ExecLaunchContext context = ExecLaunchContext.builder(ExecTriggerId.SHORTCUT_KEY)
+                    .carrierSystemName(carrierSystemName())
+                    .carrierFuelLevel(fuelTracker.getLastKnownFuelLevel() >= 0
+                            ? Integer.valueOf(fuelTracker.getLastKnownFuelLevel()) : null)
+                    .carrierFuelThreshold(config.getFleetTritiumLowThreshold())
+                    .carrierCallsign(fuelTracker.getLastKnownCallsign())
+                    .carrierName(fuelTracker.getLastKnownCarrierName())
+                    .build();
+            scheduleAndRun(binding, mergeContext(context, binding));
+        }
     }
 
     public void onFleetCooldownComplete() {
@@ -183,7 +207,13 @@ public final class ExecTriggerService {
             if (!binding.matchesJournalEvent(type)) {
                 continue;
             }
-            ExecLaunchContext context = mergeContext(buildJournalEventLaunchContext(event), binding);
+            JsonObject raw = event.getRawJson();
+            ExecLaunchContext launchContext = buildJournalEventLaunchContext(event);
+            Map<String, String> placeholders = ExecPlaceholderResolver.resolveAll(placeholderContext, launchContext);
+            if (raw != null && !binding.matchesJournalAttributes(raw, placeholders)) {
+                continue;
+            }
+            ExecLaunchContext context = mergeContext(launchContext, binding);
             scheduleAndRun(binding, context);
         }
     }
@@ -217,6 +247,26 @@ public final class ExecTriggerService {
             publishStatus("Select a row to run.");
             return;
         }
+        runBindingNowInternal(binding);
+    }
+
+    /** Run a configured binding by persisted id (Control Panel buttons). */
+    public void runBindingNowById(String bindingId) {
+        if (bindingId == null || bindingId.isBlank()) {
+            publishStatus("Action not configured.");
+            return;
+        }
+        ExecBindingsConfig config = currentConfig();
+        for (ExecBinding binding : config.getBindings()) {
+            if (binding != null && bindingId.equals(binding.getId())) {
+                runBindingNowInternal(binding);
+                return;
+            }
+        }
+        publishStatus("Action no longer configured.");
+    }
+
+    private void runBindingNowInternal(ExecBinding binding) {
         ExecBindingsConfig config = currentConfig();
         FleetCooldownClipboardPrep prep = resolveFleetCooldownClipboardPrep();
         ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.MANUAL)

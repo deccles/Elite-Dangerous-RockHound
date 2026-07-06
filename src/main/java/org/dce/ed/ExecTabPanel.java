@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+import javax.swing.AbstractCellEditor;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -33,18 +34,21 @@ import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.TableCellEditor;
 
 import org.dce.ed.edsm.UtilTable;
 import org.dce.ed.exec.ExecBinding;
 import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecBindingsStore;
-import org.dce.ed.exec.ExecReferenceHelp;
+import org.dce.ed.exec.ExecJournalFilterDialog;
+import org.dce.ed.exec.ExecShortcutKeys;
 import org.dce.ed.exec.ExecTriggerId;
-import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.exec.ExecReferenceHelp;
 import org.dce.ed.exec.NameDescriptionHelpDialog;
 import org.dce.ed.ui.HelpCircleIcon;
-import org.dce.ed.exec.placeholder.ExecPlaceholderFieldSupport;
+import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.exec.placeholder.ExecPlaceholderId;
+import org.dce.ed.exec.placeholder.ExecPlaceholderFieldSupport;
 import org.dce.ed.logreader.EliteEventType;
 
 /**
@@ -54,12 +58,14 @@ public final class ExecTabPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
 
-    private static final int COL_ENABLED = 0;
-    private static final int COL_TRIGGER = 1;
-    private static final int COL_JOURNAL_EVENT = 2;
-    private static final int COL_DELAY_SEC = 3;
-    private static final int COL_PROGRAM = 4;
-    private static final int COL_ARGS = 5;
+    private static final int COL_NAME = 0;
+    private static final int COL_ENABLED = 1;
+    private static final int COL_CONTROL_PANEL = 2;
+    private static final int COL_TRIGGER = 3;
+    private static final int COL_JOURNAL_EVENT = 4;
+    private static final int COL_DELAY_SEC = 5;
+    private static final int COL_PROGRAM = 6;
+    private static final int COL_ARGS = 7;
 
     private final ExecBindingsStore store = new ExecBindingsStore();
     private final ExecBindingsConfig config = store.load();
@@ -83,7 +89,8 @@ public final class ExecTabPanel extends JPanel {
         JLabel intro = new JLabel(
                 "<html>Run external programs on journal/overlay events. Pick a <code>.exe</code> "
                         + "(e.g. RoboHound) or a <code>.jar</code> (runs with bundled/Java <code>java -jar</code>). "
-                        + "Use trigger <b>Journal event</b> and pick any journal event from the list. "
+                        + "Use trigger <b>Journal event</b> and pick any journal event from the list, "
+                        + "or <b>Shortcut key</b> (F1–F12) to run while the game has focus. "
                         + "Type <code>$</code> in Args for game-state symbols; hover a symbol to preview its current value. "
                         + "Order must match RoboHound macro arguments after <code>--play</code>.</html>");
         intro.setOpaque(false);
@@ -99,8 +106,20 @@ public final class ExecTabPanel extends JPanel {
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2 && table.columnAtPoint(e.getPoint()) == COL_PROGRAM) {
-                    browseProgramForRow(table.rowAtPoint(e.getPoint()));
+                int col = table.columnAtPoint(e.getPoint());
+                int row = table.rowAtPoint(e.getPoint());
+                if (e.getClickCount() == 2 && col == COL_PROGRAM) {
+                    browseProgramForRow(row);
+                    return;
+                }
+                if (e.getClickCount() == 2 && col == COL_JOURNAL_EVENT && row >= 0 && row < config.getBindings().size()) {
+                    ExecBinding binding = config.getBindings().get(row);
+                    if (binding.getTrigger() == ExecTriggerId.JOURNAL_EVENT) {
+                        if (ExecJournalFilterDialog.edit(SwingUtilities.getWindowAncestor(ExecTabPanel.this), binding)) {
+                            persistConfig();
+                            tableModel.fireTableDataChanged();
+                        }
+                    }
                 }
             }
         });
@@ -162,10 +181,14 @@ public final class ExecTabPanel extends JPanel {
         JButton browseButton = new JButton("Browse program…");
         browseButton.setToolTipText("Select a table row, then pick a .exe or .jar (or double-click the Program cell)");
         JButton runNowButton = new JButton("Run now");
+        JButton journalFiltersButton = new JButton("Journal filters…");
+        journalFiltersButton.setToolTipText("Edit attribute filters for the selected Journal event row (or double-click Journal event column)");
+        journalFiltersButton.addActionListener(e -> editJournalFiltersForSelectedRow());
         buttons.add(addButton);
         buttons.add(removeButton);
         buttons.add(browseButton);
         buttons.add(runNowButton);
+        buttons.add(journalFiltersButton);
 
         JPanel helpRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         helpRow.setOpaque(false);
@@ -357,6 +380,23 @@ public final class ExecTabPanel extends JPanel {
         triggerService.runBindingNow(config.getBindings().get(row));
     }
 
+    private void editJournalFiltersForSelectedRow() {
+        int row = resolveSelectedModelRow(false);
+        if (row < 0 || row >= config.getBindings().size()) {
+            setStatus("Select a Journal event row first.");
+            return;
+        }
+        ExecBinding binding = config.getBindings().get(row);
+        if (binding.getTrigger() != ExecTriggerId.JOURNAL_EVENT) {
+            setStatus("Journal filters apply only to Journal event triggers.");
+            return;
+        }
+        if (ExecJournalFilterDialog.edit(SwingUtilities.getWindowAncestor(this), binding)) {
+            persistConfig();
+            tableModel.fireTableDataChanged();
+        }
+    }
+
     private void persistConfig() {
         try {
             store.save(config);
@@ -381,15 +421,17 @@ public final class ExecTabPanel extends JPanel {
 
         @Override
         public int getColumnCount() {
-            return 6;
+            return 8;
         }
 
         @Override
         public String getColumnName(int column) {
             return switch (column) {
+                case COL_NAME -> "Name";
                 case COL_ENABLED -> "On";
+                case COL_CONTROL_PANEL -> "Control Panel";
                 case COL_TRIGGER -> "Trigger";
-                case COL_JOURNAL_EVENT -> "Journal event";
+                case COL_JOURNAL_EVENT -> "Event / key";
                 case COL_DELAY_SEC -> "Delay (s)";
                 case COL_PROGRAM -> "Program";
                 case COL_ARGS -> "Args";
@@ -399,7 +441,7 @@ public final class ExecTabPanel extends JPanel {
 
         @Override
         public Class<?> getColumnClass(int columnIndex) {
-            if (columnIndex == COL_ENABLED) {
+            if (columnIndex == COL_ENABLED || columnIndex == COL_CONTROL_PANEL) {
                 return Boolean.class;
             }
             if (columnIndex == COL_DELAY_SEC) {
@@ -414,7 +456,8 @@ public final class ExecTabPanel extends JPanel {
                 return false;
             }
             if (columnIndex == COL_JOURNAL_EVENT) {
-                return rows.get(rowIndex).getTrigger() == ExecTriggerId.JOURNAL_EVENT;
+                ExecTriggerId trigger = rows.get(rowIndex).getTrigger();
+                return trigger == ExecTriggerId.JOURNAL_EVENT || trigger == ExecTriggerId.SHORTCUT_KEY;
             }
             return true;
         }
@@ -423,9 +466,16 @@ public final class ExecTabPanel extends JPanel {
         public Object getValueAt(int rowIndex, int columnIndex) {
             ExecBinding b = rows.get(rowIndex);
             return switch (columnIndex) {
+                case COL_NAME -> b.getName();
                 case COL_ENABLED -> b.isEnabled();
+                case COL_CONTROL_PANEL -> b.isIncludeOnControlPanel();
                 case COL_TRIGGER -> b.getTrigger();
-                case COL_JOURNAL_EVENT -> b.getJournalEventTypeEnum();
+                case COL_JOURNAL_EVENT -> {
+                    if (b.getTrigger() == ExecTriggerId.SHORTCUT_KEY) {
+                        yield b.getShortcutKeyDisplay();
+                    }
+                    yield b.getJournalEventTypeEnum();
+                }
                 case COL_DELAY_SEC -> b.getDelayMs() / 1000;
                 case COL_PROGRAM -> b.getJarPath();
                 case COL_ARGS -> b.getProgramArgs();
@@ -437,17 +487,24 @@ public final class ExecTabPanel extends JPanel {
         public void setValueAt(Object value, int rowIndex, int columnIndex) {
             ExecBinding b = rows.get(rowIndex);
             switch (columnIndex) {
+                case COL_NAME -> b.setName(value != null ? value.toString() : "");
                 case COL_ENABLED -> b.setEnabled(Boolean.TRUE.equals(value));
+                case COL_CONTROL_PANEL -> b.setIncludeOnControlPanel(Boolean.TRUE.equals(value));
                 case COL_TRIGGER -> {
                     if (value instanceof ExecTriggerId id) {
                         b.setTrigger(id);
                         if (id == ExecTriggerId.JOURNAL_EVENT && b.getJournalEventTypeEnum() == null) {
                             b.setJournalEventTypeEnum(EliteEventType.DOCKED);
                         }
+                        if (id == ExecTriggerId.SHORTCUT_KEY && !ExecShortcutKeys.isSupported(b.getShortcutKeyCode())) {
+                            b.setShortcutKeyCode(ExecShortcutKeys.DEFAULT_KEY_CODE);
+                        }
                     }
                 }
                 case COL_JOURNAL_EVENT -> {
-                    if (value instanceof EliteEventType type) {
+                    if (b.getTrigger() == ExecTriggerId.SHORTCUT_KEY) {
+                        b.setShortcutKeyDisplay(value != null ? value.toString() : null);
+                    } else if (value instanceof EliteEventType type) {
                         b.setJournalEventTypeEnum(type);
                     } else if (value != null) {
                         b.setJournalEventType(value.toString());
@@ -511,7 +568,9 @@ public final class ExecTabPanel extends JPanel {
 
         JComboBox<EliteEventType> journalEventCombo = new JComboBox<>(EliteEventType.execSelectableValues());
         journalEventCombo.setOpaque(false);
-        table.getColumnModel().getColumn(COL_JOURNAL_EVENT).setCellEditor(new javax.swing.DefaultCellEditor(journalEventCombo));
+        JComboBox<String> shortcutKeyCombo = new JComboBox<>(ExecShortcutKeys.displayChoices());
+        shortcutKeyCombo.setOpaque(false);
+        table.getColumnModel().getColumn(COL_JOURNAL_EVENT).setCellEditor(new BindingDetailCellEditor(journalEventCombo, shortcutKeyCombo));
         table.getColumnModel().getColumn(COL_JOURNAL_EVENT).setCellRenderer(new DefaultTableCellRenderer() {
             private static final long serialVersionUID = 1L;
 
@@ -520,9 +579,18 @@ public final class ExecTabPanel extends JPanel {
                     boolean hasFocus, int row, int column) {
                 super.getTableCellRendererComponent(t, value, isSelected, hasFocus, row, column);
                 int modelRow = t.convertRowIndexToModel(row);
-                if (modelRow >= 0 && modelRow < config.getBindings().size()
-                        && config.getBindings().get(modelRow).getTrigger() != ExecTriggerId.JOURNAL_EVENT) {
+                if (modelRow < 0 || modelRow >= config.getBindings().size()) {
                     setText("—");
+                    return this;
+                }
+                ExecTriggerId trigger = config.getBindings().get(modelRow).getTrigger();
+                if (trigger != ExecTriggerId.JOURNAL_EVENT && trigger != ExecTriggerId.SHORTCUT_KEY) {
+                    setText("—");
+                    return this;
+                }
+                if (trigger == ExecTriggerId.SHORTCUT_KEY) {
+                    setText(value != null ? value.toString() : ExecShortcutKeys.toDisplayString(
+                            config.getBindings().get(modelRow).getShortcutKeyCode()));
                     return this;
                 }
                 if (value instanceof EliteEventType type) {
@@ -537,6 +605,9 @@ public final class ExecTabPanel extends JPanel {
         JCheckBox check = new JCheckBox();
         check.setOpaque(false);
         table.getColumnModel().getColumn(COL_ENABLED).setCellEditor(new javax.swing.DefaultCellEditor(check));
+        JCheckBox controlPanelCheck = new JCheckBox();
+        controlPanelCheck.setOpaque(false);
+        table.getColumnModel().getColumn(COL_CONTROL_PANEL).setCellEditor(new javax.swing.DefaultCellEditor(controlPanelCheck));
 
         JTextField programField = new JTextField();
         programField.getDocument().addDocumentListener(new DocumentListener() {
@@ -599,5 +670,52 @@ public final class ExecTabPanel extends JPanel {
     private void autoSizeExecTableColumns() {
         table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
         SwingUtilities.invokeLater(() -> UtilTable.autoSizeTableColumns(table));
+    }
+
+    private final class BindingDetailCellEditor extends AbstractCellEditor implements TableCellEditor {
+
+        private static final long serialVersionUID = 1L;
+
+        private final JComboBox<EliteEventType> journalCombo;
+        private final JComboBox<String> shortcutCombo;
+        private JComboBox<?> activeCombo;
+
+        BindingDetailCellEditor(JComboBox<EliteEventType> journalCombo, JComboBox<String> shortcutCombo) {
+            this.journalCombo = journalCombo;
+            this.shortcutCombo = shortcutCombo;
+            java.awt.event.ActionListener stop = e -> fireEditingStopped();
+            journalCombo.addActionListener(stop);
+            shortcutCombo.addActionListener(stop);
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable t, Object value, boolean isSelected, int row, int column) {
+            int modelRow = t.convertRowIndexToModel(row);
+            ExecTriggerId trigger = modelRow >= 0 && modelRow < config.getBindings().size()
+                    ? config.getBindings().get(modelRow).getTrigger() : ExecTriggerId.JOURNAL_EVENT;
+            if (trigger == ExecTriggerId.SHORTCUT_KEY) {
+                activeCombo = shortcutCombo;
+                String display = value != null ? value.toString()
+                        : config.getBindings().get(modelRow).getShortcutKeyDisplay();
+                shortcutCombo.setSelectedItem(display);
+                return shortcutCombo;
+            }
+            activeCombo = journalCombo;
+            if (value instanceof EliteEventType type) {
+                journalCombo.setSelectedItem(type);
+            } else if (value != null) {
+                EliteEventType parsed = EliteEventType.fromJournalName(value.toString());
+                journalCombo.setSelectedItem(parsed != EliteEventType.UNKNOWN ? parsed : EliteEventType.DOCKED);
+            }
+            return journalCombo;
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            if (activeCombo == shortcutCombo) {
+                return shortcutCombo.getSelectedItem();
+            }
+            return journalCombo.getSelectedItem();
+        }
     }
 }

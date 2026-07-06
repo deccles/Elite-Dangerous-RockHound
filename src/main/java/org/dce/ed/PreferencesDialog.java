@@ -51,6 +51,7 @@ import javax.swing.event.ChangeListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
+import org.dce.ed.exec.ExecShortcutKeys;
 import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.mining.GoogleSheetsAuth;
 import org.dce.ed.mining.GoogleSheetsBackend;
@@ -226,6 +227,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabMiningVisibleCheckBox;
 	private JCheckBox overlayTabMissionsVisibleCheckBox;
 	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
+	private JCheckBox overlayTabControlPanelVisibleCheckBox;
 
 	private ExecTabPanel execTabPanel;
 
@@ -476,8 +478,8 @@ public class PreferencesDialog extends JDialog {
 		hotkeyPanel.add(hotkeyLabel, gbc);
 
 		gbc.gridx = 1;
-		passThroughHotkeyCombo = new JComboBox<>(buildFunctionKeyChoices());
-		passThroughHotkeyCombo.setSelectedItem(keyCodeToDisplayString(originalPassThroughToggleKeyCode));
+		passThroughHotkeyCombo = new JComboBox<>(ExecShortcutKeys.displayChoices());
+		passThroughHotkeyCombo.setSelectedItem(ExecShortcutKeys.toDisplayString(originalPassThroughToggleKeyCode));
 		hotkeyPanel.add(passThroughHotkeyCombo, gbc);
 
 		gbc.gridx = 0;
@@ -486,8 +488,8 @@ public class PreferencesDialog extends JDialog {
 		hotkeyPanel.add(nextTabLabel, gbc);
 
 		gbc.gridx = 1;
-		nextShownTabHotkeyCombo = new JComboBox<>(buildFunctionKeyChoices());
-		nextShownTabHotkeyCombo.setSelectedItem(keyCodeToDisplayString(originalNextShownTabKeyCode));
+		nextShownTabHotkeyCombo = new JComboBox<>(ExecShortcutKeys.displayChoices());
+		nextShownTabHotkeyCombo.setSelectedItem(ExecShortcutKeys.toDisplayString(originalNextShownTabKeyCode));
 		hotkeyPanel.add(nextShownTabHotkeyCombo, gbc);
 
 		gbc.gridx = 0;
@@ -548,6 +550,12 @@ public class PreferencesDialog extends JDialog {
 		overlayTabFleetCarrierVisibleCheckBox.setOpaque(false);
 		overlayTabFleetCarrierVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabFleetCarrierVisible());
 		tabsPanel.add(overlayTabFleetCarrierVisibleCheckBox, tgc);
+
+		tgc.gridy++;
+		overlayTabControlPanelVisibleCheckBox = new JCheckBox("Control Panel");
+		overlayTabControlPanelVisibleCheckBox.setOpaque(false);
+		overlayTabControlPanelVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabControlPanelVisible());
+		tabsPanel.add(overlayTabControlPanelVisibleCheckBox, tgc);
 
 		content.add(tabsPanel, outer);
 
@@ -1835,6 +1843,7 @@ public class PreferencesDialog extends JDialog {
 				f.applyUiFontPreferences();
 				f.applyThemeFromPreferences();
 				f.refreshSystemTabFromSavedPreferences();
+				f.refreshOverlayTabBarFromSavedPreferences();
 
 				if (!f.isPassThroughEnabled()) {
 					if (getOwner() instanceof Window) {
@@ -2139,11 +2148,11 @@ public class PreferencesDialog extends JDialog {
             OverlayPreferences.setPassThroughTransparencyPercent(passThroughTransparencySlider.getValue());
         }
         if (passThroughHotkeyCombo != null && passThroughHotkeyCombo.getSelectedItem() != null) {
-            int keyCode = displayStringToKeyCode(passThroughHotkeyCombo.getSelectedItem().toString());
+            int keyCode = ExecShortcutKeys.fromDisplayString(passThroughHotkeyCombo.getSelectedItem().toString());
             OverlayPreferences.setPassThroughToggleKeyCode(keyCode);
         }
         if (nextShownTabHotkeyCombo != null && nextShownTabHotkeyCombo.getSelectedItem() != null) {
-            int keyCode = displayStringToKeyCode(nextShownTabHotkeyCombo.getSelectedItem().toString());
+            int keyCode = ExecShortcutKeys.fromDisplayString(nextShownTabHotkeyCombo.getSelectedItem().toString());
             OverlayPreferences.setNextShownTabKeyCode(keyCode);
         }
 
@@ -2158,8 +2167,9 @@ public class PreferencesDialog extends JDialog {
             boolean m = overlayTabMiningVisibleCheckBox != null && overlayTabMiningVisibleCheckBox.isSelected();
             boolean ms = overlayTabMissionsVisibleCheckBox != null && overlayTabMissionsVisibleCheckBox.isSelected();
             boolean f = overlayTabFleetCarrierVisibleCheckBox != null && overlayTabFleetCarrierVisibleCheckBox.isSelected();
-            if (!r && !s && !b && !m && !ms && !f) {
-                r = s = b = m = ms = f = true;
+            boolean cp = overlayTabControlPanelVisibleCheckBox != null && overlayTabControlPanelVisibleCheckBox.isSelected();
+            if (!r && !s && !b && !m && !ms && !f && !cp) {
+                r = s = b = m = ms = f = cp = true;
             }
             OverlayPreferences.setOverlayTabRouteVisible(r);
             OverlayPreferences.setOverlayTabSystemVisible(s);
@@ -2167,6 +2177,7 @@ public class PreferencesDialog extends JDialog {
             OverlayPreferences.setOverlayTabMiningVisible(m);
             OverlayPreferences.setOverlayTabMissionsVisible(ms);
             OverlayPreferences.setOverlayTabFleetCarrierVisible(f);
+            OverlayPreferences.setOverlayTabControlPanelVisible(cp);
         }
 
         if (autoSwitchGalaxyMapToRouteCheckBox != null) {
@@ -2547,79 +2558,4 @@ public class PreferencesDialog extends JDialog {
 			return (c.getRed() << 16) | (c.getGreen() << 8) | c.getBlue();
 		}
 
-		private static String[] buildFunctionKeyChoices() {
-			String[] keys = new String[12];
-			for (int i = 0; i < 12; i++) {
-				keys[i] = "F" + (i + 1);
-			}
-			return keys;
-		}
-
-		private static String keyCodeToDisplayString(int keyCode) {
-			// Only map F1-F12 for now.
-			switch (keyCode) {
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F1:
-				return "F1";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F2:
-				return "F2";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F3:
-				return "F3";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F4:
-				return "F4";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F5:
-				return "F5";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F6:
-				return "F6";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F7:
-				return "F7";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F8:
-				return "F8";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F9:
-				return "F9";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F10:
-				return "F10";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F11:
-				return "F11";
-			case com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F12:
-				return "F12";
-			default:
-				return "F9";
-			}
-		}
-
-		private static int displayStringToKeyCode(String display) {
-			if (display == null) {
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F9;
-			}
-			String s = display.trim().toUpperCase();
-			switch (s) {
-			case "F1":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F1;
-			case "F2":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F2;
-			case "F3":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F3;
-			case "F4":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F4;
-			case "F5":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F5;
-			case "F6":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F6;
-			case "F7":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F7;
-			case "F8":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F8;
-			case "F9":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F9;
-			case "F10":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F10;
-			case "F11":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F11;
-			case "F12":
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F12;
-			default:
-				return com.github.kwhat.jnativehook.keyboard.NativeKeyEvent.VC_F9;
-			}
-		}
-
-	}
+}

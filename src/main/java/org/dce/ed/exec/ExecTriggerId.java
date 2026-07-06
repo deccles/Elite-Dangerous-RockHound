@@ -8,7 +8,8 @@ public enum ExecTriggerId {
     FLEET_TRITIUM_LOW("Fleet carrier tritium low"),
     ROUTE_COPY_NEXT_DESTINATION("Copy next destination (Route)"),
     FLEET_CARRIER_COPY_NEXT_DESTINATION("Copy next destination (Fleet Carrier)"),
-    JOURNAL_EVENT("Journal event");
+    JOURNAL_EVENT("Journal event"),
+    SHORTCUT_KEY("Shortcut key");
 
     private final String label;
 
@@ -27,7 +28,8 @@ public enum ExecTriggerId {
                 FLEET_TRITIUM_LOW,
                 ROUTE_COPY_NEXT_DESTINATION,
                 FLEET_CARRIER_COPY_NEXT_DESTINATION,
-                JOURNAL_EVENT
+                JOURNAL_EVENT,
+                SHORTCUT_KEY
         };
     }
 }

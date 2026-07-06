@@ -7,6 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.dce.ed.logreader.EliteEventType;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Map;
+
 class ExecJournalEventBindingTest {
 
     @Test
@@ -51,5 +54,29 @@ class ExecJournalEventBindingTest {
                 .build();
 
         assertEquals("CarrierJumpRequest", context.toEnvironment().get("EDO_JOURNAL_EVENT"));
+    }
+
+    @Test
+    void matchesJournalAttributes_withFilters() {
+        ExecBinding binding = new ExecBinding();
+        binding.setJournalEventType("CarrierJump");
+        binding.getJournalAttributeFilters().add(
+                new ExecJournalAttributeFilter("StarSystem", "Sol", ExecJournalAttributeFilter.MatchMode.EQUALS));
+
+        var obj = com.google.gson.JsonParser.parseString(
+                "{\"event\":\"CarrierJump\",\"StarSystem\":\"Sol\"}").getAsJsonObject();
+        assertTrue(binding.matchesJournalAttributes(obj, Map.of()));
+        assertFalse(binding.matchesJournalAttributes(
+                com.google.gson.JsonParser.parseString(
+                        "{\"event\":\"CarrierJump\",\"StarSystem\":\"Alpha Centauri\"}").getAsJsonObject(),
+                Map.of()));
+    }
+
+    @Test
+    void execJournalJsonMatcher_substitutesPlaceholder() {
+        var obj = com.google.gson.JsonParser.parseString(
+                "{\"event\":\"Docked\",\"StationName\":\"Jameson Memorial\"}").getAsJsonObject();
+        var filter = new ExecJournalAttributeFilter("StationName", "$DEST", ExecJournalAttributeFilter.MatchMode.EQUALS);
+        assertTrue(ExecJournalJsonMatcher.matches(obj, "Docked", List.of(filter), Map.of("DEST", "Jameson Memorial")));
     }
 }

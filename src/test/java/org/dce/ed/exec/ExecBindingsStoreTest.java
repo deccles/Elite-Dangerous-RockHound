@@ -27,6 +27,8 @@ class ExecBindingsStoreTest {
         binding.setDelayMs(10_000);
         binding.setJarPath("C:\\tools\\demo.jar");
         binding.setProgramArgs("--foo");
+        binding.setName("My macro");
+        binding.setIncludeOnControlPanel(true);
         config.getBindings().add(binding);
 
         store.save(config);
@@ -42,5 +44,7 @@ class ExecBindingsStoreTest {
         assertEquals("C:\\tools\\demo.jar", rows.get(0).getJarPath());
         assertEquals("--foo", rows.get(0).getProgramArgs());
         assertEquals("Docked", rows.get(0).getJournalEventType());
+        assertEquals("My macro", rows.get(0).getName());
+        assertTrue(rows.get(0).isIncludeOnControlPanel());
     }
 }

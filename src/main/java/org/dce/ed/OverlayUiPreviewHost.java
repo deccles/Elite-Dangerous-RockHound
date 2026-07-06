@@ -25,7 +25,11 @@ public interface OverlayUiPreviewHost {
 
     /**
      * Rebuild the System tab table + plan map after Overlay preferences OK (e.g. ship reference mode changed).
+     * Also refreshes overlay tab bar visibility (Visible tabs checkboxes).
      */
     default void refreshSystemTabFromSavedPreferences() {
+    }
+
+    default void refreshOverlayTabBarFromSavedPreferences() {
     }
 }

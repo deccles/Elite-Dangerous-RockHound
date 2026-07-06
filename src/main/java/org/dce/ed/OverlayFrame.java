@@ -166,14 +166,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     // Crosshair on glass pane (draw-only, on top of all UI; {@link CrosshairOverlay#contains} is false)
     private final CrosshairOverlay crosshairOverlay = new CrosshairOverlay();
     private final Timer crosshairTimer;
-    /** Smoothed glass-pane position (reduces jitter from coarse MouseInfo polling). */
-    private double crosshairSmoothX = Double.NaN;
-    private double crosshairSmoothY = Double.NaN;
     private static final int CROSSHAIR_POLL_MS = 16;
-    /** Lerp toward the polled cursor each tick (lower = smoother, higher = snappier). */
-    private static final double CROSSHAIR_SMOOTH_ALPHA = 0.38;
-    /** Snap instead of lerp when the cursor jumps farther than this (px). */
-    private static final double CROSSHAIR_SNAP_DISTANCE_PX = 72.0;
     private static final long PASS_THROUGH_CLOSE_DWELL_MS = 900L;
     private static final long PASS_THROUGH_TOGGLE_DWELL_MS = 700L;
     private static final long PASS_THROUGH_MENU_DWELL_MS = 900L;
@@ -208,6 +201,12 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 
     /** Persistent mining / Google Sheets error line (red) until cleared on success. */
     private volatile String miningSheetsStatusError;
+
+    /** Transient Exec / Control Panel run status; cleared automatically after a delay. */
+    private volatile String execOverlayStatusMessage;
+    private volatile boolean execOverlayStatusError;
+    private Timer execOverlayStatusClearTimer;
+    private static final int EXEC_OVERLAY_STATUS_CLEAR_MS = 20_000;
 
     /** Transient TTS cache-miss hint (warning color); cleared automatically after a delay. */
     private volatile String speechCacheMissBanner;
@@ -255,6 +254,113 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     public void clearMiningSheetsStatusError() {
         miningSheetsStatusError = null;
         refreshPassThroughUnifiedStatus();
+    }
+
+    /**
+     * Shows a transient Exec / Control Panel status line in the overlay status bar (red for errors).
+     * Clears after about 20 seconds; each call restarts the timer.
+     */
+    public void setExecOverlayStatus(String message) {
+        Runnable apply = () -> {
+            if (message == null || message.isBlank()) {
+                execOverlayStatusMessage = null;
+                execOverlayStatusError = false;
+            } else {
+                execOverlayStatusMessage = message.trim();
+                execOverlayStatusError = isExecStatusError(execOverlayStatusMessage);
+            }
+            restartExecOverlayStatusClearTimer();
+            refreshPassThroughUnifiedStatus();
+            refreshDecoratedStatusFromExecOverlay();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            apply.run();
+        } else {
+            SwingUtilities.invokeLater(apply);
+        }
+    }
+
+    private void restartExecOverlayStatusClearTimer() {
+        if (execOverlayStatusClearTimer != null) {
+            execOverlayStatusClearTimer.stop();
+            execOverlayStatusClearTimer = null;
+        }
+        if (execOverlayStatusMessage == null) {
+            return;
+        }
+        execOverlayStatusClearTimer = new Timer(EXEC_OVERLAY_STATUS_CLEAR_MS, e -> {
+            execOverlayStatusMessage = null;
+            execOverlayStatusError = false;
+            if (execOverlayStatusClearTimer != null) {
+                execOverlayStatusClearTimer.stop();
+                execOverlayStatusClearTimer = null;
+            }
+            refreshPassThroughUnifiedStatus();
+            refreshDecoratedStatusFromExecOverlay();
+        });
+        execOverlayStatusClearTimer.setRepeats(false);
+        execOverlayStatusClearTimer.start();
+    }
+
+    private void refreshDecoratedStatusFromExecOverlay() {
+        Consumer<String> extra = rightStatusListener;
+        if (extra != null) {
+            try {
+                extra.accept(buildRightStatusHtml());
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    boolean hasExecOverlayStatus() {
+        return execOverlayStatusMessage != null && !execOverlayStatusMessage.isBlank();
+    }
+
+    boolean isExecOverlayStatusError() {
+        return execOverlayStatusError;
+    }
+
+    String buildExecOverlayStatusHtmlFragment() {
+        String msg = execOverlayStatusMessage;
+        if (msg == null || msg.isBlank()) {
+            return "";
+        }
+        String color = execOverlayStatusError
+                ? EdoUi.htmlRgb(EdoUi.User.ERROR)
+                : EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT);
+        return "<span style='color:" + color + ";'>" + EdoUi.escapeHtmlMinimal(msg) + "</span>";
+    }
+
+    static boolean isExecStatusError(String message) {
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        String m = message.trim();
+        return m.startsWith("Failed:")
+                || m.startsWith("Save failed")
+                || m.contains("not ready")
+                || m.contains("no longer configured")
+                || m.contains("not configured")
+                || m.startsWith("Select a row")
+                || m.startsWith("Action not configured");
+    }
+
+    static String mergeExecIntoDecoratedStatus(String execFragment, String decoratedHtml) {
+        if (execFragment == null || execFragment.isEmpty()) {
+            return decoratedHtml != null ? decoratedHtml : "";
+        }
+        String sep = "<span style='color:" + EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT) + ";'>  |  </span>";
+        if (decoratedHtml == null || decoratedHtml.isEmpty()) {
+            return "<html>" + execFragment + "</html>";
+        }
+        if (decoratedHtml.startsWith("<html>") && decoratedHtml.endsWith("</html>")) {
+            String inner = decoratedHtml.substring(6, decoratedHtml.length() - 7);
+            if (inner.isEmpty()) {
+                return "<html>" + execFragment + "</html>";
+            }
+            return "<html>" + execFragment + sep + inner + "</html>";
+        }
+        return "<html>" + execFragment + sep + EdoUi.escapeHtmlMinimal(decoratedHtml) + "</html>";
     }
 
     /**
@@ -577,7 +683,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         setGlassPane(crosshairOverlay);
         crosshairOverlay.setVisible(false);
 
-        // Poll global mouse position and update crosshair (~60 Hz + smoothing)
+        // Poll global mouse position and update crosshair (~60 Hz, direct tracking like RoboHound game message)
         crosshairTimer = new Timer(CROSSHAIR_POLL_MS, e -> updateCrosshair());
         crosshairTimer.start();
 
@@ -938,6 +1044,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             return;
         }
         execTriggerService.setPlaceholderContext(execPlaceholderContext);
+        execTriggerService.setConfigSupplier(() -> execTriggerService.store().load());
         wireExecPlaceholderContext(tabs);
         tabs.setExecPlaceholderContext(execPlaceholderContext);
         tabs.wireExecTriggerService(execTriggerService);
@@ -950,6 +1057,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             return fleetCarrierTab != null
                     ? fleetCarrierTab.prepareFleetCooldownDestinationClipboard()
                     : FleetCooldownClipboardPrep.unavailable();
+        });
+        execTriggerService.setStatusListener(msg -> {
+            if (msg != null) {
+                setExecOverlayStatus(msg);
+            }
         });
     }
 
@@ -1549,10 +1661,13 @@ private void refreshPassThroughUnifiedStatus() {
         String miningErr = miningSheetsStatusError;
         boolean showMiningErr = miningErr != null && !miningErr.isBlank();
 
+        boolean showExec = hasExecOverlayStatus();
+        String execFrag = showExec ? buildExecOverlayStatusHtmlFragment() : "";
+
         boolean rightEmpty = isRightStatusEffectivelyEmpty();
         boolean showWarning = limpet || fighterPilot;
 
-        if (!showErr && !showMiningErr && !showWarning && rightEmpty) {
+        if (!showErr && !showMiningErr && !showExec && !showWarning && rightEmpty) {
             // Keep the status row visually clear when there is no content.
             // A visible placeholder dash is confusing after totals reset (e.g., after SellOrganicData).
             passThroughStatusLabel.setText("");
@@ -1579,6 +1694,12 @@ private void refreshPassThroughUnifiedStatus() {
                 html.append(sep);
                 appendRightStatusInnerHtml(html);
             }
+        } else if (showExec) {
+            html.append(execFrag);
+            if (!rightEmpty) {
+                html.append(sep);
+                appendRightStatusInnerHtml(html);
+            }
         } else if (showWarning) {
             if (!rightEmpty) {
                 appendRightStatusInnerHtml(html);
@@ -1591,7 +1712,7 @@ private void refreshPassThroughUnifiedStatus() {
         passThroughStatusLabel.setText(html.toString());
         // JLabel ignores this for most HTML content; kept for non-HTML edge cases.
         passThroughStatusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
-        if (getRightStatusUpdateHintPlain() != null && !showErr && !showMiningErr) {
+        if (getRightStatusUpdateHintPlain() != null && !showErr && !showMiningErr && !showExec) {
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         } else {
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
@@ -1823,6 +1944,14 @@ private void refreshPassThroughUnifiedStatus() {
         }
     }
 
+    @Override
+    public void refreshOverlayTabBarFromSavedPreferences() {
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs != null) {
+            tabs.refreshOverlayTabBarFromSavedPreferences();
+        }
+    }
+
     public void applyUiFontPreview(java.awt.Font font) {
         if (font == null) {
             return;
@@ -1939,7 +2068,11 @@ private void refreshPassThroughUnifiedStatus() {
         if (containsScreenPoint(titleBar, mouse)) {
             return true;
         }
-        return containsScreenPoint(passThroughMenuBar, mouse);
+        if (containsScreenPoint(passThroughMenuBar, mouse)) {
+            return true;
+        }
+        EliteOverlayTabbedPane tabs = contentPanel != null ? contentPanel.getTabbedPane() : null;
+        return tabs != null && tabs.isPointerOverControlPanelActionButton(mouse);
     }
 
     private static boolean containsScreenPoint(Component component, Point screenPoint) {
@@ -2454,8 +2587,6 @@ private void refreshPassThroughUnifiedStatus() {
 
     private void updateCrosshair() {
         if (!isShowing()) {
-            crosshairSmoothX = Double.NaN;
-            crosshairSmoothY = Double.NaN;
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             resetPassThroughCloseHoverState();
@@ -2480,16 +2611,12 @@ private void refreshPassThroughUnifiedStatus() {
         }
 
         if (!passThroughEnabled) {
-            crosshairSmoothX = Double.NaN;
-            crosshairSmoothY = Double.NaN;
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             return;
         }
 
         if (pi == null) {
-            crosshairSmoothX = Double.NaN;
-            crosshairSmoothY = Double.NaN;
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             return;
@@ -2500,8 +2627,6 @@ private void refreshPassThroughUnifiedStatus() {
         try {
             frameOnScreen = getLocationOnScreen();
         } catch (IllegalComponentStateException ex) {
-            crosshairSmoothX = Double.NaN;
-            crosshairSmoothY = Double.NaN;
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             return;
@@ -2511,42 +2636,21 @@ private void refreshPassThroughUnifiedStatus() {
         int relY = mouseOnScreen.y - frameOnScreen.y;
 
         if (relX >= 0 && relY >= 0 && relX < getWidth() && relY < getHeight()) {
-            Point2D.Double smoothed = smoothCrosshairPoint(relX, relY);
-            crosshairOverlay.setCrosshairPoint(smoothed);
+            EliteOverlayTabbedPane tabs = contentPanel != null ? contentPanel.getTabbedPane() : null;
+            if (tabs != null && tabs.isPointerOverControlPanelActionButton(mouseOnScreen)) {
+                crosshairOverlay.setCrosshairPoint(null);
+                crosshairOverlay.setVisible(false);
+                return;
+            }
+            crosshairOverlay.setCrosshairPoint(new Point2D.Double(relX, relY));
             if (!crosshairOverlay.isVisible()) {
                 crosshairOverlay.setVisible(true);
             }
         } else {
-            crosshairSmoothX = Double.NaN;
-            crosshairSmoothY = Double.NaN;
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
         }
 
-    }
-
-    /**
-     * Exponential smoothing of polled cursor position so the crosshair does not jitter on every
-     * {@link MouseInfo} sample. Large jumps snap immediately so fast mouse movement stays responsive.
-     */
-    private Point2D.Double smoothCrosshairPoint(int targetX, int targetY) {
-        double tx = targetX;
-        double ty = targetY;
-        if (!Double.isFinite(crosshairSmoothX) || !Double.isFinite(crosshairSmoothY)) {
-            crosshairSmoothX = tx;
-            crosshairSmoothY = ty;
-        } else {
-            double dx = tx - crosshairSmoothX;
-            double dy = ty - crosshairSmoothY;
-            if (dx * dx + dy * dy > CROSSHAIR_SNAP_DISTANCE_PX * CROSSHAIR_SNAP_DISTANCE_PX) {
-                crosshairSmoothX = tx;
-                crosshairSmoothY = ty;
-            } else {
-                crosshairSmoothX += dx * CROSSHAIR_SMOOTH_ALPHA;
-                crosshairSmoothY += dy * CROSSHAIR_SMOOTH_ALPHA;
-            }
-        }
-        return new Point2D.Double(crosshairSmoothX, crosshairSmoothY);
     }
 
     private void updatePassThroughHoverClose(Point mouseOnScreen) {
@@ -2673,6 +2777,12 @@ private void refreshPassThroughUnifiedStatus() {
         }
 
         void setCrosshairPoint(Point2D.Double p) {
+            if (p == null && crosshairPoint == null) {
+                return;
+            }
+            if (p != null && crosshairPoint != null && p.x == crosshairPoint.x && p.y == crosshairPoint.y) {
+                return;
+            }
             this.crosshairPoint = p;
             repaint();
         }

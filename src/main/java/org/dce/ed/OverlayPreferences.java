@@ -87,6 +87,8 @@ public final class OverlayPreferences {
     private static final String KEY_OVERLAY_TAB_MINING_VISIBLE = "overlay.tab.mining.visible";
     private static final String KEY_OVERLAY_TAB_MISSIONS_VISIBLE = "overlay.tab.missions.visible";
     private static final String KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE = "overlay.tab.fleetCarrier.visible";
+    private static final String KEY_OVERLAY_TAB_CONTROL_PANEL_VISIBLE = "overlay.tab.controlPanel.visible";
+    /** @deprecated legacy key; migrated on read */
     private static final String KEY_OVERLAY_TAB_EXEC_VISIBLE = "overlay.tab.exec.visible";
 
     // --- Auto-switching / tab behavior ---
@@ -353,12 +355,25 @@ public final class OverlayPreferences {
         PREFS.putBoolean(KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE, visible);
     }
 
-    public static boolean isOverlayTabExecVisible() {
+    public static boolean isOverlayTabControlPanelVisible() {
+        if (PREFS.get(KEY_OVERLAY_TAB_CONTROL_PANEL_VISIBLE, null) != null) {
+            return PREFS.getBoolean(KEY_OVERLAY_TAB_CONTROL_PANEL_VISIBLE, true);
+        }
         return PREFS.getBoolean(KEY_OVERLAY_TAB_EXEC_VISIBLE, true);
     }
 
+    public static void setOverlayTabControlPanelVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_CONTROL_PANEL_VISIBLE, visible);
+    }
+
+    /** @deprecated use {@link #isOverlayTabControlPanelVisible()} */
+    public static boolean isOverlayTabExecVisible() {
+        return isOverlayTabControlPanelVisible();
+    }
+
+    /** @deprecated use {@link #setOverlayTabControlPanelVisible(boolean)} */
     public static void setOverlayTabExecVisible(boolean visible) {
-        PREFS.putBoolean(KEY_OVERLAY_TAB_EXEC_VISIBLE, visible);
+        setOverlayTabControlPanelVisible(visible);
     }
 
     public static int getPassThroughTransparencyPercent() {

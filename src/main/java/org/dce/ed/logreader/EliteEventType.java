@@ -24,6 +24,7 @@ public enum EliteEventType {
     UNDOCKED("Undocked"),
     DOCKED("Docked"),
     SUPERCRUISE_ENTRY("SupercruiseEntry"),
+    SUPERCRUISE_DESTINATION_DROP("SupercruiseDestinationDrop"),
     SUPERCRUISE_EXIT("SupercruiseExit"),
     FSD_JUMP("FSDJump"),
     FSD_TARGET("FSDTarget"),
@@ -172,6 +173,8 @@ public enum EliteEventType {
             case STATISTICS -> "Lifetime statistics updated.";
             case STATUS -> "High-frequency status snapshot (from Status.json).";
             case SUPERCRUISE_ENTRY -> "Entered supercruise in-system.";
+            case SUPERCRUISE_DESTINATION_DROP ->
+                    "Supercruise drop on a navigation target (station/carrier); fields Type, MarketID.";
             case SUPERCRUISE_EXIT -> "Dropped out of supercruise.";
             case TOUCHDOWN -> "Ship touched down on planetary surface.";
             case UNDOCKED -> "Commander undocked from a station or carrier.";

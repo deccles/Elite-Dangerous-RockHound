@@ -1,8 +1,9 @@
 package org.dce.ed;
 
-import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Frame;
+import java.awt.KeyboardFocusManager;
 import java.awt.HeadlessException;
 import java.awt.IllegalComponentStateException;
 import java.awt.MouseInfo;
@@ -26,6 +27,8 @@ import javax.swing.Timer;
 
 import java.time.LocalTime;
 
+import org.dce.ed.exec.ExecShortcutKeyDispatch;
+import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
@@ -33,6 +36,7 @@ import org.dce.ed.tts.VoicePackManager;
 import org.dce.ed.ui.ConsoleMonitor;
 import org.dce.ed.ui.StartupSplashOverlay;
 import org.dce.ed.util.AppIconUtil;
+import org.dce.ed.util.EliteWindowFocus;
 import org.dce.ed.util.GithubMsiUpdater;
 
 import com.github.kwhat.jnativehook.GlobalScreen;
@@ -590,7 +594,32 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
                     tp.selectNextVisibleTab();
                 }
             });
+            return;
         }
+
+        if (shouldDispatchExecShortcutKeys()) {
+            ExecTriggerService exec = passThroughFrame.getExecTriggerService();
+            if (exec != null) {
+                exec.onShortcutKeyPressed(e.getKeyCode());
+            }
+        }
+    }
+
+    boolean shouldDispatchExecShortcutKeys() {
+        Component focus = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        return ExecShortcutKeyDispatch.shouldDispatch(
+                EliteWindowFocus.isEliteForeground(),
+                overlayHasKeyboardFocus(),
+                focus);
+    }
+
+    private boolean overlayHasKeyboardFocus() {
+        Component focus = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        if (focus == null) {
+            return false;
+        }
+        Window focusedWindow = SwingUtilities.getWindowAncestor(focus);
+        return focusedWindow == passThroughFrame || focusedWindow == decoratedDialog;
     }
     private static void forceWindowToFront(java.awt.Window w) {
         if (w == null) {
