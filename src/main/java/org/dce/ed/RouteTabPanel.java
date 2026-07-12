@@ -65,6 +65,7 @@ import javax.swing.table.TableColumnModel;
 import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.exec.FleetCooldownClipboardPrep;
+import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 
@@ -297,6 +298,10 @@ public class RouteTabPanel extends JPanel {
 	 */
 	public boolean applyPassThroughWheelIfHit(int screenX, int screenY, int wheelRotation) {
 		return PassThroughScrollSupport.applyVerticalWheelIfHit(routeScrollPane, screenX, screenY, wheelRotation);
+	}
+
+	public boolean isPointerOverScrollBar(Point screenPoint) {
+		return OverlayScrollPaneSupport.isPointerOverScrollBar(routeScrollPane, screenPoint);
 	}
 
 	public void applySessionState(EdoSessionState state) {

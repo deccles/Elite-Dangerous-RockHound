@@ -227,6 +227,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabMiningVisibleCheckBox;
 	private JCheckBox overlayTabMissionsVisibleCheckBox;
 	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
+	private JCheckBox overlayTabEngineeringVisibleCheckBox;
 	private JCheckBox overlayTabControlPanelVisibleCheckBox;
 
 	private ExecTabPanel execTabPanel;
@@ -550,6 +551,12 @@ public class PreferencesDialog extends JDialog {
 		overlayTabFleetCarrierVisibleCheckBox.setOpaque(false);
 		overlayTabFleetCarrierVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabFleetCarrierVisible());
 		tabsPanel.add(overlayTabFleetCarrierVisibleCheckBox, tgc);
+
+		tgc.gridy++;
+		overlayTabEngineeringVisibleCheckBox = new JCheckBox("Engineering");
+		overlayTabEngineeringVisibleCheckBox.setOpaque(false);
+		overlayTabEngineeringVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabEngineeringVisible());
+		tabsPanel.add(overlayTabEngineeringVisibleCheckBox, tgc);
 
 		tgc.gridy++;
 		overlayTabControlPanelVisibleCheckBox = new JCheckBox("Control Panel");
@@ -2167,9 +2174,10 @@ public class PreferencesDialog extends JDialog {
             boolean m = overlayTabMiningVisibleCheckBox != null && overlayTabMiningVisibleCheckBox.isSelected();
             boolean ms = overlayTabMissionsVisibleCheckBox != null && overlayTabMissionsVisibleCheckBox.isSelected();
             boolean f = overlayTabFleetCarrierVisibleCheckBox != null && overlayTabFleetCarrierVisibleCheckBox.isSelected();
+            boolean eng = overlayTabEngineeringVisibleCheckBox != null && overlayTabEngineeringVisibleCheckBox.isSelected();
             boolean cp = overlayTabControlPanelVisibleCheckBox != null && overlayTabControlPanelVisibleCheckBox.isSelected();
-            if (!r && !s && !b && !m && !ms && !f && !cp) {
-                r = s = b = m = ms = f = cp = true;
+            if (!r && !s && !b && !m && !ms && !f && !eng && !cp) {
+                r = s = b = m = ms = f = eng = cp = true;
             }
             OverlayPreferences.setOverlayTabRouteVisible(r);
             OverlayPreferences.setOverlayTabSystemVisible(s);
@@ -2177,6 +2185,7 @@ public class PreferencesDialog extends JDialog {
             OverlayPreferences.setOverlayTabMiningVisible(m);
             OverlayPreferences.setOverlayTabMissionsVisible(ms);
             OverlayPreferences.setOverlayTabFleetCarrierVisible(f);
+            OverlayPreferences.setOverlayTabEngineeringVisible(eng);
             OverlayPreferences.setOverlayTabControlPanelVisible(cp);
         }
 

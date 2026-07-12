@@ -14,6 +14,10 @@ public enum EliteEventType {
     FILEHEADER("Fileheader"),
     COMMANDER("Commander"),
     MATERIALS("Materials"),
+    MATERIAL_COLLECTED("MaterialCollected"),
+    MATERIAL_DISCARDED("MaterialDiscarded"),
+    MATERIAL_TRADE("MaterialTrade"),
+    ENGINEER_CRAFT("EngineerCraft"),
     RANK("Rank"),
     PROGRESS("Progress"),
     REPUTATION("Reputation"),
@@ -130,6 +134,7 @@ public enum EliteEventType {
             case COMMANDER -> "Commander record written at session start.";
             case DOCK_SRV -> "SRV docked back into the mothership.";
             case DOCKED -> "Commander docked at a station or fleet carrier.";
+            case ENGINEER_CRAFT -> "Module engineered at an engineer (materials consumed, grade applied).";
             case ENGINEER_PROGRESS -> "Engineer unlock/progress updated.";
             case FSS_ALL_BODIES_FOUND -> "FSS completed for all bodies in the system.";
             case FSS_BODY_SIGNAL_DISCOVERED -> "FSS body signal discovered.";
@@ -143,6 +148,9 @@ public enum EliteEventType {
             case LOADOUT -> "Ship loadout snapshot (modules, hull health at snapshot).";
             case LOCATION -> "Commander location updated (system, body, docked state).";
             case MATERIALS -> "Raw/engineered materials inventory updated.";
+            case MATERIAL_COLLECTED -> "Engineering material collected.";
+            case MATERIAL_DISCARDED -> "Engineering material discarded.";
+            case MATERIAL_TRADE -> "Material trader exchange completed.";
             case MISSION_ABANDONED -> "Mission abandoned.";
             case MISSION_ACCEPTED -> "Mission accepted.";
             case MISSION_COMPLETED -> "Mission completed.";

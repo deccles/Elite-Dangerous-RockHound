@@ -87,6 +87,13 @@ public final class OverlayPreferences {
     private static final String KEY_OVERLAY_TAB_MINING_VISIBLE = "overlay.tab.mining.visible";
     private static final String KEY_OVERLAY_TAB_MISSIONS_VISIBLE = "overlay.tab.missions.visible";
     private static final String KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE = "overlay.tab.fleetCarrier.visible";
+    private static final String KEY_OVERLAY_TAB_ENGINEERING_VISIBLE = "overlay.tab.engineering.visible";
+    private static final String KEY_ENGINEERING_MATERIALS_SORT_COLUMN = "overlay.engineering.materials.sortColumn";
+    private static final String KEY_ENGINEERING_MATERIALS_SORT_DESC = "overlay.engineering.materials.sortDescending";
+    private static final String KEY_ENGINEERING_TRADE_SORT_COLUMN = "overlay.engineering.trade.sortColumn";
+    private static final String KEY_ENGINEERING_TRADE_SORT_DESC = "overlay.engineering.trade.sortDescending";
+    private static final String KEY_ENGINEERING_BLUEPRINT_SORT_COLUMN = "overlay.engineering.blueprintPicker.sortColumn";
+    private static final String KEY_ENGINEERING_BLUEPRINT_SORT_DESC = "overlay.engineering.blueprintPicker.sortDescending";
     private static final String KEY_OVERLAY_TAB_CONTROL_PANEL_VISIBLE = "overlay.tab.controlPanel.visible";
     /** @deprecated legacy key; migrated on read */
     private static final String KEY_OVERLAY_TAB_EXEC_VISIBLE = "overlay.tab.exec.visible";
@@ -353,6 +360,62 @@ public final class OverlayPreferences {
 
     public static void setOverlayTabFleetCarrierVisible(boolean visible) {
         PREFS.putBoolean(KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE, visible);
+    }
+
+    public static boolean isOverlayTabEngineeringVisible() {
+        return PREFS.getBoolean(KEY_OVERLAY_TAB_ENGINEERING_VISIBLE, true);
+    }
+
+    public static void setOverlayTabEngineeringVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_ENGINEERING_VISIBLE, visible);
+    }
+
+    public static int getEngineeringMaterialsSortColumn() {
+        return PREFS.getInt(KEY_ENGINEERING_MATERIALS_SORT_COLUMN, 4);
+    }
+
+    public static void setEngineeringMaterialsSortColumn(int column) {
+        PREFS.putInt(KEY_ENGINEERING_MATERIALS_SORT_COLUMN, column);
+    }
+
+    public static boolean isEngineeringMaterialsSortDescending() {
+        return PREFS.getBoolean(KEY_ENGINEERING_MATERIALS_SORT_DESC, true);
+    }
+
+    public static void setEngineeringMaterialsSortDescending(boolean descending) {
+        PREFS.putBoolean(KEY_ENGINEERING_MATERIALS_SORT_DESC, descending);
+    }
+
+    public static int getEngineeringTradeSortColumn() {
+        return PREFS.getInt(KEY_ENGINEERING_TRADE_SORT_COLUMN, 0);
+    }
+
+    public static void setEngineeringTradeSortColumn(int column) {
+        PREFS.putInt(KEY_ENGINEERING_TRADE_SORT_COLUMN, column);
+    }
+
+    public static boolean isEngineeringTradeSortDescending() {
+        return PREFS.getBoolean(KEY_ENGINEERING_TRADE_SORT_DESC, false);
+    }
+
+    public static void setEngineeringTradeSortDescending(boolean descending) {
+        PREFS.putBoolean(KEY_ENGINEERING_TRADE_SORT_DESC, descending);
+    }
+
+    public static int getEngineeringBlueprintPickerSortColumn() {
+        return PREFS.getInt(KEY_ENGINEERING_BLUEPRINT_SORT_COLUMN, 0);
+    }
+
+    public static void setEngineeringBlueprintPickerSortColumn(int column) {
+        PREFS.putInt(KEY_ENGINEERING_BLUEPRINT_SORT_COLUMN, column);
+    }
+
+    public static boolean isEngineeringBlueprintPickerSortDescending() {
+        return PREFS.getBoolean(KEY_ENGINEERING_BLUEPRINT_SORT_DESC, false);
+    }
+
+    public static void setEngineeringBlueprintPickerSortDescending(boolean descending) {
+        PREFS.putBoolean(KEY_ENGINEERING_BLUEPRINT_SORT_DESC, descending);
     }
 
     public static boolean isOverlayTabControlPanelVisible() {

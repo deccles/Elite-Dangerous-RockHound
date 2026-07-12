@@ -103,6 +103,7 @@ import org.dce.ed.state.SystemState;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.util.EdsmClient;
@@ -406,6 +407,10 @@ public class SystemTabPanel extends JPanel {
 			return true;
 		}
 		return PassThroughScrollSupport.applyVerticalWheelIfHit(systemBodyScrollPane, screenX, screenY, wheelRotation);
+	}
+
+	public boolean isPointerOverScrollBar(Point screenPoint) {
+		return OverlayScrollPaneSupport.isPointerOverScrollBar(systemBodyScrollPane, screenPoint);
 	}
 
 	/** Apply persisted system tab state (for restore on startup). */

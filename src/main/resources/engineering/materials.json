@@ -1,0 +1,1864 @@
+[
+  {
+    "key": "aberrantshieldpatternanalysis",
+    "name": "Aberrant Shield Pattern Analysis",
+    "type": "Encoded",
+    "subtype": "ShieldData",
+    "grade": 4
+  },
+  {
+    "key": "compactemissionsdata",
+    "name": "Abnormal Compact Emission Data",
+    "type": "Encoded",
+    "subtype": "EmissionData",
+    "grade": 5
+  },
+  {
+    "key": "adaptiveencryptorscapture",
+    "name": "Adaptive Encryptors Capture",
+    "type": "Encoded",
+    "subtype": "EncryptionFiles",
+    "grade": 5
+  },
+  {
+    "key": "anomalousbulkscandata",
+    "name": "Anomalous Bulk Scan Data",
+    "type": "Encoded",
+    "subtype": "DataArchives",
+    "grade": 1
+  },
+  {
+    "key": "anomalousfsdtelemetry",
+    "name": "Anomalous FSD Telemetry",
+    "type": "Encoded",
+    "subtype": "WakeScans",
+    "grade": 2
+  },
+  {
+    "key": "atypicaldisruptedwakeechoes",
+    "name": "Atypical Disrupted Wake Echoes",
+    "type": "Encoded",
+    "subtype": "WakeScans",
+    "grade": 1
+  },
+  {
+    "key": "atypicalencryptionarchives",
+    "name": "Atypical Encryption Archives",
+    "type": "Encoded",
+    "subtype": "EncryptionFiles",
+    "grade": 4
+  },
+  {
+    "key": "scandatabanks",
+    "name": "Classified Scan Databanks",
+    "type": "Encoded",
+    "subtype": "DataArchives",
+    "grade": 3
+  },
+  {
+    "key": "classifiedscandata",
+    "name": "Classified Scan Fragment",
+    "type": "Encoded",
+    "subtype": "DataArchives",
+    "grade": 5
+  },
+  {
+    "key": "crackedindustrialfirmware",
+    "name": "Cracked Industrial Firmware",
+    "type": "Encoded",
+    "subtype": "EncodedFirmware",
+    "grade": 3
+  },
+  {
+    "key": "dataminedwakeexceptions",
+    "name": "Datamined Wake Exceptions",
+    "type": "Encoded",
+    "subtype": "WakeScans",
+    "grade": 5
+  },
+  {
+    "key": "decodedemissiondata",
+    "name": "Decoded Emission Data",
+    "type": "Encoded",
+    "subtype": "EmissionData",
+    "grade": 4
+  },
+  {
+    "key": "distortedshieldcyclerecordings",
+    "name": "Distorted Shield Cycle Recordings",
+    "type": "Encoded",
+    "subtype": "ShieldData",
+    "grade": 1
+  },
+  {
+    "key": "encodedscandata",
+    "name": "Divergent Scan Data",
+    "type": "Encoded",
+    "subtype": "DataArchives",
+    "grade": 4
+  },
+  {
+    "key": "eccentrichyperspacetrajectories",
+    "name": "Eccentric Hyperspace Trajectories",
+    "type": "Encoded",
+    "subtype": "WakeScans",
+    "grade": 4
+  },
+  {
+    "key": "exceptionalscrambledemissiondata",
+    "name": "Exceptional Scrambled Emission Data",
+    "type": "Encoded",
+    "subtype": "EmissionData",
+    "grade": 1
+  },
+  {
+    "key": "guardian_moduleblueprint",
+    "name": "Guardian Module Blueprint Segment",
+    "type": "Encoded",
+    "subtype": "GuardianRuinsActive",
+    "grade": 5
+  },
+  {
+    "key": "guardian_vesselblueprint",
+    "name": "Guardian Vessel Blueprint Segment",
+    "type": "Encoded",
+    "subtype": "GuardianRuinsActive",
+    "grade": 5
+  },
+  {
+    "key": "guardian_weaponblueprint",
+    "name": "Guardian Weapon Blueprint Segment",
+    "type": "Encoded",
+    "subtype": "GuardianRuinsActive",
+    "grade": 5
+  },
+  {
+    "key": "inconsistentshieldsoakanalysis",
+    "name": "Inconsistent Shield Soak Analysis",
+    "type": "Encoded",
+    "subtype": "ShieldData",
+    "grade": 2
+  },
+  {
+    "key": "archivedemissiondata",
+    "name": "Irregular Emission Data",
+    "type": "Encoded",
+    "subtype": "EmissionData",
+    "grade": 2
+  },
+  {
+    "key": "tg_shutdowndata",
+    "name": "Massive Energy Surge Analytics",
+    "type": "Encoded",
+    "subtype": "ThargoidShip",
+    "grade": 4
+  },
+  {
+    "key": "modifiedconsumerfirmware",
+    "name": "Modified Consumer Firmware",
+    "type": "Encoded",
+    "subtype": "EncodedFirmware",
+    "grade": 2
+  },
+  {
+    "key": "modifiedembeddedfirmware",
+    "name": "Modified Embedded Firmware",
+    "type": "Encoded",
+    "subtype": "EncodedFirmware",
+    "grade": 5
+  },
+  {
+    "key": "opensymmetrickeys",
+    "name": "Open Symmetric Keys",
+    "type": "Encoded",
+    "subtype": "EncryptionFiles",
+    "grade": 3
+  },
+  {
+    "key": "ancientbiologicaldata",
+    "name": "Pattern Alpha Obelisk Data",
+    "type": "Encoded",
+    "subtype": "GuardianRuins",
+    "grade": 3
+  },
+  {
+    "key": "ancientculturaldata",
+    "name": "Pattern Beta Obelisk Data",
+    "type": "Encoded",
+    "subtype": "GuardianRuins",
+    "grade": 2
+  },
+  {
+    "key": "ancientlanguagedata",
+    "name": "Pattern Delta Obelisk Data",
+    "type": "Encoded",
+    "subtype": "GuardianRuins",
+    "grade": 4
+  },
+  {
+    "key": "ancienttechnologicaldata",
+    "name": "Pattern Epsilon Obelisk Data",
+    "type": "Encoded",
+    "subtype": "GuardianRuins",
+    "grade": 5
+  },
+  {
+    "key": "ancienthistoricaldata",
+    "name": "Pattern Gamma Obelisk Data",
+    "type": "Encoded",
+    "subtype": "GuardianRuins",
+    "grade": 1
+  },
+  {
+    "key": "peculiarshieldfrequencydata",
+    "name": "Peculiar Shield Frequency Data",
+    "type": "Encoded",
+    "subtype": "ShieldData",
+    "grade": 5
+  },
+  {
+    "key": "securityfirmwarepatch",
+    "name": "Security Firmware Patch",
+    "type": "Encoded",
+    "subtype": "EncodedFirmware",
+    "grade": 4
+  },
+  {
+    "key": "tg_shipflightdata",
+    "name": "Ship Flight Data",
+    "type": "Encoded",
+    "subtype": "ThargoidShip",
+    "grade": 3
+  },
+  {
+    "key": "tg_shipsystemsdata",
+    "name": "Ship System Data",
+    "type": "Encoded",
+    "subtype": "ThargoidShip",
+    "grade": 4
+  },
+  {
+    "key": "specialisedlegacyfirmware",
+    "name": "Specialised Legacy Firmware",
+    "type": "Encoded",
+    "subtype": "EncodedFirmware",
+    "grade": 1
+  },
+  {
+    "key": "strangewakesolutions",
+    "name": "Strange Wake Solutions",
+    "type": "Encoded",
+    "subtype": "WakeScans",
+    "grade": 3
+  },
+  {
+    "key": "taggedencryptioncodes",
+    "name": "Tagged Encryption Codes",
+    "type": "Encoded",
+    "subtype": "EncryptionFiles",
+    "grade": 2
+  },
+  {
+    "key": "tg_interdictiondata",
+    "name": "Thargoid Interdiction Telemetry",
+    "type": "Encoded",
+    "subtype": "ThargoidShip",
+    "grade": 5
+  },
+  {
+    "key": "tg_compositiondata",
+    "name": "Thargoid Material Composition Data",
+    "type": "Encoded",
+    "subtype": "ThargoidSite",
+    "grade": 3
+  },
+  {
+    "key": "tg_residuedata",
+    "name": "Thargoid Residue Data",
+    "type": "Encoded",
+    "subtype": "ThargoidSite",
+    "grade": 4
+  },
+  {
+    "key": "unknownshipsignature",
+    "name": "Thargoid Ship Signature",
+    "type": "Encoded",
+    "subtype": "ThargoidShip",
+    "grade": 3
+  },
+  {
+    "key": "tg_structuraldata",
+    "name": "Thargoid Structural Data",
+    "type": "Encoded",
+    "subtype": "ThargoidSite",
+    "grade": 2
+  },
+  {
+    "key": "unknownwakedata",
+    "name": "Thargoid Wake Data",
+    "type": "Encoded",
+    "subtype": "ThargoidShip",
+    "grade": 4
+  },
+  {
+    "key": "emissiondata",
+    "name": "Unexpected Emission Data",
+    "type": "Encoded",
+    "subtype": "EmissionData",
+    "grade": 3
+  },
+  {
+    "key": "unidentifiedscanarchives",
+    "name": "Unidentified Scan Archives",
+    "type": "Encoded",
+    "subtype": "DataArchives",
+    "grade": 2
+  },
+  {
+    "key": "shielddensityreports",
+    "name": "Untypical Shield Scans",
+    "type": "Encoded",
+    "subtype": "ShieldData",
+    "grade": 3
+  },
+  {
+    "key": "unusualencryptedfiles",
+    "name": "Unusual Encrypted Files",
+    "type": "Encoded",
+    "subtype": "EncryptionFiles",
+    "grade": 1
+  },
+  {
+    "key": "aerogel",
+    "name": "Aerogel",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "airqualityreports",
+    "name": "Air Quality Reports",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "articulationmotors",
+    "name": "Articulation Motors",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "atmosphericdata",
+    "name": "Atmospheric Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "audiologs",
+    "name": "Audio Logs",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "ballisticsdata",
+    "name": "Ballistic Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "basicconductors",
+    "name": "Basic Conductors",
+    "type": "Manufactured",
+    "subtype": "Conductive",
+    "grade": 1
+  },
+  {
+    "key": "tg_biomechanicalconduits",
+    "name": "Bio-Mechanical Conduits",
+    "type": "Manufactured",
+    "subtype": "ThargoidShip",
+    "grade": 3
+  },
+  {
+    "key": "geneticsample",
+    "name": "Biological Sample",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "biometricdata",
+    "name": "Biometric Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "biotechconductors",
+    "name": "Biotech Conductors",
+    "type": "Manufactured",
+    "subtype": "Conductive",
+    "grade": 5
+  },
+  {
+    "key": "bloodtestresults",
+    "name": "Blood Test Results",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "bromellite",
+    "name": "Bromellite",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "cmmcomposite",
+    "name": "CMM Composite",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "carbonfibreplating",
+    "name": "Carbon Fibre Plating",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "catmedia",
+    "name": "Cat Media",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "chemicalcatalyst",
+    "name": "Chemical Catalyst",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "chemicaldistillery",
+    "name": "Chemical Distillery",
+    "type": "Manufactured",
+    "subtype": "Chemical",
+    "grade": 3
+  },
+  {
+    "key": "chemicalexperimentdata",
+    "name": "Chemical Experiment Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "chemicalformulae",
+    "name": "Chemical Formulae",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "chemicalinventory",
+    "name": "Chemical Inventory",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "chemicalmanipulators",
+    "name": "Chemical Manipulators",
+    "type": "Manufactured",
+    "subtype": "Chemical",
+    "grade": 4
+  },
+  {
+    "key": "chemicalpatents",
+    "name": "Chemical Patents",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "chemicalprocessors",
+    "name": "Chemical Processors",
+    "type": "Manufactured",
+    "subtype": "Chemical",
+    "grade": 2
+  },
+  {
+    "key": "chemicalstorageunits",
+    "name": "Chemical Storage Units",
+    "type": "Manufactured",
+    "subtype": "Chemical",
+    "grade": 1
+  },
+  {
+    "key": "chemicalsuperbase",
+    "name": "Chemical Superbase",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "circuitboard",
+    "name": "Circuit Board",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "circuitswitch",
+    "name": "Circuit Switch",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "classicentertainment",
+    "name": "Classic Entertainment",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "medicaltrialrecords",
+    "name": "Clinical Trial Records",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "combattrainingmaterial",
+    "name": "Combat Training Material",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "combatantperformance",
+    "name": "Combatant Performance",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "compactcomposites",
+    "name": "Compact Composites",
+    "type": "Manufactured",
+    "subtype": "Composite",
+    "grade": 1
+  },
+  {
+    "key": "compoundshielding",
+    "name": "Compound Shielding",
+    "type": "Manufactured",
+    "subtype": "Shielding",
+    "grade": 4
+  },
+  {
+    "key": "compressionliquefiedgas",
+    "name": "Compression-Liquefied Gas",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "conductiveceramics",
+    "name": "Conductive Ceramics",
+    "type": "Manufactured",
+    "subtype": "Conductive",
+    "grade": 3
+  },
+  {
+    "key": "conductivecomponents",
+    "name": "Conductive Components",
+    "type": "Manufactured",
+    "subtype": "Conductive",
+    "grade": 2
+  },
+  {
+    "key": "conductivepolymers",
+    "name": "Conductive Polymers",
+    "type": "Manufactured",
+    "subtype": "Conductive",
+    "grade": 4
+  },
+  {
+    "key": "configurablecomponents",
+    "name": "Configurable Components",
+    "type": "Manufactured",
+    "subtype": "MechanicalComponents",
+    "grade": 4
+  },
+  {
+    "key": "fedcorecomposites",
+    "name": "Core Dynamics Composites",
+    "type": "Manufactured",
+    "subtype": "Composite",
+    "grade": 5
+  },
+  {
+    "key": "crystalshards",
+    "name": "Crystal Shards",
+    "type": "Manufactured",
+    "subtype": "Crystals",
+    "grade": 1
+  },
+  {
+    "key": "digitaldesigns",
+    "name": "Digital Designs",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "electricalfuse",
+    "name": "Electrical Fuse",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "electricalwiring",
+    "name": "Electrical Wiring",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "electrochemicalarrays",
+    "name": "Electrochemical Arrays",
+    "type": "Manufactured",
+    "subtype": "Capacitors",
+    "grade": 3
+  },
+  {
+    "key": "electromagnet",
+    "name": "Electromagnet",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "employeegeneticdata",
+    "name": "Employee Genetic Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "encryptedmemorychip",
+    "name": "Encrypted Memory Chip",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "powergridassembly",
+    "name": "Energy Grid Assembly",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "epinephrine",
+    "name": "Epinephrine",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "epoxyadhesive",
+    "name": "Epoxy Adhesive",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "evacuationprotocols",
+    "name": "Evacuation Protocols",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "exquisitefocuscrystals",
+    "name": "Exquisite Focus Crystals",
+    "type": "Manufactured",
+    "subtype": "Crystals",
+    "grade": 5
+  },
+  {
+    "key": "extractionyielddata",
+    "name": "Extraction Yield Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "filamentcomposites",
+    "name": "Filament Composites",
+    "type": "Manufactured",
+    "subtype": "Composite",
+    "grade": 2
+  },
+  {
+    "key": "financialprojections",
+    "name": "Financial Projections",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "uncutfocuscrystals",
+    "name": "Flawed Focus Crystals",
+    "type": "Manufactured",
+    "subtype": "Crystals",
+    "grade": 2
+  },
+  {
+    "key": "focuscrystals",
+    "name": "Focus Crystals",
+    "type": "Manufactured",
+    "subtype": "Crystals",
+    "grade": 3
+  },
+  {
+    "key": "fujintea",
+    "name": "Fujin Tea",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "gmeds",
+    "name": "G-Meds",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "galvanisingalloys",
+    "name": "Galvanising Alloys",
+    "type": "Manufactured",
+    "subtype": "Alloys",
+    "grade": 2
+  },
+  {
+    "key": "genesequencingdata",
+    "name": "Gene Sequencing Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "geneticrepairmeds",
+    "name": "Genetic Repair Meds",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "geneticresearch",
+    "name": "Genetic Research",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "gold",
+    "name": "Gold",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "graphene",
+    "name": "Graphene",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "gridresistors",
+    "name": "Grid Resistors",
+    "type": "Manufactured",
+    "subtype": "Capacitors",
+    "grade": 1
+  },
+  {
+    "key": "guardian_powercell",
+    "name": "Guardian Power Cell",
+    "type": "Manufactured",
+    "subtype": "GuardianRuinsActive",
+    "grade": 1
+  },
+  {
+    "key": "guardian_powerconduit",
+    "name": "Guardian Power Conduit",
+    "type": "Manufactured",
+    "subtype": "GuardianRuinsActive",
+    "grade": 2
+  },
+  {
+    "key": "guardian_sentinel_weaponparts",
+    "name": "Guardian Sentinel Weapon Parts",
+    "type": "Manufactured",
+    "subtype": "GuardianRuinsActive",
+    "grade": 3
+  },
+  {
+    "key": "guardian_techcomponent",
+    "name": "Guardian Technology Component",
+    "type": "Manufactured",
+    "subtype": "GuardianRuinsActive",
+    "grade": 3
+  },
+  {
+    "key": "guardian_sentinel_wreckagecomponents",
+    "name": "Guardian Wreckage Components",
+    "type": "Manufactured",
+    "subtype": "GuardianRuinsActive",
+    "grade": 1
+  },
+  {
+    "key": "hnshockmount",
+    "name": "HN Shock Mount",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "diagnosticsensor",
+    "name": "Hardware Diagnostic Sensor",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "healthmonitor",
+    "name": "Health Monitor",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "heatconductionwiring",
+    "name": "Heat Conduction Wiring",
+    "type": "Manufactured",
+    "subtype": "Heat",
+    "grade": 1
+  },
+  {
+    "key": "heatdispersionplate",
+    "name": "Heat Dispersion Plate",
+    "type": "Manufactured",
+    "subtype": "Heat",
+    "grade": 2
+  },
+  {
+    "key": "heatexchangers",
+    "name": "Heat Exchangers",
+    "type": "Manufactured",
+    "subtype": "Heat",
+    "grade": 3
+  },
+  {
+    "key": "heatresistantceramics",
+    "name": "Heat Resistant Ceramics",
+    "type": "Manufactured",
+    "subtype": "Thermic",
+    "grade": 2
+  },
+  {
+    "key": "heatvanes",
+    "name": "Heat Vanes",
+    "type": "Manufactured",
+    "subtype": "Heat",
+    "grade": 4
+  },
+  {
+    "key": "heatsinkinterlink",
+    "name": "Heatsink Interlink",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "highdensitycomposites",
+    "name": "High Density Composites",
+    "type": "Manufactured",
+    "subtype": "Composite",
+    "grade": 3
+  },
+  {
+    "key": "hybridcapacitors",
+    "name": "Hybrid Capacitors",
+    "type": "Manufactured",
+    "subtype": "Capacitors",
+    "grade": 2
+  },
+  {
+    "key": "imperialshielding",
+    "name": "Imperial Shielding",
+    "type": "Manufactured",
+    "subtype": "Shielding",
+    "grade": 5
+  },
+  {
+    "key": "improvisedcomponents",
+    "name": "Improvised Components",
+    "type": "Manufactured",
+    "subtype": "MechanicalComponents",
+    "grade": 5
+  },
+  {
+    "key": "insightentertainmentsuite",
+    "name": "Insight Entertainment Suite",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "ionbattery",
+    "name": "Ion Battery",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "iondistributor",
+    "name": "Ion Distributor",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "ionisedgas",
+    "name": "Ionised Gas",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "kamitracigars",
+    "name": "Kamitra Cigars",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "konggaale",
+    "name": "Kongga Ale",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "landmines",
+    "name": "Landmines",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "lavianbrandy",
+    "name": "Lavian Brandy",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "magneticemittercoil",
+    "name": "Magnetic Emitter Coil",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "maintenancelogs",
+    "name": "Maintenance Logs",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "manufacturinginstructions",
+    "name": "Manufacturing Instructions",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "mechanicalcomponents",
+    "name": "Mechanical Components",
+    "type": "Manufactured",
+    "subtype": "MechanicalComponents",
+    "grade": 3
+  },
+  {
+    "key": "mechanicalequipment",
+    "name": "Mechanical Equipment",
+    "type": "Manufactured",
+    "subtype": "MechanicalComponents",
+    "grade": 2
+  },
+  {
+    "key": "mechanicalscrap",
+    "name": "Mechanical Scrap",
+    "type": "Manufactured",
+    "subtype": "MechanicalComponents",
+    "grade": 1
+  },
+  {
+    "key": "medicalrecords",
+    "name": "Medical Records",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "memorychip",
+    "name": "Memory Chip",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "metaalloys",
+    "name": "Meta-alloys",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "metalcoil",
+    "name": "Metal Coil",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "microcontrollers",
+    "name": "Micro Controllers",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "microhydraulics",
+    "name": "Micro Hydraulics",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "microsupercapacitor",
+    "name": "Micro Supercapacitor",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "microthrusters",
+    "name": "Micro Thrusters",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "microtransformer",
+    "name": "Micro Transformer",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "micro-weavecoolinghoses",
+    "name": "Micro-Weave Cooling Hoses",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "microelectrode",
+    "name": "Microelectrode",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "militarygradealloys",
+    "name": "Military Grade Alloys",
+    "type": "Manufactured",
+    "subtype": "Thermic",
+    "grade": 5
+  },
+  {
+    "key": "militarysupercapacitors",
+    "name": "Military Supercapacitors",
+    "type": "Manufactured",
+    "subtype": "Capacitors",
+    "grade": 5
+  },
+  {
+    "key": "mineralsurvey",
+    "name": "Mineral Survey",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "mininganalytics",
+    "name": "Mining Analytics",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "modularterminals",
+    "name": "Modular Terminals",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "motor",
+    "name": "Motor",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "multimediaentertainment",
+    "name": "Multimedia Entertainment",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "nocdata",
+    "name": "NOC Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "neofabricinsulation",
+    "name": "Neofabric Insulation",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "occupiedcryopod",
+    "name": "Occupied Escape Pod",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "operationalmanual",
+    "name": "Operational Manual",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "opinionpolls",
+    "name": "Opinion Polls",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "opticalfibre",
+    "name": "Optical Fibre",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "opticallens",
+    "name": "Optical Lens",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "osmium",
+    "name": "Osmium",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "oxygenicbacteria",
+    "name": "Oxygenic Bacteria",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "painite",
+    "name": "Painite",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "patrolroutes",
+    "name": "Patrol Routes",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "pharmaceuticalisolators",
+    "name": "Pharmaceutical Isolators",
+    "type": "Manufactured",
+    "subtype": "Chemical",
+    "grade": 5
+  },
+  {
+    "key": "pharmaceuticalpatents",
+    "name": "Pharmaceutical Patents",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "phasealloys",
+    "name": "Phase Alloys",
+    "type": "Manufactured",
+    "subtype": "Alloys",
+    "grade": 3
+  },
+  {
+    "key": "polymercapacitors",
+    "name": "Polymer Capacitors",
+    "type": "Manufactured",
+    "subtype": "Capacitors",
+    "grade": 4
+  },
+  {
+    "key": "powerconverter",
+    "name": "Power Converter",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "largecapacitypowerregulator",
+    "name": "Power Regulator",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "powertransferconduits",
+    "name": "Power Transfer Bus",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "precipitatedalloys",
+    "name": "Precipitated Alloys",
+    "type": "Manufactured",
+    "subtype": "Thermic",
+    "grade": 3
+  },
+  {
+    "key": "productionreports",
+    "name": "Production Reports",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "productionschedule",
+    "name": "Production Schedule",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "progenitorcells",
+    "name": "Progenitor Cells",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "fedproprietarycomposites",
+    "name": "Proprietary Composites",
+    "type": "Manufactured",
+    "subtype": "Composite",
+    "grade": 4
+  },
+  {
+    "key": "tg_propulsionelement",
+    "name": "Propulsion Elements",
+    "type": "Manufactured",
+    "subtype": "ThargoidShip",
+    "grade": 5
+  },
+  {
+    "key": "protoheatradiators",
+    "name": "Proto Heat Radiators",
+    "type": "Manufactured",
+    "subtype": "Heat",
+    "grade": 5
+  },
+  {
+    "key": "protolightalloys",
+    "name": "Proto Light Alloys",
+    "type": "Manufactured",
+    "subtype": "Alloys",
+    "grade": 4
+  },
+  {
+    "key": "protoradiolicalloys",
+    "name": "Proto Radiolic Alloys",
+    "type": "Manufactured",
+    "subtype": "Alloys",
+    "grade": 5
+  },
+  {
+    "key": "push",
+    "name": "Push",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "rdx",
+    "name": "RDX",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "radiationbaffle",
+    "name": "Radiation Baffle",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "radioactivitydata",
+    "name": "Radioactivity Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "reactoroutputreview",
+    "name": "Reactor Output Review",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "recyclinglogs",
+    "name": "Recycling Logs",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "refinedfocuscrystals",
+    "name": "Refined Focus Crystals",
+    "type": "Manufactured",
+    "subtype": "Crystals",
+    "grade": 4
+  },
+  {
+    "key": "reinforcedmountingplate",
+    "name": "Reinforced Mounting Plate",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "riskassessments",
+    "name": "Risk Assessments",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "salvagedalloys",
+    "name": "Salvaged Alloys",
+    "type": "Manufactured",
+    "subtype": "Alloys",
+    "grade": 1
+  },
+  {
+    "key": "scrambler",
+    "name": "Scrambler",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "securityexpenses",
+    "name": "Security Expenses",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "unknownenergysource",
+    "name": "Sensor Fragment",
+    "type": "Manufactured",
+    "subtype": "ThargoidSite",
+    "grade": 5
+  },
+  {
+    "key": "settlementassaultplans",
+    "name": "Settlement Assault Plans",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "settlementdefenceplans",
+    "name": "Settlement Defence Plans",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "shieldemitters",
+    "name": "Shield Emitters",
+    "type": "Manufactured",
+    "subtype": "Shielding",
+    "grade": 2
+  },
+  {
+    "key": "shieldingsensors",
+    "name": "Shielding Sensors",
+    "type": "Manufactured",
+    "subtype": "Shielding",
+    "grade": 3
+  },
+  {
+    "key": "smearcampaignplans",
+    "name": "Smear Campaign Plans",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "soontillrelics",
+    "name": "Soontill Relics",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "spectralanalysisdata",
+    "name": "Spectral Analysis Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "stellaractivitylogs",
+    "name": "Stellar Activity Logs",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "suitschematic",
+    "name": "Suit Schematic",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "surveillanceequipment",
+    "name": "Surveillance Equipment",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "surveilleancelogs",
+    "name": "Surveillance Logs",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "tacticalplans",
+    "name": "Tactical Plans",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "temperedalloys",
+    "name": "Tempered Alloys",
+    "type": "Manufactured",
+    "subtype": "Thermic",
+    "grade": 1
+  },
+  {
+    "key": "unknowncarapace",
+    "name": "Thargoid Carapace",
+    "type": "Manufactured",
+    "subtype": "ThargoidSite",
+    "grade": 2
+  },
+  {
+    "key": "unknownenergycell",
+    "name": "Thargoid Energy Cell",
+    "type": "Manufactured",
+    "subtype": "ThargoidSite",
+    "grade": 3
+  },
+  {
+    "key": "unknownorganiccircuitry",
+    "name": "Thargoid Organic Circuitry",
+    "type": "Manufactured",
+    "subtype": "ThargoidSite",
+    "grade": 5
+  },
+  {
+    "key": "unknowntechnologycomponents",
+    "name": "Thargoid Technological Components",
+    "type": "Manufactured",
+    "subtype": "ThargoidSite",
+    "grade": 4
+  },
+  {
+    "key": "thermalcoolingunits",
+    "name": "Thermal Cooling Units",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "thermicalloys",
+    "name": "Thermic Alloys",
+    "type": "Manufactured",
+    "subtype": "Thermic",
+    "grade": 4
+  },
+  {
+    "key": "titaniumplating",
+    "name": "Titanium Plating",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "topographicalsurveys",
+    "name": "Topographical Surveys",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "transmitter",
+    "name": "Transmitter",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "troopdeploymentrecords",
+    "name": "Troop Deployment Records",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "tungstencarbide",
+    "name": "Tungsten Carbide",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "viscoelasticpolymer",
+    "name": "Viscoelastic Polymer",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "weaponcomponent",
+    "name": "Weapon Component",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "weaponinventory",
+    "name": "Weapon Inventory",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "tg_weaponparts",
+    "name": "Weapon Parts",
+    "type": "Manufactured",
+    "subtype": "ThargoidShip",
+    "grade": 4
+  },
+  {
+    "key": "weaponschematic",
+    "name": "Weapon Schematic",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "weapontestdata",
+    "name": "Weapon Test Data",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "wornshieldemitters",
+    "name": "Worn Shield Emitters",
+    "type": "Manufactured",
+    "subtype": "Shielding",
+    "grade": 1
+  },
+  {
+    "key": "tg_wreckagecomponents",
+    "name": "Wreckage Components",
+    "type": "Manufactured",
+    "subtype": "ThargoidShip",
+    "grade": 3
+  },
+  {
+    "key": "xihecompanions",
+    "name": "Xihe Companions",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "phneutraliser",
+    "name": "pH Neutraliser",
+    "type": "Manufactured",
+    "subtype": "Unknown",
+    "grade": 1
+  },
+  {
+    "key": "antimony",
+    "name": "Antimony",
+    "type": "Raw",
+    "subtype": "Category7",
+    "grade": 4
+  },
+  {
+    "key": "arsenic",
+    "name": "Arsenic",
+    "type": "Raw",
+    "subtype": "Category6",
+    "grade": 2
+  },
+  {
+    "key": "boron",
+    "name": "Boron",
+    "type": "Raw",
+    "subtype": "Category7",
+    "grade": 3
+  },
+  {
+    "key": "cadmium",
+    "name": "Cadmium",
+    "type": "Raw",
+    "subtype": "Category3",
+    "grade": 3
+  },
+  {
+    "key": "carbon",
+    "name": "Carbon",
+    "type": "Raw",
+    "subtype": "Category1",
+    "grade": 1
+  },
+  {
+    "key": "chromium",
+    "name": "Chromium",
+    "type": "Raw",
+    "subtype": "Category2",
+    "grade": 2
+  },
+  {
+    "key": "germanium",
+    "name": "Germanium",
+    "type": "Raw",
+    "subtype": "Category5",
+    "grade": 2
+  },
+  {
+    "key": "iron",
+    "name": "Iron",
+    "type": "Raw",
+    "subtype": "Category4",
+    "grade": 1
+  },
+  {
+    "key": "lead",
+    "name": "Lead",
+    "type": "Raw",
+    "subtype": "Category7",
+    "grade": 1
+  },
+  {
+    "key": "manganese",
+    "name": "Manganese",
+    "type": "Raw",
+    "subtype": "Category3",
+    "grade": 2
+  },
+  {
+    "key": "mercury",
+    "name": "Mercury",
+    "type": "Raw",
+    "subtype": "Category6",
+    "grade": 3
+  },
+  {
+    "key": "molybdenum",
+    "name": "Molybdenum",
+    "type": "Raw",
+    "subtype": "Category2",
+    "grade": 3
+  },
+  {
+    "key": "nickel",
+    "name": "Nickel",
+    "type": "Raw",
+    "subtype": "Category5",
+    "grade": 1
+  },
+  {
+    "key": "niobium",
+    "name": "Niobium",
+    "type": "Raw",
+    "subtype": "Category1",
+    "grade": 3
+  },
+  {
+    "key": "phosphorus",
+    "name": "Phosphorus",
+    "type": "Raw",
+    "subtype": "Category2",
+    "grade": 1
+  },
+  {
+    "key": "polonium",
+    "name": "Polonium",
+    "type": "Raw",
+    "subtype": "Category6",
+    "grade": 4
+  },
+  {
+    "key": "rhenium",
+    "name": "Rhenium",
+    "type": "Raw",
+    "subtype": "Category6",
+    "grade": 1
+  },
+  {
+    "key": "ruthenium",
+    "name": "Ruthenium",
+    "type": "Raw",
+    "subtype": "Category3",
+    "grade": 4
+  },
+  {
+    "key": "selenium",
+    "name": "Selenium",
+    "type": "Raw",
+    "subtype": "Category4",
+    "grade": 4
+  },
+  {
+    "key": "sulphur",
+    "name": "Sulphur",
+    "type": "Raw",
+    "subtype": "Category3",
+    "grade": 1
+  },
+  {
+    "key": "technetium",
+    "name": "Technetium",
+    "type": "Raw",
+    "subtype": "Category2",
+    "grade": 4
+  },
+  {
+    "key": "tellurium",
+    "name": "Tellurium",
+    "type": "Raw",
+    "subtype": "Category5",
+    "grade": 4
+  },
+  {
+    "key": "tin",
+    "name": "Tin",
+    "type": "Raw",
+    "subtype": "Category4",
+    "grade": 3
+  },
+  {
+    "key": "tungsten",
+    "name": "Tungsten",
+    "type": "Raw",
+    "subtype": "Category5",
+    "grade": 3
+  },
+  {
+    "key": "vanadium",
+    "name": "Vanadium",
+    "type": "Raw",
+    "subtype": "Category1",
+    "grade": 2
+  },
+  {
+    "key": "yttrium",
+    "name": "Yttrium",
+    "type": "Raw",
+    "subtype": "Category1",
+    "grade": 4
+  },
+  {
+    "key": "zinc",
+    "name": "Zinc",
+    "type": "Raw",
+    "subtype": "Category4",
+    "grade": 2
+  },
+  {
+    "key": "zirconium",
+    "name": "Zirconium",
+    "type": "Raw",
+    "subtype": "Category7",
+    "grade": 2
+  }
+]

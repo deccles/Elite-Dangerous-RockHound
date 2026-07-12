@@ -10,6 +10,7 @@ import org.dce.ed.TestEnvironment;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.LocationEvent;
+import org.dce.ed.logreader.event.MaterialTradeEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.logreader.event.TouchdownEvent;
@@ -162,5 +163,36 @@ class EliteLogParserTest {
                 + "\"Latitude\":27.637203,\"Longitude\":-87.579308}";
         TouchdownEvent td = assertInstanceOf(TouchdownEvent.class, parser.parseRecord(json));
         assertTrue(!td.isPlayerControlled());
+    }
+
+    @Test
+    void parseRecord_materialTrade_nestedPaidReceived_parsesMaterialSides() {
+        String json = "{\"timestamp\":\"" + ISO_TS + "\",\"event\":\"MaterialTrade\","
+                + "\"MarketID\":3226579456,\"TraderType\":\"manufactured\","
+                + "\"Paid\":{\"Material\":\"protolightalloys\",\"Material_Localised\":\"Proto Light Alloys\","
+                + "\"Category\":\"Manufactured\",\"Quantity\":3},"
+                + "\"Received\":{\"Material\":\"salvagedalloys\",\"Material_Localised\":\"Salvaged Alloys\","
+                + "\"Category\":\"Manufactured\",\"Quantity\":81}}";
+        MaterialTradeEvent trade = assertInstanceOf(MaterialTradeEvent.class, parser.parseRecord(json));
+        assertEquals("manufactured", trade.getCategory());
+        assertEquals("protolightalloys", trade.getPaidName());
+        assertEquals("Proto Light Alloys", trade.getPaidNameLocalised());
+        assertEquals(3, trade.getPaidCount());
+        assertEquals("salvagedalloys", trade.getReceivedName());
+        assertEquals("Salvaged Alloys", trade.getReceivedNameLocalised());
+        assertEquals(81, trade.getReceivedCount());
+    }
+
+    @Test
+    void parseRecord_materialTrade_legacyFlatFields_parsesMaterialSides() {
+        String json = "{\"timestamp\":\"" + ISO_TS + "\",\"event\":\"MaterialTrade\","
+                + "\"Category\":\"Encoded\",\"Paid\":\"filamentcomposites\",\"PaidCount\":3,"
+                + "\"Received\":\"militarysupercapacitors\",\"ReceivedCount\":1}";
+        MaterialTradeEvent trade = assertInstanceOf(MaterialTradeEvent.class, parser.parseRecord(json));
+        assertEquals("Encoded", trade.getCategory());
+        assertEquals("filamentcomposites", trade.getPaidName());
+        assertEquals(3, trade.getPaidCount());
+        assertEquals("militarysupercapacitors", trade.getReceivedName());
+        assertEquals(1, trade.getReceivedCount());
     }
 }

@@ -39,6 +39,12 @@ import org.dce.ed.logreader.event.MissionFailedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.logreader.event.EngineerCraftEvent;
+import org.dce.ed.logreader.event.MaterialCollectedEvent;
+import org.dce.ed.logreader.event.MaterialDiscardedEvent;
+import org.dce.ed.logreader.event.MaterialStack;
+import org.dce.ed.logreader.event.MaterialTradeEvent;
+import org.dce.ed.logreader.event.MaterialsEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.ReceiveTextEvent;
@@ -188,6 +194,16 @@ public class EliteLogParser {
                 return parseBounty(ts, obj);
             case REDEEM_VOUCHER:
                 return parseRedeemVoucher(ts, obj);
+            case MATERIALS:
+                return parseMaterials(ts, obj);
+            case MATERIAL_COLLECTED:
+                return parseMaterialCollected(ts, obj);
+            case MATERIAL_DISCARDED:
+                return parseMaterialDiscarded(ts, obj);
+            case MATERIAL_TRADE:
+                return parseMaterialTrade(ts, obj);
+            case ENGINEER_CRAFT:
+                return parseEngineerCraft(ts, obj);
             default:
                 // For everything else, fall back to generic event.
                 return new GenericEvent(ts, type, obj);
@@ -1224,5 +1240,171 @@ private static String canonicalGasName(String name) {
     }
     return raw;
 }
+
+    private MaterialsEvent parseMaterials(Instant ts, JsonObject obj) {
+        return new MaterialsEvent(
+                ts,
+                obj,
+                parseMaterialStacks(obj, "Raw"),
+                parseMaterialStacks(obj, "Manufactured"),
+                parseMaterialStacks(obj, "Encoded"));
+    }
+
+    private List<MaterialStack> parseMaterialStacks(JsonObject obj, String field) {
+        if (obj == null || !obj.has(field) || !obj.get(field).isJsonArray()) {
+            return List.of();
+        }
+        List<MaterialStack> out = new ArrayList<>();
+        for (JsonElement el : obj.getAsJsonArray(field)) {
+            if (el == null || !el.isJsonObject()) {
+                continue;
+            }
+            JsonObject row = el.getAsJsonObject();
+            String name = getString(row, "Name");
+            String localised = getString(row, "Name_Localised");
+            int count = row.has("Count") && !row.get("Count").isJsonNull()
+                    ? row.get("Count").getAsInt() : 0;
+            if (!name.isBlank()) {
+                out.add(new MaterialStack(name, localised, count));
+            }
+        }
+        return out;
+    }
+
+    private EngineerCraftEvent parseEngineerCraft(Instant ts, JsonObject obj) {
+        return new EngineerCraftEvent(
+                ts,
+                obj,
+                getString(obj, "Slot"),
+                getString(obj, "Module"),
+                getString(obj, "Engineer"),
+                getLong(obj, "EngineerID", 0L),
+                getString(obj, "BlueprintName"),
+                getLong(obj, "BlueprintID", 0L),
+                getInt(obj, "Level", 0),
+                getDouble(obj, "Quality", 0.0),
+                getString(obj, "ApplyExperimentalEffect"),
+                parseMaterialStacks(obj, "Ingredients"));
+    }
+
+    private MaterialCollectedEvent parseMaterialCollected(Instant ts, JsonObject obj) {
+        return new MaterialCollectedEvent(
+                ts,
+                obj,
+                getString(obj, "Category"),
+                getString(obj, "Name"),
+                getInt(obj, "Count", 0));
+    }
+
+    private MaterialDiscardedEvent parseMaterialDiscarded(Instant ts, JsonObject obj) {
+        return new MaterialDiscardedEvent(
+                ts,
+                obj,
+                getString(obj, "Category"),
+                getString(obj, "Name"),
+                getInt(obj, "Count", 0));
+    }
+
+    private MaterialTradeEvent parseMaterialTrade(Instant ts, JsonObject obj) {
+        MaterialTradeSide paid = parseMaterialTradeSide(obj, "Paid", "PaidCount");
+        MaterialTradeSide received = parseMaterialTradeSide(obj, "Received", "ReceivedCount");
+
+        String category = getString(obj, "Category");
+        if (category == null || category.isBlank()) {
+            category = getString(obj, "TraderType");
+        }
+        if (category == null || category.isBlank()) {
+            category = paid.category != null ? paid.category : received.category;
+        }
+
+        return new MaterialTradeEvent(
+                ts,
+                obj,
+                category,
+                paid.name,
+                paid.nameLocalised,
+                paid.count,
+                received.name,
+                received.nameLocalised,
+                received.count);
+    }
+
+    private MaterialTradeSide parseMaterialTradeSide(JsonObject obj, String field, String countField) {
+        if (!obj.has(field) || obj.get(field).isJsonNull()) {
+            return MaterialTradeSide.EMPTY;
+        }
+        var element = obj.get(field);
+        if (element.isJsonObject()) {
+            JsonObject side = element.getAsJsonObject();
+            return new MaterialTradeSide(
+                    firstNonBlank(getString(side, "Material"), getString(side, "Name")),
+                    firstNonBlank(getString(side, "Material_Localised"), getString(side, "Name_Localised")),
+                    getString(side, "Category"),
+                    quantityFrom(side, obj, countField));
+        }
+        return new MaterialTradeSide(
+                element.getAsString(),
+                null,
+                null,
+                getInt(obj, countField, 0));
+    }
+
+    private int quantityFrom(JsonObject side, JsonObject parent, String parentCountField) {
+        if (side != null) {
+            if (side.has("Quantity") && !side.get("Quantity").isJsonNull()) {
+                return getQuantityInt(side, "Quantity");
+            }
+            if (side.has("Count") && !side.get("Count").isJsonNull()) {
+                return getQuantityInt(side, "Count");
+            }
+        }
+        if (parent != null && parentCountField != null) {
+            return getInt(parent, parentCountField, 0);
+        }
+        return 0;
+    }
+
+    private int getQuantityInt(JsonObject obj, String field) {
+        if (obj == null || !obj.has(field) || obj.get(field).isJsonNull()) {
+            return 0;
+        }
+        try {
+            return obj.get(field).getAsInt();
+        } catch (NumberFormatException ex) {
+            try {
+                return (int) Math.round(obj.get(field).getAsDouble());
+            } catch (RuntimeException ignored) {
+                return 0;
+            }
+        }
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static final class MaterialTradeSide {
+        private static final MaterialTradeSide EMPTY = new MaterialTradeSide(null, null, null, 0);
+
+        private final String name;
+        private final String nameLocalised;
+        private final String category;
+        private final int count;
+
+        private MaterialTradeSide(String name, String nameLocalised, String category, int count) {
+            this.name = name;
+            this.nameLocalised = nameLocalised;
+            this.category = category;
+            this.count = count;
+        }
+    }
 }
 

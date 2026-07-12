@@ -80,6 +80,9 @@ public final class EdoSessionState {
     // --- Missions tab ---
     private MissionSessionData missions;
 
+    // --- Engineering tab ---
+    private EngineeringSessionData engineering;
+
     // --- Biology tab (parked ship anchor on a planetary surface) ---
     private Double biologyParkedShipLat;
     private Double biologyParkedShipLon;
@@ -498,6 +501,14 @@ public final class EdoSessionState {
 
     public void setMissions(MissionSessionData missions) {
         this.missions = missions;
+    }
+
+    public EngineeringSessionData getEngineering() {
+        return engineering;
+    }
+
+    public void setEngineering(EngineeringSessionData engineering) {
+        this.engineering = engineering;
     }
 
     public Double getBiologyParkedShipLat() {

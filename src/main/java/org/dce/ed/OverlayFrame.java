@@ -857,9 +857,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getSystemTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getMiningTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getMissionsTabPanel().setSessionStateChangeCallback(debouncedSave);
+        tabs.getEngineeringTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getBiologyTabPanel().setSessionStateChangeCallback(debouncedSave);
         restoreSessionState();
         tabs.getMissionsTabPanel().hydrateTrackerFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
+        tabs.getEngineeringTabPanel().hydrateFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
     }
 
     /** Rebind session + mission board after {@link OverlayContentPanel#rebuildTabbedPane()}. */
@@ -898,6 +900,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getSystemTabPanel().fillSessionState(state);
         tabs.getMiningTabPanel().fillSessionState(state);
         tabs.getMissionsTabPanel().fillSessionState(state);
+        tabs.getEngineeringTabPanel().fillSessionState(state);
         tabs.getBiologyTabPanel().fillSessionState(state);
         state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
         state.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
@@ -930,6 +933,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getSystemTabPanel().applySessionState(state);
         tabs.getMiningTabPanel().applySessionState(state);
         tabs.getMissionsTabPanel().applySessionState(state);
+        tabs.getEngineeringTabPanel().applySessionState(state);
         tabs.getBiologyTabPanel().applySessionState(state);
         applyCarrierSessionState(state);
         if (state.getExobiologyCreditsTotalUnsold() != null) {
@@ -2086,7 +2090,10 @@ private void refreshPassThroughUnifiedStatus() {
             return true;
         }
         EliteOverlayTabbedPane tabs = contentPanel != null ? contentPanel.getTabbedPane() : null;
-        return tabs != null && tabs.isPointerOverControlPanelActionButton(mouse);
+        if (tabs != null && tabs.isPointerOverControlPanelActionButton(mouse)) {
+            return true;
+        }
+        return tabs != null && tabs.isPointerOverTabScrollBar(mouse);
     }
 
     private static boolean containsScreenPoint(Component component, Point screenPoint) {
