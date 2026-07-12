@@ -28,7 +28,15 @@ public final class JarExecRunner {
 
     private static final int CONCISE_STATUS_MAX_LEN = 56;
 
+    /** Matches RoboHound {@code MacroPlayMain#EXIT_CANCELLED_BY_USER}. */
+    public static final int EXIT_CANCELLED_BY_USER = 2;
+
     private JarExecRunner() {
+    }
+
+    /** User dismissed the in-game banner (×) or otherwise cancelled — not an Exec failure. */
+    public static boolean isUserCancelled(RunResult result) {
+        return result != null && result.exitCode() == EXIT_CANCELLED_BY_USER;
     }
 
     /**

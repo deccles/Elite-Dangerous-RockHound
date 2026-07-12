@@ -329,6 +329,8 @@ public final class ExecTriggerService {
         JarExecRunner.runAsync(binding, context, placeholderContext, result -> SwingUtilities.invokeLater(() -> {
             if (result.exitCode() == 0) {
                 publishStatus("OK");
+            } else if (JarExecRunner.isUserCancelled(result)) {
+                publishStatus("");
             } else {
                 publishStatus("Failed: " + JarExecRunner.formatConciseStatus(result));
             }

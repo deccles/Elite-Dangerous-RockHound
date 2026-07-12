@@ -71,4 +71,10 @@ class JarExecRunnerTest {
         assertEquals("program not found", JarExecRunner.formatConciseStatus(
                 new JarExecRunner.RunResult(-1, "Program not found: C:\\missing\\RoboHound.jar")));
     }
+
+    @Test
+    void isUserCancelled_recognizesRoboHoundDismissExit() {
+        assertTrue(JarExecRunner.isUserCancelled(new JarExecRunner.RunResult(2, "Exit 2 at now")));
+        assertFalse(JarExecRunner.isUserCancelled(new JarExecRunner.RunResult(1, "Exit 1 — Interrupted.")));
+    }
 }
