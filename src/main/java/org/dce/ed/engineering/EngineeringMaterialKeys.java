@@ -12,7 +12,8 @@ public final class EngineeringMaterialKeys {
 
     private static final Map<String, String> CANONICAL = Map.of(
             "sulfur", "sulphur",
-            "legacyfirmware", "specialisedlegacyfirmware");
+            "legacyfirmware", "specialisedlegacyfirmware",
+            "consumerfirmware", "modifiedconsumerfirmware");
 
     private EngineeringMaterialKeys() {
     }

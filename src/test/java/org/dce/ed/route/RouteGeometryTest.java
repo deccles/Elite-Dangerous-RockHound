@@ -39,4 +39,22 @@ class RouteGeometryTest {
         int idx = RouteGeometry.bestInsertionIndexByCoords(list, new Double[] { 0.5, 0.0, 0.0 });
         assertEquals(2, idx);
     }
+
+    @Test
+    void findSystemRow_staleAddressAndNewName_prefersNameOrAbsent() {
+        java.util.List<RouteEntry> list = new java.util.ArrayList<>();
+        RouteEntry old = new RouteEntry();
+        old.systemName = "HIP 12099";
+        old.systemAddress = 111L;
+        list.add(old);
+
+        assertEquals(0, RouteGeometry.findSystemRow(list, "HIP 12099", 111L));
+        // Name-only update left a stale address: must not keep CURRENT on the old hop.
+        assertEquals(-1, RouteGeometry.findSystemRow(list, "Sol", 111L));
+        RouteEntry sol = new RouteEntry();
+        sol.systemName = "Sol";
+        sol.systemAddress = 222L;
+        list.add(sol);
+        assertEquals(1, RouteGeometry.findSystemRow(list, "Sol", 111L));
+    }
 }

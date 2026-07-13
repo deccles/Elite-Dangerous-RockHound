@@ -20,10 +20,17 @@ class EngineeringMaterialKeysTest {
     }
 
     @Test
+    void canonicalKey_mapsConsumerFirmwareAlias() {
+        assertEquals("modifiedconsumerfirmware", EngineeringMaterialKeys.canonicalKey("consumerfirmware"));
+    }
+
+    @Test
     void resolveKey_usesLocalisedNameWhenJournalKeyUnknown() {
         EngineeringDatabase db = EngineeringDatabase.getInstance();
         assertEquals("specialisedlegacyfirmware",
                 EngineeringMaterialKeys.resolveKey("legacyfirmware", "Specialised Legacy Firmware", db));
+        assertEquals("modifiedconsumerfirmware",
+                EngineeringMaterialKeys.resolveKey("consumerfirmware", "Modified Consumer Firmware", db));
     }
 
     @Test

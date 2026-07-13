@@ -61,9 +61,9 @@ public final class EngineeringInventoryTracker {
             applyStacks(e.getEncoded());
             changed = true;
         } else if (event instanceof MaterialCollectedEvent e) {
-            changed = add(e.getName(), null, e.getCount());
+            changed = add(e.getName(), e.getNameLocalised(), e.getCount());
         } else if (event instanceof MaterialDiscardedEvent e) {
-            changed = add(e.getName(), null, -e.getCount());
+            changed = add(e.getName(), e.getNameLocalised(), -e.getCount());
         } else if (event instanceof MaterialTradeEvent e) {
             boolean c1 = add(e.getPaidName(), e.getPaidNameLocalised(), -e.getPaidCount());
             boolean c2 = add(e.getReceivedName(), e.getReceivedNameLocalised(), e.getReceivedCount());
@@ -85,6 +85,8 @@ public final class EngineeringInventoryTracker {
         if (clientKey == null || clientKey.isBlank()) {
             return;
         }
+        Runnable previousCallback = changeCallback;
+        changeCallback = null;
         try {
             EliteJournalReader reader = new EliteJournalReader(clientKey);
             for (EliteLogEvent event : reader.readAllEvents()) {
@@ -99,6 +101,9 @@ public final class EngineeringInventoryTracker {
             }
         } catch (IOException | IllegalStateException ignored) {
             // journal directory unavailable
+        } finally {
+            changeCallback = previousCallback;
+            notifyChanged();
         }
     }
 

@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.List;
 
 import org.dce.ed.logreader.EliteLogParser;
+import org.dce.ed.logreader.event.MaterialCollectedEvent;
 import org.dce.ed.logreader.event.MaterialTradeEvent;
 import org.dce.ed.logreader.event.MaterialsEvent;
 import org.dce.ed.logreader.event.MaterialStack;
@@ -50,6 +51,26 @@ class EngineeringInventoryTrackerTest {
 
         assertEquals(0, tracker.getCount("eccentrichyperspacetrajectories"));
         assertEquals(1, tracker.getCount("crackedindustrialfirmware"));
+    }
+
+    @Test
+    void materialCollected_consumerFirmware_mapsToCatalogKey() {
+        EngineeringInventoryTracker tracker = new EngineeringInventoryTracker();
+        String json = """
+                {
+                  "timestamp": "2026-07-13T19:55:49Z",
+                  "event": "MaterialCollected",
+                  "Category": "Encoded",
+                  "Name": "consumerfirmware",
+                  "Name_Localised": "Modified Consumer Firmware",
+                  "Count": 3
+                }
+                """;
+        MaterialCollectedEvent collected = assertInstanceOf(MaterialCollectedEvent.class, parser.parseRecord(json));
+        tracker.applyEvent(collected);
+
+        assertEquals(3, tracker.getCount("modifiedconsumerfirmware"));
+        assertEquals(0, tracker.getCount("consumerfirmware"));
     }
 
     @Test

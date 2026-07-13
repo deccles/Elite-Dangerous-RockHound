@@ -1295,6 +1295,7 @@ private static String canonicalGasName(String name) {
                 obj,
                 getString(obj, "Category"),
                 getString(obj, "Name"),
+                getString(obj, "Name_Localised"),
                 getInt(obj, "Count", 0));
     }
 
@@ -1304,6 +1305,7 @@ private static String canonicalGasName(String name) {
                 obj,
                 getString(obj, "Category"),
                 getString(obj, "Name"),
+                getString(obj, "Name_Localised"),
                 getInt(obj, "Count", 0));
     }
 

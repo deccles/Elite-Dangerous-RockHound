@@ -25,21 +25,46 @@ public final class RouteGeometry {
         return out;
     }
 
+    /**
+     * Locates a system row by name and/or address.
+     * <p>
+     * When both are provided and they point at different rows (or the address hits a row whose
+     * name disagrees), prefers the name match and otherwise treats the identity as not present.
+     * That avoids a stale {@code systemAddress} keeping CURRENT locked on an earlier hop after a
+     * name-only update.
+     */
     public static int findSystemRow(List<RouteEntry> entries, String systemName, long systemAddress) {
         if (entries == null) {
             return -1;
         }
+        int byAddress = -1;
+        int byName = -1;
         for (int i = 0; i < entries.size(); i++) {
             RouteEntry e = entries.get(i);
             if (e == null || e.isBodyRow) {
                 continue;
             }
-            if (systemAddress != 0L && e.systemAddress == systemAddress) {
-                return i;
+            if (byAddress < 0 && systemAddress != 0L && e.systemAddress == systemAddress) {
+                byAddress = i;
             }
-            if (systemName != null && systemName.equals(e.systemName)) {
-                return i;
+            if (byName < 0 && systemName != null && systemName.equals(e.systemName)) {
+                byName = i;
             }
+        }
+        if (byName >= 0 && byAddress >= 0) {
+            return byName;
+        }
+        if (byName >= 0) {
+            return byName;
+        }
+        if (byAddress >= 0) {
+            if (systemName != null && !systemName.isBlank()) {
+                RouteEntry matched = entries.get(byAddress);
+                if (matched != null && matched.systemName != null && !systemName.equals(matched.systemName)) {
+                    return -1;
+                }
+            }
+            return byAddress;
         }
         return -1;
     }

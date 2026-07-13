@@ -905,13 +905,15 @@ public class RouteTabPanel extends JPanel {
 		Path dir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
 		if (dir == null) {
 			headerLabel.setText("No journal directory.");
-			tableModel.setEntries(new ArrayList<>());
+			routeSession.applyNavRouteReloadParsed(List.of());
+			rebuildDisplayedEntries();
 			return;
 		}
 		Path navRoute = dir.resolve("NavRoute.json");
 		if (!Files.isRegularFile(navRoute)) {
 			headerLabel.setText("No plotted route.");
-			tableModel.setEntries(new ArrayList<>());
+			routeSession.applyNavRouteReloadParsed(List.of());
+			rebuildDisplayedEntries();
 			return;
 		}
 		List<RouteEntry> entries;
@@ -921,7 +923,8 @@ public class RouteTabPanel extends JPanel {
 		} catch (Exception e) {
 			e.printStackTrace();
 			headerLabel.setText("Error reading NavRoute.json");
-			tableModel.setEntries(new ArrayList<>());
+			routeSession.applyNavRouteReloadParsed(List.of());
+			rebuildDisplayedEntries();
 			return;
 		}
 		headerLabel.setText(entries.isEmpty()
@@ -1797,10 +1800,8 @@ public class RouteTabPanel extends JPanel {
 			return routeSession.getCurrentSystemName();
 		}
 		// Best source: recent journals (works at startup, no live events required)
-		String fromJournal = resolveCurrentSystemNameFromJournal();
-		if (fromJournal != null && !fromJournal.isBlank()) {
-			routeSession.setCurrentSystemName(fromJournal);
-			return fromJournal;
+		if (resolveCurrentSystemFromJournal()) {
+			return routeSession.getCurrentSystemName();
 		}
 		// Fallback: whatever SystemCache persisted last
 		try {
@@ -1842,26 +1843,38 @@ public class RouteTabPanel extends JPanel {
 		}
 	}
 
-	private String resolveCurrentSystemNameFromJournal() {
+	private boolean resolveCurrentSystemFromJournal() {
 	    try {
 	        Path journalDir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
 	        if (journalDir == null || !java.nio.file.Files.isDirectory(journalDir)) {
-	            return null;
+	            return false;
 	        }
 	        EliteJournalReader reader = new EliteJournalReader(journalDir);
 	        String systemName = null;
+	        long systemAddress = 0L;
+	        double[] starPos = null;
 	        List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(3);
 	        for (EliteLogEvent event : events) {
 	            if (event instanceof LocationEvent e) {
 	                systemName = e.getStarSystem();
+	                systemAddress = e.getSystemAddress();
+	                starPos = e.getStarPos();
 	            } else if (event instanceof IFsdJump e) {
 	                systemName = e.getStarSystem();
+	                systemAddress = e.getSystemAddress();
+	                if (e instanceof FsdJumpEvent fj) {
+	                    starPos = fj.getStarPos();
+	                }
 	            }
 	        }
-	        return systemName;
+	        if (systemName == null || systemName.isBlank()) {
+	            return false;
+	        }
+	        routeSession.applyKnownCurrentSystem(systemName, systemAddress, starPos);
+	        return true;
 	    } catch (Exception e) {
 	        e.printStackTrace();
-	        return null;
+	        return false;
 	    }
 	}
 	private void setCurrentSystemName(String name) {
@@ -2031,19 +2044,14 @@ public class RouteTabPanel extends JPanel {
 				entries.addAll(newEntries);
 			}
 			/*
-			 * If we just plotted a route, we still want a deterministic "current row"
-			 * even before we have a Location/FSD event to tell us where we are.
-			 *
-			 * - If currentSystemName is null, default to the origin (row 0).
-			 * - If currentSystemName doesn't exist in the new route, also default to row 0.
+			 * If we just plotted a route before any Location/FSD event, default the Ly
+			 * baseline to the origin. Do not overwrite a known current identity when that
+			 * system is merely off-route — synthetics / markers use RouteSession instead.
 			 */
-			if (!entries.isEmpty()) {
-				if (currentSystemName == null || currentSystemName.isBlank()
-						|| RouteGeometry.findSystemRow(entries, currentSystemName, currentSystemAddress) < 0) {
-					RouteEntry z = entries.get(0);
-					currentSystemName = z.systemName;
-					currentSystemAddress = z.systemAddress;
-				}
+			if (!entries.isEmpty() && (currentSystemName == null || currentSystemName.isBlank())) {
+				RouteEntry z = entries.get(0);
+				currentSystemName = z.systemName;
+				currentSystemAddress = z.systemAddress;
 			}
 			fireTableDataChanged();
 		}

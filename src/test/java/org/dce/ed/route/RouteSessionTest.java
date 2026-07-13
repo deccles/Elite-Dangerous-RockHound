@@ -53,6 +53,43 @@ class RouteSessionTest {
     }
 
     @Test
+    void fsdJumpUpdatesSingleRowPlaceholderOnLaterArrival() {
+        session.applySecondaryJournalEvent(new FsdJumpEvent(Instant.now(), new JsonObject(),
+                "HIP 12099", 111L, new double[] { 1, 2, 3 }, null, 0, null, 0, 0, 0, null));
+        session.applySecondaryJournalEvent(new FsdJumpEvent(Instant.now(), new JsonObject(),
+                "Sol", 222L, new double[] { 0, 0, 0 }, null, 0, null, 0, 0, 0, null));
+        assertEquals(1, session.getBaseRouteEntries().size());
+        assertEquals("Sol", session.getBaseRouteEntries().get(0).systemName);
+        assertEquals(222L, session.getBaseRouteEntries().get(0).systemAddress);
+        assertEquals("Sol", session.getCurrentSystemName());
+    }
+
+    @Test
+    void locationEventUpdatesSingleRowPlaceholderWhenNoPlottedRoute() {
+        session.applySecondaryJournalEvent(new FsdJumpEvent(Instant.now(), new JsonObject(),
+                "HIP 12099", 111L, new double[] { 1, 2, 3 }, null, 0, null, 0, 0, 0, null));
+        LocationEvent loc = new LocationEvent(Instant.now(), new JsonObject(),
+                false, false, false,
+                "Sol", 222L, new double[] { 0, 0, 0 },
+                null, 0, null);
+        session.applySecondaryJournalEvent(loc);
+        assertEquals(1, session.getBaseRouteEntries().size());
+        assertEquals("Sol", session.getBaseRouteEntries().get(0).systemName);
+        assertEquals(222L, session.getBaseRouteEntries().get(0).systemAddress);
+    }
+
+    @Test
+    void fsdJumpDoesNotRewriteMultiHopPlottedRoute() {
+        session.applyNavRouteReloadParsed(List.of(sampleEntry("A", 1L), sampleEntry("B", 2L)));
+        session.applySecondaryJournalEvent(new FsdJumpEvent(Instant.now(), new JsonObject(),
+                "B", 2L, new double[] { 0, 0, 0 }, null, 0, null, 0, 0, 0, null));
+        assertEquals(2, session.getBaseRouteEntries().size());
+        assertEquals("A", session.getBaseRouteEntries().get(0).systemName);
+        assertEquals("B", session.getBaseRouteEntries().get(1).systemName);
+        assertEquals("B", session.getCurrentSystemName());
+    }
+
+    @Test
     void fsdJumpClearsPlottedTargetWhenArrivalMatches() {
         session.getTargetState().restoreFromPersistence("Remote", 999L, null, null, null);
         FsdJumpEvent jump = new FsdJumpEvent(Instant.now(), new JsonObject(), "Remote", 999L, new double[] { 1, 2, 3 },

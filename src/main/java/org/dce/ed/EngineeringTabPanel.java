@@ -49,6 +49,7 @@ import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringGoal;
 import org.dce.ed.engineering.EngineeringGoalProgress;
 import org.dce.ed.engineering.EngineeringInventoryTracker;
+import org.dce.ed.engineering.EngineeringMaterialKeys;
 import org.dce.ed.engineering.EngineeringPlanner;
 import org.dce.ed.engineering.GoalReadiness;
 import org.dce.ed.engineering.MaterialTradePlanner;
@@ -111,6 +112,8 @@ public class EngineeringTabPanel extends JPanel {
     private static final int TRADE_NEED_CELL_RIGHT_PAD = 22;
     private static final int TRADE_SUGGESTION_CELL_LEFT_PAD = 18;
 
+    private static final int TRADE_SECTION_GAP_PX = 8;
+
     private final BooleanSupplier passThroughEnabledSupplier;
 
     private final EngineeringDatabase database = EngineeringDatabase.getInstance();
@@ -130,7 +133,7 @@ public class EngineeringTabPanel extends JPanel {
     private final ShoppingTableModel shoppingModel = new ShoppingTableModel();
     private final JTable shoppingTable = createOverlayTable(shoppingModel);
     private final TradeTableModel tradeModel = new TradeTableModel();
-    private final JTable tradeTable = createOverlayTable(tradeModel);
+    private final JTable tradeTable;
     private JScrollPane goalsScroll;
     private TableRowSorter<ShoppingTableModel> shoppingSorter;
     private JScrollPane shoppingScroll;
@@ -151,6 +154,8 @@ public class EngineeringTabPanel extends JPanel {
 
         styleMutedLabel(materialsEmptyLabel, base, fontSize);
         styleMutedLabel(tradeEmptyLabel, base, fontSize);
+
+        tradeTable = createTradeOverlayTable(tradeModel);
 
         configureTable(goalsTable, base, new EllipsisTextCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_BLUEPRINT).setCellRenderer(new BlueprintNameCellRenderer());
@@ -511,15 +516,21 @@ public class EngineeringTabPanel extends JPanel {
             return;
         }
         int rowSample = Math.max(tradeTable.getRowCount(), 1);
+        // Material + Need sized to content; Trade takes remaining width so expanding the pane
+        // reveals full suggestion text (including "(have N)"), instead of growing Material.
         int wNeed = measureTradeDataColumnWidth(COL_TRADE_NEED, 42, 68, rowSample);
-        int wTrade = measureTradeDataColumnWidth(COL_TRADE_SUGGESTION, 64, 360, rowSample);
         int minMaterial = 72;
-        int wMaterial = avail - wNeed - wTrade;
-        if (wMaterial < minMaterial) {
-            wTrade = Math.max(64, wTrade - (minMaterial - wMaterial));
-            wMaterial = avail - wNeed - wTrade;
+        int wMaterial = measureTradeDataColumnWidth(COL_TRADE_MATERIAL, minMaterial, 260, rowSample);
+        int minTrade = 96;
+        int wTrade = avail - wNeed - wMaterial;
+        if (wTrade < minTrade) {
+            int deficit = minTrade - wTrade;
+            int take = Math.min(deficit, wMaterial - minMaterial);
+            wMaterial -= take;
+            wTrade = avail - wNeed - wMaterial;
         }
-        wMaterial = Math.max(minMaterial, wMaterial);
+        wTrade = Math.max(minTrade, wTrade);
+        wMaterial = Math.max(minMaterial, Math.min(wMaterial, avail - wNeed - wTrade));
         setColumnPixelWidth(tradeTable, COL_TRADE_MATERIAL, wMaterial);
         setColumnPixelWidth(tradeTable, COL_TRADE_NEED, wNeed);
         setColumnPixelWidth(tradeTable, COL_TRADE_SUGGESTION, wTrade);
@@ -548,7 +559,7 @@ public class EngineeringTabPanel extends JPanel {
         int width = header.getPreferredSize().width + 10;
         int rows = Math.min(sampleRows, tradeModel.getRowCount());
         for (int row = 0; row < rows; row++) {
-            if (tradeModel.isSectionRow(row)) {
+            if (tradeModel.isSectionRow(row) || tradeModel.isGapRow(row)) {
                 continue;
             }
             javax.swing.table.TableCellRenderer renderer = tradeTable.getCellRenderer(row, column);
@@ -602,6 +613,34 @@ public class EngineeringTabPanel extends JPanel {
         if (view.x != 0) {
             scroll.getViewport().setViewPosition(new Point(0, view.y));
         }
+    }
+
+    private JTable createTradeOverlayTable(TradeTableModel model) {
+        return new JTable(model) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public int getRowHeight(int row) {
+                int base = getRowHeight();
+                if (row < 0) {
+                    return base;
+                }
+                int modelRow = convertRowIndexToModel(row);
+                if (model.isGapRow(modelRow)) {
+                    return TRADE_SECTION_GAP_PX;
+                }
+                return base;
+            }
+
+            @Override
+            protected void configureEnclosingScrollPane() {
+                super.configureEnclosingScrollPane();
+                Container parent = SwingUtilities.getAncestorOfClass(JScrollPane.class, this);
+                if (parent instanceof JScrollPane sp) {
+                    stripOverlayScrollChrome(sp);
+                }
+            }
+        };
     }
 
     /** Clears LAF table-scroll chrome that can read as a white frame on transparent overlays. */
@@ -932,13 +971,19 @@ public class EngineeringTabPanel extends JPanel {
             if (targets == null || targets.isEmpty()) {
                 continue;
             }
+            if (!rows.isEmpty()) {
+                rows.add(TradeTableRow.gap());
+            }
             rows.add(TradeTableRow.section(traderTypeSectionTitle(entry.getKey())));
             for (TradeTargetGroup group : targets) {
+                int covered = group.getOptions().stream().mapToInt(TradeSuggestion::getToCount).sum();
+                boolean uncovered = group.getShortfall() > covered;
                 for (TradeSuggestion option : group.getOptions()) {
                     rows.add(TradeTableRow.data(
                             group.getToName(),
                             group.getShortfall(),
-                            formatTradeSuggestion(option)));
+                            formatTradeSuggestion(option),
+                            uncovered));
                 }
             }
         }
@@ -959,7 +1004,7 @@ public class EngineeringTabPanel extends JPanel {
 
     private static String formatTradeSuggestion(TradeSuggestion trade) {
         return trade.getFromCount() + "× " + trade.getFromName()
-                + " → get " + trade.getToCount() + "× " + trade.getToName();
+                + " → get " + trade.getToCount() + "×";
     }
 
     private void fireSessionChanged() {
@@ -1282,13 +1327,18 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
-    private record TradeTableRow(String materialName, int need, String suggestion, boolean section) {
+    private record TradeTableRow(String materialName, int need, String suggestion, boolean section,
+                                 boolean gapRow, boolean shortfallUncovered) {
         static TradeTableRow section(String title) {
-            return new TradeTableRow(title, 0, "", true);
+            return new TradeTableRow(title, 0, "", true, false, false);
         }
 
-        static TradeTableRow data(String materialName, int need, String suggestion) {
-            return new TradeTableRow(materialName, need, suggestion, false);
+        static TradeTableRow gap() {
+            return new TradeTableRow("", 0, "", false, true, false);
+        }
+
+        static TradeTableRow data(String materialName, int need, String suggestion, boolean shortfallUncovered) {
+            return new TradeTableRow(materialName, need, suggestion, false, false, shortfallUncovered);
         }
     }
 
@@ -1302,6 +1352,14 @@ public class EngineeringTabPanel extends JPanel {
 
         boolean isSectionRow(int rowIndex) {
             return rowIndex >= 0 && rowIndex < rows.size() && rows.get(rowIndex).section();
+        }
+
+        boolean isGapRow(int rowIndex) {
+            return rowIndex >= 0 && rowIndex < rows.size() && rows.get(rowIndex).gapRow();
+        }
+
+        boolean isShortfallUncovered(int rowIndex) {
+            return rowIndex >= 0 && rowIndex < rows.size() && rows.get(rowIndex).shortfallUncovered();
         }
 
         @Override
@@ -1332,6 +1390,9 @@ public class EngineeringTabPanel extends JPanel {
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             TradeTableRow row = rows.get(rowIndex);
+            if (row.gapRow()) {
+                return null;
+            }
             if (row.section()) {
                 return columnIndex == COL_TRADE_MATERIAL ? row.materialName() : null;
             }
@@ -1368,9 +1429,15 @@ public class EngineeringTabPanel extends JPanel {
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
+            boolean gap = tradeModel.isGapRow(modelRow);
             boolean section = tradeModel.isSectionRow(modelRow);
             Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
             if (c instanceof JLabel label) {
+                if (gap) {
+                    label.setText("");
+                    label.setBorder(new EmptyBorder(0, 0, 0, 0));
+                    return c;
+                }
                 if (section) {
                     if (column == COL_TRADE_MATERIAL) {
                         label.setFont(label.getFont().deriveFont(Font.BOLD));
@@ -1396,7 +1463,9 @@ public class EngineeringTabPanel extends JPanel {
                     }
                 }
             }
-            if (!isSelected && column == COL_TRADE_NEED && value instanceof Integer need && need > 0) {
+            if (!isSelected && !gap && !section && tradeModel.isShortfallUncovered(modelRow)) {
+                c.setForeground(EdoUi.User.ERROR);
+            } else if (!isSelected && column == COL_TRADE_NEED && value instanceof Integer need && need > 0) {
                 c.setForeground(new Color(255, 160, 120));
             } else if (!isSelected && column == COL_TRADE_SUGGESTION) {
                 c.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);

@@ -26,6 +26,28 @@ class MaterialTradePlannerTest {
     }
 
     @Test
+    void suggest_prioritizesFullyCoverableShortfallsOverPartials() {
+        EngineeringDatabase db = EngineeringDatabase.getInstance();
+        MaterialTradePlanner planner = new MaterialTradePlanner(db);
+
+        // Shared cheap Encoded stock: enough to finish a small G1 firmware shortfall, but if spent
+        // on G5 MEF first it only partially covers MEF and leaves the small one unfinished.
+        Map<String, Integer> shortfalls = new java.util.LinkedHashMap<>();
+        shortfalls.put("modifiedembeddedfirmware", 25);
+        shortfalls.put("specialisedlegacyfirmware", 3);
+        Map<String, Integer> inventory = Map.of(
+                "emissiondata", 6,
+                "aberrantshieldpatternanalysis", 40);
+
+        List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, Map.of());
+        Map<String, Integer> after = planner.inventoryAfterTrades(inventory, trades);
+
+        int firmwareHave = EngineeringMaterialKeys.countInInventory(after, "specialisedlegacyfirmware");
+        assertTrue(firmwareHave >= 3,
+                "should fully cover specialised legacy firmware before pouring shared stock into MEF");
+    }
+
+    @Test
     void suggest_setsTraderTypeFromTargetMaterial() {
         EngineeringDatabase db = EngineeringDatabase.getInstance();
         MaterialTradePlanner planner = new MaterialTradePlanner(db);
@@ -170,6 +192,81 @@ class MaterialTradePlannerTest {
             assertTrue(trade.getFromCount() <= owned,
                     () -> trade.getFromCount() + " > owned " + owned + " for " + trade.getFromKey());
         }
+    }
+
+    @Test
+    void suggest_neverPaysMaterialNotInInitialInventory() {
+        EngineeringDatabase db = EngineeringDatabase.getInstance();
+        MaterialTradePlanner planner = new MaterialTradePlanner(db);
+
+        Map<String, Integer> shortfalls = new java.util.LinkedHashMap<>();
+        shortfalls.put("fedcorecomposites", 4);
+        shortfalls.put("mechanicalcomponents", 9);
+        Map<String, Integer> inventory = Map.of("iron", 80);
+
+        List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, Map.of());
+
+        assertTrue(trades.stream().noneMatch(
+                        t -> "fedcorecomposites".equalsIgnoreCase(t.getFromKey())),
+                "must not pay CDC when commander has none, even if another trade would earn CDC first");
+    }
+
+    @Test
+    void suggest_doesNotSpendVirtuallyReceivedPayMaterial() {
+        EngineeringDatabase db = EngineeringDatabase.getInstance();
+        MaterialTradePlanner planner = new MaterialTradePlanner(db);
+
+        Map<String, Integer> shortfalls = new java.util.LinkedHashMap<>();
+        shortfalls.put("fedcorecomposites", 1);
+        shortfalls.put("mechanicalcomponents", 9);
+        Map<String, Integer> inventory = Map.of(
+                "fedcorecomposites", 6,
+                "iron", 80);
+
+        List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, Map.of());
+
+        int cdcPaid = trades.stream()
+                .filter(t -> "fedcorecomposites".equalsIgnoreCase(t.getFromKey()))
+                .mapToInt(TradeSuggestion::getFromCount)
+                .sum();
+        assertTrue(cdcPaid <= 6,
+                () -> "CDC pay suggestions must not exceed the 6 on hand (was " + cdcPaid + ")");
+    }
+
+    @Test
+    void suggest_precipitatedAlloys_withoutCdcDoesNotPayCdc() {
+        EngineeringDatabase db = EngineeringDatabase.getInstance();
+        MaterialTradePlanner planner = new MaterialTradePlanner(db);
+
+        Map<String, Integer> shortfalls = Map.of("precipitatedalloys", 3);
+        Map<String, Integer> inventory = Map.of("iron", 100);
+
+        List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, Map.of());
+
+        assertTrue(trades.stream().noneMatch(
+                        t -> "fedcorecomposites".equalsIgnoreCase(t.getFromKey())),
+                "must not pay CDC when none is in inventory");
+    }
+
+    @Test
+    void suggest_canonicalizesInventoryKeysBeforeSpending() {
+        EngineeringDatabase db = EngineeringDatabase.getInstance();
+        MaterialTradePlanner planner = new MaterialTradePlanner(db);
+
+        Map<String, Integer> shortfalls = new java.util.LinkedHashMap<>();
+        shortfalls.put("mechanicalcomponents", 9);
+        shortfalls.put("precipitatedalloys", 3);
+        Map<String, Integer> inventory = new java.util.LinkedHashMap<>();
+        inventory.put("FedCoreComposites", 2);
+
+        List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, Map.of());
+
+        int cdcPaid = trades.stream()
+                .filter(t -> "fedcorecomposites".equalsIgnoreCase(t.getFromKey()))
+                .mapToInt(TradeSuggestion::getFromCount)
+                .sum();
+        assertTrue(cdcPaid <= 2,
+                () -> "must not spend more CDC than on hand after key normalization (was " + cdcPaid + ")");
     }
 
     @Test

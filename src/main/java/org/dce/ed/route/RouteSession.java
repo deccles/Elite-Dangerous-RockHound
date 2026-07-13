@@ -175,14 +175,50 @@ public final class RouteSession {
     }
 
     /**
-     * When the route table is empty, FSD jump can seed a one-row list.
+     * When there is no plotted NavRoute, keep a one-row “you are here” list in sync with arrivals.
+     * <p>
+     * First arrival seeds the row; later {@code Location}/{@code FSDJump}/carrier arrivals rewrite that
+     * same placeholder so the Route tab does not keep showing the system where the seed was created.
+     * Real plotted routes have 2+ hops and are left untouched.
      */
     public void ensureSingleSystemRowIfBaseEmpty(String systemName, long systemAddress) {
-        if (systemName == null || baseRouteEntries == null || !baseRouteEntries.isEmpty()) {
+        syncNoRouteCurrentSystemPlaceholder(systemName, systemAddress);
+    }
+
+    /**
+     * Seeds or updates the solitary “no plotted route” placeholder row for the commander’s location.
+     */
+    public void syncNoRouteCurrentSystemPlaceholder(String systemName, long systemAddress) {
+        if (systemName == null || systemName.isBlank() || baseRouteEntries == null) {
             return;
         }
-        RouteEntry entry = new RouteEntry(0, systemName, systemAddress, "?", 0.0, RouteScanStatus.UNKNOWN);
-        baseRouteEntries.add(entry);
+        if (baseRouteEntries.isEmpty()) {
+            baseRouteEntries.add(new RouteEntry(0, systemName, systemAddress, "?", 0.0, RouteScanStatus.UNKNOWN));
+            return;
+        }
+        if (baseRouteEntries.size() != 1) {
+            return;
+        }
+        RouteEntry only = baseRouteEntries.get(0);
+        if (only == null || only.isSynthetic || only.isBodyRow) {
+            return;
+        }
+        boolean sameName = systemName.equals(only.systemName);
+        boolean sameAddress = systemAddress == 0L || only.systemAddress == systemAddress;
+        if (sameName && sameAddress) {
+            return;
+        }
+        only.systemName = systemName;
+        if (systemAddress != 0L) {
+            only.systemAddress = systemAddress;
+        }
+        only.starClass = "?";
+        only.status = RouteScanStatus.UNKNOWN;
+        only.x = null;
+        only.y = null;
+        only.z = null;
+        only.distanceLy = null;
+        only.markerKind = RouteMarkerKind.NONE;
     }
 
     /**
@@ -206,6 +242,7 @@ public final class RouteSession {
             targetState.clearTargetIfMatchesArrival(loc.getStarSystem(), loc.getSystemAddress());
             clearPendingJumpState();
             inHyperspace = false;
+            syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
             return new RouteJournalApplyOutcome(false, true);
         }
         if (event instanceof FsdJumpEvent jump) {
@@ -216,7 +253,7 @@ public final class RouteSession {
             clearPendingJumpState();
             inHyperspace = false;
             jumpFlash.stopTimer();
-            ensureSingleSystemRowIfBaseEmpty(getCurrentSystemName(), currentSystemAddress);
+            syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
             return new RouteJournalApplyOutcome(false, true);
         }
         if (event instanceof CarrierJumpEvent jump) {
@@ -230,6 +267,7 @@ public final class RouteSession {
             clearPendingJumpState();
             inHyperspace = false;
             jumpFlash.stopTimer();
+            syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
             return new RouteJournalApplyOutcome(false, true);
         }
         if (event instanceof CarrierLocationEvent loc) {
@@ -238,6 +276,7 @@ public final class RouteSession {
             targetState.clearTargetIfMatchesArrival(loc.getStarSystem(), loc.getSystemAddress());
             clearPendingJumpState();
             inHyperspace = false;
+            syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
             return new RouteJournalApplyOutcome(false, true);
         }
         if (event instanceof StatusEvent se) {
