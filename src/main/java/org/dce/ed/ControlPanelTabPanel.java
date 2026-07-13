@@ -4,6 +4,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.IllegalComponentStateException;
 import java.awt.Point;
@@ -44,12 +45,18 @@ public final class ControlPanelTabPanel extends JPanel {
 
     private ExecTriggerService triggerService;
     private final List<JButton> actionButtons = new ArrayList<>();
+    private JButton killButton;
 
     public ControlPanelTabPanel(BooleanSupplier passThroughEnabledSupplier) {
         super(new BorderLayout(8, 8));
         this.passThroughEnabledSupplier = passThroughEnabledSupplier;
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        killButton = new JButton("Kill scripts");
+        killButton.setToolTipText("Stop running exec programs and cancel scheduled launches");
+        killButton.addActionListener(e -> killRunningScripts());
+        killButton.setEnabled(false);
 
         buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.Y_AXIS));
         buttonPanel.setOpaque(false);
@@ -63,10 +70,20 @@ public final class ControlPanelTabPanel extends JPanel {
         scroll.getViewport().setOpaque(false);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         add(scroll, BorderLayout.CENTER);
+
+        JPanel killFooter = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        killFooter.setOpaque(false);
+        killFooter.add(killButton);
+        add(killFooter, BorderLayout.SOUTH);
+
+        styleKillButton(OverlayPreferences.getUiFont());
     }
 
     public void setExecTriggerService(ExecTriggerService service) {
         this.triggerService = service;
+        if (triggerService != null) {
+            triggerService.setActivityListener(this::refreshKillButtonState);
+        }
         refreshButtons();
     }
 
@@ -77,6 +94,9 @@ public final class ControlPanelTabPanel extends JPanel {
     public boolean isPointerOverActionButton(Point screenPoint) {
         if (!isShowing() || screenPoint == null) {
             return false;
+        }
+        if (killButton != null && killButton.isShowing() && containsScreenPoint(killButton, screenPoint)) {
+            return true;
         }
         for (JButton button : actionButtons) {
             if (button != null && button.isShowing() && containsScreenPoint(button, screenPoint)) {
@@ -90,15 +110,25 @@ public final class ControlPanelTabPanel extends JPanel {
         SwingUtilities.invokeLater(this::rebuildButtons);
     }
 
+    private void refreshKillButtonState() {
+        if (killButton == null) {
+            return;
+        }
+        boolean active = triggerService != null && triggerService.hasActiveScripts();
+        killButton.setEnabled(active);
+    }
+
     private void rebuildButtons() {
         actionButtons.clear();
         buttonPanel.removeAll();
         buttonPanel.add(emptyLabel);
 
+        Font uiFont = OverlayPreferences.getUiFont();
+        styleKillButton(uiFont);
+
         List<ExecBinding> bindings = loadControlPanelBindings();
         emptyLabel.setVisible(bindings.isEmpty());
 
-        Font uiFont = OverlayPreferences.getUiFont();
         for (ExecBinding binding : bindings) {
             String bindingId = binding.getId();
             JButton button = new JButton(binding.controlPanelLabel());
@@ -121,6 +151,7 @@ public final class ControlPanelTabPanel extends JPanel {
 
         buttonPanel.revalidate();
         buttonPanel.repaint();
+        refreshKillButtonState();
         revalidate();
         repaint();
     }
@@ -140,6 +171,28 @@ public final class ControlPanelTabPanel extends JPanel {
             }
         }
         return result;
+    }
+
+    private void killRunningScripts() {
+        if (triggerService == null) {
+            publishExecStatus("Exec service not ready.");
+            return;
+        }
+        triggerService.setStatusListener(this::publishExecStatus);
+        triggerService.killRunningScripts();
+    }
+
+    private void styleKillButton(Font uiFont) {
+        if (killButton == null) {
+            return;
+        }
+        OverlayOutlineButtonStyle.applyPrimary(killButton, uiFont);
+        Dimension pref = killButton.getPreferredSize();
+        int height = Math.max(28, pref.height);
+        killButton.setPreferredSize(new Dimension(pref.width, height));
+        HoverClickPoller.register(killButton, BUTTON_HOVER_DELAY_MS, () -> killButton.doClick(),
+                passThroughEnabledSupplier);
+        refreshKillButtonState();
     }
 
     private void runBindingById(String bindingId) {
@@ -187,9 +240,11 @@ public final class ControlPanelTabPanel extends JPanel {
         }
         setFont(font);
         emptyLabel.setFont(font);
+        styleKillButton(font);
         for (JButton button : actionButtons) {
             OverlayOutlineButtonStyle.applyPrimary(button, font);
         }
+        refreshKillButtonState();
         revalidate();
         repaint();
     }

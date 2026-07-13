@@ -3,6 +3,9 @@ package org.dce.ed.exec;
 /** Journal / overlay events that can launch configured JARs. */
 public enum ExecTriggerId {
 
+    /** No automatic trigger — launch via Control Panel or Run now only. */
+    NONE("None"),
+    /** Launch context when started manually (not shown in Exec tab trigger list). */
     MANUAL("Manual (Run now)"),
     FLEET_COOLDOWN_COMPLETE("Fleet cooldown complete"),
     FLEET_TRITIUM_LOW("Fleet carrier tritium low"),
@@ -24,6 +27,7 @@ public enum ExecTriggerId {
     /** Triggers available in the Exec tab dropdown (excludes {@link #MANUAL}). */
     public static ExecTriggerId[] configurableValues() {
         return new ExecTriggerId[] {
+                NONE,
                 FLEET_COOLDOWN_COMPLETE,
                 FLEET_TRITIUM_LOW,
                 ROUTE_COPY_NEXT_DESTINATION,

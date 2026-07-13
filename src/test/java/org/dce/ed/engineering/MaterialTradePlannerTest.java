@@ -47,7 +47,7 @@ class MaterialTradePlannerTest {
         Map<String, Integer> inventory = Map.of("dataminedwakeexceptions", 1);
 
         List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, Map.of());
-        assertTrue(trades.isEmpty(), "1 DMWE cannot buy cracked firmware at 216:1");
+        assertTrue(trades.isEmpty(), "1 DMWE cannot buy cracked firmware at 2:3 batch minimum");
     }
 
     @Test
@@ -56,13 +56,13 @@ class MaterialTradePlannerTest {
         MaterialTradePlanner planner = new MaterialTradePlanner(db);
 
         Map<String, Integer> shortfalls = Map.of("crackedindustrialfirmware", 1);
-        Map<String, Integer> inventory = Map.of("dataminedwakeexceptions", 216);
+        Map<String, Integer> inventory = Map.of("dataminedwakeexceptions", 2);
 
         List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, Map.of());
         assertEquals(1, trades.size());
         TradeSuggestion trade = trades.get(0);
-        assertEquals(216, trade.getFromCount());
-        assertEquals(1, trade.getToCount());
+        assertEquals(2, trade.getFromCount());
+        assertEquals(3, trade.getToCount());
         assertEquals("Encoded", trade.getTraderType());
     }
 
@@ -105,6 +105,41 @@ class MaterialTradePlannerTest {
         assertEquals("crackedindustrialfirmware", trades.get(0).getFromKey());
         assertEquals(6, trades.get(0).getFromCount());
         assertEquals(1, trades.get(0).getToCount());
+    }
+
+    @Test
+    void groupByTraderTypeAndTarget_groupsAlternativesUnderOneReceiveMaterial() {
+        List<TradeSuggestion> trades = List.of(
+                new TradeSuggestion("iron", "Iron", 6, "phosphorus", "Phosphorus", 1, true, "Raw"),
+                new TradeSuggestion("sulphur", "Sulphur", 2, "phosphorus", "Phosphorus", 1, true, "Raw"),
+                new TradeSuggestion("a", "A", 1, "b", "B", 1, true, "Manufactured"));
+
+        Map<String, List<TradeTargetGroup>> grouped = MaterialTradePlanner.groupByTraderTypeAndTarget(
+                trades, Map.of("phosphorus", 3));
+
+        assertEquals(2, grouped.size());
+        List<TradeTargetGroup> raw = grouped.get("Raw");
+        assertEquals(1, raw.size());
+        assertEquals("phosphorus", raw.get(0).getToKey());
+        assertEquals(3, raw.get(0).getShortfall());
+        assertEquals(2, raw.get(0).getOptions().size());
+    }
+
+    @Test
+    void suggest_crossCategoryG3ToG1_usesTwoForThreeBatch() {
+        EngineeringDatabase db = EngineeringDatabase.getInstance();
+        MaterialTradePlanner planner = new MaterialTradePlanner(db);
+
+        Map<String, Integer> shortfalls = Map.of("specialisedlegacyfirmware", 3);
+        Map<String, Integer> inventory = Map.of("emissiondata", 47);
+        Map<String, Integer> required = Map.of();
+
+        List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, required);
+
+        assertEquals(1, trades.size());
+        assertEquals("emissiondata", trades.get(0).getFromKey());
+        assertEquals(2, trades.get(0).getFromCount());
+        assertEquals(3, trades.get(0).getToCount());
     }
 
     @Test

@@ -64,6 +64,11 @@ public final class ExecBindingsStore {
         }
         config.setFleetTritiumLowThreshold(config.getFleetTritiumLowThreshold());
         config.setFleetTritiumLowHysteresis(config.getFleetTritiumLowHysteresis());
+        for (ExecBinding binding : config.getBindings()) {
+            if (binding != null && binding.getTrigger() == null) {
+                binding.setTrigger(ExecTriggerId.NONE);
+            }
+        }
         return config;
     }
 }

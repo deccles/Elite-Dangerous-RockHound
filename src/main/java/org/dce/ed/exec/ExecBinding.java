@@ -31,7 +31,7 @@ public final class ExecBinding {
     public ExecBinding() {
         this.id = UUID.randomUUID().toString();
         this.enabled = false;
-        this.trigger = ExecTriggerId.FLEET_COOLDOWN_COMPLETE;
+        this.trigger = ExecTriggerId.NONE;
         this.delayMs = 0;
         this.jarPath = "";
         this.programArgs = "";
@@ -94,7 +94,7 @@ public final class ExecBinding {
     }
 
     public void setTrigger(ExecTriggerId trigger) {
-        this.trigger = trigger != null ? trigger : ExecTriggerId.FLEET_COOLDOWN_COMPLETE;
+        this.trigger = trigger != null ? trigger : ExecTriggerId.NONE;
     }
 
     public int getDelayMs() {

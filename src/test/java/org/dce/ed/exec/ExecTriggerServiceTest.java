@@ -2,8 +2,10 @@ package org.dce.ed.exec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 
@@ -54,5 +56,24 @@ class ExecTriggerServiceTest {
         assertNull(env.get("EDO_DESTINATION"));
         assertNull(env.get("EDO_CLIPBOARD"));
         assertNull(env.get("EDO_CLIPBOARD_CLEARED"));
+    }
+
+    @Test
+    void killRunningScripts_cancelsScheduledLaunchWithoutStartingProcess() throws Exception {
+        ExecTriggerService service = new ExecTriggerService();
+        AtomicReference<String> status = new AtomicReference<>();
+        service.setStatusListener(status::set);
+
+        ExecBinding binding = new ExecBinding();
+        binding.setJarPath("");
+        binding.setDelayMs(60_000);
+        binding.setEnabled(true);
+        binding.setTrigger(ExecTriggerId.MANUAL);
+
+        service.runBindingNow(binding);
+
+        String message = service.killRunningScripts();
+        assertTrue(message.contains("scheduled"), message);
+        assertEquals(0, JarExecRunner.runningProcessCount());
     }
 }

@@ -7,7 +7,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javax.swing.BorderFactory;
+import javax.swing.DefaultCellEditor;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -27,6 +29,7 @@ public final class ExecJournalFilterDialog extends JDialog {
 
     private final ExecBinding binding;
     private final FiltersTableModel filtersModel = new FiltersTableModel();
+    private final JTable filtersTable = new JTable(filtersModel);
     private boolean saved;
 
     private ExecJournalFilterDialog(Window owner, ExecBinding binding) {
@@ -53,15 +56,17 @@ public final class ExecJournalFilterDialog extends JDialog {
         root.add(new JLabel("<html>Filters for <b>" + binding.getJournalEventType()
                 + "</b> (all must match; empty = any event of this type)</html>"), BorderLayout.NORTH);
 
-        JTable table = new JTable(filtersModel);
-        root.add(new JScrollPane(table), BorderLayout.CENTER);
+        filtersTable.setRowHeight(22);
+        JComboBox<MatchMode> modeCombo = new JComboBox<>(MatchMode.values());
+        filtersTable.getColumnModel().getColumn(COL_MODE).setCellEditor(new DefaultCellEditor(modeCombo));
+        root.add(new JScrollPane(filtersTable), BorderLayout.CENTER);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton add = new JButton("Add filter");
         add.addActionListener(e -> filtersModel.addRow(new ExecJournalAttributeFilter()));
         JButton remove = new JButton("Remove");
         remove.addActionListener(e -> {
-            int row = table.getSelectedRow();
+            int row = filtersTable.getSelectedRow();
             if (row >= 0) {
                 filtersModel.removeRow(row);
             }
@@ -87,6 +92,7 @@ public final class ExecJournalFilterDialog extends JDialog {
         JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton ok = new JButton("OK");
         ok.addActionListener(e -> {
+            commitPendingEdits();
             binding.setJournalAttributeFilters(filtersModel.getRows());
             saved = true;
             dispose();
@@ -98,6 +104,12 @@ public final class ExecJournalFilterDialog extends JDialog {
         root.add(south, BorderLayout.PAGE_END);
 
         setContentPane(root);
+    }
+
+    private void commitPendingEdits() {
+        if (filtersTable.isEditing()) {
+            filtersTable.getCellEditor().stopCellEditing();
+        }
     }
 
     private static final class FiltersTableModel extends AbstractTableModel {
@@ -165,12 +177,20 @@ public final class ExecJournalFilterDialog extends JDialog {
         }
 
         @Override
+        public Class<?> getColumnClass(int columnIndex) {
+            if (columnIndex == COL_MODE) {
+                return MatchMode.class;
+            }
+            return String.class;
+        }
+
+        @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             ExecJournalAttributeFilter f = rows.get(rowIndex);
             return switch (columnIndex) {
                 case COL_FIELD -> f.getField();
                 case COL_VALUE -> f.getExpectedValue();
-                case COL_MODE -> f.getMatchMode().name();
+                case COL_MODE -> f.getMatchMode() != null ? f.getMatchMode() : MatchMode.EQUALS;
                 default -> "";
             };
         }
@@ -187,9 +207,15 @@ public final class ExecJournalFilterDialog extends JDialog {
                 case COL_FIELD -> f.setField(value != null ? value.toString() : "");
                 case COL_VALUE -> f.setExpectedValue(value != null ? value.toString() : "");
                 case COL_MODE -> {
-                    try {
-                        f.setMatchMode(MatchMode.valueOf(value != null ? value.toString().trim() : "EQUALS"));
-                    } catch (IllegalArgumentException ex) {
+                    if (value instanceof MatchMode mode) {
+                        f.setMatchMode(mode);
+                    } else if (value != null) {
+                        try {
+                            f.setMatchMode(MatchMode.valueOf(value.toString().trim()));
+                        } catch (IllegalArgumentException ex) {
+                            f.setMatchMode(MatchMode.EQUALS);
+                        }
+                    } else {
                         f.setMatchMode(MatchMode.EQUALS);
                     }
                 }

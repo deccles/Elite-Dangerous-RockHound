@@ -30,6 +30,8 @@ public final class EngineeringSessionData {
         private int craftsAtCurrentGrade;
         private int targetGrade;
         private String experimentalId;
+        /** {@code null} = include (legacy sessions). */
+        private Boolean includeInPlanning;
 
         public String getBlueprintId() {
             return blueprintId;
@@ -85,6 +87,18 @@ public final class EngineeringSessionData {
 
         public void setExperimentalId(String experimentalId) {
             this.experimentalId = experimentalId;
+        }
+
+        public Boolean getIncludeInPlanning() {
+            return includeInPlanning;
+        }
+
+        public void setIncludeInPlanning(Boolean includeInPlanning) {
+            this.includeInPlanning = includeInPlanning;
+        }
+
+        public boolean includeInPlanningOrDefault() {
+            return includeInPlanning == null || includeInPlanning;
         }
     }
 }

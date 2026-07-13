@@ -119,6 +119,60 @@ public final class MaterialTradePlanner {
         return grouped;
     }
 
+    /**
+     * Groups trades by trader type, then by receive material. Each target lists alternative pay options (pick one).
+     */
+    public static Map<String, List<TradeTargetGroup>> groupByTraderTypeAndTarget(
+            List<TradeSuggestion> trades,
+            Map<String, Integer> shortfalls) {
+        Map<String, List<TradeTargetGroup>> grouped = new LinkedHashMap<>();
+        for (Map.Entry<String, List<TradeSuggestion>> entry : groupByTraderType(trades).entrySet()) {
+            List<TradeTargetGroup> targets = groupByTarget(entry.getValue(), shortfalls);
+            if (!targets.isEmpty()) {
+                grouped.put(entry.getKey(), targets);
+            }
+        }
+        return grouped;
+    }
+
+    private static List<TradeTargetGroup> groupByTarget(List<TradeSuggestion> trades,
+                                                      Map<String, Integer> shortfalls) {
+        if (trades == null || trades.isEmpty()) {
+            return List.of();
+        }
+        Map<String, List<TradeSuggestion>> byTarget = new LinkedHashMap<>();
+        for (TradeSuggestion trade : trades) {
+            byTarget.computeIfAbsent(trade.getToKey(), k -> new ArrayList<>()).add(trade);
+        }
+        List<TradeTargetGroup> out = new ArrayList<>();
+        for (Map.Entry<String, List<TradeSuggestion>> entry : byTarget.entrySet()) {
+            List<TradeSuggestion> options = entry.getValue();
+            if (options.isEmpty()) {
+                continue;
+            }
+            TradeSuggestion first = options.get(0);
+            int shortfall = 0;
+            if (shortfalls != null) {
+                shortfall = shortfalls.getOrDefault(entry.getKey(), 0);
+                if (shortfall <= 0) {
+                    for (Map.Entry<String, Integer> sf : shortfalls.entrySet()) {
+                        if (sf.getKey() != null && sf.getKey().equalsIgnoreCase(entry.getKey())) {
+                            shortfall = sf.getValue() != null ? sf.getValue() : 0;
+                            break;
+                        }
+                    }
+                }
+            }
+            out.add(new TradeTargetGroup(
+                    entry.getKey(),
+                    first.getToName(),
+                    first.getTraderType(),
+                    shortfall,
+                    options));
+        }
+        return out;
+    }
+
     private static int traderTypeRank(String type) {
         if (type == null) {
             return TRADER_TYPE_ORDER.size();

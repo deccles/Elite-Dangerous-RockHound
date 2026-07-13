@@ -32,6 +32,11 @@ public final class OverlayOutlineButtonStyle {
         apply(b, uiFont, true, new Insets(8, 18, 8, 18), EdoUi.User.MAIN_TEXT);
     }
 
+    /** Destructive action (e.g. kill rogue scripts). */
+    public static void applyDanger(JButton b, Font uiFont) {
+        apply(b, uiFont, true, new Insets(8, 18, 8, 18), new Color(255, 110, 95));
+    }
+
     /** Compact chip (filter tabs, dismiss). */
     public static void applyChip(JButton b, Font uiFont, boolean selected) {
         Color border = selected ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.MAIN_TEXT_ALPHA_220;

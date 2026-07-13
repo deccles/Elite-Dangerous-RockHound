@@ -33,7 +33,7 @@ public final class EngineeringGoalProgress {
         boolean changed = false;
         for (int i = 0; i < goals.size(); i++) {
             EngineeringGoal goal = goals.get(i);
-            if (!matchesCraft(goal, craft, db)) {
+            if (goal.isInventoryConsolidation() || !matchesCraft(goal, craft, db)) {
                 continue;
             }
             EngineeringGoal updated = EngineeringGradeProgress.afterCraft(goal, craft.getLevel());
@@ -47,6 +47,9 @@ public final class EngineeringGoalProgress {
 
     /**
      * Replays journal {@code EngineerCraft} events so saved goals reflect crafts from the current session.
+     *
+     * <p>Roll progress is rebuilt from scratch on each call so saved session progress is not stacked on
+     * top of journal history.
      */
     public static boolean bootstrapFromJournal(List<EngineeringGoal> goals,
                                                String clientKey,
@@ -54,16 +57,29 @@ public final class EngineeringGoalProgress {
         if (goals == null || goals.isEmpty() || clientKey == null || clientKey.isBlank()) {
             return false;
         }
-        boolean changed = false;
+        List<EngineeringGoal> before = List.copyOf(goals);
+        for (int i = 0; i < goals.size(); i++) {
+            EngineeringGoal goal = goals.get(i);
+            if (!goal.isInventoryConsolidation()) {
+                goals.set(i, goal.withProgress(0, 0));
+            }
+        }
         try {
             EliteJournalReader reader = new EliteJournalReader(clientKey);
             for (EliteLogEvent event : reader.readAllEvents()) {
-                if (event instanceof EngineerCraftEvent craft && applyCraft(goals, craft, database)) {
-                    changed = true;
+                if (event instanceof EngineerCraftEvent craft) {
+                    applyCraft(goals, craft, database);
                 }
             }
         } catch (Exception ignored) {
             // journal directory unavailable
+        }
+        boolean changed = false;
+        for (int i = 0; i < goals.size(); i++) {
+            if (!goals.get(i).equals(before.get(i))) {
+                changed = true;
+                break;
+            }
         }
         return changed;
     }

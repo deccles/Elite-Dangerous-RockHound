@@ -44,7 +44,11 @@ public final class EngineeringGradeProgress {
             }
             return goal.withProgress(completed, crafts);
         }
-        // Craft at a higher grade than tracked — assume earlier grades were done before tracking started.
+        if (crafts > 0) {
+            // Still rolling the current grade — do not skip ahead on a higher-level craft.
+            return goal;
+        }
+        // Started tracking after the module was already partially engineered.
         return goal.withProgress(craftLevel - 1, 1);
     }
 

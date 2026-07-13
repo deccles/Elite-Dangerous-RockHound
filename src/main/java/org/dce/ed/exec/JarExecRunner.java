@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 import org.dce.ed.exec.placeholder.ExecPlaceholderContext;
@@ -31,7 +33,39 @@ public final class JarExecRunner {
     /** Matches RoboHound {@code MacroPlayMain#EXIT_CANCELLED_BY_USER}. */
     public static final int EXIT_CANCELLED_BY_USER = 2;
 
+    private static final Set<TrackedProcess> RUNNING = ConcurrentHashMap.newKeySet();
+
+    private record TrackedProcess(Process process, String label) {
+    }
+
     private JarExecRunner() {
+    }
+
+    /** Number of child processes currently running (started by {@link #run} / {@link #runAsync}). */
+    public static int runningProcessCount() {
+        return RUNNING.size();
+    }
+
+    /**
+     * Forcibly terminates all tracked exec child processes (e.g. rogue RoboHound macros).
+     *
+     * @return how many processes were still alive and received {@code destroyForcibly}
+     */
+    public static int killRunningProcesses() {
+        int killed = 0;
+        for (TrackedProcess tracked : RUNNING) {
+            Process process = tracked.process();
+            if (process == null || !process.isAlive()) {
+                continue;
+            }
+            try {
+                process.descendants().forEach(handle -> handle.destroyForcibly());
+            } catch (UnsupportedOperationException ignored) {
+            }
+            process.destroyForcibly();
+            killed++;
+        }
+        return killed;
     }
 
     /** User dismissed the in-game banner (×) or otherwise cancelled — not an Exec failure. */
@@ -139,13 +173,19 @@ public final class JarExecRunner {
             env.put("EDO_EXEC_STARTED", Instant.now().toString());
 
             Process process = pb.start();
-            String stderr = drain(process.getErrorStream(), 4000);
-            int code = process.waitFor();
-            String detail = "Exit " + code + " at " + Instant.now();
-            if (!stderr.isBlank()) {
-                detail += " — " + stderr.trim();
+            TrackedProcess tracked = new TrackedProcess(process, program.getFileName().toString());
+            RUNNING.add(tracked);
+            try {
+                int code = process.waitFor();
+                String stderr = drain(process.getErrorStream(), 4000);
+                String detail = "Exit " + code + " at " + Instant.now();
+                if (!stderr.isBlank()) {
+                    detail += " — " + stderr.trim();
+                }
+                return new RunResult(code, detail);
+            } finally {
+                RUNNING.remove(tracked);
             }
-            return new RunResult(code, detail);
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();

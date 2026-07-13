@@ -1,6 +1,7 @@
 package org.dce.ed.exec;
 
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -31,6 +32,9 @@ public final class ExecTriggerService {
     private volatile Supplier<FleetCooldownClipboardPrep> fleetCooldownClipboardPrepSupplier;
     private volatile ExecPlaceholderContext placeholderContext;
 
+    private final CopyOnWriteArrayList<Timer> scheduledExecTimers = new CopyOnWriteArrayList<>();
+    private volatile Runnable activityListener;
+
     public ExecTriggerService() {
         this(new ExecBindingsStore());
     }
@@ -45,6 +49,24 @@ public final class ExecTriggerService {
 
     public void setStatusListener(Consumer<String> statusListener) {
         this.statusListener = statusListener;
+    }
+
+    /** Fired on EDT when a script starts, stops, or a delayed launch is scheduled/cancelled. */
+    public void setActivityListener(Runnable activityListener) {
+        this.activityListener = activityListener;
+    }
+
+    /** True when an exec child process is running or a delayed launch timer is active. */
+    public boolean hasActiveScripts() {
+        if (JarExecRunner.runningProcessCount() > 0) {
+            return true;
+        }
+        for (Timer timer : scheduledExecTimers) {
+            if (timer != null && timer.isRunning()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void setCarrierSystemSupplier(Supplier<String> carrierSystemSupplier) {
@@ -129,7 +151,9 @@ public final class ExecTriggerService {
                 ExecTriggerId.FLEET_COOLDOWN_COMPLETE,
                 buildFleetCooldownLaunchContext()));
         timer.setRepeats(false);
+        trackExecTimer(timer);
         timer.start();
+        notifyActivityChanged();
     }
 
     ExecLaunchContext buildFleetCooldownLaunchContext() {
@@ -266,6 +290,36 @@ public final class ExecTriggerService {
         publishStatus("Action no longer configured.");
     }
 
+    /**
+     * Stops rogue exec programs: cancels pending delayed launches and kills running child processes.
+     *
+     * @return user-facing status for the overlay bar
+     */
+    public String killRunningScripts() {
+        int cancelledTimers = cancelPendingExecTimers();
+        int killedProcesses = JarExecRunner.killRunningProcesses();
+        if (cancelledTimers == 0 && killedProcesses == 0) {
+            return "No scripts running.";
+        }
+        StringBuilder sb = new StringBuilder("Stopped ");
+        if (killedProcesses > 0) {
+            sb.append(killedProcesses).append(killedProcesses == 1 ? " script" : " scripts");
+        }
+        if (cancelledTimers > 0) {
+            if (killedProcesses > 0) {
+                sb.append(" and cancelled ");
+            } else {
+                sb.append("cancelled ");
+            }
+            sb.append(cancelledTimers).append(cancelledTimers == 1 ? " scheduled launch" : " scheduled launches");
+        }
+        sb.append('.');
+        String message = sb.toString();
+        publishStatus(message);
+        notifyActivityChanged();
+        return message;
+    }
+
     private void runBindingNowInternal(ExecBinding binding) {
         ExecBindingsConfig config = currentConfig();
         FleetCooldownClipboardPrep prep = resolveFleetCooldownClipboardPrep();
@@ -321,10 +375,34 @@ public final class ExecTriggerService {
         publishStatus("Scheduled " + binding.getTrigger().getLabel() + " in " + (delay / 1000) + "s…");
         Timer timer = new Timer(delay, e -> launch(binding, context));
         timer.setRepeats(false);
+        trackExecTimer(timer);
         timer.start();
+        notifyActivityChanged();
+    }
+
+    private void trackExecTimer(Timer timer) {
+        scheduledExecTimers.add(timer);
+        timer.addActionListener(e -> {
+            scheduledExecTimers.remove(timer);
+            notifyActivityChanged();
+        });
+        notifyActivityChanged();
+    }
+
+    private int cancelPendingExecTimers() {
+        int cancelled = 0;
+        for (Timer timer : scheduledExecTimers) {
+            if (timer != null && timer.isRunning()) {
+                timer.stop();
+                cancelled++;
+            }
+        }
+        scheduledExecTimers.clear();
+        return cancelled;
     }
 
     private void launch(ExecBinding binding, ExecLaunchContext context) {
+        notifyActivityChanged();
         publishStatus("Running " + shortProgramName(binding.getJarPath()) + "…");
         JarExecRunner.runAsync(binding, context, placeholderContext, result -> SwingUtilities.invokeLater(() -> {
             if (result.exitCode() == 0) {
@@ -334,6 +412,7 @@ public final class ExecTriggerService {
             } else {
                 publishStatus("Failed: " + JarExecRunner.formatConciseStatus(result));
             }
+            notifyActivityChanged();
         }));
     }
 
@@ -361,6 +440,18 @@ public final class ExecTriggerService {
         Consumer<String> listener = statusListener;
         if (listener != null && message != null) {
             listener.accept(message);
+        }
+    }
+
+    private void notifyActivityChanged() {
+        Runnable listener = activityListener;
+        if (listener == null) {
+            return;
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            listener.run();
+        } else {
+            SwingUtilities.invokeLater(listener);
         }
     }
 

@@ -33,10 +33,15 @@ class MaterialTradeRateCalculatorTest {
     }
 
     @Test
-    void crossCategory_g5WakeToG3Firmware_is216to1() {
+    void crossCategory_g5WakeToG3Firmware_isTwoForThreeBatch() {
         EngineeringMaterial dmwe = mat("dataminedwakeexceptions", "Encoded", "WakeScans", 5);
         EngineeringMaterial firmware = mat("crackedindustrialfirmware", "Encoded", "EncodedFirmware", 3);
-        assertEquals(216, MaterialTradeRateCalculator.inputPerOneOutput(dmwe, firmware));
+        assertEquals(1, MaterialTradeRateCalculator.inputPerOneOutput(dmwe, firmware));
+
+        MaterialTradeRateCalculator.Exchange exchange =
+                MaterialTradeRateCalculator.planExchange(dmwe, firmware, 216, 1).orElseThrow();
+        assertEquals(2, exchange.getFromCount());
+        assertEquals(3, exchange.getToCount());
     }
 
     @Test
@@ -47,10 +52,22 @@ class MaterialTradeRateCalculatorTest {
     }
 
     @Test
-    void crossCategory_g4WakeToG3Firmware_is36to1() {
+    void crossCategory_g4WakeToG3Firmware_is2to1() {
         EngineeringMaterial eht = mat("eccentrichyperspacetrajectories", "Encoded", "WakeScans", 4);
         EngineeringMaterial cif = mat("crackedindustrialfirmware", "Encoded", "EncodedFirmware", 3);
-        assertEquals(36, MaterialTradeRateCalculator.inputPerOneOutput(eht, cif));
+        assertEquals(2, MaterialTradeRateCalculator.inputPerOneOutput(eht, cif));
+    }
+
+    @Test
+    void crossCategory_g4AlloysToG3Crystals_is2to1() {
+        EngineeringMaterial pla = mat("protolightalloys", "Manufactured", "Alloys", 4);
+        EngineeringMaterial fc = mat("focuscrystals", "Manufactured", "Crystals", 3);
+        assertEquals(2, MaterialTradeRateCalculator.inputPerOneOutput(pla, fc));
+
+        MaterialTradeRateCalculator.Exchange exchange =
+                MaterialTradeRateCalculator.planExchange(pla, fc, 150, 4).orElseThrow();
+        assertEquals(8, exchange.getFromCount());
+        assertEquals(4, exchange.getToCount());
     }
 
     @Test
@@ -59,6 +76,18 @@ class MaterialTradeRateCalculatorTest {
         EngineeringMaterial hybrid = mat("hybridcapacitors", "Manufactured", "Capacitors", 3);
         assertEquals(Integer.MAX_VALUE, MaterialTradeRateCalculator.inputPerOneOutput(guardian, hybrid));
         assertEquals(Integer.MAX_VALUE, MaterialTradeRateCalculator.inputPerOneOutput(hybrid, guardian));
+    }
+
+    @Test
+    void crossCategory_g3EmissionToG1Firmware_batchesTwoForThree() {
+        EngineeringMaterial emissionG3 = mat("emissiondata", "Encoded", "EmissionData", 3);
+        EngineeringMaterial firmwareG1 = mat("specialisedlegacyfirmware", "Encoded", "EncodedFirmware", 1);
+        assertEquals(1, MaterialTradeRateCalculator.inputPerOneOutput(emissionG3, firmwareG1));
+
+        MaterialTradeRateCalculator.Exchange exchange =
+                MaterialTradeRateCalculator.planExchange(emissionG3, firmwareG1, 47, 3).orElseThrow();
+        assertEquals(2, exchange.getFromCount());
+        assertEquals(3, exchange.getToCount());
     }
 
     @Test

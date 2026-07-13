@@ -4,6 +4,10 @@ package org.dce.ed.engineering;
  * User goal: engineer a module to a target grade (and optional experimental).
  */
 public final class EngineeringGoal {
+
+    /** Sentinel {@link #blueprintId} for {@link #inventoryConsolidation(int, int)} goals. */
+    public static final String INVENTORY_CONSOLIDATION_BLUEPRINT_ID = "__inventory_consolidation__";
+
     private final String blueprintId;
     private final String moduleType;
     private final String blueprintName;
@@ -13,6 +17,8 @@ public final class EngineeringGoal {
     private final int craftsAtCurrentGrade;
     private final int targetGrade;
     private final String experimentalId;
+    /** When false, goal stays listed but is omitted from materials and trade suggestions. */
+    private final boolean includeInPlanning;
 
     public EngineeringGoal(String blueprintId,
                            String moduleType,
@@ -30,6 +36,17 @@ public final class EngineeringGoal {
                            int craftsAtCurrentGrade,
                            int targetGrade,
                            String experimentalId) {
+        this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade, experimentalId, true);
+    }
+
+    public EngineeringGoal(String blueprintId,
+                           String moduleType,
+                           String blueprintName,
+                           int fromGrade,
+                           int craftsAtCurrentGrade,
+                           int targetGrade,
+                           String experimentalId,
+                           boolean includeInPlanning) {
         this.blueprintId = blueprintId != null ? blueprintId : "";
         this.moduleType = moduleType != null ? moduleType : "";
         this.blueprintName = blueprintName != null ? blueprintName : "";
@@ -37,6 +54,7 @@ public final class EngineeringGoal {
         this.craftsAtCurrentGrade = clampCrafts(craftsAtCurrentGrade);
         this.targetGrade = Math.max(1, targetGrade);
         this.experimentalId = experimentalId != null ? experimentalId : "";
+        this.includeInPlanning = includeInPlanning;
     }
 
     public String getBlueprintId() {
@@ -67,6 +85,10 @@ public final class EngineeringGoal {
         return experimentalId;
     }
 
+    public boolean isIncludeInPlanning() {
+        return includeInPlanning;
+    }
+
     public EngineeringGoal withProgress(int newFromGrade, int newCraftsAtCurrentGrade) {
         return new EngineeringGoal(
                 blueprintId,
@@ -75,14 +97,50 @@ public final class EngineeringGoal {
                 Math.max(0, newFromGrade),
                 clampCrafts(newCraftsAtCurrentGrade),
                 targetGrade,
-                experimentalId);
+                experimentalId,
+                includeInPlanning);
+    }
+
+    public EngineeringGoal withIncludeInPlanning(boolean include) {
+        if (includeInPlanning == include) {
+            return this;
+        }
+        return new EngineeringGoal(
+                blueprintId,
+                moduleType,
+                blueprintName,
+                fromGrade,
+                craftsAtCurrentGrade,
+                targetGrade,
+                experimentalId,
+                include);
     }
 
     public EngineeringGoal withFromGrade(int newFromGrade) {
         return withProgress(newFromGrade, 0);
     }
 
+    /** Trade excess low-grade mats up within the same trader row to free inventory slots. */
+    public static EngineeringGoal inventoryConsolidation(int maxSourceGrade, int targetGrade) {
+        int maxSource = Math.max(1, Math.min(maxSourceGrade, 4));
+        int target = Math.max(maxSource + 1, Math.min(targetGrade, 5));
+        return new EngineeringGoal(
+                INVENTORY_CONSOLIDATION_BLUEPRINT_ID,
+                "Inventory",
+                "Reduce commons",
+                maxSource,
+                target,
+                "");
+    }
+
+    public boolean isInventoryConsolidation() {
+        return INVENTORY_CONSOLIDATION_BLUEPRINT_ID.equals(blueprintId);
+    }
+
     public String displayLabel() {
+        if (isInventoryConsolidation()) {
+            return "Inventory: reduce G1–G" + fromGrade + " → G" + targetGrade;
+        }
         String base = moduleType + ": " + blueprintName + " → " + EngineeringGradeProgress.progressLabel(this);
         if (!experimentalId.isBlank()) {
             base += " + experimental";
@@ -108,7 +166,8 @@ public final class EngineeringGoal {
                 && fromGrade == other.fromGrade
                 && craftsAtCurrentGrade == other.craftsAtCurrentGrade
                 && targetGrade == other.targetGrade
-                && experimentalId.equals(other.experimentalId);
+                && experimentalId.equals(other.experimentalId)
+                && includeInPlanning == other.includeInPlanning;
     }
 
     @Override
@@ -120,6 +179,7 @@ public final class EngineeringGoal {
         result = 31 * result + craftsAtCurrentGrade;
         result = 31 * result + targetGrade;
         result = 31 * result + experimentalId.hashCode();
+        result = 31 * result + Boolean.hashCode(includeInPlanning);
         return result;
     }
 }

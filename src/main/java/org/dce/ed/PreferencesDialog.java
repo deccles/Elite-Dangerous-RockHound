@@ -232,6 +232,8 @@ public class PreferencesDialog extends JDialog {
 
 	private ExecTabPanel execTabPanel;
 
+	private int lastPrefsTabIndex;
+
 	private JSpinner bioValuableThresholdMillionSpinner;
 	private JComboBox<OverlayPreferences.BiologyMapDisplayMode> biologyMapDisplayModeComboBox;
 	private JCheckBox autoExpandBioOnTargetedBodyCheckBox;
@@ -413,7 +415,12 @@ public class PreferencesDialog extends JDialog {
 		add(createButtonPanel(), BorderLayout.SOUTH);
 
 		preferenceTabs.addChangeListener(e -> {
-			if (preferenceTabs.getSelectedIndex() == EXEC_TAB_INDEX) {
+			int selected = preferenceTabs.getSelectedIndex();
+			if (execTabPanel != null && lastPrefsTabIndex == EXEC_TAB_INDEX && selected != EXEC_TAB_INDEX) {
+				execTabPanel.commitPendingEdits();
+			}
+			lastPrefsTabIndex = selected;
+			if (selected == EXEC_TAB_INDEX) {
 				wireExecFromOwner();
 			}
 		});
@@ -1840,6 +1847,9 @@ public class PreferencesDialog extends JDialog {
 		ok.addActionListener(e -> {
 			if (!validateMiningGoogleSettingsBeforeSave()) {
 				return;
+			}
+			if (execTabPanel != null) {
+				execTabPanel.commitPendingEdits();
 			}
 			okPressed = true;
 			applyAndSavePreferences();

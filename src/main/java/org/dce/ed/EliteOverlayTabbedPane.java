@@ -838,8 +838,10 @@ public class EliteOverlayTabbedPane extends JPanel {
 		}
 		boolean fcPending = fleetCarrierTab != null && fleetCarrierTab.isOwnedCarrierJumpPending();
 		boolean fcCountdown = OverlayFrame.overlayFrame != null && OverlayFrame.overlayFrame.hasCarrierJumpCountdown();
+		boolean aboardFc = systemTab != null && systemTab.getState() != null
+				&& systemTab.getState().isCommanderAboardFleetCarrier();
 		AutoTabJumpLogic.JumpKind kind = AutoTabJumpLogic.classifyForAutoTabSwitch(
-				fcPending, fcCountdown, status, startJumpOrNull);
+				fcPending, fcCountdown, aboardFc, status, startJumpOrNull);
 		switch (kind) {
 			case FLEET_CARRIER -> showFleetCarrierTabFromStatusWatcher();
 			case SHIP_HYPERSPACE -> {
@@ -1095,6 +1097,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonLayoutSize(miningButton);
 		applyTabButtonLayoutSize(missionsButton);
 		applyTabButtonLayoutSize(fleetCarrierButton);
+		applyTabButtonLayoutSize(engineeringButton);
+		applyTabButtonLayoutSize(controlPanelButton);
 		if (scrollableTabBar != null) {
 			scrollableTabBar.refreshLayout();
 		}
@@ -1298,31 +1302,35 @@ public class EliteOverlayTabbedPane extends JPanel {
 			return;
 		}
 
-		Color c = button.isSelected() ? TAB_WHITE : EdoUi.Internal.MAIN_TEXT_ALPHA_220;
+		boolean overlayWindow = OverlayPreferences.isPassThroughWindowActive();
 		boolean passThrough = hoverSwitchEnabled != null && hoverSwitchEnabled.getAsBoolean();
-		boolean forceSolidTabBackground = !passThrough;
+		boolean selected = button.isSelected();
+		// Transparent overlay (incl. decorated host): never use bright white tab chrome — it reads as a stray frame.
+		boolean useOverlayTabChrome = OverlayPreferences.isOverlayTransparent()
+				|| overlayWindow
+				|| passThrough;
+		Color foreground = selected
+				? (useOverlayTabChrome ? EdoUi.User.MAIN_TEXT : TAB_WHITE)
+				: EdoUi.Internal.MAIN_TEXT_ALPHA_220;
+		Color borderColor = (selected && !useOverlayTabChrome)
+				? TAB_WHITE
+				: (selected ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.MAIN_TEXT_ALPHA_220);
 
-		// Selected tab: force opaque background so adjacent tab labels don't show through
-		// (avoids "logy" / "ining" ghosting when overlay is transparent).
-		if (button.isSelected()) {
+		if (selected && !useOverlayTabChrome) {
 			button.setOpaque(true);
 			button.setBackground(TAB_SELECTED_BG);
+		} else if (!useOverlayTabChrome) {
+			button.setOpaque(true);
+			Color base = EdoUi.User.BACKGROUND;
+			button.setBackground(new Color(base.getRed(), base.getGreen(), base.getBlue(), 255));
 		} else {
-			if (forceSolidTabBackground) {
-				// Match Colors → Background instead of fixed PANEL_BG; avoids Windows LAF tint clashes.
-				button.setOpaque(true);
-				Color base = EdoUi.User.BACKGROUND;
-				button.setBackground(new Color(base.getRed(), base.getGreen(), base.getBlue(), 255));
-			} else {
-				button.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
-				button.setBackground(EdoUi.Internal.DARK_ALPHA_220);
-			}
+			button.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
+			button.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 		}
 
-		// This restores size/padding compared to a bare LineBorder.
 		button.setMargin(TAB_PADDING);
-		button.setForeground(c);
-		button.setBorder(createTabBorder(c));
+		button.setForeground(foreground);
+		button.setBorder(createTabBorder(borderColor));
 		applyTabButtonLayoutSize(button);
 	}
 
@@ -1616,6 +1624,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(missionsButton);
 		applyTabButtonStyle(fleetCarrierButton);
+		applyTabButtonStyle(engineeringButton);
 		applyTabButtonStyle(controlPanelButton);
 
 		if (routeTab != null) {
@@ -1629,6 +1638,9 @@ public class EliteOverlayTabbedPane extends JPanel {
 		}
 		if (controlPanelTab != null) {
 			controlPanelTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
+		}
+		if (engineeringTab != null) {
+			engineeringTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
 		}
 
 		revalidate();
@@ -1875,6 +1887,7 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 		fleetCarrierTab.applyUiFontPreferences();
 		biologyTab.applyUiFontPreferences();
 		miningTab.applyUiFontPreferences();
+		engineeringTab.applyUiFontPreferences();
 		missionsTab.refreshFromSavedOverlayPreferences();
 		nearbyTab.applyUiFontPreferences();
 		if (controlPanelTab != null) {
@@ -1890,6 +1903,7 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 		fleetCarrierTab.applyUiFont(font);
 		biologyTab.applyUiFont(font);
 		miningTab.applyUiFont(font);
+		engineeringTab.applyUiFont(font);
 		missionsTab.refreshFromSavedOverlayPreferences();
 		nearbyTab.applyUiFont(font);
 		if (controlPanelTab != null) {

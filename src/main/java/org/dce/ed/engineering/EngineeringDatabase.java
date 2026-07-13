@@ -35,6 +35,7 @@ public final class EngineeringDatabase {
     private final Map<String, List<BlueprintGrade>> byModuleAndName;
     private final Map<String, EngineeringMaterial> materialsByKey;
     private final List<EngineeringMaterial> allMaterials;
+    private final Map<String, EngineeringMaterial> traderRowByTypeSubtypeGrade;
 
     private EngineeringDatabase(List<BlueprintGrade> blueprints, List<EngineeringMaterial> materials) {
         this.allBlueprints = List.copyOf(blueprints);
@@ -60,6 +61,22 @@ public final class EngineeringDatabase {
         }
         this.materialsByKey = Collections.unmodifiableMap(matMap);
         this.allMaterials = List.copyOf(materials);
+        this.traderRowByTypeSubtypeGrade = buildTraderRowIndex(materials);
+    }
+
+    private static Map<String, EngineeringMaterial> buildTraderRowIndex(List<EngineeringMaterial> materials) {
+        Map<String, EngineeringMaterial> index = new HashMap<>();
+        for (EngineeringMaterial material : materials) {
+            if (!MaterialTraderCatalog.isTradeableAtMaterialTrader(material)) {
+                continue;
+            }
+            index.putIfAbsent(traderRowKey(material.getType(), material.getSubtype(), material.getGrade()), material);
+        }
+        return Collections.unmodifiableMap(index);
+    }
+
+    private static String traderRowKey(String type, String subtype, int grade) {
+        return (type + "\0" + subtype + "\0" + grade).toLowerCase(Locale.ROOT);
     }
 
     public static EngineeringDatabase getInstance() {
@@ -132,6 +149,14 @@ public final class EngineeringDatabase {
 
     public String materialDisplayName(String key) {
         return material(key).map(EngineeringMaterial::getName).orElse(key);
+    }
+
+    /** Material at a given grade within one material-trader row (type + subtype). */
+    public Optional<EngineeringMaterial> traderRowMaterial(String type, String subtype, int grade) {
+        if (type == null || type.isBlank() || subtype == null || subtype.isBlank() || grade < 1) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(traderRowByTypeSubtypeGrade.get(traderRowKey(type, subtype, grade)));
     }
 
     public static String groupKey(String moduleType, String blueprintName) {

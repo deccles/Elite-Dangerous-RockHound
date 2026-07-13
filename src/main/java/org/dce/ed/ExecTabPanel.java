@@ -288,6 +288,16 @@ public final class ExecTabPanel extends JPanel {
         });
     }
 
+    /**
+     * Commits an in-progress table edit (Program, Args, Name, etc.) into bindings and saves.
+     * Needed when the user clicks OK without pressing Enter in the cell editor.
+     */
+    public void commitPendingEdits() {
+        if (table.isEditing()) {
+            table.getCellEditor().stopCellEditing();
+        }
+    }
+
     public void applyOverlayBackground(Color bgWithAlpha, boolean treatAsTransparent) {
         boolean opaque = !treatAsTransparent;
         setOpaque(opaque);

@@ -47,4 +47,24 @@ class ExecBindingsStoreTest {
         assertEquals("My macro", rows.get(0).getName());
         assertTrue(rows.get(0).isIncludeOnControlPanel());
     }
+
+    @Test
+    void saveAndLoad_noneTrigger_roundTrip() throws Exception {
+        ExecBindingsStore store = new ExecBindingsStore(tempDir.resolve("exec-bindings.json"));
+        ExecBindingsConfig config = new ExecBindingsConfig();
+        ExecBinding binding = new ExecBinding();
+        binding.setTrigger(ExecTriggerId.NONE);
+        binding.setJarPath("C:\\tools\\manual.jar");
+        config.getBindings().add(binding);
+
+        store.save(config);
+        ExecBindingsConfig loaded = store.load();
+
+        assertEquals(ExecTriggerId.NONE, loaded.getBindings().get(0).getTrigger());
+    }
+
+    @Test
+    void newBinding_defaultsToNoTrigger() {
+        assertEquals(ExecTriggerId.NONE, new ExecBinding().getTrigger());
+    }
 }

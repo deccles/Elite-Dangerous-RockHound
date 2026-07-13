@@ -21,20 +21,26 @@ public final class AutoTabJumpLogic {
     /**
      * @param ownedCarrierJumpPending {@code CarrierJumpRequest} latched for the owned carrier, or route session pending jump
      * @param carrierJumpCountdownActive title-bar FC jump countdown is running
+     * @param commanderAboardFleetCarrier commander is docked or on-foot aboard their fleet carrier
      */
     public static JumpKind classifyForAutoTabSwitch(
             boolean ownedCarrierJumpPending,
             boolean carrierJumpCountdownActive,
+            boolean commanderAboardFleetCarrier,
             StatusEvent status,
             StartJumpEvent startJump) {
         if (!isHyperspaceJumpActivity(status, startJump)) {
             return JumpKind.NONE;
         }
-        if (ownedCarrierJumpPending || carrierJumpCountdownActive) {
-            return JumpKind.FLEET_CARRIER;
+        // StartJump Hyperspace is always the commander's ship, even when an owned carrier is jumping elsewhere.
+        if (startJump != null && "Hyperspace".equalsIgnoreCase(trimOrEmpty(startJump.getJumpType()))) {
+            return JumpKind.SHIP_HYPERSPACE;
         }
         // Hyperspace charging while docked only happens on a fleet carrier (stations block ship FSD).
         if (status != null && status.isDocked()) {
+            return JumpKind.FLEET_CARRIER;
+        }
+        if ((ownedCarrierJumpPending || carrierJumpCountdownActive) && commanderAboardFleetCarrier) {
             return JumpKind.FLEET_CARRIER;
         }
         return JumpKind.SHIP_HYPERSPACE;

@@ -3,6 +3,7 @@ package org.dce.ed.engineering;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeAll;
@@ -83,5 +84,66 @@ class EngineeringGradeProgressTest {
         assertEquals(3, firmware, "only 3 G2 rolls remain and firmware is not used above G2");
         int processors = required.getOrDefault("chemicalprocessors", 0);
         assertEquals(3, processors);
+    }
+
+    @Test
+    void afterCraft_higherGradeIgnoredWhileCurrentGradeInProgress() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "power-distributor-charge-enhanced-g5",
+                "Power Distributor",
+                "Charge Enhanced",
+                1,
+                2,
+                5,
+                "");
+
+        EngineeringGoal after = EngineeringGradeProgress.afterCraft(goal, 3);
+
+        assertEquals(1, after.getFromGrade());
+        assertEquals(2, after.getCraftsAtCurrentGrade());
+    }
+
+    @Test
+    void afterCraft_higherGradeSnapsOnlyWhenNoRollsInProgress() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "power-distributor-charge-enhanced-g5",
+                "Power Distributor",
+                "Charge Enhanced",
+                0,
+                0,
+                5,
+                "");
+
+        EngineeringGoal after = EngineeringGradeProgress.afterCraft(goal, 3);
+
+        assertEquals(2, after.getFromGrade());
+        assertEquals(1, after.getCraftsAtCurrentGrade());
+    }
+
+    @Test
+    void partialG2_includesFirmwareAndProcessorsInShoppingList() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "power-distributor-charge-enhanced-g5",
+                "Power Distributor",
+                "Charge Enhanced",
+                1,
+                2,
+                5,
+                "");
+
+        List<ShoppingListRow> rows = planner.buildShoppingList(List.of(goal), Map.of());
+
+        assertTrue(rows.stream().anyMatch(r -> "specialisedlegacyfirmware".equals(r.getMaterialKey())));
+        assertTrue(rows.stream().anyMatch(r -> "chemicalprocessors".equals(r.getMaterialKey())));
+        ShoppingListRow firmware = rows.stream()
+                .filter(r -> "specialisedlegacyfirmware".equals(r.getMaterialKey()))
+                .findFirst()
+                .orElseThrow();
+        ShoppingListRow processors = rows.stream()
+                .filter(r -> "chemicalprocessors".equals(r.getMaterialKey()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(3, firmware.getRequired());
+        assertEquals(3, processors.getRequired());
     }
 }

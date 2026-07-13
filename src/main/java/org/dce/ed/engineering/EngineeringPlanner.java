@@ -27,7 +27,7 @@ public final class EngineeringPlanner {
                                                    Map<String, Integer> inventoryAfterTrades) {
         Map<String, Integer> required = new LinkedHashMap<>();
         for (EngineeringGoal goal : goals) {
-            if (goal == null) {
+            if (goal == null || goal.isInventoryConsolidation()) {
                 continue;
             }
             accumulateGoalMaterials(goal, required);
