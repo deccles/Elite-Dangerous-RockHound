@@ -3,7 +3,6 @@ package org.dce.ed.exec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,6 +32,15 @@ class JarExecRunnerTest {
         assertTrue(command.get(0).replace('\\', '/').endsWith("RoboHound.exe"));
         assertEquals("--play", command.get(1));
         assertEquals("fleet-map", command.get(2));
+    }
+
+    @Test
+    void buildCommand_usesUnixBinaryDirectlyWithoutJava() {
+        List<String> command = JarExecRunner.buildCommand(Path.of("/usr/bin/sleep"), "60");
+        assertEquals(2, command.size());
+        assertTrue(command.get(0).replace('\\', '/').endsWith("/usr/bin/sleep"));
+        assertEquals("60", command.get(1));
+        assertFalse(command.contains("-jar"));
     }
 
     @Test

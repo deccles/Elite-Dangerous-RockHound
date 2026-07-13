@@ -209,7 +209,9 @@ public final class JarExecRunner {
             ExecPlaceholderContext placeholderContext, ExecLaunchContext launchContext,
             Map<String, String> resolved) {
         List<String> command = new ArrayList<>();
-        if (isWindowsExecutable(program)) {
+        // Native binaries (.exe or any non-.jar path): run directly. Only .jar uses java -jar
+        // / packaged companion exe.
+        if (isNativeExecutable(program)) {
             command.add(program.toAbsolutePath().normalize().toString());
             appendProgramArgs(command, programArgs, placeholderContext, launchContext, resolved);
             return command;
@@ -233,11 +235,17 @@ public final class JarExecRunner {
         return command;
     }
 
-    static boolean isWindowsExecutable(Path path) {
+    /** {@code true} for any launch path that is not a {@code .jar} (Windows {@code .exe}, Unix binaries, etc.). */
+    static boolean isNativeExecutable(Path path) {
         if (path == null || path.getFileName() == null) {
             return false;
         }
-        return path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".exe");
+        return !path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar");
+    }
+
+    static boolean isWindowsExecutable(Path path) {
+        return path != null && path.getFileName() != null
+                && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".exe");
     }
 
     static String javaResolutionHint() {
