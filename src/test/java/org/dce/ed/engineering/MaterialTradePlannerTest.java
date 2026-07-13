@@ -157,6 +157,46 @@ class MaterialTradePlannerTest {
     }
 
     @Test
+    void suggest_neverProposesMorePayMaterialThanOwned() {
+        EngineeringDatabase db = EngineeringDatabase.getInstance();
+        MaterialTradePlanner planner = new MaterialTradePlanner(db);
+
+        Map<String, Integer> shortfalls = Map.of("mechanicalcomponents", 9);
+        Map<String, Integer> inventory = Map.of("fedcorecomposites", 4);
+
+        List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, Map.of());
+        for (TradeSuggestion trade : trades) {
+            int owned = EngineeringMaterialKeys.countInInventory(inventory, trade.getFromKey());
+            assertTrue(trade.getFromCount() <= owned,
+                    () -> trade.getFromCount() + " > owned " + owned + " for " + trade.getFromKey());
+        }
+    }
+
+    @Test
+    void suggest_deductsPayMaterialAcrossMultipleShortfalls() {
+        EngineeringDatabase db = EngineeringDatabase.getInstance();
+        MaterialTradePlanner planner = new MaterialTradePlanner(db);
+
+        Map<String, Integer> shortfalls = new java.util.LinkedHashMap<>();
+        shortfalls.put("mechanicalcomponents", 9);
+        shortfalls.put("chemicalmanipulators", 8);
+        Map<String, Integer> inventory = Map.of("fedcorecomposites", 10);
+
+        List<TradeSuggestion> trades = planner.suggest(shortfalls, inventory, Map.of());
+
+        int cdcSpent = trades.stream()
+                .filter(t -> "fedcorecomposites".equalsIgnoreCase(t.getFromKey()))
+                .mapToInt(TradeSuggestion::getFromCount)
+                .sum();
+        assertTrue(cdcSpent <= 10, "suggested CDC spend must not exceed inventory");
+        for (TradeSuggestion trade : trades) {
+            if ("fedcorecomposites".equalsIgnoreCase(trade.getFromKey())) {
+                assertTrue(trade.getFromCount() <= 10);
+            }
+        }
+    }
+
+    @Test
     void suggest_sameRowDowngrade_usesYieldNotLinearRate() {
         EngineeringDatabase db = EngineeringDatabase.getInstance();
         MaterialTradePlanner planner = new MaterialTradePlanner(db);

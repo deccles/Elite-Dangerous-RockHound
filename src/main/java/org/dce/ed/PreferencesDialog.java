@@ -423,12 +423,14 @@ public class PreferencesDialog extends JDialog {
 			if (selected == EXEC_TAB_INDEX) {
 				wireExecFromOwner();
 			}
+			stylePreferenceTabChrome();
 		});
 
 		wireExecFromOwner();
 
 		pack();
 		setLocationRelativeTo(owner);
+		applyDialogChrome();
 
 		// If the user closes the dialog or hits Cancel, revert any live preview.
 		addWindowListener(new java.awt.event.WindowAdapter() {
@@ -1017,6 +1019,7 @@ public class PreferencesDialog extends JDialog {
 		OverlayPreferences.setUiPrimaryHighlightRgb(primaryHighlightRgb);
 		OverlayPreferences.setUiSecondaryHighlightRgb(secondaryHighlightRgb);
 		OverlayPreferences.applyThemeToEdoUi();
+		applyDialogChrome();
 
 		if (getOwner() instanceof OverlayUiPreviewHost) {
 			OverlayUiPreviewHost f = (OverlayUiPreviewHost) getOwner();
@@ -1550,6 +1553,41 @@ public class PreferencesDialog extends JDialog {
 		return t;
 	}
 
+	private void applyDialogChrome() {
+		if (preferenceTabs == null) {
+			return;
+		}
+		Color bg = EdoUi.User.BACKGROUND;
+		Color fg = EdoUi.User.MAIN_TEXT;
+		Color panel = EdoUi.User.PANEL_BG;
+		getContentPane().setBackground(panel);
+		preferenceTabs.setOpaque(true);
+		preferenceTabs.setBackground(bg);
+		preferenceTabs.setForeground(fg);
+		stylePreferenceTabChrome();
+		preferenceTabs.revalidate();
+		preferenceTabs.repaint();
+	}
+
+	private void stylePreferenceTabChrome() {
+		if (preferenceTabs == null) {
+			return;
+		}
+		Color bg = EdoUi.User.BACKGROUND;
+		Color fg = EdoUi.User.MAIN_TEXT;
+		Color panel = EdoUi.User.PANEL_BG;
+		int selected = preferenceTabs.getSelectedIndex();
+		for (int i = 0; i < preferenceTabs.getTabCount(); i++) {
+			if (i == selected) {
+				preferenceTabs.setBackgroundAt(i, panel);
+				preferenceTabs.setForegroundAt(i, fg);
+			} else {
+				preferenceTabs.setBackgroundAt(i, bg);
+				preferenceTabs.setForegroundAt(i, fg);
+			}
+		}
+	}
+
 	private void revertLivePreviewIfNeeded() {
 		if (okPressed) {
 			return;
@@ -1567,6 +1605,7 @@ public class PreferencesDialog extends JDialog {
 		OverlayPreferences.setUiPrimaryHighlightRgb(originalUiPrimaryHighlightRgb);
 		OverlayPreferences.setUiSecondaryHighlightRgb(originalUiSecondaryHighlightRgb);
 		OverlayPreferences.applyThemeToEdoUi();
+		applyDialogChrome();
 
 		// Revert font (clear preview overrides so icon sizing matches saved prefs)
 		f.revertUiFontLivePreview(originalUiFont);

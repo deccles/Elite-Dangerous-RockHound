@@ -46,6 +46,7 @@ public final class ControlPanelTabPanel extends JPanel {
     private ExecTriggerService triggerService;
     private final List<JButton> actionButtons = new ArrayList<>();
     private JButton killButton;
+    private JPanel killFooter;
 
     public ControlPanelTabPanel(BooleanSupplier passThroughEnabledSupplier) {
         super(new BorderLayout(8, 8));
@@ -74,9 +75,23 @@ public final class ControlPanelTabPanel extends JPanel {
         JPanel killFooter = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         killFooter.setOpaque(false);
         killFooter.add(killButton);
+        this.killFooter = killFooter;
         add(killFooter, BorderLayout.SOUTH);
 
         styleKillButton(OverlayPreferences.getUiFont());
+        registerKillButtonHover();
+    }
+
+    private void registerKillButtonHover() {
+        HoverClickPoller.register(
+                killButton,
+                BUTTON_HOVER_DELAY_MS,
+                this::killRunningScripts,
+                passThroughEnabledSupplier,
+                () -> killButton != null
+                        && killButton.isShowing()
+                        && triggerService != null
+                        && triggerService.hasActiveScripts());
     }
 
     public void setExecTriggerService(ExecTriggerService service) {
@@ -96,6 +111,9 @@ public final class ControlPanelTabPanel extends JPanel {
             return false;
         }
         if (killButton != null && killButton.isShowing() && containsScreenPoint(killButton, screenPoint)) {
+            return true;
+        }
+        if (killFooter != null && killFooter.isShowing() && containsScreenPoint(killFooter, screenPoint)) {
             return true;
         }
         for (JButton button : actionButtons) {
@@ -186,12 +204,10 @@ public final class ControlPanelTabPanel extends JPanel {
         if (killButton == null) {
             return;
         }
-        OverlayOutlineButtonStyle.applyPrimary(killButton, uiFont);
+        OverlayOutlineButtonStyle.applyDanger(killButton, uiFont);
         Dimension pref = killButton.getPreferredSize();
         int height = Math.max(28, pref.height);
         killButton.setPreferredSize(new Dimension(pref.width, height));
-        HoverClickPoller.register(killButton, BUTTON_HOVER_DELAY_MS, () -> killButton.doClick(),
-                passThroughEnabledSupplier);
         refreshKillButtonState();
     }
 

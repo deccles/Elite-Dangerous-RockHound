@@ -5,9 +5,6 @@ package org.dce.ed.engineering;
  */
 public final class EngineeringGoal {
 
-    /** Sentinel {@link #blueprintId} for {@link #inventoryConsolidation(int, int)} goals. */
-    public static final String INVENTORY_CONSOLIDATION_BLUEPRINT_ID = "__inventory_consolidation__";
-
     private final String blueprintId;
     private final String moduleType;
     private final String blueprintName;
@@ -19,6 +16,12 @@ public final class EngineeringGoal {
     private final String experimentalId;
     /** When false, goal stays listed but is omitted from materials and trade suggestions. */
     private final boolean includeInPlanning;
+    /** True after the goal's experimental effect has been applied on the in-progress unit. */
+    private final boolean experimentalApplied;
+    /** How many modules to engineer (e.g. four gimbal weapons). */
+    private final int quantity;
+    /** How many modules are fully finished (grades + experimental when required). */
+    private final int completedUnits;
 
     public EngineeringGoal(String blueprintId,
                            String moduleType,
@@ -47,6 +50,34 @@ public final class EngineeringGoal {
                            int targetGrade,
                            String experimentalId,
                            boolean includeInPlanning) {
+        this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
+                experimentalId, includeInPlanning, false);
+    }
+
+    public EngineeringGoal(String blueprintId,
+                           String moduleType,
+                           String blueprintName,
+                           int fromGrade,
+                           int craftsAtCurrentGrade,
+                           int targetGrade,
+                           String experimentalId,
+                           boolean includeInPlanning,
+                           boolean experimentalApplied) {
+        this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
+                experimentalId, includeInPlanning, experimentalApplied, 1, 0);
+    }
+
+    public EngineeringGoal(String blueprintId,
+                           String moduleType,
+                           String blueprintName,
+                           int fromGrade,
+                           int craftsAtCurrentGrade,
+                           int targetGrade,
+                           String experimentalId,
+                           boolean includeInPlanning,
+                           boolean experimentalApplied,
+                           int quantity,
+                           int completedUnits) {
         this.blueprintId = blueprintId != null ? blueprintId : "";
         this.moduleType = moduleType != null ? moduleType : "";
         this.blueprintName = blueprintName != null ? blueprintName : "";
@@ -55,6 +86,9 @@ public final class EngineeringGoal {
         this.targetGrade = Math.max(1, targetGrade);
         this.experimentalId = experimentalId != null ? experimentalId : "";
         this.includeInPlanning = includeInPlanning;
+        this.experimentalApplied = experimentalApplied;
+        this.quantity = Math.max(1, quantity);
+        this.completedUnits = Math.max(0, Math.min(completedUnits, this.quantity));
     }
 
     public String getBlueprintId() {
@@ -89,6 +123,47 @@ public final class EngineeringGoal {
         return includeInPlanning;
     }
 
+    public boolean isExperimentalApplied() {
+        return experimentalApplied;
+    }
+
+    public int getQuantity() {
+        return quantity;
+    }
+
+    public int getCompletedUnits() {
+        return completedUnits;
+    }
+
+    /** Modules still to finish (including the in-progress unit). */
+    public int remainingUnits() {
+        if (isComplete()) {
+            return 0;
+        }
+        int remaining = quantity - completedUnits;
+        if (isCurrentUnitComplete()) {
+            remaining--;
+        }
+        return Math.max(0, remaining);
+    }
+
+    /** True when the in-progress unit has reached target grade and experimental (if any). */
+    public boolean isCurrentUnitComplete() {
+        if (fromGrade < targetGrade) {
+            return false;
+        }
+        return experimentalId.isBlank() || experimentalApplied;
+    }
+
+    /** True when all requested units, grades, and any experimental effect are finished. */
+    public boolean isComplete() {
+        int done = completedUnits;
+        if (isCurrentUnitComplete()) {
+            done++;
+        }
+        return done >= quantity;
+    }
+
     public EngineeringGoal withProgress(int newFromGrade, int newCraftsAtCurrentGrade) {
         return new EngineeringGoal(
                 blueprintId,
@@ -98,7 +173,28 @@ public final class EngineeringGoal {
                 clampCrafts(newCraftsAtCurrentGrade),
                 targetGrade,
                 experimentalId,
-                includeInPlanning);
+                includeInPlanning,
+                experimentalApplied,
+                quantity,
+                completedUnits);
+    }
+
+    public EngineeringGoal withExperimentalApplied(boolean applied) {
+        if (experimentalApplied == applied) {
+            return this;
+        }
+        return new EngineeringGoal(
+                blueprintId,
+                moduleType,
+                blueprintName,
+                fromGrade,
+                craftsAtCurrentGrade,
+                targetGrade,
+                experimentalId,
+                includeInPlanning,
+                applied,
+                quantity,
+                completedUnits);
     }
 
     public EngineeringGoal withIncludeInPlanning(boolean include) {
@@ -113,37 +209,104 @@ public final class EngineeringGoal {
                 craftsAtCurrentGrade,
                 targetGrade,
                 experimentalId,
-                include);
+                include,
+                experimentalApplied,
+                quantity,
+                completedUnits);
+    }
+
+    public EngineeringGoal withQuantity(int newQuantity) {
+        int q = Math.max(1, newQuantity);
+        if (quantity == q && completedUnits <= q) {
+            return this;
+        }
+        return new EngineeringGoal(
+                blueprintId,
+                moduleType,
+                blueprintName,
+                fromGrade,
+                craftsAtCurrentGrade,
+                targetGrade,
+                experimentalId,
+                includeInPlanning,
+                experimentalApplied,
+                q,
+                Math.min(completedUnits, q));
+    }
+
+    public EngineeringGoal withCompletedUnits(int newCompletedUnits) {
+        int units = Math.max(0, Math.min(newCompletedUnits, quantity));
+        if (completedUnits == units) {
+            return this;
+        }
+        return new EngineeringGoal(
+                blueprintId,
+                moduleType,
+                blueprintName,
+                fromGrade,
+                craftsAtCurrentGrade,
+                targetGrade,
+                experimentalId,
+                includeInPlanning,
+                experimentalApplied,
+                quantity,
+                units);
+    }
+
+    /**
+     * Updates user-facing settings from the edit dialog while preserving journal progress where possible.
+     */
+    public EngineeringGoal withUserSettings(int newTargetGrade, String newExperimentalId, int newQuantity) {
+        int grade = Math.max(1, newTargetGrade);
+        String expId = newExperimentalId != null ? newExperimentalId : "";
+        int q = Math.max(1, newQuantity);
+        int units = Math.min(completedUnits, q);
+        boolean expApplied = experimentalApplied;
+        if (!expId.equals(experimentalId)) {
+            expApplied = false;
+        }
+        int progFrom = Math.min(fromGrade, grade);
+        return new EngineeringGoal(
+                blueprintId,
+                moduleType,
+                blueprintName,
+                progFrom,
+                craftsAtCurrentGrade,
+                grade,
+                expId,
+                includeInPlanning,
+                expApplied,
+                q,
+                units);
     }
 
     public EngineeringGoal withFromGrade(int newFromGrade) {
         return withProgress(newFromGrade, 0);
     }
 
-    /** Trade excess low-grade mats up within the same trader row to free inventory slots. */
-    public static EngineeringGoal inventoryConsolidation(int maxSourceGrade, int targetGrade) {
-        int maxSource = Math.max(1, Math.min(maxSourceGrade, 4));
-        int target = Math.max(maxSource + 1, Math.min(targetGrade, 5));
+    /** Clears roll, unit, and experimental progress before replaying journal crafts. */
+    public EngineeringGoal resetJournalProgress() {
         return new EngineeringGoal(
-                INVENTORY_CONSOLIDATION_BLUEPRINT_ID,
-                "Inventory",
-                "Reduce commons",
-                maxSource,
-                target,
-                "");
-    }
-
-    public boolean isInventoryConsolidation() {
-        return INVENTORY_CONSOLIDATION_BLUEPRINT_ID.equals(blueprintId);
+                blueprintId,
+                moduleType,
+                blueprintName,
+                0,
+                0,
+                targetGrade,
+                experimentalId,
+                includeInPlanning,
+                false,
+                quantity,
+                0);
     }
 
     public String displayLabel() {
-        if (isInventoryConsolidation()) {
-            return "Inventory: reduce G1–G" + fromGrade + " → G" + targetGrade;
-        }
         String base = moduleType + ": " + blueprintName + " → " + EngineeringGradeProgress.progressLabel(this);
         if (!experimentalId.isBlank()) {
-            base += " + experimental";
+            base += experimentalApplied ? " + experimental (done)" : " + experimental";
+        }
+        if (quantity > 1) {
+            base += " (" + completedUnits + "/" + quantity + ")";
         }
         return base;
     }
@@ -167,7 +330,10 @@ public final class EngineeringGoal {
                 && craftsAtCurrentGrade == other.craftsAtCurrentGrade
                 && targetGrade == other.targetGrade
                 && experimentalId.equals(other.experimentalId)
-                && includeInPlanning == other.includeInPlanning;
+                && includeInPlanning == other.includeInPlanning
+                && experimentalApplied == other.experimentalApplied
+                && quantity == other.quantity
+                && completedUnits == other.completedUnits;
     }
 
     @Override
@@ -180,6 +346,9 @@ public final class EngineeringGoal {
         result = 31 * result + targetGrade;
         result = 31 * result + experimentalId.hashCode();
         result = 31 * result + Boolean.hashCode(includeInPlanning);
+        result = 31 * result + Boolean.hashCode(experimentalApplied);
+        result = 31 * result + quantity;
+        result = 31 * result + completedUnits;
         return result;
     }
 }

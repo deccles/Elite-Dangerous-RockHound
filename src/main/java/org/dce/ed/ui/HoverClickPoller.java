@@ -33,15 +33,24 @@ public final class HoverClickPoller implements ActionListener {
         final int delayMs;
         final Runnable action;
         final BooleanSupplier enabled;
+        final BooleanSupplier hoverable;
 
         long hoverStartMs = -1L;
         boolean firedForCurrentHover;
 
-        Entry(JButton button, int delayMs, Runnable action, BooleanSupplier enabled) {
+        Entry(JButton button, int delayMs, Runnable action, BooleanSupplier enabled, BooleanSupplier hoverable) {
             this.button = button;
             this.delayMs = delayMs;
             this.action = action;
             this.enabled = enabled;
+            this.hoverable = hoverable;
+        }
+
+        boolean acceptsHover() {
+            if (hoverable != null) {
+                return hoverable.getAsBoolean();
+            }
+            return button != null && button.isEnabled();
         }
     }
 
@@ -49,10 +58,19 @@ public final class HoverClickPoller implements ActionListener {
     }
 
     public static void register(JButton button, int delayMs, Runnable action, BooleanSupplier enabled) {
+        register(button, delayMs, action, enabled, null);
+    }
+
+    /**
+     * @param hoverable when non-null, used instead of {@link JButton#isEnabled()} to decide if hover can fire
+     */
+    public static void register(JButton button, int delayMs, Runnable action, BooleanSupplier enabled,
+            BooleanSupplier hoverable) {
         if (button == null || action == null) {
             return;
         }
-        entries.add(new Entry(button, delayMs, action, enabled));
+        entries.removeIf(entry -> entry.button == button);
+        entries.add(new Entry(button, delayMs, action, enabled, hoverable));
     }
 
     @Override
@@ -75,7 +93,7 @@ public final class HoverClickPoller implements ActionListener {
                 continue;
             }
             JButton button = entry.button;
-            if (button == null || !button.isShowing() || !button.isEnabled()) {
+            if (button == null || !button.isShowing() || !entry.acceptsHover()) {
                 entry.hoverStartMs = -1L;
                 entry.firedForCurrentHover = false;
                 continue;

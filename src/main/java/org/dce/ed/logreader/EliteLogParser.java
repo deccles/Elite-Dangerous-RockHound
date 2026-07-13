@@ -1284,6 +1284,8 @@ private static String canonicalGasName(String name) {
                 getInt(obj, "Level", 0),
                 getDouble(obj, "Quality", 0.0),
                 getString(obj, "ApplyExperimentalEffect"),
+                getString(obj, "ExperimentalEffect"),
+                getString(obj, "ExperimentalEffect_Localised"),
                 parseMaterialStacks(obj, "Ingredients"));
     }
 

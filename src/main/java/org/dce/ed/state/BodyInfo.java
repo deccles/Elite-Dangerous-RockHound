@@ -261,6 +261,12 @@ public class BodyInfo {
 	 */
 	private boolean scanBarycentreRow;
 
+	/**
+	 * Body row created from EDSM when FSS is complete but the journal has no per-body {@code Scan} events
+	 * for this visit (legacy discovery on another machine, etc.).
+	 */
+	private boolean edsmFssBackfill;
+
 	/** Spansh exobiology landmarks for this body (null = not fetched). Used to derive first-bonus. */
 	private List<SpanshLandmark> spanshLandmarks = null;
 
@@ -650,6 +656,9 @@ public class BodyInfo {
 	 * as opposed to rows created only from EDSM enrichment.
 	 */
 	public boolean isJournalScanned() {
+		if (edsmFssBackfill) {
+			return true;
+		}
 		if (orbitalEpochMillis != null) {
 			return true;
 		}
@@ -1425,5 +1434,13 @@ public class BodyInfo {
 
 	public void setScanBarycentreRow(boolean scanBarycentreRow) {
 		this.scanBarycentreRow = scanBarycentreRow;
+	}
+
+	public boolean isEdsmFssBackfill() {
+		return edsmFssBackfill;
+	}
+
+	public void setEdsmFssBackfill(boolean edsmFssBackfill) {
+		this.edsmFssBackfill = edsmFssBackfill;
 	}
 }

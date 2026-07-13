@@ -48,6 +48,12 @@ public class CachedBody {
      */
     public boolean scanBarycentreRow;
 
+    /**
+     * {@code true} when this row was hydrated from EDSM because FSS is complete but the journal has no
+     * per-body {@code Scan} events for this visit.
+     */
+    public boolean edsmFssBackfill;
+
     /** Journal {@code SemiMajorAxis} in metres. */
     public Double semiMajorAxisM;
     public Double eccentricity;

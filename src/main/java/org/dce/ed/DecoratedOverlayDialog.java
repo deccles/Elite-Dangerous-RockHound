@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Rectangle;
 import java.awt.Window;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -83,6 +84,8 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		this.contentPanel = contentPanel;
 		this.clientKey = clientKey;
 
+		seedInitialThemeChrome();
+
 		setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
 		setLayout(new BorderLayout());
 		// Match OverlayFrame so mode switches do not fight different minimum sizes.
@@ -151,13 +154,8 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 			contentPanel.getParent().remove(contentPanel);
 		}
 
-		if (decoratedBackgroundPanel == null) {
-			decoratedBackgroundPanel = new OverlayBackgroundPanel();
-			decoratedBackgroundPanel.setOpaque(false);
-			decoratedBackgroundPanel.setLayout(new BorderLayout());
-		} else {
-			decoratedBackgroundPanel.removeAll();
-		}
+		ensureDecoratedBackgroundPanel();
+		decoratedBackgroundPanel.removeAll();
 		decoratedBackgroundPanel.add(contentPanel, BorderLayout.CENTER);
 		setContentPane(decoratedBackgroundPanel);
 
@@ -170,6 +168,27 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 
 		installStatusArea();
 
+	}
+
+	/** Theme-colored shell before first show so the OS client area is not default white. */
+	private void seedInitialThemeChrome() {
+		Color base = EdoUi.User.BACKGROUND != null ? EdoUi.User.BACKGROUND : Color.BLACK;
+		setBackground(base);
+		if (getRootPane() != null) {
+			getRootPane().setBackground(base);
+		}
+		ensureDecoratedBackgroundPanel();
+		decoratedBackgroundPanel.setPaintColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), 255));
+	}
+
+	private void ensureDecoratedBackgroundPanel() {
+		if (decoratedBackgroundPanel != null) {
+			return;
+		}
+		decoratedBackgroundPanel = new OverlayBackgroundPanel();
+		decoratedBackgroundPanel.setOpaque(false);
+		decoratedBackgroundPanel.setLayout(new BorderLayout());
+		setContentPane(decoratedBackgroundPanel);
 	}
 
 	private void installStatusArea() {
@@ -224,6 +243,53 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		}
 		transitionShield.setVisible(false);
 		repaint();
+	}
+
+	/**
+	 * Decorated startup: realize and paint off-screen, then move on-screen so Windows does not flash a
+	 * white client area while Swing applies the theme.
+	 */
+	public void showThemedWhenReady(Runnable afterVisible) {
+		prepareForShow();
+		showTransitionShield();
+
+		Rectangle target = getBounds();
+		int w = Math.max(getMinimumSize().width, target.width > 0 ? target.width : 400);
+		int h = Math.max(getMinimumSize().height, target.height > 0 ? target.height : 800);
+
+		// Peer creation + first paint happen off the visible desktop.
+		setBounds(target.x, target.y + 5000, w, h);
+
+		boolean opacitySupported = true;
+		try {
+			setOpacity(0.01f);
+		} catch (Exception ignored) {
+			opacitySupported = false;
+		}
+
+		setVisible(true);
+		validate();
+		repaint();
+		applyDarkTitleBarIfSupported();
+
+		setBounds(target.x, target.y, w, h);
+		toFront();
+
+		if (opacitySupported) {
+			try {
+				setOpacity(1.0f);
+			} catch (Exception ignored) {
+			}
+		}
+
+		SwingUtilities.invokeLater(() -> {
+			validate();
+			repaint();
+			hideTransitionShield();
+			if (afterVisible != null) {
+				afterVisible.run();
+			}
+		});
 	}
 
 	/**

@@ -2,5 +2,13 @@
   "PowerDistributor_HighFrequency": {
     "moduleType": "Power Distributor",
     "blueprintName": "Charge Enhanced"
+  },
+  "ShieldGenerator_Thermal": {
+    "moduleType": "Shield Generator",
+    "blueprintName": "Thermal Resistant Shields"
+  },
+  "ShieldGenerator_Thermic": {
+    "moduleType": "Shield Generator",
+    "blueprintName": "Thermal Resistant Shields"
   }
 }

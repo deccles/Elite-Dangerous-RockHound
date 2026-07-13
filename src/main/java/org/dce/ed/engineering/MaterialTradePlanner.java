@@ -28,6 +28,8 @@ public final class MaterialTradePlanner {
             return out;
         }
 
+        Map<String, Integer> workingInv = copyInventory(inventory);
+
         for (Map.Entry<String, Integer> need : shortfalls.entrySet()) {
             String toKey = need.getKey();
             int stillNeed = need.getValue();
@@ -39,56 +41,40 @@ public final class MaterialTradePlanner {
                 continue;
             }
 
-            List<Map.Entry<String, Integer>> sources = new ArrayList<>();
-            for (Map.Entry<String, Integer> owned : inventory.entrySet()) {
-                if (owned.getValue() == null || owned.getValue() <= 0) {
-                    continue;
-                }
-                if (owned.getKey().equalsIgnoreCase(toKey)) {
-                    continue;
-                }
-                int excess = excessTradeable(owned.getKey(), owned.getValue(), requiredForGoals);
-                if (excess <= 0) {
-                    continue;
-                }
-                Optional<EngineeringMaterial> fromMat = database.material(owned.getKey());
-                if (fromMat.isEmpty() || !MaterialTraderCatalog.isTradeableAtMaterialTrader(fromMat.get())) {
-                    continue;
-                }
-                if (!fromMat.get().getType().equalsIgnoreCase(toMat.get().getType())) {
-                    continue;
-                }
-                sources.add(Map.entry(owned.getKey(), excess));
-            }
-
-            sources.sort(Comparator
-                    .comparing((Map.Entry<String, Integer> e) -> sameGroupRank(e.getKey(), toMat.get()))
-                    .thenComparing(e -> -database.material(e.getKey()).map(EngineeringMaterial::getGrade).orElse(0)));
-
-            for (Map.Entry<String, Integer> source : sources) {
+            List<String> sourceKeys = tradeableSourceKeys(workingInv, toKey, toMat.get(), requiredForGoals);
+            for (String fromKey : sourceKeys) {
                 if (stillNeed <= 0) {
                     break;
                 }
-                Optional<EngineeringMaterial> fromMat = database.material(source.getKey());
+                Optional<EngineeringMaterial> fromMat = database.material(fromKey);
                 if (fromMat.isEmpty()) {
+                    continue;
+                }
+                int excess = excessTradeable(fromKey, workingInv, requiredForGoals);
+                if (excess <= 0) {
                     continue;
                 }
                 Optional<MaterialTradeRateCalculator.Exchange> exchange =
                         MaterialTradeRateCalculator.planExchange(
-                                fromMat.get(), toMat.get(), source.getValue(), stillNeed);
+                                fromMat.get(), toMat.get(), excess, stillNeed);
                 if (exchange.isEmpty() || exchange.get().getToCount() <= 0) {
                     continue;
                 }
                 MaterialTradeRateCalculator.Exchange trade = exchange.get();
-                out.add(new TradeSuggestion(
-                        source.getKey(),
-                        database.materialDisplayName(source.getKey()),
+                if (trade.getFromCount() > excess) {
+                    continue;
+                }
+                TradeSuggestion suggestion = new TradeSuggestion(
+                        fromKey,
+                        database.materialDisplayName(fromKey),
                         trade.getFromCount(),
                         toKey,
                         database.materialDisplayName(toKey),
                         trade.getToCount(),
                         fromMat.get().getSubtype().equalsIgnoreCase(toMat.get().getSubtype()),
-                        toMat.get().getType()));
+                        toMat.get().getType());
+                out.add(suggestion);
+                applyTradeToInventory(workingInv, suggestion);
                 stillNeed -= trade.getToCount();
             }
         }
@@ -202,10 +188,63 @@ public final class MaterialTradePlanner {
             return inv;
         }
         for (TradeSuggestion trade : trades) {
-            adjustCount(inv, trade.getFromKey(), -trade.getFromCount());
-            adjustCount(inv, trade.getToKey(), trade.getToCount());
+            applyTradeToInventory(inv, trade);
         }
         return inv;
+    }
+
+    private static void applyTradeToInventory(Map<String, Integer> inv, TradeSuggestion trade) {
+        if (trade == null) {
+            return;
+        }
+        adjustCount(inv, trade.getFromKey(), -trade.getFromCount());
+        adjustCount(inv, trade.getToKey(), trade.getToCount());
+    }
+
+    private static Map<String, Integer> copyInventory(Map<String, Integer> inventory) {
+        Map<String, Integer> inv = new LinkedHashMap<>();
+        if (inventory != null) {
+            for (Map.Entry<String, Integer> e : inventory.entrySet()) {
+                if (e.getValue() != null && e.getValue() > 0) {
+                    inv.put(e.getKey(), e.getValue());
+                }
+            }
+        }
+        return inv;
+    }
+
+    private List<String> tradeableSourceKeys(Map<String, Integer> inventory,
+                                             String toKey,
+                                             EngineeringMaterial toMat,
+                                             Map<String, Integer> requiredForGoals) {
+        List<String> keys = new ArrayList<>();
+        if (inventory == null || inventory.isEmpty()) {
+            return keys;
+        }
+        for (Map.Entry<String, Integer> owned : inventory.entrySet()) {
+            if (owned.getValue() == null || owned.getValue() <= 0) {
+                continue;
+            }
+            String fromKey = owned.getKey();
+            if (fromKey == null || fromKey.isBlank() || fromKey.equalsIgnoreCase(toKey)) {
+                continue;
+            }
+            if (excessTradeable(fromKey, inventory, requiredForGoals) <= 0) {
+                continue;
+            }
+            Optional<EngineeringMaterial> fromMat = database.material(fromKey);
+            if (fromMat.isEmpty() || !MaterialTraderCatalog.isTradeableAtMaterialTrader(fromMat.get())) {
+                continue;
+            }
+            if (!fromMat.get().getType().equalsIgnoreCase(toMat.getType())) {
+                continue;
+            }
+            keys.add(fromKey);
+        }
+        keys.sort(Comparator
+                .comparing((String key) -> sameGroupRank(key, toMat))
+                .thenComparing(key -> -database.material(key).map(EngineeringMaterial::getGrade).orElse(0)));
+        return keys;
     }
 
     private static void adjustCount(Map<String, Integer> inv, String key, int delta) {
@@ -220,21 +259,16 @@ public final class MaterialTradePlanner {
         }
     }
 
-    private static int excessTradeable(String materialKey, int owned, Map<String, Integer> requiredForGoals) {
+    private static int excessTradeable(String materialKey,
+                                       Map<String, Integer> inventory,
+                                       Map<String, Integer> requiredForGoals) {
+        int owned = EngineeringMaterialKeys.countInInventory(inventory, materialKey);
         if (owned <= 0) {
             return 0;
         }
         int reserved = 0;
         if (requiredForGoals != null) {
-            reserved = requiredForGoals.getOrDefault(materialKey, 0);
-            if (reserved <= 0) {
-                for (Map.Entry<String, Integer> e : requiredForGoals.entrySet()) {
-                    if (e.getKey() != null && e.getKey().equalsIgnoreCase(materialKey)) {
-                        reserved = e.getValue() != null ? e.getValue() : 0;
-                        break;
-                    }
-                }
-            }
+            reserved = EngineeringMaterialKeys.countInInventory(requiredForGoals, materialKey);
         }
         return Math.max(0, owned - reserved);
     }

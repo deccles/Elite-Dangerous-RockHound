@@ -412,6 +412,7 @@ public final class SystemCache implements SystemStore {
             }
             info.setSurfaceTempK(cb.surfaceTempK);
             info.setScanBarycentreRow(cb.scanBarycentreRow);
+            info.setEdsmFssBackfill(cb.edsmFssBackfill);
             info.setOrbitalPeriod(cb.orbitalPeriod);
             info.setSemiMajorAxisM(cb.semiMajorAxisM);
             info.setEccentricity(cb.eccentricity);
@@ -541,12 +542,15 @@ public final class SystemCache implements SystemStore {
      */
     @Override
     public void mergeBodiesFromEdsm(SystemState state, BodiesResponse edsm) {
+        mergeBodiesFromEdsm(state, edsm, false);
+    }
+
+    @Override
+    public void mergeBodiesFromEdsm(SystemState state, BodiesResponse edsm, boolean allowEdsmStandalone) {
         if (state == null || edsm == null || edsm.bodies == null || edsm.bodies.isEmpty()) {
             return;
         }
 
-        boolean allowEdsmStandalone=false;
-        
         // If we don't already know how many bodies there are, use EDSM's list size.
         if (state.getTotalBodies() == null) {
             state.setTotalBodies(edsm.bodies.size());
@@ -606,6 +610,7 @@ public final class SystemCache implements SystemStore {
                     }
                     info = new BodyInfo();
                     info.setBodyId(remoteBodyId);
+                    info.setEdsmFssBackfill(true);
                     local.put(remoteBodyId, info);
                 }
             } else {
@@ -619,6 +624,7 @@ public final class SystemCache implements SystemStore {
                 if (info == null) {
                     info = new BodyInfo();
                     info.setBodyId(-1 * (local.size() + 1));
+                    info.setEdsmFssBackfill(true);
                     local.put(info.getBodyId(), info);
                 }
             }
@@ -863,6 +869,7 @@ public final class SystemCache implements SystemStore {
             }
             cb.surfaceTempK = b.getSurfaceTempK();
             cb.scanBarycentreRow = b.isScanBarycentreRow();
+            cb.edsmFssBackfill = b.isEdsmFssBackfill();
             cb.orbitalPeriod = b.getOrbitalPeriod();
             cb.semiMajorAxisM = b.getSemiMajorAxisM();
             cb.eccentricity = b.getEccentricity();

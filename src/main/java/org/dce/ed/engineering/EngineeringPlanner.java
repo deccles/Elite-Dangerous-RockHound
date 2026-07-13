@@ -27,7 +27,7 @@ public final class EngineeringPlanner {
                                                    Map<String, Integer> inventoryAfterTrades) {
         Map<String, Integer> required = new LinkedHashMap<>();
         for (EngineeringGoal goal : goals) {
-            if (goal == null || goal.isInventoryConsolidation()) {
+            if (goal == null) {
                 continue;
             }
             accumulateGoalMaterials(goal, required);
@@ -93,7 +93,11 @@ public final class EngineeringPlanner {
     }
 
     public boolean isGoalReady(EngineeringGoal goal, Map<String, Integer> inventory) {
-        return goalMaterialShortfalls(goal, inventory).isEmpty();
+        return goal != null && (goal.isComplete() || goalMaterialShortfalls(goal, inventory).isEmpty());
+    }
+
+    public boolean isGoalComplete(EngineeringGoal goal) {
+        return goal != null && goal.isComplete();
     }
 
     public GoalReadiness goalReadiness(EngineeringGoal goal,
@@ -135,6 +139,26 @@ public final class EngineeringPlanner {
     }
 
     private void accumulateGoalMaterials(EngineeringGoal goal, Map<String, Integer> required) {
+        int remaining = goal.remainingUnits();
+        if (remaining <= 0) {
+            return;
+        }
+        Map<String, Integer> currentUnit = new LinkedHashMap<>();
+        accumulateSingleUnitMaterials(goal, currentUnit);
+        for (Map.Entry<String, Integer> e : currentUnit.entrySet()) {
+            required.merge(e.getKey(), e.getValue(), Integer::sum);
+        }
+        if (remaining > 1) {
+            EngineeringGoal freshUnit = goal.withProgress(0, 0).withExperimentalApplied(false);
+            Map<String, Integer> fullUnit = new LinkedHashMap<>();
+            accumulateSingleUnitMaterials(freshUnit, fullUnit);
+            for (Map.Entry<String, Integer> e : fullUnit.entrySet()) {
+                required.merge(e.getKey(), e.getValue() * (remaining - 1), Integer::sum);
+            }
+        }
+    }
+
+    private void accumulateSingleUnitMaterials(EngineeringGoal goal, Map<String, Integer> required) {
         List<BlueprintGrade> grades = database.gradesFor(goal.getModuleType(), goal.getBlueprintName());
         for (BlueprintGrade grade : grades) {
             if (grade.isExperimental()) {
@@ -152,7 +176,7 @@ public final class EngineeringPlanner {
                 required.merge(mat.getKey(), mat.getCount() * rolls, Integer::sum);
             }
         }
-        if (goal.getExperimentalId() != null && !goal.getExperimentalId().isBlank()) {
+        if (goal.getExperimentalId() != null && !goal.getExperimentalId().isBlank() && !goal.isExperimentalApplied()) {
             Optional<BlueprintGrade> exp = database.findById(goal.getExperimentalId());
             exp.ifPresent(bp -> {
                 for (MaterialRequirement mat : bp.getMaterials()) {

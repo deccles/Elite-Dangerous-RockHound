@@ -10,10 +10,15 @@ import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.BasicStroke;
 
+import javax.swing.AbstractButton;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.border.AbstractBorder;
 import javax.swing.border.EmptyBorder;
+import javax.swing.plaf.ComponentUI;
+import javax.swing.plaf.ButtonUI;
+import javax.swing.plaf.basic.BasicButtonUI;
 
 import org.dce.ed.OverlayPreferences;
 
@@ -23,6 +28,8 @@ import org.dce.ed.OverlayPreferences;
 public final class OverlayOutlineButtonStyle {
 
     private static final int DEFAULT_ARC = 12;
+    private static final String DANGER_DISABLED_TEXT_KEY = "edo.outlineButton.dangerDisabledText";
+    private static final Color DANGER_DISABLED_TEXT = new Color(195, 88, 78);
 
     private OverlayOutlineButtonStyle() {
     }
@@ -34,7 +41,12 @@ public final class OverlayOutlineButtonStyle {
 
     /** Destructive action (e.g. kill rogue scripts). */
     public static void applyDanger(JButton b, Font uiFont) {
-        apply(b, uiFont, true, new Insets(8, 18, 8, 18), new Color(255, 110, 95));
+        Color danger = new Color(255, 110, 95);
+        apply(b, uiFont, true, new Insets(8, 18, 8, 18), danger);
+        if (b != null) {
+            b.putClientProperty(DANGER_DISABLED_TEXT_KEY, DANGER_DISABLED_TEXT);
+            b.setUI((ButtonUI) DangerOutlineButtonUI.createUI(b));
+        }
     }
 
     /** Compact chip (filter tabs, dismiss). */
@@ -92,6 +104,34 @@ public final class OverlayOutlineButtonStyle {
         @Override
         public Insets getBorderInsets(Component c) {
             return new Insets(thickness, thickness, thickness, thickness);
+        }
+    }
+
+    private static final class DangerOutlineButtonUI extends BasicButtonUI {
+        private static final DangerOutlineButtonUI INSTANCE = new DangerOutlineButtonUI();
+
+        public static ComponentUI createUI(JComponent c) {
+            return INSTANCE;
+        }
+
+        @Override
+        protected void paintText(Graphics g, AbstractButton b, java.awt.Rectangle textRect, String text) {
+            if (!b.getModel().isEnabled()) {
+                Object disabled = b.getClientProperty(DANGER_DISABLED_TEXT_KEY);
+                if (disabled instanceof Color disabledColor) {
+                    Color previous = b.getForeground();
+                    try {
+                        b.setForeground(disabledColor);
+                        b.getModel().setEnabled(true);
+                        super.paintText(g, b, textRect, text);
+                    } finally {
+                        b.getModel().setEnabled(false);
+                        b.setForeground(previous);
+                    }
+                    return;
+                }
+            }
+            super.paintText(g, b, textRect, text);
         }
     }
 }

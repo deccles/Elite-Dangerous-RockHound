@@ -2,12 +2,15 @@ package org.dce.ed.engineering;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
+import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
+import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.MaterialStack;
 
 /**
@@ -19,25 +22,111 @@ public final class EngineeringGoalProgress {
     }
 
     /**
-     * Advances matching goals' roll progress toward the next grade.
+     * Advances matching goals' roll progress toward the next grade and marks experimental effects applied.
      *
      * @return true if any goal was updated
      */
     public static boolean applyCraft(List<EngineeringGoal> goals,
                                      EngineerCraftEvent craft,
                                      EngineeringDatabase database) {
-        if (goals == null || goals.isEmpty() || craft == null || craft.getLevel() <= 0) {
+        if (goals == null || goals.isEmpty() || craft == null) {
             return false;
         }
         EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
         boolean changed = false;
         for (int i = 0; i < goals.size(); i++) {
             EngineeringGoal goal = goals.get(i);
-            if (goal.isInventoryConsolidation() || !matchesCraft(goal, craft, db)) {
-                continue;
+            EngineeringGoal updated = goal;
+            if (craft.getLevel() > 0 && matchesCraft(goal, craft, db)) {
+                EngineeringGoal gradeUpdated = EngineeringGradeProgress.afterCraft(goal, craft.getLevel());
+                if (!gradeUpdated.equals(updated)) {
+                    updated = gradeUpdated;
+                }
             }
-            EngineeringGoal updated = EngineeringGradeProgress.afterCraft(goal, craft.getLevel());
+            if (matchesExperimentalCraft(goal, craft, db)) {
+                EngineeringGoal expUpdated = updated.withExperimentalApplied(true);
+                if (!expUpdated.equals(updated)) {
+                    updated = expUpdated;
+                }
+            }
             if (!updated.equals(goal)) {
+                goals.set(i, advanceCompletedUnits(updated));
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    private static EngineeringGoal advanceCompletedUnits(EngineeringGoal goal) {
+        if (!goal.isCurrentUnitComplete()) {
+            return goal;
+        }
+        int nextCompleted = goal.getCompletedUnits() + 1;
+        if (nextCompleted >= goal.getQuantity()) {
+            return goal.withCompletedUnits(goal.getQuantity())
+                    .withProgress(goal.getTargetGrade(), 0)
+                    .withExperimentalApplied(!goal.getExperimentalId().isBlank());
+        }
+        return goal.withCompletedUnits(nextCompleted)
+                .withProgress(0, 0)
+                .withExperimentalApplied(false);
+    }
+
+    /**
+     * Replays journal {@code EngineerCraft} events so saved goals reflect crafts from the current session.
+     *
+     * <p>Roll progress is rebuilt from scratch on each call so saved session progress is not stacked on
+     * top of journal history. Saved session progress is merged back when it is ahead of the replay.
+     */
+    public static boolean bootstrapFromJournal(List<EngineeringGoal> goals,
+                                               String clientKey,
+                                               EngineeringDatabase database) {
+        if (goals == null || goals.isEmpty() || clientKey == null || clientKey.isBlank()) {
+            return false;
+        }
+        List<EngineeringGoal> saved = List.copyOf(goals);
+        for (int i = 0; i < goals.size(); i++) {
+            goals.set(i, goals.get(i).resetJournalProgress());
+        }
+        boolean replayed = false;
+        try {
+            EliteJournalReader reader = new EliteJournalReader(clientKey);
+            for (EliteLogEvent event : reader.readAllEvents()) {
+                if (event instanceof EngineerCraftEvent craft) {
+                    if (applyCraft(goals, craft, database)) {
+                        replayed = true;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // journal directory unavailable
+        }
+        boolean loadoutChanged = bootstrapFromLatestLoadout(goals, clientKey, database);
+        boolean merged = false;
+        for (int i = 0; i < goals.size(); i++) {
+            EngineeringGoal mergedGoal = mergeProgress(saved.get(i), goals.get(i));
+            if (!mergedGoal.equals(goals.get(i))) {
+                goals.set(i, mergedGoal);
+                merged = true;
+            }
+        }
+        return replayed || loadoutChanged || merged || goalsChanged(saved, goals);
+    }
+
+    /**
+     * Updates goals from a live {@link LoadoutEvent}.
+     */
+    public static boolean applyLoadout(List<EngineeringGoal> goals,
+                                       LoadoutEvent loadout,
+                                       EngineeringDatabase database) {
+        if (goals == null || goals.isEmpty() || loadout == null) {
+            return false;
+        }
+        EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
+        boolean changed = false;
+        for (int i = 0; i < goals.size(); i++) {
+            EngineeringGoal updated = applyLoadoutToGoal(goals.get(i), loadout, db);
+            if (!updated.equals(goals.get(i))) {
                 goals.set(i, updated);
                 changed = true;
             }
@@ -46,42 +135,142 @@ public final class EngineeringGoalProgress {
     }
 
     /**
-     * Replays journal {@code EngineerCraft} events so saved goals reflect crafts from the current session.
-     *
-     * <p>Roll progress is rebuilt from scratch on each call so saved session progress is not stacked on
-     * top of journal history.
+     * Uses the latest ship loadout to infer completed grades and applied experimental effects.
      */
-    public static boolean bootstrapFromJournal(List<EngineeringGoal> goals,
-                                               String clientKey,
-                                               EngineeringDatabase database) {
+    public static boolean bootstrapFromLatestLoadout(List<EngineeringGoal> goals,
+                                                     String clientKey,
+                                                     EngineeringDatabase database) {
         if (goals == null || goals.isEmpty() || clientKey == null || clientKey.isBlank()) {
             return false;
         }
-        List<EngineeringGoal> before = List.copyOf(goals);
-        for (int i = 0; i < goals.size(); i++) {
-            EngineeringGoal goal = goals.get(i);
-            if (!goal.isInventoryConsolidation()) {
-                goals.set(i, goal.withProgress(0, 0));
-            }
-        }
         try {
             EliteJournalReader reader = new EliteJournalReader(clientKey);
-            for (EliteLogEvent event : reader.readAllEvents()) {
-                if (event instanceof EngineerCraftEvent craft) {
-                    applyCraft(goals, craft, database);
-                }
+            EliteLogEvent event = reader.findMostRecentEvent(EliteEventType.LOADOUT, 24);
+            if (!(event instanceof LoadoutEvent loadout)) {
+                return false;
             }
+            return applyLoadout(goals, loadout, database);
         } catch (Exception ignored) {
-            // journal directory unavailable
+            return false;
         }
-        boolean changed = false;
-        for (int i = 0; i < goals.size(); i++) {
-            if (!goals.get(i).equals(before.get(i))) {
-                changed = true;
-                break;
+    }
+
+    private static EngineeringGoal applyLoadoutToGoal(EngineeringGoal goal,
+                                                        LoadoutEvent loadout,
+                                                        EngineeringDatabase db) {
+        if (goal == null) {
+            return goal;
+        }
+        int completeOnShip = 0;
+        EngineeringGoal bestPartial = goal;
+        int bestPartialLevel = -1;
+
+        for (LoadoutEvent.Module module : loadout.getModules()) {
+            LoadoutEvent.Engineering engineering = module.getEngineering();
+            if (engineering == null) {
+                continue;
+            }
+            Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
+                    EngineeringJournalBlueprintResolver.resolve(
+                            module.getSlot(), engineering.getBlueprintName(), db);
+            if (resolved.isEmpty()) {
+                continue;
+            }
+            if (!goal.getModuleType().equalsIgnoreCase(resolved.get().moduleType())
+                    || !goal.getBlueprintName().equalsIgnoreCase(resolved.get().blueprintName())) {
+                continue;
+            }
+            if (isEngineeringCompleteForGoal(goal, engineering, db)) {
+                completeOnShip++;
+                continue;
+            }
+            int level = engineering.getLevel();
+            if (level > bestPartialLevel) {
+                bestPartialLevel = level;
+                bestPartial = applyPartialLoadoutProgress(goal, engineering, db);
             }
         }
-        return changed;
+
+        int completedUnits = Math.min(goal.getQuantity(), completeOnShip);
+        EngineeringGoal updated = goal.withCompletedUnits(completedUnits);
+        if (completedUnits >= goal.getQuantity()) {
+            return updated.withProgress(goal.getTargetGrade(), 0)
+                    .withExperimentalApplied(!goal.getExperimentalId().isBlank());
+        }
+        if (bestPartialLevel >= 0) {
+            updated = bestPartial.withCompletedUnits(completedUnits);
+        }
+        return updated;
+    }
+
+    private static EngineeringGoal applyPartialLoadoutProgress(EngineeringGoal goal,
+                                                                 LoadoutEvent.Engineering engineering,
+                                                                 EngineeringDatabase db) {
+        EngineeringGoal updated = goal;
+        int level = engineering.getLevel();
+        if (level > 0) {
+            int completed = Math.min(level, goal.getTargetGrade());
+            if (completed > updated.getFromGrade()) {
+                updated = updated.withProgress(completed, 0);
+            }
+        }
+        if (!goal.getExperimentalId().isBlank() && !updated.isExperimentalApplied()) {
+            Optional<BlueprintGrade> experimental = db.findById(goal.getExperimentalId());
+            if (experimental.isPresent()
+                    && experimentalEffectMatches(
+                            "",
+                            engineering.getExperimentalEffect(),
+                            engineering.getExperimentalEffectLocalised(),
+                            experimental.get())) {
+                updated = updated.withExperimentalApplied(true);
+            }
+        }
+        return updated;
+    }
+
+    private static boolean isEngineeringCompleteForGoal(EngineeringGoal goal,
+                                                          LoadoutEvent.Engineering engineering,
+                                                          EngineeringDatabase db) {
+        int level = engineering.getLevel();
+        if (level < goal.getTargetGrade()) {
+            return false;
+        }
+        if (goal.getExperimentalId().isBlank()) {
+            return true;
+        }
+        Optional<BlueprintGrade> experimental = db.findById(goal.getExperimentalId());
+        return experimental.isPresent()
+                && experimentalEffectMatches(
+                        "",
+                        engineering.getExperimentalEffect(),
+                        engineering.getExperimentalEffectLocalised(),
+                        experimental.get());
+    }
+
+    private static EngineeringGoal mergeProgress(EngineeringGoal saved, EngineeringGoal replayed) {
+        EngineeringGoal merged = replayed;
+        if (saved.getFromGrade() > replayed.getFromGrade()) {
+            merged = merged.withProgress(saved.getFromGrade(), saved.getCraftsAtCurrentGrade());
+        } else if (saved.getFromGrade() == replayed.getFromGrade()
+                && saved.getCraftsAtCurrentGrade() > replayed.getCraftsAtCurrentGrade()) {
+            merged = merged.withProgress(saved.getFromGrade(), saved.getCraftsAtCurrentGrade());
+        }
+        if (saved.isExperimentalApplied()) {
+            merged = merged.withExperimentalApplied(true);
+        }
+        if (saved.getCompletedUnits() > merged.getCompletedUnits()) {
+            merged = merged.withCompletedUnits(saved.getCompletedUnits());
+        }
+        return merged;
+    }
+
+    private static boolean goalsChanged(List<EngineeringGoal> before, List<EngineeringGoal> after) {
+        for (int i = 0; i < before.size(); i++) {
+            if (!before.get(i).equals(after.get(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean matchesCraft(EngineeringGoal goal,
@@ -90,20 +279,77 @@ public final class EngineeringGoalProgress {
         if (goal == null || craft.getLevel() <= 0) {
             return false;
         }
+        if (!matchesGoalModuleBlueprint(goal, craft, db)) {
+            return false;
+        }
+        return ingredientsMatchGrade(goal, craft, db);
+    }
+
+    private static boolean matchesExperimentalCraft(EngineeringGoal goal,
+                                                    EngineerCraftEvent craft,
+                                                    EngineeringDatabase db) {
+        if (goal == null || goal.isExperimentalApplied()) {
+            return false;
+        }
+        String expId = goal.getExperimentalId();
+        if (expId == null || expId.isBlank()) {
+            return false;
+        }
+        Optional<BlueprintGrade> expBp = db.findById(expId);
+        if (expBp.isEmpty()) {
+            return false;
+        }
+        if (!matchesGoalModuleBlueprint(goal, craft, db)) {
+            return false;
+        }
+        if (experimentalEffectMatches(
+                craft.getApplyExperimentalEffect(),
+                craft.getExperimentalEffect(),
+                craft.getExperimentalEffectLocalised(),
+                expBp.get())) {
+            return true;
+        }
+        return ingredientsMatch(expBp.get().getMaterials(), craft.getIngredients(), db);
+    }
+
+    private static boolean matchesGoalModuleBlueprint(EngineeringGoal goal,
+                                                      EngineerCraftEvent craft,
+                                                      EngineeringDatabase db) {
         Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
                 EngineeringJournalBlueprintResolver.resolve(craft.getSlot(), craft.getBlueprintName(), db);
         if (resolved.isPresent()) {
             EngineeringJournalBlueprintResolver.ResolvedBlueprint bp = resolved.get();
-            if (goal.getModuleType().equalsIgnoreCase(bp.moduleType())
-                    && goal.getBlueprintName().equalsIgnoreCase(bp.blueprintName())) {
-                return ingredientsMatchGrade(goal, craft, db);
+            return goal.getModuleType().equalsIgnoreCase(bp.moduleType())
+                    && goal.getBlueprintName().equalsIgnoreCase(bp.blueprintName());
+        }
+        return false;
+    }
+
+    private static boolean experimentalEffectMatches(String applyExperimentalEffect,
+                                                     String experimentalEffect,
+                                                     String experimentalEffectLocalised,
+                                                     BlueprintGrade experimental) {
+        String normalizedName = EngineeringJournalBlueprintResolver.normalizeToken(experimental.getName());
+        String normalizedId = EngineeringJournalBlueprintResolver.normalizeToken(experimental.getId());
+        for (String candidate : List.of(
+                applyExperimentalEffect,
+                experimentalEffect,
+                experimentalEffectLocalised)) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
+            }
+            String normalized = EngineeringJournalBlueprintResolver.normalizeToken(candidate);
+            if (normalized.isEmpty()) {
+                continue;
+            }
+            if (normalized.contains(normalizedName)
+                    || normalizedName.contains(normalized)
+                    || normalized.contains(normalizedId)
+                    || normalizedId.contains(normalized)) {
+                return true;
             }
         }
-        String moduleType = EngineeringJournalBlueprintResolver.slotToModuleType(craft.getSlot());
-        if (!goal.getModuleType().equalsIgnoreCase(moduleType)) {
-            return false;
-        }
-        return ingredientsMatchGrade(goal, craft, db);
+        return false;
     }
 
     private static boolean ingredientsMatchGrade(EngineeringGoal goal,

@@ -19,6 +19,8 @@ public final class EngineerCraftEvent extends EliteLogEvent {
     private final int level;
     private final double quality;
     private final String applyExperimentalEffect;
+    private final String experimentalEffect;
+    private final String experimentalEffectLocalised;
     private final List<MaterialStack> ingredients;
 
     public EngineerCraftEvent(Instant timestamp,
@@ -32,6 +34,8 @@ public final class EngineerCraftEvent extends EliteLogEvent {
                               int level,
                               double quality,
                               String applyExperimentalEffect,
+                              String experimentalEffect,
+                              String experimentalEffectLocalised,
                               List<MaterialStack> ingredients) {
         super(timestamp, EliteEventType.ENGINEER_CRAFT, rawJson);
         this.slot = slot != null ? slot : "";
@@ -43,6 +47,8 @@ public final class EngineerCraftEvent extends EliteLogEvent {
         this.level = Math.max(0, level);
         this.quality = quality;
         this.applyExperimentalEffect = applyExperimentalEffect != null ? applyExperimentalEffect : "";
+        this.experimentalEffect = experimentalEffect != null ? experimentalEffect : "";
+        this.experimentalEffectLocalised = experimentalEffectLocalised != null ? experimentalEffectLocalised : "";
         this.ingredients = ingredients != null ? List.copyOf(ingredients) : List.of();
     }
 
@@ -78,8 +84,18 @@ public final class EngineerCraftEvent extends EliteLogEvent {
         return quality;
     }
 
+    /** Set when requesting a new experimental effect at the engineer. */
     public String getApplyExperimentalEffect() {
         return applyExperimentalEffect;
+    }
+
+    /** Set on the craft entry after an experimental effect is applied. */
+    public String getExperimentalEffect() {
+        return experimentalEffect;
+    }
+
+    public String getExperimentalEffectLocalised() {
+        return experimentalEffectLocalised;
     }
 
     public List<MaterialStack> getIngredients() {

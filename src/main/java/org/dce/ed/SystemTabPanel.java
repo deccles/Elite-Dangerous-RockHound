@@ -87,6 +87,8 @@ import org.dce.ed.logreader.event.BioScanPredictionEvent.PredictionKind;
 import org.dce.ed.logreader.event.ApproachBodyEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
+import org.dce.ed.logreader.event.FssAllBodiesFoundEvent;
+import org.dce.ed.logreader.event.FssDiscoveryScanEvent;
 import org.dce.ed.logreader.event.IFsdJump;
 import org.dce.ed.logreader.event.LeaveBodyEvent;
 import org.dce.ed.logreader.event.LocationEvent;
@@ -108,6 +110,7 @@ import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
+import org.dce.ed.util.FssEdsmBackfill;
 import org.dce.ed.systemmap.SystemMapRules;
 import org.dce.ed.systemmap.SystemSession;
 import org.dce.ed.systemmap.SystemSessionFactory;
@@ -1449,6 +1452,17 @@ public class SystemTabPanel extends JPanel {
             return;
         }
 
+        if (event instanceof FssDiscoveryScanEvent || event instanceof FssAllBodiesFoundEvent) {
+            // EDSM backfill mutates the bodies map; run on the EDT before map/table rebuild to avoid
+            // ConcurrentModificationException while SystemOrbitGeometry iterates bodies.values().
+            SwingUtilities.invokeLater(() -> {
+                FssEdsmBackfill.backfillIfNeeded(state, edsmClient, SystemCache.getInstance());
+                requestRebuild();
+                persistSystemStateIfPossible();
+            });
+            return;
+        }
+
         // 3) Normal events: just refresh UI on EDT
             requestRebuild();
             persistSystemStateIfPossible();
@@ -2205,14 +2219,17 @@ public class SystemTabPanel extends JPanel {
                 && systemAddress != 0L
                 && systemName != null && !systemName.isBlank()
                 && companionLetterStarLooksIncomplete(state, systemName);
+        boolean fssCompleteEmptyEdsmBackfill = systemAddress != 0L
+                && systemName != null && !systemName.isBlank()
+                && FssEdsmBackfill.needsStandaloneEdsmBackfill(state);
 
         // 2) Optionally enrich with EDSM via a single bodies call.
-        if (allowEdsmEnrichment || sparseEdsmBackfill || companionEdsmBackfill) {
+        if (allowEdsmEnrichment || sparseEdsmBackfill || companionEdsmBackfill || fssCompleteEmptyEdsmBackfill) {
             try {
                 BodiesResponse edsmBodies = edsmClient.showBodies(systemName);
                 if (edsmBodies != null) {
-                    // Supplement journal/cache bodies only — do not materialize EDSM-only rows in the table.
-                    SystemCache.getInstance().mergeBodiesFromEdsm(state, edsmBodies);
+                    boolean allowStandalone = fssCompleteEmptyEdsmBackfill;
+                    SystemCache.getInstance().mergeBodiesFromEdsm(state, edsmBodies, allowStandalone);
                 }
             } catch (Exception ex) {
                 // EDSM is best-effort; overlay should still work from cache/logs.

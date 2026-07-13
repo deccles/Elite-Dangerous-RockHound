@@ -32,6 +32,10 @@ public final class EngineeringSessionData {
         private String experimentalId;
         /** {@code null} = include (legacy sessions). */
         private Boolean includeInPlanning;
+        private boolean experimentalApplied;
+        /** {@code null} or {@code <= 0} = 1 (legacy sessions). */
+        private Integer quantity;
+        private int completedUnits;
 
         public String getBlueprintId() {
             return blueprintId;
@@ -99,6 +103,30 @@ public final class EngineeringSessionData {
 
         public boolean includeInPlanningOrDefault() {
             return includeInPlanning == null || includeInPlanning;
+        }
+
+        public boolean isExperimentalApplied() {
+            return experimentalApplied;
+        }
+
+        public void setExperimentalApplied(boolean experimentalApplied) {
+            this.experimentalApplied = experimentalApplied;
+        }
+
+        public int getQuantity() {
+            return quantity != null && quantity > 0 ? quantity : 1;
+        }
+
+        public void setQuantity(int quantity) {
+            this.quantity = quantity > 0 ? quantity : 1;
+        }
+
+        public int getCompletedUnits() {
+            return Math.max(0, completedUnits);
+        }
+
+        public void setCompletedUnits(int completedUnits) {
+            this.completedUnits = Math.max(0, completedUnits);
         }
     }
 }

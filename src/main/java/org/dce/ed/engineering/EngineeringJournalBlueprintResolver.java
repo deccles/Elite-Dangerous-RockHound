@@ -4,8 +4,11 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -32,8 +35,83 @@ public final class EngineeringJournalBlueprintResolver {
             if (mapped != null) {
                 return Optional.of(mapped);
             }
+            if (database != null) {
+                Optional<ResolvedBlueprint> derived = deriveFromJournalName(slot, journalBlueprintName, database);
+                if (derived.isPresent()) {
+                    return derived;
+                }
+            }
         }
         return Optional.empty();
+    }
+
+    static Optional<ResolvedBlueprint> deriveFromJournalName(String slot,
+                                                               String journalBlueprintName,
+                                                               EngineeringDatabase database) {
+        int underscore = journalBlueprintName.indexOf('_');
+        if (underscore <= 0 || underscore >= journalBlueprintName.length() - 1) {
+            return Optional.empty();
+        }
+        String journalSlot = journalBlueprintName.substring(0, underscore);
+        String suffix = journalBlueprintName.substring(underscore + 1);
+        String moduleType = slotToModuleType(journalSlot);
+        if (moduleType.isBlank()) {
+            moduleType = slotToModuleType(slot);
+        }
+        if (moduleType.isBlank()) {
+            return Optional.empty();
+        }
+
+        String normSuffix = normalizeToken(suffix);
+        if (normSuffix.isBlank()) {
+            return Optional.empty();
+        }
+
+        ResolvedBlueprint best = null;
+        int bestScore = 0;
+        for (String blueprintName : blueprintNamesForModule(database, moduleType)) {
+            int score = matchScore(normSuffix, blueprintName);
+            if (score > bestScore) {
+                bestScore = score;
+                best = new ResolvedBlueprint(moduleType, blueprintName);
+            }
+        }
+        return bestScore > 0 ? Optional.of(best) : Optional.empty();
+    }
+
+    private static Set<String> blueprintNamesForModule(EngineeringDatabase database, String moduleType) {
+        Set<String> names = new HashSet<>();
+        for (BlueprintGrade bp : database.getAllBlueprints()) {
+            if (bp.isExperimental()) {
+                continue;
+            }
+            if (bp.getModuleType().equalsIgnoreCase(moduleType)) {
+                names.add(bp.getName());
+            }
+        }
+        return names;
+    }
+
+    private static int matchScore(String normSuffix, String blueprintName) {
+        String normName = normalizeToken(blueprintName);
+        if (normName.startsWith(normSuffix)) {
+            return 100;
+        }
+        if (normSuffix.length() >= 4 && normName.contains(normSuffix)) {
+            return 80;
+        }
+        // Elite journal truncates some blueprint suffixes (e.g. Thermal → Thermic).
+        if (normSuffix.startsWith("thermic") && normName.contains("thermal")) {
+            return 75;
+        }
+        return 0;
+    }
+
+    static String normalizeToken(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
     public static String slotToModuleType(String slot) {

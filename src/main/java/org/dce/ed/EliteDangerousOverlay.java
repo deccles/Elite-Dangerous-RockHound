@@ -210,13 +210,13 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
             decoratedDialog.attachContent();
             passThroughFrame.setRightStatusListener(decoratedDialog::setRightStatusText);
             passThroughFrame.refreshRightStatusDisplay();
-            decoratedDialog.applyOverlayBackgroundFromPreferences(false);
-            decoratedDialog.setVisible(true);
-            if (overlayWindowMaximized) {
-                applyOverlayWindowMaximized(decoratedDialog);
-            }
-            decoratedDialog.toFront();
-            StartupSplashOverlay.install(decoratedDialog);
+            decoratedDialog.showThemedWhenReady(() -> {
+                if (overlayWindowMaximized) {
+                    applyOverlayWindowMaximized(decoratedDialog);
+                }
+                decoratedDialog.toFront();
+                StartupSplashOverlay.install(decoratedDialog);
+            });
         }
 
         // Save bounds and clean up on close

@@ -23,8 +23,10 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.ListSelectionModel;
 import javax.swing.RowSorter;
 import javax.swing.SortOrder;
@@ -49,9 +51,13 @@ import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.TableHeaderSortSupport;
 
 /**
- * Modal picker for a new engineering goal (blueprint, grade, experimental).
+ * Modal picker for adding or editing an engineering goal (blueprint, grade, quantity, experimental).
  */
-final class AddEngineeringGoalDialog extends JDialog {
+final class EngineeringGoalDialog extends JDialog {
+
+    private enum Mode { ADD, EDIT }
+
+    private static final int MAX_QUANTITY = 16;
 
     private static final int HOVER_CLICK_DELAY_MS = 500;
     private static final int HEADER_SORT_HOVER_MS = 500;
@@ -61,6 +67,10 @@ final class AddEngineeringGoalDialog extends JDialog {
 
     private final EngineeringDatabase database;
     private final BooleanSupplier passThroughEnabledSupplier;
+    private final Mode mode;
+    private final EngineeringGoal editSource;
+    private final JLabel blueprintSummaryLabel = new JLabel(" ");
+    private final JSpinner quantitySpinner = new JSpinner(new SpinnerNumberModel(1, 1, MAX_QUANTITY, 1));
     private final JTextField filterField = new JTextField(24);
     private final BlueprintTableModel blueprintModel = new BlueprintTableModel();
     private final JTable blueprintTable = new JTable(blueprintModel);
@@ -72,24 +82,84 @@ final class AddEngineeringGoalDialog extends JDialog {
 
     private EngineeringGoal result;
 
-    private AddEngineeringGoalDialog(Window owner, EngineeringDatabase database, BooleanSupplier passThroughEnabledSupplier) {
-        super(owner, "Add engineering goal", ModalityType.APPLICATION_MODAL);
+    private EngineeringGoalDialog(Window owner,
+                                  EngineeringDatabase database,
+                                  BooleanSupplier passThroughEnabledSupplier,
+                                  Mode mode,
+                                  EngineeringGoal editSource) {
+        super(owner, mode == Mode.EDIT ? "Edit engineering goal" : "Add engineering goal", ModalityType.APPLICATION_MODAL);
+        this.mode = mode;
+        this.editSource = editSource;
         this.database = database;
         this.passThroughEnabledSupplier = passThroughEnabledSupplier;
         buildUi();
-        reloadBlueprintList();
+        if (mode == Mode.ADD) {
+            reloadBlueprintList();
+        } else {
+            prefillFromGoal(editSource);
+        }
         pack();
-        setMinimumSize(new Dimension(520, 420));
+        setMinimumSize(new Dimension(mode == Mode.EDIT ? 420 : 520, mode == Mode.EDIT ? 220 : 420));
         setLocationRelativeTo(owner);
     }
 
-    static EngineeringGoal show(Window owner, EngineeringDatabase database, BooleanSupplier passThroughEnabledSupplier) {
+    static EngineeringGoal showForAdd(Window owner,
+                                      EngineeringDatabase database,
+                                      BooleanSupplier passThroughEnabledSupplier) {
         if (database == null) {
             return null;
         }
-        AddEngineeringGoalDialog dialog = new AddEngineeringGoalDialog(owner, database, passThroughEnabledSupplier);
+        EngineeringGoalDialog dialog = new EngineeringGoalDialog(owner, database, passThroughEnabledSupplier, Mode.ADD, null);
         dialog.setVisible(true);
         return dialog.result;
+    }
+
+    static EngineeringGoal showForEdit(Window owner,
+                                       EngineeringDatabase database,
+                                       BooleanSupplier passThroughEnabledSupplier,
+                                       EngineeringGoal existing) {
+        if (database == null || existing == null) {
+            return null;
+        }
+        EngineeringGoalDialog dialog = new EngineeringGoalDialog(owner, database, passThroughEnabledSupplier, Mode.EDIT, existing);
+        dialog.setVisible(true);
+        return dialog.result;
+    }
+
+    /** @deprecated use {@link #showForAdd} */
+    static EngineeringGoal show(Window owner, EngineeringDatabase database, BooleanSupplier passThroughEnabledSupplier) {
+        return showForAdd(owner, database, passThroughEnabledSupplier);
+    }
+
+    private void prefillFromGoal(EngineeringGoal goal) {
+        if (goal == null) {
+            return;
+        }
+        blueprintSummaryLabel.setText(goal.getModuleType() + ": " + goal.getBlueprintName());
+        quantitySpinner.setValue(goal.getQuantity());
+        gradeCombo.removeAllItems();
+        experimentalCombo.removeAllItems();
+        experimentalCombo.addItem("(none)");
+        int maxGrade = database.gradesFor(goal.getModuleType(), goal.getBlueprintName()).stream()
+                .filter(g -> !g.isExperimental())
+                .mapToInt(BlueprintGrade::getGrade)
+                .max()
+                .orElse(goal.getTargetGrade());
+        for (int g = 1; g <= maxGrade; g++) {
+            gradeCombo.addItem("G" + g);
+        }
+        gradeCombo.setSelectedItem("G" + goal.getTargetGrade());
+        for (BlueprintGrade exp : database.experimentalsFor(goal.getModuleType(), goal.getBlueprintName())) {
+            experimentalCombo.addItem(exp.getName());
+        }
+        if (goal.getExperimentalId().isBlank()) {
+            experimentalCombo.setSelectedItem("(none)");
+        } else {
+            database.findById(goal.getExperimentalId())
+                    .ifPresentOrElse(bp -> experimentalCombo.setSelectedItem(bp.getName()),
+                            () -> experimentalCombo.setSelectedItem("(none)"));
+        }
+        updateGradeDetails();
     }
 
     private void buildUi() {
@@ -101,34 +171,47 @@ final class AddEngineeringGoalDialog extends JDialog {
         root.setBackground(EdoUi.User.BACKGROUND);
         root.setBorder(new EmptyBorder(10, 12, 10, 12));
 
-        JLabel intro = new JLabel("Search and select a blueprint, then choose grade and optional experimental.");
+        JLabel intro = new JLabel(mode == Mode.EDIT
+                ? "Change quantity, target grade, or experimental for this goal."
+                : "Search and select a blueprint, then choose how many, grade, and optional experimental.");
         intro.setFont(base.deriveFont(Font.PLAIN, fontSize));
         intro.setForeground(EdoUi.User.MAIN_TEXT);
         root.add(intro, BorderLayout.NORTH);
 
         JPanel center = new JPanel(new BorderLayout(6, 6));
         center.setOpaque(false);
-        styleTextField(filterField, base);
-        filterField.setToolTipText("Filter by module or blueprint name");
-        center.add(filterField, BorderLayout.NORTH);
+        if (mode == Mode.EDIT) {
+            blueprintSummaryLabel.setFont(base.deriveFont(Font.BOLD, fontSize));
+            blueprintSummaryLabel.setForeground(EdoUi.User.MAIN_TEXT);
+            blueprintSummaryLabel.setBorder(new EmptyBorder(0, 0, 4, 0));
+            center.add(blueprintSummaryLabel, BorderLayout.NORTH);
+        } else {
+            styleTextField(filterField, base);
+            filterField.setToolTipText("Filter by module or blueprint name");
+            center.add(filterField, BorderLayout.NORTH);
 
-        configureBlueprintTable(base, fontSize);
-        JScrollPane tableScroll = new JScrollPane(blueprintTable);
-        tableScroll.setPreferredSize(new Dimension(480, 200));
-        tableScroll.setBorder(BorderFactory.createLineBorder(EdoUi.Internal.MAIN_TEXT_ALPHA_140));
-        center.add(tableScroll, BorderLayout.CENTER);
+            configureBlueprintTable(base, fontSize);
+            JScrollPane tableScroll = new JScrollPane(blueprintTable);
+            tableScroll.setPreferredSize(new Dimension(480, 200));
+            tableScroll.setBorder(BorderFactory.createLineBorder(EdoUi.Internal.MAIN_TEXT_ALPHA_140));
+            center.add(tableScroll, BorderLayout.CENTER);
 
-        effectsLabel.setFont(base.deriveFont(Font.ITALIC, fontSize));
-        effectsLabel.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-        effectsLabel.setBorder(new EmptyBorder(2, 0, 0, 0));
-        materialsLabel.setFont(base.deriveFont(Font.PLAIN, fontSize));
-        materialsLabel.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-        JPanel detailPanel = new JPanel(new BorderLayout(0, 4));
-        detailPanel.setOpaque(false);
-        detailPanel.add(effectsLabel, BorderLayout.NORTH);
-        detailPanel.add(materialsLabel, BorderLayout.SOUTH);
-        center.add(detailPanel, BorderLayout.SOUTH);
-        root.add(center, BorderLayout.CENTER);
+            effectsLabel.setFont(base.deriveFont(Font.ITALIC, fontSize));
+            effectsLabel.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+            effectsLabel.setBorder(new EmptyBorder(2, 0, 0, 0));
+            materialsLabel.setFont(base.deriveFont(Font.PLAIN, fontSize));
+            materialsLabel.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+            JPanel detailPanel = new JPanel(new BorderLayout(0, 4));
+            detailPanel.setOpaque(false);
+            detailPanel.add(effectsLabel, BorderLayout.NORTH);
+            detailPanel.add(materialsLabel, BorderLayout.SOUTH);
+            center.add(detailPanel, BorderLayout.SOUTH);
+        }
+        if (mode == Mode.ADD) {
+            root.add(center, BorderLayout.CENTER);
+        } else {
+            root.add(center, BorderLayout.NORTH);
+        }
 
         JPanel form = new JPanel(new GridBagLayout());
         form.setOpaque(false);
@@ -148,9 +231,22 @@ final class AddEngineeringGoalDialog extends JDialog {
         gbc.weightx = 1;
         form.add(gradeCombo, gbc);
 
-        JLabel expLabel = fieldLabel("Experimental:", base, fontSize);
+        JLabel qtyLabel = fieldLabel("Quantity:", base, fontSize);
         gbc.gridx = 0;
         gbc.gridy = 1;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        form.add(qtyLabel, gbc);
+        quantitySpinner.setFont(base);
+        quantitySpinner.setToolTipText("How many modules to engineer (e.g. four gimbal weapons)");
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1;
+        form.add(quantitySpinner, gbc);
+
+        JLabel expLabel = fieldLabel("Experimental:", base, fontSize);
+        gbc.gridx = 0;
+        gbc.gridy = 2;
         gbc.weightx = 0;
         gbc.fill = GridBagConstraints.NONE;
         form.add(expLabel, gbc);
@@ -164,10 +260,10 @@ final class AddEngineeringGoalDialog extends JDialog {
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         buttons.setOpaque(false);
-        JButton addBtn = new JButton("Add goal");
+        JButton addBtn = new JButton(mode == Mode.EDIT ? "Save" : "Add goal");
         OverlayOutlineButtonStyle.applyChip(addBtn, base, false);
-        addBtn.addActionListener(e -> confirmAdd());
-        HoverClickPoller.register(addBtn, HOVER_CLICK_DELAY_MS, this::confirmAdd, passThroughEnabledSupplier);
+        addBtn.addActionListener(e -> confirmSave());
+        HoverClickPoller.register(addBtn, HOVER_CLICK_DELAY_MS, this::confirmSave, passThroughEnabledSupplier);
         JButton cancelBtn = new JButton("Cancel");
         OverlayOutlineButtonStyle.applyChip(cancelBtn, base, false);
         cancelBtn.addActionListener(e -> dispose());
@@ -179,24 +275,31 @@ final class AddEngineeringGoalDialog extends JDialog {
         south.setOpaque(false);
         south.add(form, BorderLayout.CENTER);
         south.add(buttons, BorderLayout.SOUTH);
-        root.add(south, BorderLayout.PAGE_END);
+        if (mode == Mode.ADD) {
+            root.add(center, BorderLayout.CENTER);
+            root.add(south, BorderLayout.PAGE_END);
+        } else {
+            root.add(south, BorderLayout.CENTER);
+        }
 
-        filterField.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                reloadBlueprintList();
-            }
+        if (mode == Mode.ADD) {
+            filterField.getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    reloadBlueprintList();
+                }
 
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                reloadBlueprintList();
-            }
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    reloadBlueprintList();
+                }
 
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                reloadBlueprintList();
-            }
-        });
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    reloadBlueprintList();
+                }
+            });
+        }
 
         setContentPane(root);
         getRootPane().setDefaultButton(addBtn);
@@ -396,10 +499,14 @@ final class AddEngineeringGoalDialog extends JDialog {
         return sb.toString();
     }
 
-    private void confirmAdd() {
-        BlueprintOption selected = selectedOption();
+    private void confirmSave() {
+        BlueprintOption selected = mode == Mode.EDIT
+                ? new BlueprintOption(editSource.getModuleType(), editSource.getBlueprintName(), editSource.getTargetGrade())
+                : selectedOption();
         if (selected == null) {
-            effectsLabel.setText("<html><body style='color:#ffaa66'>Select a blueprint from the list.</body></html>");
+            if (mode == Mode.ADD) {
+                effectsLabel.setText("<html><body style='color:#ffaa66'>Select a blueprint from the list.</body></html>");
+            }
             return;
         }
         Object gradeSel = gradeCombo.getSelectedItem();
@@ -407,6 +514,13 @@ final class AddEngineeringGoalDialog extends JDialog {
             return;
         }
         int targetGrade = Integer.parseInt(gradeSel.toString().substring(1));
+        int quantity = ((Number) quantitySpinner.getValue()).intValue();
+        String experimentalId = resolveExperimentalId(selected.moduleType(), selected.blueprintName());
+        if (mode == Mode.EDIT) {
+            result = editSource.withUserSettings(targetGrade, experimentalId, quantity);
+            dispose();
+            return;
+        }
         BlueprintGrade bp = database.gradesFor(selected.moduleType(), selected.blueprintName()).stream()
                 .filter(g -> g.getGrade() == targetGrade)
                 .findFirst()
@@ -414,24 +528,36 @@ final class AddEngineeringGoalDialog extends JDialog {
         if (bp == null) {
             return;
         }
-        String experimentalId = "";
-        Object expSel = experimentalCombo.getSelectedItem();
-        if (expSel != null && !"(none)".equals(expSel.toString())) {
-            for (BlueprintGrade e : database.experimentalsFor(bp.getModuleType(), bp.getName())) {
-                if (e.getName().equals(expSel.toString())) {
-                    experimentalId = e.getId();
-                    break;
-                }
-            }
-        }
         result = new EngineeringGoal(
                 bp.getId(),
                 bp.getModuleType(),
                 bp.getName(),
                 0,
+                0,
                 targetGrade,
-                experimentalId);
+                experimentalId,
+                true,
+                false,
+                quantity,
+                0);
         dispose();
+    }
+
+    private String resolveExperimentalId(String moduleType, String blueprintName) {
+        Object expSel = experimentalCombo.getSelectedItem();
+        if (expSel == null || "(none)".equals(expSel.toString())) {
+            return "";
+        }
+        for (BlueprintGrade e : database.experimentalsFor(moduleType, blueprintName)) {
+            if (e.getName().equals(expSel.toString())) {
+                return e.getId();
+            }
+        }
+        return "";
+    }
+
+    private void confirmAdd() {
+        confirmSave();
     }
 
     private static JLabel fieldLabel(String text, Font base, int fontSize) {

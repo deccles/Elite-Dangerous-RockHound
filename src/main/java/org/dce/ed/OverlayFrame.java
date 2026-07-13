@@ -52,6 +52,7 @@ import javax.swing.Timer;
 import javax.swing.border.LineBorder;
 
 import org.dce.ed.ui.OverlayBackgroundPanel;
+import org.dce.ed.ui.PassThroughTooltipSupport;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.logreader.EliteEventType;
@@ -1874,6 +1875,9 @@ private void refreshPassThroughUnifiedStatus() {
         applyPassThrough(this.passThroughEnabled);
         titleBar.setPassThrough(this.passThroughEnabled);
         updateMousePassThroughNativeStyleTimer();
+        if (!this.passThroughEnabled) {
+            PassThroughTooltipSupport.clear();
+        }
         repaint();
     }
 
@@ -2608,6 +2612,7 @@ private void refreshPassThroughUnifiedStatus() {
 
     private void updateCrosshair() {
         if (!isShowing()) {
+            PassThroughTooltipSupport.clear();
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             resetPassThroughCloseHoverState();
@@ -2632,6 +2637,7 @@ private void refreshPassThroughUnifiedStatus() {
         }
 
         if (!passThroughEnabled) {
+            PassThroughTooltipSupport.clear();
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);
             return;
@@ -2672,6 +2678,7 @@ private void refreshPassThroughUnifiedStatus() {
             crosshairOverlay.setVisible(false);
         }
 
+        PassThroughTooltipSupport.poll(backgroundPanel, true);
     }
 
     private void updatePassThroughHoverClose(Point mouseOnScreen) {
@@ -2695,17 +2702,10 @@ private void refreshPassThroughUnifiedStatus() {
 
         long now = System.currentTimeMillis();
 
+        // Pass-through off: normal Swing mouse events reach the title bar (click toggles). Do not dwell-enable
+        // while the cursor stays on the toggle — that undid a click/dwell disable after ~700 ms.
         if (!passThroughEnabled) {
-            if (hToggle) {
-                if (passThroughToggleHoverStartMs < 0L) {
-                    passThroughToggleHoverStartMs = now;
-                } else if (now - passThroughToggleHoverStartMs >= PASS_THROUGH_TOGGLE_DWELL_MS) {
-                    setPassThroughEnabled(true, false);
-                    passThroughToggleHoverStartMs = -1L;
-                }
-            } else {
-                passThroughToggleHoverStartMs = -1L;
-            }
+            passThroughToggleHoverStartMs = -1L;
             return;
         }
 
@@ -2733,7 +2733,7 @@ private void refreshPassThroughUnifiedStatus() {
             if (passThroughToggleHoverStartMs < 0L) {
                 passThroughToggleHoverStartMs = now;
             } else if (now - passThroughToggleHoverStartMs >= PASS_THROUGH_TOGGLE_DWELL_MS) {
-                setPassThroughEnabled(!passThroughEnabled, false);
+                setPassThroughEnabled(!passThroughEnabled, true);
                 passThroughToggleHoverStartMs = -1L;
             }
             return;

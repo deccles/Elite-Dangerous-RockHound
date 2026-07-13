@@ -40,7 +40,11 @@ public interface SystemStore {
 
     void loadInto(SystemState state, CachedSystem cs);
 
-    void mergeBodiesFromEdsm(SystemState state, BodiesResponse edsm);
+    default void mergeBodiesFromEdsm(SystemState state, BodiesResponse edsm) {
+        mergeBodiesFromEdsm(state, edsm, false);
+    }
+
+    void mergeBodiesFromEdsm(SystemState state, BodiesResponse edsm, boolean allowEdsmStandalone);
 
     void storeSystem(SystemState state);
 
