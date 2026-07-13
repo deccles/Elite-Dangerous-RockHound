@@ -42,11 +42,8 @@ public final class SystemModelService {
             SystemModel model = strict ? builder.build() : builder.buildPartial();
             List<String> incomplete = builder.incompleteReasons();
             if (!incomplete.isEmpty()) {
-                return new ModelHandle(
-                        ModelState.INCOMPLETE,
-                        model,
-                        "Scan in progress — " + incomplete.size() + " pending (" + incomplete.getFirst() + ")",
-                        incomplete);
+                // Keep INCOMPLETE for map/transcription logic; do not surface pending-parent chatter in the UI.
+                return new ModelHandle(ModelState.INCOMPLETE, model, null, incomplete);
             }
             return new ModelHandle(ModelState.OK, model, null, List.of());
         } catch (IncompleteSystemException e) {

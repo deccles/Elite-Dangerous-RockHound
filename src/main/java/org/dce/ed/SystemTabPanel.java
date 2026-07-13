@@ -2399,18 +2399,18 @@ public class SystemTabPanel extends JPanel {
             systemModelStatusLabel.setText(" ");
             return;
         }
-        if (handle.state() == SystemModelService.ModelState.OK) {
+        if (handle.state() == SystemModelService.ModelState.OK
+                || handle.state() == SystemModelService.ModelState.INCOMPLETE) {
             systemModelStatusLabel.setText(" ");
             systemModelStatusLabel.setForeground(EdoUi.User.MAIN_TEXT);
             return;
         }
         if (handle.statusMessage() != null) {
             systemModelStatusLabel.setText(handle.statusMessage());
+        } else {
+            systemModelStatusLabel.setText(" ");
         }
-        systemModelStatusLabel.setForeground(
-                handle.state() == SystemModelService.ModelState.ERROR
-                        ? EdoUi.User.ERROR
-                        : EdoUi.User.WARNING);
+        systemModelStatusLabel.setForeground(EdoUi.User.ERROR);
     }
 
     private void updateSystemModelStatus() {

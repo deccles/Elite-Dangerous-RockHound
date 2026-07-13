@@ -955,7 +955,7 @@ public class EngineeringTabPanel extends JPanel {
         if (hasGoals && trades.isEmpty() && !shortfalls.isEmpty()) {
             tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>No material-trader swaps found from current inventory.</body></html>");
         } else if (hasGoals && trades.isEmpty() && hasActiveGoals) {
-            tradeEmptyLabel.setText("");
+            tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>No trades required</body></html>");
         } else if (hasGoals && trades.isEmpty()) {
             tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>Enable a goal (checkbox) to see materials and trades.</body></html>");
         }

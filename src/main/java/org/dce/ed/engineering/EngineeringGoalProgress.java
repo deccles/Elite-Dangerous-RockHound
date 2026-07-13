@@ -208,10 +208,28 @@ public final class EngineeringGoalProgress {
                                                                  EngineeringDatabase db) {
         EngineeringGoal updated = goal;
         int level = engineering.getLevel();
+        double quality = engineering.getQuality();
         if (level > 0) {
-            int completed = Math.min(level, goal.getTargetGrade());
-            if (completed > updated.getFromGrade()) {
-                updated = updated.withProgress(completed, 0);
+            int loadoutFrom;
+            int loadoutCrafts;
+            // Quality < 1 means the commander is still rolling the current Level grade.
+            // fromGrade = grades fully finished; craftsAtCurrentGrade ≈ Quality * 5.
+            if (quality >= 0.999d) {
+                loadoutFrom = Math.min(level, goal.getTargetGrade());
+                loadoutCrafts = 0;
+            } else {
+                loadoutFrom = Math.min(Math.max(0, level - 1), goal.getTargetGrade());
+                loadoutCrafts = Math.max(0, Math.min(
+                        EngineeringGradeProgress.ROLLS_PER_GRADE - 1,
+                        (int) Math.round(quality * EngineeringGradeProgress.ROLLS_PER_GRADE)));
+                if (loadoutCrafts <= 0 && quality > 0.01d) {
+                    loadoutCrafts = 1;
+                }
+            }
+            if (loadoutFrom > updated.getFromGrade()
+                    || (loadoutFrom == updated.getFromGrade()
+                            && loadoutCrafts > updated.getCraftsAtCurrentGrade())) {
+                updated = updated.withProgress(loadoutFrom, loadoutCrafts);
             }
         }
         if (!goal.getExperimentalId().isBlank() && !updated.isExperimentalApplied()) {
@@ -232,7 +250,7 @@ public final class EngineeringGoalProgress {
                                                           LoadoutEvent.Engineering engineering,
                                                           EngineeringDatabase db) {
         int level = engineering.getLevel();
-        if (level < goal.getTargetGrade()) {
+        if (level < goal.getTargetGrade() || engineering.getQuality() < 0.999d) {
             return false;
         }
         if (goal.getExperimentalId().isBlank()) {
@@ -279,10 +297,9 @@ public final class EngineeringGoalProgress {
         if (goal == null || craft.getLevel() <= 0) {
             return false;
         }
-        if (!matchesGoalModuleBlueprint(goal, craft, db)) {
-            return false;
-        }
-        return ingredientsMatchGrade(goal, craft, db);
+        // Trust resolved blueprint + craft level. Strict ingredient matching rejected valid crafts when
+        // journal names/counts diverged from the catalog, so inventory fell while Need did not.
+        return matchesGoalModuleBlueprint(goal, craft, db);
     }
 
     private static boolean matchesExperimentalCraft(EngineeringGoal goal,
@@ -350,18 +367,6 @@ public final class EngineeringGoalProgress {
             }
         }
         return false;
-    }
-
-    private static boolean ingredientsMatchGrade(EngineeringGoal goal,
-                                                 EngineerCraftEvent craft,
-                                                 EngineeringDatabase db) {
-        Optional<BlueprintGrade> grade = db.gradesFor(goal.getModuleType(), goal.getBlueprintName()).stream()
-                .filter(g -> g.getGrade() == craft.getLevel())
-                .findFirst();
-        if (grade.isEmpty()) {
-            return false;
-        }
-        return ingredientsMatch(grade.get().getMaterials(), craft.getIngredients(), db);
     }
 
     private static boolean ingredientsMatch(List<MaterialRequirement> required,
