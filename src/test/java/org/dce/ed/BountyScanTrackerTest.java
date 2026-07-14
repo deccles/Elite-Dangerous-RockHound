@@ -164,8 +164,8 @@ class BountyScanTrackerTest {
 
     @Test
     void targetedBountyInSightLabelUsesCompactMillions() {
-        assertEquals("Bounty: 5M", OverlayFrame.formatTargetedBountyInSightLabel(5_000_000L));
-        assertEquals("Bounty: 242K", OverlayFrame.formatTargetedBountyInSightLabel(242_475L));
+        assertEquals("Target bounty: 5M", OverlayFrame.formatTargetedBountyInSightLabel(5_000_000L));
+        assertEquals("Target bounty: 242K", OverlayFrame.formatTargetedBountyInSightLabel(242_475L));
     }
 
     private static ShipTargetedEvent stage3(String pilot, long bounty) {

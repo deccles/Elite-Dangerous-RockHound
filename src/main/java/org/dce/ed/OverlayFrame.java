@@ -549,7 +549,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     }
 
     static String formatTargetedBountyInSightLabel(long credits) {
-        return "Bounty: " + ExplorationBodyCredits.formatAbbreviatedCredits(credits);
+        return "Target bounty: " + ExplorationBodyCredits.formatAbbreviatedCredits(credits);
     }
 
     private void appendSpeechCacheMissBannerHtml(StringBuilder sb) {
@@ -1391,16 +1391,16 @@ private static String formatBountyCredits(long credits) {
     }
     double d = credits;
     if (credits >= 1_000_000_000L) {
-        return String.format(Locale.US, "Bounty: %.1fB Cr", d / 1_000_000_000d);
+        return String.format(Locale.US, "Bounties Earned: %.1fB Cr", d / 1_000_000_000d);
     }
     if (credits >= 1_000_000L) {
-        return String.format(Locale.US, "Bounty: %.1fM Cr", d / 1_000_000d);
+        return String.format(Locale.US, "Bounties Earned: %.1fM Cr", d / 1_000_000d);
     }
     if (credits >= 1_000L) {
-        return String.format(Locale.US, "Bounty: %.1fK Cr", d / 1_000d);
+        return String.format(Locale.US, "Bounties Earned: %.1fK Cr", d / 1_000d);
     }
     NumberFormat nf = NumberFormat.getIntegerInstance(Locale.US);
-    return "Bounty: " + nf.format(credits) + " Cr";
+    return "Bounties Earned: " + nf.format(credits) + " Cr";
 }
 
 private static String formatScienceCredits(long exoCredits, long geoCredits, long bountyCredits) {
