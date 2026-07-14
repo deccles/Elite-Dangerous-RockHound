@@ -29,6 +29,7 @@ import java.time.LocalTime;
 
 import org.dce.ed.exec.ExecShortcutKeyDispatch;
 import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.logreader.JournalImportVersion;
 import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
@@ -140,24 +141,37 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         System.setProperty("awt.useSystemAAFontSettings", "on");
         System.setProperty("swing.aatext", "true");
 
+        boolean forceFull = JournalImportVersion.isStale();
+        if (forceFull) {
+            System.out.println("[EDO] Journal import version bumped to "
+                    + JournalImportVersion.VERSION
+                    + " (or unset); forcing full journal rescan with progress UI...");
+            SwingUtilities.invokeLater(() -> OverlayToolsLaunchers.rescanJournalFullAtStartup(
+                    EliteDangerousOverlay::finishStartupAfterJournalImport));
+            return;
+        }
+
         try {
             RescanJournalsMain.rescanJournals(false);
         } catch (Exception e) {
             e.printStackTrace();
         }
 
-        SwingUtilities.invokeLater(() -> {
-            if (!OverlayPreferences.isJournalDirectoryAvailable(clientKey)) {
-                JOptionPane.showMessageDialog(null,
-                    "Elite Dangerous journal directory was not found.\n\n"
-                    + "The overlay will start without live journal data. You can still use features that don't require the game (e.g. route planning).\n\n"
-                    + "To use journal features, install Elite Dangerous or set a custom journal path in Settings.",
-                    "Journal directory not found",
-                    JOptionPane.WARNING_MESSAGE);
-            }
-            EliteDangerousOverlay app = new EliteDangerousOverlay();
-            app.start();
-        });
+        SwingUtilities.invokeLater(EliteDangerousOverlay::finishStartupAfterJournalImport);
+    }
+
+    /** After optional full import: journal-dir warning, then construct and start the overlay. */
+    private static void finishStartupAfterJournalImport() {
+        if (!OverlayPreferences.isJournalDirectoryAvailable(clientKey)) {
+            JOptionPane.showMessageDialog(null,
+                "Elite Dangerous journal directory was not found.\n\n"
+                + "The overlay will start without live journal data. You can still use features that don't require the game (e.g. route planning).\n\n"
+                + "To use journal features, install Elite Dangerous or set a custom journal path in Settings.",
+                "Journal directory not found",
+                JOptionPane.WARNING_MESSAGE);
+        }
+        EliteDangerousOverlay app = new EliteDangerousOverlay();
+        app.start();
     }
 
     private static String getAppVersion() {

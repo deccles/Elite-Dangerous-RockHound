@@ -17,10 +17,12 @@ import java.util.Map;
 import java.util.function.BooleanSupplier;
 
 import javax.swing.BorderFactory;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
@@ -44,10 +46,13 @@ import org.dce.ed.engineering.EngineeringDatabase;
 import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringGoal;
 import org.dce.ed.engineering.EngineeringMaterialKeys;
+import org.dce.ed.engineering.EngineeringShipCatalog;
+import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.MaterialRequirement;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
+import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.TableHeaderSortSupport;
 
 /**
@@ -79,6 +84,10 @@ final class EngineeringGoalDialog extends JDialog {
     private final JLabel materialsLabel = new JLabel(" ");
     private final JComboBox<String> gradeCombo = new JComboBox<>();
     private final JComboBox<String> experimentalCombo = new JComboBox<>();
+    private final JComboBox<EngineeringShipRef> shipCombo = new JComboBox<>();
+    private final EngineeringShipCatalog shipCatalog;
+    private List<EngineeringShipRef> shipChoices;
+    private final EngineeringShipRef defaultShip;
 
     private EngineeringGoal result;
 
@@ -86,44 +95,124 @@ final class EngineeringGoalDialog extends JDialog {
                                   EngineeringDatabase database,
                                   BooleanSupplier passThroughEnabledSupplier,
                                   Mode mode,
-                                  EngineeringGoal editSource) {
+                                  EngineeringGoal editSource,
+                                  EngineeringShipCatalog shipCatalog,
+                                  EngineeringShipRef defaultShip) {
         super(owner, mode == Mode.EDIT ? "Edit engineering goal" : "Add engineering goal", ModalityType.APPLICATION_MODAL);
         this.mode = mode;
         this.editSource = editSource;
         this.database = database;
         this.passThroughEnabledSupplier = passThroughEnabledSupplier;
+        this.shipCatalog = shipCatalog;
+        this.shipChoices = shipCatalog != null ? shipCatalog.listSorted() : List.of();
+        this.defaultShip = defaultShip;
         buildUi();
         if (mode == Mode.ADD) {
             reloadBlueprintList();
+            selectShipInCombo(defaultShip);
         } else {
             prefillFromGoal(editSource);
         }
         pack();
-        setMinimumSize(new Dimension(mode == Mode.EDIT ? 420 : 520, mode == Mode.EDIT ? 220 : 420));
+        setMinimumSize(new Dimension(mode == Mode.EDIT ? 420 : 520, mode == Mode.EDIT ? 260 : 460));
         setLocationRelativeTo(owner);
+    }
+
+    private static volatile EngineeringGoalDialog activeInstance;
+
+    /** Refresh ship list/labels from the live catalog (e.g. after {@code SetUserShipName}). */
+    void refreshShipsFromCatalog() {
+        if (!isDisplayable()) {
+            return;
+        }
+        EngineeringShipRef selected = (EngineeringShipRef) shipCombo.getSelectedItem();
+        long keepId = selected != null && selected.isKnown()
+                ? selected.getShipId()
+                : (defaultShip != null && defaultShip.isKnown() ? defaultShip.getShipId() : -1L);
+        shipChoices = shipCatalog != null ? shipCatalog.listSorted() : List.of();
+        populateShipCombo();
+        if (keepId >= 0) {
+            for (int i = 0; i < shipCombo.getItemCount(); i++) {
+                EngineeringShipRef s = shipCombo.getItemAt(i);
+                if (s != null && s.getShipId() == keepId) {
+                    shipCombo.setSelectedIndex(i);
+                    shipCombo.repaint();
+                    return;
+                }
+            }
+        }
+        shipCombo.repaint();
+    }
+
+    static void refreshActiveShipChoices() {
+        EngineeringGoalDialog dialog = activeInstance;
+        if (dialog != null) {
+            dialog.refreshShipsFromCatalog();
+        }
     }
 
     static EngineeringGoal showForAdd(Window owner,
                                       EngineeringDatabase database,
-                                      BooleanSupplier passThroughEnabledSupplier) {
+                                      BooleanSupplier passThroughEnabledSupplier,
+                                      EngineeringShipCatalog shipCatalog,
+                                      EngineeringShipRef defaultShip) {
         if (database == null) {
             return null;
         }
-        EngineeringGoalDialog dialog = new EngineeringGoalDialog(owner, database, passThroughEnabledSupplier, Mode.ADD, null);
-        dialog.setVisible(true);
-        return dialog.result;
+        EngineeringGoalDialog dialog = new EngineeringGoalDialog(
+                owner, database, passThroughEnabledSupplier, Mode.ADD, null, shipCatalog, defaultShip);
+        activeInstance = dialog;
+        try {
+            dialog.setVisible(true);
+            return dialog.result;
+        } finally {
+            activeInstance = null;
+        }
     }
 
     static EngineeringGoal showForEdit(Window owner,
                                        EngineeringDatabase database,
                                        BooleanSupplier passThroughEnabledSupplier,
-                                       EngineeringGoal existing) {
+                                       EngineeringGoal existing,
+                                       EngineeringShipCatalog shipCatalog) {
         if (database == null || existing == null) {
             return null;
         }
-        EngineeringGoalDialog dialog = new EngineeringGoalDialog(owner, database, passThroughEnabledSupplier, Mode.EDIT, existing);
-        dialog.setVisible(true);
-        return dialog.result;
+        EngineeringShipRef def = null;
+        if (existing.hasShip()) {
+            if (shipCatalog != null) {
+                def = shipCatalog.get(existing.getShipId());
+            }
+            if (def == null) {
+                def = new EngineeringShipRef(existing.getShipId(), "", existing.getShipLabel(), "");
+            }
+        }
+        EngineeringGoalDialog dialog = new EngineeringGoalDialog(
+                owner, database, passThroughEnabledSupplier, Mode.EDIT, existing, shipCatalog, def);
+        activeInstance = dialog;
+        try {
+            dialog.setVisible(true);
+            return dialog.result;
+        } finally {
+            activeInstance = null;
+        }
+    }
+
+    /** @deprecated use {@link #showForAdd} with ship catalog */
+    static EngineeringGoal showForAdd(Window owner,
+                                      EngineeringDatabase database,
+                                      BooleanSupplier passThroughEnabledSupplier) {
+        return showForAdd(owner, database, passThroughEnabledSupplier,
+                (EngineeringShipCatalog) null, null);
+    }
+
+    /** @deprecated use {@link #showForEdit} with ship catalog */
+    static EngineeringGoal showForEdit(Window owner,
+                                       EngineeringDatabase database,
+                                       BooleanSupplier passThroughEnabledSupplier,
+                                       EngineeringGoal existing) {
+        return showForEdit(owner, database, passThroughEnabledSupplier, existing,
+                (EngineeringShipCatalog) null);
     }
 
     /** @deprecated use {@link #showForAdd} */
@@ -159,7 +248,68 @@ final class EngineeringGoalDialog extends JDialog {
                     .ifPresentOrElse(bp -> experimentalCombo.setSelectedItem(bp.getName()),
                             () -> experimentalCombo.setSelectedItem("(none)"));
         }
+        populateShipCombo();
+        if (goal.hasShip()) {
+            selectShipInCombo(new EngineeringShipRef(goal.getShipId(), "", goal.getShipLabel(), ""));
+        } else {
+            selectShipInCombo(defaultShip);
+        }
         updateGradeDetails();
+    }
+
+    private void populateShipCombo() {
+        shipCombo.removeAllItems();
+        for (EngineeringShipRef ship : shipChoices) {
+            if (ship != null && ship.isKnown()) {
+                shipCombo.addItem(ship);
+            }
+        }
+        if (defaultShip != null && defaultShip.isKnown()) {
+            boolean present = false;
+            for (int i = 0; i < shipCombo.getItemCount(); i++) {
+                EngineeringShipRef s = shipCombo.getItemAt(i);
+                if (s != null && s.getShipId() == defaultShip.getShipId()) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present) {
+                shipCombo.addItem(defaultShip);
+            }
+        }
+        if (editSource != null && editSource.hasShip()) {
+            boolean present = false;
+            for (int i = 0; i < shipCombo.getItemCount(); i++) {
+                EngineeringShipRef s = shipCombo.getItemAt(i);
+                if (s != null && s.getShipId() == editSource.getShipId()) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present) {
+                shipCombo.addItem(new EngineeringShipRef(
+                        editSource.getShipId(), "", editSource.getShipLabel(), ""));
+            }
+        }
+    }
+
+    private void selectShipInCombo(EngineeringShipRef wanted) {
+        populateShipCombo();
+        if (wanted == null || !wanted.isKnown()) {
+            if (shipCombo.getItemCount() > 0) {
+                shipCombo.setSelectedIndex(0);
+            }
+            return;
+        }
+        for (int i = 0; i < shipCombo.getItemCount(); i++) {
+            EngineeringShipRef s = shipCombo.getItemAt(i);
+            if (s != null && s.getShipId() == wanted.getShipId()) {
+                shipCombo.setSelectedIndex(i);
+                return;
+            }
+        }
+        shipCombo.addItem(wanted);
+        shipCombo.setSelectedItem(wanted);
     }
 
     private void buildUi() {
@@ -257,6 +407,36 @@ final class EngineeringGoalDialog extends JDialog {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1;
         form.add(experimentalCombo, gbc);
+
+        JLabel shipLabel = fieldLabel("Ship:", base, fontSize);
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        form.add(shipLabel, gbc);
+        styleCombo(shipCombo, base);
+        constrainComboHeight(shipCombo);
+        shipCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof EngineeringShipRef ship) {
+                    setText(shipCatalog != null
+                            ? shipCatalog.displayLabel(ship)
+                            : EngineeringShipRef.displayLabelAmong(ship, shipChoices));
+                }
+                setForeground(EdoUi.User.MAIN_TEXT);
+                setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
+                return c;
+            }
+        });
+        populateShipCombo();
+        selectShipInCombo(defaultShip);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1;
+        form.add(shipCombo, gbc);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         buttons.setOpaque(false);
@@ -516,8 +696,16 @@ final class EngineeringGoalDialog extends JDialog {
         int targetGrade = Integer.parseInt(gradeSel.toString().substring(1));
         int quantity = ((Number) quantitySpinner.getValue()).intValue();
         String experimentalId = resolveExperimentalId(selected.moduleType(), selected.blueprintName());
+        EngineeringShipRef ship = (EngineeringShipRef) shipCombo.getSelectedItem();
+        long shipId = ship != null && ship.isKnown() ? ship.getShipId() : EngineeringShipRef.UNKNOWN_SHIP_ID;
+        String shipLabel = "";
+        if (ship != null) {
+            shipLabel = shipCatalog != null
+                    ? shipCatalog.displayLabel(ship)
+                    : EngineeringShipRef.displayLabelAmong(ship, shipChoices);
+        }
         if (mode == Mode.EDIT) {
-            result = editSource.withUserSettings(targetGrade, experimentalId, quantity);
+            result = editSource.withUserSettings(targetGrade, experimentalId, quantity, shipId, shipLabel);
             dispose();
             return;
         }
@@ -539,7 +727,9 @@ final class EngineeringGoalDialog extends JDialog {
                 true,
                 false,
                 quantity,
-                0);
+                0,
+                shipId,
+                shipLabel);
         dispose();
     }
 
@@ -582,6 +772,7 @@ final class EngineeringGoalDialog extends JDialog {
         combo.setForeground(EdoUi.User.MAIN_TEXT);
         combo.setBackground(EdoUi.User.PANEL_BG);
         combo.setMaximumRowCount(12);
+        OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
     }
 
     private static void constrainComboHeight(JComboBox<?> combo) {

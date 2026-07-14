@@ -3,6 +3,7 @@ package org.dce.ed.exec.placeholder;
 import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.logreader.event.SetUserShipNameEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 
 /** Last-known commander, ship, and high-frequency Status fields for exec placeholders. */
@@ -52,6 +53,21 @@ public final class CommanderSnapshot {
         shipName = blankToNull(e.getShipName());
         shipIdent = blankToNull(e.getShipIdent());
         shipId = e.getShipId();
+    }
+
+    public void updateFromSetUserShipName(SetUserShipNameEvent e) {
+        if (e == null || e.getShipId() < 0) {
+            return;
+        }
+        if (shipId >= 0 && (long) shipId != e.getShipId()) {
+            return;
+        }
+        shipId = (int) e.getShipId();
+        if (!e.getShipType().isBlank()) {
+            shipType = blankToNull(e.getShipType());
+        }
+        shipName = blankToNull(e.getUserShipName());
+        shipIdent = blankToNull(e.getUserShipId());
     }
 
     public void updateFromStatus(StatusEvent e) {

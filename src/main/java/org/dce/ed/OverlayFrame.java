@@ -55,10 +55,10 @@ import org.dce.ed.ui.OverlayBackgroundPanel;
 import org.dce.ed.ui.PassThroughTooltipSupport;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.cache.SystemCache;
-import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.session.EdoSessionPersistence;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.FleetCarrierSessionData;
+import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.LiveJournalMonitor;
 import org.dce.ed.logreader.CarrierJumpCooldown;
@@ -876,6 +876,14 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         reapplyNativeMousePassThroughIfEnabled();
     }
 
+    /** After Tools full rescan when the user stays in-process: reload craft progress into goals. */
+    public void refreshEngineeringProgressAfterRescan() {
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs != null) {
+            tabs.getEngineeringTabPanel().refreshGoalProgressFromJournal();
+        }
+    }
+
     /**
      * Persist overlay session immediately (full snapshot). Use after fleet-route / carrier UI changes where
      * the 500 ms debounced save might not run before exit.
@@ -1511,7 +1519,7 @@ private void installExoCreditsTracker() {
                 return;
             }
 
-            boolean firstBonus = true;
+            boolean firstBonus = false;
             try {
                 EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
                 SystemTabPanel systemTab = (tabs != null) ? tabs.getSystemTabPanel() : null;
@@ -1530,7 +1538,7 @@ private void installExoCreditsTracker() {
                     }
                 }
             } catch (Exception ignored) {
-                // best-effort; default to first bonus
+                // best-effort; omit first-bonus until Spansh/body state is known
             }
 
             Long payout = ExobiologyData.estimatePayout(so.getGenusLocalised(), so.getSpeciesLocalised(), firstBonus);

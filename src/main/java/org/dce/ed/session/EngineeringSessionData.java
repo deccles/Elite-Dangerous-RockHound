@@ -9,6 +9,9 @@ import java.util.List;
 public final class EngineeringSessionData {
 
     private List<EngineeringGoalPersisted> goals = new ArrayList<>();
+    private List<ShipPersisted> knownShips = new ArrayList<>();
+    /** null = All ships filter. */
+    private Long goalsShipFilterId;
 
     public List<EngineeringGoalPersisted> getGoals() {
         return goals;
@@ -20,6 +23,26 @@ public final class EngineeringSessionData {
 
     public List<EngineeringGoalPersisted> goalsOrEmpty() {
         return goals != null ? goals : new ArrayList<>();
+    }
+
+    public List<ShipPersisted> getKnownShips() {
+        return knownShips;
+    }
+
+    public void setKnownShips(List<ShipPersisted> knownShips) {
+        this.knownShips = knownShips != null ? knownShips : new ArrayList<>();
+    }
+
+    public List<ShipPersisted> knownShipsOrEmpty() {
+        return knownShips != null ? knownShips : new ArrayList<>();
+    }
+
+    public Long getGoalsShipFilterId() {
+        return goalsShipFilterId;
+    }
+
+    public void setGoalsShipFilterId(Long goalsShipFilterId) {
+        this.goalsShipFilterId = goalsShipFilterId;
     }
 
     public static final class EngineeringGoalPersisted {
@@ -36,6 +59,9 @@ public final class EngineeringSessionData {
         /** {@code null} or {@code <= 0} = 1 (legacy sessions). */
         private Integer quantity;
         private int completedUnits;
+        /** null / missing = unset (legacy). */
+        private Long shipId;
+        private String shipLabel;
 
         public String getBlueprintId() {
             return blueprintId;
@@ -127,6 +153,65 @@ public final class EngineeringSessionData {
 
         public void setCompletedUnits(int completedUnits) {
             this.completedUnits = Math.max(0, completedUnits);
+        }
+
+        public Long getShipId() {
+            return shipId;
+        }
+
+        public void setShipId(Long shipId) {
+            this.shipId = shipId;
+        }
+
+        public long shipIdOrUnknown() {
+            return shipId != null ? shipId.longValue() : -1L;
+        }
+
+        public String getShipLabel() {
+            return shipLabel != null ? shipLabel : "";
+        }
+
+        public void setShipLabel(String shipLabel) {
+            this.shipLabel = shipLabel;
+        }
+    }
+
+    public static final class ShipPersisted {
+        private long shipId;
+        private String shipType;
+        private String shipName;
+        private String shipIdent;
+
+        public long getShipId() {
+            return shipId;
+        }
+
+        public void setShipId(long shipId) {
+            this.shipId = shipId;
+        }
+
+        public String getShipType() {
+            return shipType != null ? shipType : "";
+        }
+
+        public void setShipType(String shipType) {
+            this.shipType = shipType;
+        }
+
+        public String getShipName() {
+            return shipName != null ? shipName : "";
+        }
+
+        public void setShipName(String shipName) {
+            this.shipName = shipName;
+        }
+
+        public String getShipIdent() {
+            return shipIdent != null ? shipIdent : "";
+        }
+
+        public void setShipIdent(String shipIdent) {
+            this.shipIdent = shipIdent;
         }
     }
 }

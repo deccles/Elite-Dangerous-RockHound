@@ -30,6 +30,31 @@ class ExecPlaceholderSubstitutorTest {
     }
 
     @Test
+    void clipboard_fromLaunchContext() {
+        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+        ExecLaunchContext launch = ExecLaunchContext.builder(ExecTriggerId.MANUAL)
+                .clipboard("Eol Prou LH-K c9-96")
+                .build();
+        assertEquals("Eol Prou LH-K c9-96",
+                ExecPlaceholderResolver.resolveOne(ctx, launch, ExecPlaceholderId.CLIPBOARD));
+
+        List<String> args = ExecPlaceholderSubstitutor.expandProgramArgs(
+                "--play paste-dest $CLIPBOARD",
+                ctx, launch, ExecPlaceholderResolver.resolveAll(ctx, launch));
+        assertEquals(List.of("--play", "paste-dest", "Eol Prou LH-K c9-96"), args);
+    }
+
+    @Test
+    void clipboard_unknownWhenClipboardCleared() {
+        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+        ExecLaunchContext launch = ExecLaunchContext.builder(ExecTriggerId.FLEET_COOLDOWN_COMPLETE)
+                .clipboardCleared(true)
+                .build();
+        assertEquals("Unknown",
+                ExecPlaceholderResolver.resolveOne(ctx, launch, ExecPlaceholderId.CLIPBOARD));
+    }
+
+    @Test
     void tokenizer_respectsQuotedLiterals() {
         List<String> tokens = ExecArgsTokenizer.tokenize("--play \"fleet map\" $SYSTEM_NAME");
         assertEquals(3, tokens.size());

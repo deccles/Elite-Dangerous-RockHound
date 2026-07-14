@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.EliteDangerousOverlay;
 import org.dce.ed.cache.CachedSystem;
@@ -51,6 +52,36 @@ public class RescanJournalsMain {
 	/** Console/UI replay progress: at most about one line every 2s or 10k events. */
 	private static final int REPLAY_PROGRESS_EVERY_EVENTS = 10_000;
 	private static final long REPLAY_PROGRESS_INTERVAL_NS = 2_000_000_000L;
+
+	/**
+	 * Journal {@code event} names required for system-cache rebuild + mission/exo/carrier session
+	 * fields during {@link #rescanJournals}. Other lines are skipped before Gson parse.
+	 */
+	private static final Set<String> RESCAN_INCLUDE_EVENT_NAMES = Set.of(
+			"Location",
+			"FSDJump",
+			"CarrierJump",
+			"CarrierLocation",
+			"CarrierJumpRequest",
+			"CarrierJumpCancelled",
+			"Docked",
+			"Undocked",
+			"FSSDiscoveryScan",
+			"Scan",
+			"ScanBaryCentre",
+			"SAASignalsFound",
+			"FSSBodySignals",
+			"FSSAllBodiesFound",
+			"ScanOrganic",
+			"SellOrganicData",
+			"MissionAccepted",
+			"MissionCompleted",
+			"MissionFailed",
+			"MissionAbandoned",
+			"MissionRedirected",
+			"CargoDepot",
+			"Missions"
+	);
 
 	/**
 	 * Optional UI/CLI progress hook. {@code percent} is 0–100, or negative for indeterminate.
@@ -190,15 +221,11 @@ public class RescanJournalsMain {
 		if (forcedJournalFile != null) {
 			// We intentionally do NOT stage/copy anything into the live journal directory
 			// (EDMC watches that directory and will ingest anything we drop there).
-			//
-			// Add a tiny helper method to EliteJournalReader:
-			//   List<EliteLogEvent> readEventsFromJournalFile(Path journalFile)
-			// which reads/parses exactly like your normal directory scan.
-			events = reader.readEventsFromJournalFile(forcedJournalFile);
+			events = reader.readEventsFromJournalFile(forcedJournalFile, RESCAN_INCLUDE_EVENT_NAMES);
 		} else if (lastImport == null) {
-			events = reader.readEventsFromLastNJournalFiles(Integer.MAX_VALUE);
+			events = reader.readEventsFromLastNJournalFiles(Integer.MAX_VALUE, RESCAN_INCLUDE_EVENT_NAMES);
 		} else {
-			events = reader.readEventsSince(lastImport);
+			events = reader.readEventsSince(lastImport, RESCAN_INCLUDE_EVENT_NAMES);
 		}
 
 		double loadSeconds = (System.nanoTime() - loadStartNs) / 1_000_000_000.0;
@@ -257,6 +284,7 @@ public class RescanJournalsMain {
 		}
 		try {
 			System.setProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY, "true");
+			cache.beginBulkSqliteTransaction();
 			for (int eventIndex = 0; eventIndex < eventCount; eventIndex++) {
 			EliteLogEvent event = events.get(eventIndex);
 			lastReplayProgressNs = maybeReportReplayProgress(progress, eventIndex, eventCount, systemsStored,
@@ -338,37 +366,39 @@ public class RescanJournalsMain {
 				missionReplayTracker.applyEvent(event);
 			}
 
-			// Exobiology running total (Analyse == 3rd scan completion)
-			if (event.getType() == EliteEventType.SELL_ORGANIC_DATA) {
-//				System.out.println("Sold " + exoCreditsTotal);
-				exoCreditsTotal = 0L;
-				state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
-			}
+			// Exobiology unsold total: during bulk, leave the preserved session value alone
+			// (first-bonus needs live Spansh; do not guess Analyse payouts while replaying).
+			if (!SystemCache.isBulkSystemWrite()) {
+				if (event.getType() == EliteEventType.SELL_ORGANIC_DATA) {
+					exoCreditsTotal = 0L;
+					state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+				}
 
-			if (event instanceof ScanOrganicEvent) {
-				ScanOrganicEvent so = (ScanOrganicEvent) event;
-				if (so.getScanType() != null && "Analyse".equalsIgnoreCase(so.getScanType().trim())) {
-					boolean firstBonus = true;
-					BodyInfo body = state.getBodies().get(so.getBodyId());
-					if (body != null) {
-						if (!Boolean.TRUE.equals(body.getWasFootfalled()) && body.getSpanshLandmarks() == null) {
-							SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(body.getStarSystem(), body.getBodyName());
-							if (info != null) {
-								body.setSpanshLandmarks(info.getLandmarks());
-								body.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
+				if (event instanceof ScanOrganicEvent) {
+					ScanOrganicEvent so = (ScanOrganicEvent) event;
+					if (so.getScanType() != null && "Analyse".equalsIgnoreCase(so.getScanType().trim())) {
+						boolean firstBonus = false;
+						BodyInfo body = state.getBodies().get(so.getBodyId());
+						if (body != null) {
+							if (!Boolean.TRUE.equals(body.getWasFootfalled()) && body.getSpanshLandmarks() == null) {
+								SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance()
+										.getOrFetch(body.getStarSystem(), body.getBodyName());
+								if (info != null) {
+									body.setSpanshLandmarks(info.getLandmarks());
+									body.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
+								}
 							}
+							firstBonus = FirstBonusHelper.firstBonusApplies(body);
 						}
-						firstBonus = FirstBonusHelper.firstBonusApplies(body);
-					}
 
-					Long payout = ExobiologyData.estimatePayout(
-							so.getGenusLocalised(),
-							so.getSpeciesLocalised(),
-							firstBonus);
-					if (payout != null && payout.longValue() > 0L) {
-						exoCreditsTotal += payout.longValue();
-						state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
-//						System.out.println("Earned total: " + exoCreditsTotal);
+						Long payout = ExobiologyData.estimatePayout(
+								so.getGenusLocalised(),
+								so.getSpeciesLocalised(),
+								firstBonus);
+						if (payout != null && payout.longValue() > 0L) {
+							exoCreditsTotal += payout.longValue();
+							state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
+						}
 					}
 				}
 			}
@@ -382,6 +412,7 @@ public class RescanJournalsMain {
 			System.out.flush();
 		}
 		} finally {
+			cache.endBulkSqliteTransaction();
 			if (prevBulkCacheWrite != null) {
 				System.setProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY, prevBulkCacheWrite);
 			} else {
@@ -516,16 +547,42 @@ public class RescanJournalsMain {
 			if (pct != lastReportedPercent[0] || first || last || interval || time) {
 				lastReportedPercent[0] = pct;
 				double elapsed = (nowNs - replayStartNs) / 1_000_000_000.0;
+				String timing = formatElapsedWithEta(elapsed, processed, eventCount);
 				reportProgress(progress, "Rebuilding cache", pct,
 						processed + " / " + eventCount + " events"
 								+ (systemsStored > 0 ? ", " + systemsStored + " systems stored" : "")
-								+ String.format(Locale.US, ", %.0f s", elapsed));
+								+ timing);
 			}
 		} else {
 			System.out.printf(Locale.US, "Processing events: %s%s%n", eventsDetail, systemsSuffix);
 			System.out.flush();
 		}
 		return nowNs;
+	}
+
+	/** e.g. {@code , 45 s (~2m left)} once enough events have run for a stable estimate. */
+	private static String formatElapsedWithEta(double elapsedSeconds, int processed, int eventCount) {
+		String elapsed = String.format(Locale.US, ", %.0f s", Math.max(0.0, elapsedSeconds));
+		if (processed <= 0 || eventCount <= processed || elapsedSeconds < 2.0) {
+			return elapsed;
+		}
+		double remaining = elapsedSeconds * (eventCount - processed) / (double) processed;
+		return elapsed + " (~" + formatDurationRough(remaining) + " left)";
+	}
+
+	private static String formatDurationRough(double seconds) {
+		long sec = Math.max(0L, Math.round(seconds));
+		if (sec < 60L) {
+			return sec + "s";
+		}
+		long min = sec / 60L;
+		long remSec = sec % 60L;
+		if (min < 60L) {
+			return remSec > 0 ? min + "m " + remSec + "s" : min + "m";
+		}
+		long hours = min / 60L;
+		long remMin = min % 60L;
+		return remMin > 0 ? hours + "h " + remMin + "m" : hours + "h";
 	}
 
 	private static void reportProgress(RescanProgressListener progress, String phase, int percent, String detail) {

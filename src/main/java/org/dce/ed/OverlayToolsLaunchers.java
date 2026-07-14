@@ -14,12 +14,15 @@ import javax.swing.JProgressBar;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 
+import org.dce.ed.engineering.EngineeringCraftStore;
 import org.dce.ed.exobiology.audit.ExoPredictionDebuggerMain;
+import org.dce.ed.logreader.JournalImportVersion;
 import org.dce.ed.logreader.RescanCurrentSystemFromJournal;
 import org.dce.ed.logreader.RescanJournalsMain;
 import org.dce.ed.tools.EdoSqliteDatabaseFrame;
 import org.dce.ed.tools.SystemHierarchyGraphFrame;
 import org.dce.ed.ui.ShowConsoleAction;
+import org.dce.ed.util.AppIconUtil;
 import org.dce.ed.util.ArdentQueryTool;
 import org.dce.ed.util.EdsmQueryTool;
 import org.dce.ed.util.GithubMsiUpdater;
@@ -46,19 +49,45 @@ public final class OverlayToolsLaunchers {
         }
 
         Window owner = SwingUtilities.getWindowAncestor(parent);
-        JDialog progressDialog = new JDialog(owner, "Rescan journal (full)", Dialog.ModalityType.APPLICATION_MODAL);
+        runFullJournalRescanWithProgress(owner, parent, true, null);
+    }
+
+    /**
+     * Startup path when {@link org.dce.ed.logreader.JournalImportVersion} is stale: modal progress
+     * dialog, full journal replay + craft rebuild, then {@code onComplete} on the EDT.
+     */
+    public static void rescanJournalFullAtStartup(Runnable onComplete) {
+        runFullJournalRescanWithProgress(null, null, false, onComplete);
+    }
+
+    private static void runFullJournalRescanWithProgress(
+            Window owner,
+            Component messageParent,
+            boolean offerRestart,
+            Runnable onComplete) {
+        String dialogTitle = offerRestart
+                ? "Rescan journal (full)"
+                : "Sorry, need to reparse your logs. Hold please...";
+        JDialog progressDialog = new JDialog(owner, dialogTitle, Dialog.ModalityType.APPLICATION_MODAL);
         progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
-        JLabel statusLabel = new JLabel("Preparing…");
+        JLabel statusLabel = new JLabel(offerRestart
+                ? "Preparing…"
+                : "Import version updated — rebuilding journal cache…");
         JProgressBar progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
         progressBar.setStringPainted(true);
 
-        progressDialog.getContentPane().setLayout(new BorderLayout(10, 10));
-        progressDialog.getContentPane().add(statusLabel, BorderLayout.NORTH);
-        progressDialog.getContentPane().add(progressBar, BorderLayout.CENTER);
-        progressDialog.setSize(480, 130);
-        progressDialog.setLocationRelativeTo(parent);
+        javax.swing.JPanel content = new javax.swing.JPanel(new BorderLayout(10, 10));
+        content.setBorder(javax.swing.BorderFactory.createEmptyBorder(12, 14, 14, 14));
+        content.add(statusLabel, BorderLayout.NORTH);
+        content.add(progressBar, BorderLayout.CENTER);
+        progressDialog.setContentPane(content);
+        progressDialog.setSize(offerRestart ? 520 : 560, 140);
+        progressDialog.setLocationRelativeTo(owner != null ? owner : messageParent);
+        AppIconUtil.applyAppIcon(progressDialog, AppIconUtil.APP_ICON_RESOURCE);
+
+        Component errorParent = messageParent != null ? messageParent : progressDialog;
 
         SwingWorker<Void, RescanProgressUpdate> worker = new SwingWorker<Void, RescanProgressUpdate>() {
 
@@ -69,7 +98,16 @@ public final class OverlayToolsLaunchers {
                 try {
                     RescanJournalsMain.rescanJournals(true, null, null,
                             (phase, percent, detail) -> publish(new RescanProgressUpdate(phase, percent, detail)));
+                    // Full wipe clears engineering_crafts / loadouts; always rebuild before UI reloads.
+                    publish(new RescanProgressUpdate(
+                            "Engineering crafts", -1, "Rebuilding craft/loadout store…"));
+                    EngineeringCraftStore.reparseFromJournal(EliteDangerousOverlay.clientKey);
+                    if (!offerRestart) {
+                        JournalImportVersion.markApplied();
+                    }
                 } catch (IOException ex) {
+                    failure = ex;
+                } catch (Exception ex) {
                     failure = ex;
                 }
                 return null;
@@ -93,37 +131,49 @@ public final class OverlayToolsLaunchers {
                     if (msg == null || msg.isBlank()) {
                         msg = failure.getClass().getSimpleName();
                     }
-                    JOptionPane.showMessageDialog(parent,
+                    JOptionPane.showMessageDialog(errorParent,
                             "Full journal rescan failed:\n" + msg,
                             "Rescan journal (full)",
                             JOptionPane.ERROR_MESSAGE);
+                    if (onComplete != null) {
+                        onComplete.run();
+                    }
                     return;
                 }
-                int restartChoice = JOptionPane.showConfirmDialog(parent,
-                        "Journal logs have been parsed and the local cache has been rebuilt.\n\n"
-                                + "Please restart Elite Dangerous RockHound so the overlay reloads session state "
-                                + "and live journal monitoring from a clean baseline.\n\n"
-                                + "Restart now?",
-                        "Rescan journal (full)",
-                        JOptionPane.YES_NO_OPTION,
-                        JOptionPane.INFORMATION_MESSAGE);
-                if (restartChoice == JOptionPane.YES_OPTION) {
-                    try {
-                        OverlayAppRestart.restart(parent);
-                    } catch (IOException ex) {
-                        ex.printStackTrace();
-                        String msg = ex.getMessage();
-                        if (msg == null || msg.isBlank()) {
-                            msg = ex.getClass().getSimpleName();
+                if (offerRestart) {
+                    int restartChoice = JOptionPane.showConfirmDialog(messageParent,
+                            "Journal logs have been parsed and the local cache has been rebuilt.\n\n"
+                                    + "Please restart Elite Dangerous RockHound so the overlay reloads session state "
+                                    + "and live journal monitoring from a clean baseline.\n\n"
+                                    + "Restart now?",
+                            "Rescan journal (full)",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.INFORMATION_MESSAGE);
+                    if (restartChoice == JOptionPane.YES_OPTION) {
+                        try {
+                            OverlayAppRestart.restart(messageParent);
+                        } catch (IOException ex) {
+                            ex.printStackTrace();
+                            String msg = ex.getMessage();
+                            if (msg == null || msg.isBlank()) {
+                                msg = ex.getClass().getSimpleName();
+                            }
+                            JOptionPane.showMessageDialog(messageParent,
+                                    "Could not restart the overlay:\n" + msg
+                                            + "\n\nPlease close and reopen RockHound manually.",
+                                    "Rescan journal (full)",
+                                    JOptionPane.ERROR_MESSAGE);
                         }
-                        JOptionPane.showMessageDialog(parent,
-                                "Could not restart the overlay:\n" + msg
-                                        + "\n\nPlease close and reopen RockHound manually.",
-                                "Rescan journal (full)",
-                                JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        SystemTabPanel.notifyAllInstancesReloadDisplayedSystemFromCache();
+                        if (OverlayFrame.overlayFrame != null) {
+                            OverlayFrame.overlayFrame.refreshEngineeringProgressAfterRescan();
+                        }
                     }
-                } else {
-                    SystemTabPanel.notifyAllInstancesReloadDisplayedSystemFromCache();
+                    return;
+                }
+                if (onComplete != null) {
+                    onComplete.run();
                 }
             }
         };

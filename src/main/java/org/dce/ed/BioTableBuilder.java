@@ -495,7 +495,7 @@ final class BioTableBuilder {
             boolean hasPreds = preds != null && !preds.isEmpty();
 
             if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
-                SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getIfPresent(b.getStarSystem(), b.getBodyName());
+                SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(b.getStarSystem(), b.getBodyName());
                 if (info != null) {
                     b.setSpanshLandmarks(info.getLandmarks());
                     b.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
@@ -935,7 +935,7 @@ final class BioTableBuilder {
         }
 
         if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
-            SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getIfPresent(b.getStarSystem(), b.getBodyName());
+            SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(b.getStarSystem(), b.getBodyName());
             if (info != null) {
                 b.setSpanshLandmarks(info.getLandmarks());
                 b.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
@@ -1149,7 +1149,7 @@ final class BioTableBuilder {
 
         if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
             SpanshBodyExobiologyInfo sinfo =
-                    SpanshLandmarkCache.getInstance().getIfPresent(b.getStarSystem(), b.getBodyName());
+                    SpanshLandmarkCache.getInstance().getOrFetch(b.getStarSystem(), b.getBodyName());
             if (sinfo != null) {
                 b.setSpanshLandmarks(sinfo.getLandmarks());
                 b.setSpanshExcludeFromExobiology(sinfo.isExcludeFromExobiology());

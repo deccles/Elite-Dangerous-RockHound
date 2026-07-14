@@ -12,9 +12,13 @@ import java.util.Optional;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
+import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
+import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.MaterialStack;
+
+import com.google.gson.JsonObject;
 
 /**
  * Updates engineering goals when {@link EngineerCraftEvent} journal entries arrive.
@@ -32,6 +36,16 @@ public final class EngineeringGoalProgress {
     public static boolean applyCraft(List<EngineeringGoal> goals,
                                      EngineerCraftEvent craft,
                                      EngineeringDatabase database) {
+        return applyCraft(goals, craft, database, -1L);
+    }
+
+    /**
+     * @param currentShipId active hull when the craft occurred; {@code < 0} skips ship filtering
+     */
+    public static boolean applyCraft(List<EngineeringGoal> goals,
+                                     EngineerCraftEvent craft,
+                                     EngineeringDatabase database,
+                                     long currentShipId) {
         if (goals == null || goals.isEmpty() || craft == null) {
             return false;
         }
@@ -39,6 +53,9 @@ public final class EngineeringGoalProgress {
         boolean changed = false;
         for (int i = 0; i < goals.size(); i++) {
             EngineeringGoal goal = goals.get(i);
+            if (!goalMatchesShip(goal, currentShipId)) {
+                continue;
+            }
             EngineeringGoal updated = goal;
             if (craft.getLevel() > 0 && matchesCraft(goal, craft, db)) {
                 EngineeringGoal gradeUpdated = EngineeringGradeProgress.afterCraft(goal, craft.getLevel());
@@ -58,6 +75,14 @@ public final class EngineeringGoalProgress {
             }
         }
         return changed;
+    }
+
+    /** When {@code currentShipId >= 0} and the goal has a ship, only match that hull. */
+    private static boolean goalMatchesShip(EngineeringGoal goal, long currentShipId) {
+        if (goal == null || currentShipId < 0 || !goal.hasShip()) {
+            return true;
+        }
+        return goal.getShipId() == currentShipId;
     }
 
     private static EngineeringGoal advanceCompletedUnits(EngineeringGoal goal) {
@@ -92,14 +117,19 @@ public final class EngineeringGoalProgress {
         for (int i = 0; i < goals.size(); i++) {
             goals.set(i, goals.get(i).resetJournalProgress());
         }
-        boolean replayed = false;
-        try {
-            EliteJournalReader reader = new EliteJournalReader(clientKey);
-            replayed = replayCraftHistory(goals, reader.readAllEvents(), db);
-        } catch (Exception ignored) {
-            // journal directory unavailable
+        boolean replayed = replayCraftHistoryFromStore(goals, clientKey, db);
+        if (!replayed) {
+            try {
+                EliteJournalReader reader = new EliteJournalReader(clientKey);
+                replayed = replayCraftHistory(goals, reader.readAllEvents(), db);
+            } catch (Exception ignored) {
+                // journal directory unavailable
+            }
         }
-        boolean loadoutChanged = bootstrapFromLatestLoadout(goals, clientKey, database);
+        boolean loadoutChanged = applyStoredLoadouts(goals, clientKey, db);
+        if (!loadoutChanged) {
+            loadoutChanged = bootstrapFromLatestLoadout(goals, clientKey, database);
+        }
         boolean merged = false;
         for (int i = 0; i < goals.size(); i++) {
             EngineeringGoal mergedGoal = mergeProgress(saved.get(i), goals.get(i));
@@ -109,6 +139,109 @@ public final class EngineeringGoalProgress {
             }
         }
         return replayed || loadoutChanged || merged || goalsChanged(saved, goals);
+    }
+
+    /** Replays ship-attributed crafts from {@link EngineeringCraftStore}. */
+    static boolean replayCraftHistoryFromStore(List<EngineeringGoal> goals,
+                                               String clientKey,
+                                               EngineeringDatabase database) {
+        List<EngineeringCraftRecord> records = EngineeringCraftStore.listCrafts(clientKey);
+        if (records.isEmpty()) {
+            return false;
+        }
+        EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
+        EliteLogParser parser = new EliteLogParser();
+        List<Map<String, EngineeringGoal>> instancesByGoal = new ArrayList<>(goals.size());
+        for (int i = 0; i < goals.size(); i++) {
+            instancesByGoal.add(new LinkedHashMap<>());
+        }
+        boolean replayed = false;
+        for (EngineeringCraftRecord record : records) {
+            EngineerCraftEvent craft = toCraftEvent(record, parser);
+            if (craft == null) {
+                continue;
+            }
+            long shipId = record.getShipId();
+            if (shipId < 0) {
+                continue;
+            }
+            for (int i = 0; i < goals.size(); i++) {
+                EngineeringGoal template = goals.get(i);
+                if (!goalMatchesShip(template, shipId)) {
+                    continue;
+                }
+                if (!matchesGoalModuleBlueprint(template, craft, db)) {
+                    continue;
+                }
+                Map<String, EngineeringGoal> instances = instancesByGoal.get(i);
+                String key = instanceKey(craft);
+                EngineeringGoal working = instances.computeIfAbsent(key, k -> blankUnitProgress(template));
+                List<EngineeringGoal> one = new ArrayList<>(1);
+                one.add(working);
+                if (applyCraft(one, craft, db, shipId)) {
+                    instances.put(key, one.get(0));
+                    replayed = true;
+                }
+            }
+        }
+        for (int i = 0; i < goals.size(); i++) {
+            Map<String, EngineeringGoal> instances = instancesByGoal.get(i);
+            if (!instances.isEmpty()) {
+                goals.set(i, aggregateInstances(goals.get(i), instances.values()));
+                replayed = true;
+            }
+        }
+        return replayed;
+    }
+
+    static boolean applyStoredLoadouts(List<EngineeringGoal> goals,
+                                       String clientKey,
+                                       EngineeringDatabase database) {
+        Map<Long, LoadoutEvent> loadouts = EngineeringCraftStore.loadLatestLoadouts(clientKey);
+        if (loadouts.isEmpty()) {
+            return false;
+        }
+        boolean changed = false;
+        for (LoadoutEvent loadout : loadouts.values()) {
+            if (applyLoadout(goals, loadout, database)) {
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    private static EngineerCraftEvent toCraftEvent(EngineeringCraftRecord record, EliteLogParser parser) {
+        if (record == null) {
+            return null;
+        }
+        if (record.getRawJson() != null && !record.getRawJson().isBlank()) {
+            try {
+                EliteLogEvent event = parser.parseRecord(record.getRawJson());
+                if (event instanceof EngineerCraftEvent craft) {
+                    return craft;
+                }
+            } catch (Exception ignored) {
+                // fall through to synthetic
+            }
+        }
+        JsonObject raw = new JsonObject();
+        raw.addProperty("timestamp", record.getTimestamp().toString());
+        raw.addProperty("event", "EngineerCraft");
+        return new EngineerCraftEvent(
+                record.getTimestamp(),
+                raw,
+                record.getSlot(),
+                record.getModule(),
+                "",
+                0L,
+                record.getBlueprintName(),
+                0L,
+                record.getLevel(),
+                record.getQuality(),
+                "",
+                "",
+                "",
+                List.of());
     }
 
     /**
@@ -137,14 +270,26 @@ public final class EngineeringGoalProgress {
     /**
      * Per-module craft progress for the build dialog (one row per physical slot/item).
      */
-    public record ModuleUnitProgress(String goalLabel,
+    public record ModuleUnitProgress(long shipId,
+                                     String shipLabel,
+                                     String moduleType,
+                                     String blueprintName,
                                      String moduleLabel,
                                      int targetGrade,
-                                     EngineeringGoal unit) {
+                                     EngineeringGoal unit,
+                                     boolean installed) {
+        public String goalHeadline() {
+            String mod = moduleType != null ? moduleType.trim() : "";
+            String bp = blueprintName != null ? blueprintName.trim() : "";
+            if (!mod.isEmpty() && !bp.isEmpty()) {
+                return mod + " · " + bp;
+            }
+            return !bp.isEmpty() ? bp : (!mod.isEmpty() ? mod : "Goal");
+        }
     }
 
     /**
-     * Builds per-module progress rows from journal crafts (and current-ship loadout when available).
+     * Builds per-module progress rows from journal crafts and latest loadout per ship.
      */
     public static List<ModuleUnitProgress> collectModuleUnitProgress(List<EngineeringGoal> goals,
                                                                      String clientKey,
@@ -154,55 +299,143 @@ public final class EngineeringGoalProgress {
             return rows;
         }
         EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
-        try {
-            EliteJournalReader reader = new EliteJournalReader(clientKey);
-            List<EngineeringGoal> templates = new ArrayList<>(goals.size());
-            for (EngineeringGoal goal : goals) {
-                templates.add(goal.resetJournalProgress());
-            }
-            List<Map<String, EngineeringGoal>> byGoal =
-                    collectInstancesByGoal(templates, reader.readAllEvents(), db);
-            // Overlay current-ship loadout onto matching slot|item keys when it is ahead.
+        List<EngineeringGoal> templates = new ArrayList<>(goals.size());
+        for (EngineeringGoal goal : goals) {
+            templates.add(goal.resetJournalProgress());
+        }
+
+        List<Map<String, EngineeringGoal>> byGoal = collectInstancesFromStore(templates, clientKey, db);
+        Map<Long, LoadoutEvent> latestLoadoutByShip = EngineeringCraftStore.loadLatestLoadouts(clientKey);
+        boolean storeReady = EngineeringCraftStore.hasCrafts(clientKey) || !latestLoadoutByShip.isEmpty();
+        if (!storeReady) {
+            // Store empty / not yet imported — fall back to a full journal scan.
             try {
-                EliteLogEvent loadoutEvent = reader.findMostRecentEvent(EliteEventType.LOADOUT, 24);
-                if (loadoutEvent instanceof LoadoutEvent loadout) {
-                    mergeLoadoutIntoInstances(templates, byGoal, loadout, db);
-                }
+                EliteJournalReader reader = new EliteJournalReader(clientKey);
+                List<EliteLogEvent> events = reader.readAllEvents();
+                byGoal = collectInstancesByGoal(templates, events, db);
+                latestLoadoutByShip = latestLoadoutByShipId(events);
             } catch (Exception ignored) {
-                // loadout optional for display
-            }
-            for (int i = 0; i < templates.size(); i++) {
-                EngineeringGoal goal = goals.get(i);
-                String goalLabel = goal.getModuleType() + ": " + goal.getBlueprintName();
-                Map<String, EngineeringGoal> instances = byGoal.get(i);
-                if (instances.isEmpty()) {
+                for (EngineeringGoal goal : goals) {
+                    long shipId = goal.getShipId();
+                    String shipLabel = !goal.getShipLabel().isBlank()
+                            ? goal.getShipLabel()
+                            : (shipId >= 0 ? "Ship #" + shipId : "Unassigned");
                     rows.add(new ModuleUnitProgress(
-                            goalLabel,
-                            "(no journal crafts found)",
+                            shipId,
+                            shipLabel,
+                            goal.getModuleType(),
+                            goal.getBlueprintName(),
+                            "(journal unavailable)",
                             goal.getTargetGrade(),
-                            goal));
-                    continue;
+                            goal,
+                            false));
                 }
-                List<Map.Entry<String, EngineeringGoal>> sorted = new ArrayList<>(instances.entrySet());
-                sorted.sort(Map.Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER));
-                for (Map.Entry<String, EngineeringGoal> e : sorted) {
-                    rows.add(new ModuleUnitProgress(
-                            goalLabel,
-                            formatInstanceLabel(e.getKey()),
-                            goal.getTargetGrade(),
-                            e.getValue()));
-                }
+                return rows;
             }
-        } catch (Exception ignored) {
-            for (EngineeringGoal goal : goals) {
+        }
+        for (LoadoutEvent loadout : latestLoadoutByShip.values()) {
+            mergeLoadoutIntoInstances(templates, byGoal, loadout, db);
+        }
+        for (int i = 0; i < templates.size(); i++) {
+            EngineeringGoal goal = goals.get(i);
+            long shipId = goal.getShipId();
+            String shipLabel = !goal.getShipLabel().isBlank()
+                    ? goal.getShipLabel()
+                    : (shipId >= 0 ? "Ship #" + shipId : "Unassigned");
+            Map<String, EngineeringGoal> instances = byGoal.get(i);
+            int qty = Math.max(1, goal.getQuantity());
+            if (instances.isEmpty()) {
+                for (int u = 0; u < qty; u++) {
+                    rows.add(notInstalledRow(goal, shipId, shipLabel));
+                }
+                continue;
+            }
+            List<Map.Entry<String, EngineeringGoal>> sorted = new ArrayList<>(instances.entrySet());
+            sorted.sort(Map.Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER));
+            for (Map.Entry<String, EngineeringGoal> e : sorted) {
                 rows.add(new ModuleUnitProgress(
-                        goal.getModuleType() + ": " + goal.getBlueprintName(),
-                        "(journal unavailable)",
+                        shipId,
+                        shipLabel,
+                        goal.getModuleType(),
+                        goal.getBlueprintName(),
+                        formatInstanceLabel(e.getKey()),
                         goal.getTargetGrade(),
-                        goal));
+                        e.getValue(),
+                        true));
+            }
+            for (int u = sorted.size(); u < qty; u++) {
+                rows.add(notInstalledRow(goal, shipId, shipLabel));
             }
         }
         return rows;
+    }
+
+    private static List<Map<String, EngineeringGoal>> collectInstancesFromStore(
+            List<EngineeringGoal> goals,
+            String clientKey,
+            EngineeringDatabase db) {
+        List<Map<String, EngineeringGoal>> instancesByGoal = new ArrayList<>(goals.size());
+        for (int i = 0; i < goals.size(); i++) {
+            instancesByGoal.add(new LinkedHashMap<>());
+        }
+        List<EngineeringCraftRecord> records = EngineeringCraftStore.listCrafts(clientKey);
+        if (records.isEmpty()) {
+            return instancesByGoal;
+        }
+        EliteLogParser parser = new EliteLogParser();
+        for (EngineeringCraftRecord record : records) {
+            EngineerCraftEvent craft = toCraftEvent(record, parser);
+            if (craft == null) {
+                continue;
+            }
+            long shipId = record.getShipId();
+            if (shipId < 0) {
+                continue;
+            }
+            for (int i = 0; i < goals.size(); i++) {
+                EngineeringGoal template = goals.get(i);
+                if (!goalMatchesShip(template, shipId)) {
+                    continue;
+                }
+                if (!matchesGoalModuleBlueprint(template, craft, db)) {
+                    continue;
+                }
+                Map<String, EngineeringGoal> instances = instancesByGoal.get(i);
+                String key = instanceKey(craft);
+                EngineeringGoal working = instances.computeIfAbsent(key, k -> blankUnitProgress(template));
+                List<EngineeringGoal> one = new ArrayList<>(1);
+                one.add(working);
+                if (applyCraft(one, craft, db, shipId)) {
+                    instances.put(key, one.get(0));
+                }
+            }
+        }
+        return instancesByGoal;
+    }
+
+    private static ModuleUnitProgress notInstalledRow(EngineeringGoal goal, long shipId, String shipLabel) {
+        return new ModuleUnitProgress(
+                shipId,
+                shipLabel,
+                goal.getModuleType(),
+                goal.getBlueprintName(),
+                "Not installed",
+                goal.getTargetGrade(),
+                goal,
+                false);
+    }
+
+    private static Map<Long, LoadoutEvent> latestLoadoutByShipId(Iterable<? extends EliteLogEvent> events) {
+        Map<Long, LoadoutEvent> latest = new LinkedHashMap<>();
+        if (events == null) {
+            return latest;
+        }
+        for (EliteLogEvent event : events) {
+            if (event instanceof LoadoutEvent loadout && loadout.getShipId() >= 0) {
+                latest.put(Long.valueOf(loadout.getShipId()), loadout);
+            }
+        }
+        return latest;
     }
 
     private static List<Map<String, EngineeringGoal>> collectInstancesByGoal(
@@ -216,12 +449,24 @@ public final class EngineeringGoalProgress {
         if (events == null) {
             return instancesByGoal;
         }
+        long currentShipId = -1L;
         for (EliteLogEvent event : events) {
+            if (event instanceof LoadoutEvent loadout && loadout.getShipId() >= 0) {
+                currentShipId = loadout.getShipId();
+                continue;
+            }
+            if (event instanceof LoadGameEvent loadGame && loadGame.getShipId() >= 0) {
+                currentShipId = loadGame.getShipId();
+                continue;
+            }
             if (!(event instanceof EngineerCraftEvent craft)) {
                 continue;
             }
             for (int i = 0; i < goals.size(); i++) {
                 EngineeringGoal template = goals.get(i);
+                if (!goalMatchesShip(template, currentShipId)) {
+                    continue;
+                }
                 if (!matchesGoalModuleBlueprint(template, craft, db)) {
                     continue;
                 }
@@ -230,7 +475,7 @@ public final class EngineeringGoalProgress {
                 EngineeringGoal working = instances.computeIfAbsent(key, k -> blankUnitProgress(template));
                 List<EngineeringGoal> one = new ArrayList<>(1);
                 one.add(working);
-                if (applyCraft(one, craft, db)) {
+                if (applyCraft(one, craft, db, currentShipId)) {
                     instances.put(key, one.get(0));
                 }
             }
@@ -256,6 +501,9 @@ public final class EngineeringGoalProgress {
             String key = loadoutInstanceKey(module);
             for (int i = 0; i < goals.size(); i++) {
                 EngineeringGoal template = goals.get(i);
+                if (!goalMatchesShip(template, loadout.getShipId())) {
+                    continue;
+                }
                 if (!template.getModuleType().equalsIgnoreCase(resolved.get().moduleType())
                         || !template.getBlueprintName().equalsIgnoreCase(resolved.get().blueprintName())) {
                     continue;
@@ -345,7 +593,9 @@ public final class EngineeringGoalProgress {
                 template.isIncludeInPlanning(),
                 false,
                 1,
-                0);
+                0,
+                template.getShipId(),
+                template.getShipLabel());
     }
 
     private static EngineeringGoal aggregateInstances(EngineeringGoal template,
@@ -433,6 +683,9 @@ public final class EngineeringGoalProgress {
                                                         LoadoutEvent loadout,
                                                         EngineeringDatabase db) {
         if (goal == null) {
+            return goal;
+        }
+        if (goal.hasShip() && loadout.getShipId() >= 0 && goal.getShipId() != loadout.getShipId()) {
             return goal;
         }
         int completeOnShip = 0;

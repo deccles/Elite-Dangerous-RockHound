@@ -98,16 +98,24 @@ public class EliteJournalReader {
      * or we hit all available files.
      */
     public List<EliteLogEvent> readEventsSince(Instant since) throws IOException {
+        return readEventsSince(since, null);
+    }
+
+    /**
+     * Like {@link #readEventsSince(Instant)} with optional event-name include filter for cheaper
+     * full/bulk scans. Pass {@code null} to parse every line.
+     */
+    public List<EliteLogEvent> readEventsSince(Instant since, Set<String> includeEventNames) throws IOException {
         if (since == null) {
             // Fallback: same behavior as before; caller wants full history.
-            return readEventsFromLastNJournalFiles(Integer.MAX_VALUE);
+            return readEventsFromLastNJournalFiles(Integer.MAX_VALUE, includeEventNames);
         }
 
         // Start with a small window of recent files and expand as needed.
         int filesToRead = 4;
         int maxFiles = Integer.MAX_VALUE;
 
-        List<EliteLogEvent> windowEvents = readEventsFromLastNJournalFiles(filesToRead);
+        List<EliteLogEvent> windowEvents = readEventsFromLastNJournalFiles(filesToRead, includeEventNames);
         if (windowEvents.isEmpty()) {
             return windowEvents;
         }
@@ -140,7 +148,7 @@ public class EliteJournalReader {
 
             // Expand the window.
             filesToRead = newFilesToRead;
-            List<EliteLogEvent> expanded = readEventsFromLastNJournalFiles(filesToRead);
+            List<EliteLogEvent> expanded = readEventsFromLastNJournalFiles(filesToRead, includeEventNames);
             if (expanded.size() <= windowEvents.size()) {
                 // No additional events; we've hit the limit of what this method can provide.
                 break;
@@ -294,6 +302,16 @@ public class EliteJournalReader {
      * N <= 0 means "no events".
      */
     public List<EliteLogEvent> readEventsFromLastNJournalFiles(int n) throws IOException {
+        return readEventsFromLastNJournalFiles(n, null);
+    }
+
+    /**
+     * Like {@link #readEventsFromLastNJournalFiles(int)} but only parses lines whose journal
+     * {@code event} name is in {@code includeEventNames} (cheap string peek before Gson).
+     * Pass {@code null} to parse every line.
+     */
+    public List<EliteLogEvent> readEventsFromLastNJournalFiles(int n, Set<String> includeEventNames)
+            throws IOException {
         if (n <= 0) {
             return List.of();
         }
@@ -307,7 +325,7 @@ public class EliteJournalReader {
         List<EliteLogEvent> events = new ArrayList<>();
 
         for (int i = start; i < journalFiles.size(); i++) {
-            readEventsFromFile(journalFiles.get(i), events);
+            readEventsFromFile(journalFiles.get(i), events, includeEventNames);
         }
 
         events.sort(Comparator.comparing(EliteLogEvent::getTimestamp));
@@ -349,12 +367,23 @@ public class EliteJournalReader {
 
     /** package-private so tests can use it if desired */
     void readEventsFromFile(Path file, List<EliteLogEvent> sink) throws IOException {
+        readEventsFromFile(file, sink, null);
+    }
+
+    void readEventsFromFile(Path file, List<EliteLogEvent> sink, Set<String> includeEventNames)
+            throws IOException {
         try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 if (line.isEmpty()) {
                     continue;
+                }
+                if (includeEventNames != null) {
+                    String eventName = peekJournalEventName(line);
+                    if (eventName == null || !includeEventNames.contains(eventName)) {
+                        continue;
+                    }
                 }
                 try {
                     EliteLogEvent event = parser.parseRecord(line);
@@ -365,6 +394,37 @@ public class EliteJournalReader {
                 }
             }
         }
+    }
+
+    /**
+     * Cheap extraction of the journal {@code "event"} field without full JSON parse.
+     * Returns {@code null} when the field is missing or malformed.
+     */
+    static String peekJournalEventName(String jsonLine) {
+        if (jsonLine == null || jsonLine.isEmpty()) {
+            return null;
+        }
+        int key = jsonLine.indexOf("\"event\"");
+        if (key < 0) {
+            return null;
+        }
+        int colon = jsonLine.indexOf(':', key + 7);
+        if (colon < 0) {
+            return null;
+        }
+        int i = colon + 1;
+        while (i < jsonLine.length() && Character.isWhitespace(jsonLine.charAt(i))) {
+            i++;
+        }
+        if (i >= jsonLine.length() || jsonLine.charAt(i) != '"') {
+            return null;
+        }
+        i++;
+        int end = jsonLine.indexOf('"', i);
+        if (end < 0) {
+            return null;
+        }
+        return jsonLine.substring(i, end);
     }
 
     private List<Path> listJournalFiles() throws IOException {
@@ -388,6 +448,11 @@ public class EliteJournalReader {
     
 
     public List<EliteLogEvent> readEventsFromJournalFile(Path journalFile) throws IOException {
+        return readEventsFromJournalFile(journalFile, null);
+    }
+
+    public List<EliteLogEvent> readEventsFromJournalFile(Path journalFile, Set<String> includeEventNames)
+            throws IOException {
         if (journalFile == null) {
             return Collections.emptyList();
         }
@@ -397,9 +462,9 @@ public class EliteJournalReader {
             return Collections.emptyList();
         }
         List<EliteLogEvent> sink = new ArrayList<>();
-        readEventsFromFile(journalFile, sink);
+        readEventsFromFile(file, sink, includeEventNames);
         return sink;
-   }
+    }
     /**
      * Find the most recent parsed event matching the given journal event name
      * (e.g. "Loadout", "Location", "FSDJump") by reading only the last N journal files.

@@ -39,6 +39,8 @@ import org.dce.ed.logreader.event.MissionFailedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.logreader.event.SetUserShipNameEvent;
+import org.dce.ed.logreader.event.StoredShipsEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
 import org.dce.ed.logreader.event.MaterialCollectedEvent;
 import org.dce.ed.logreader.event.MaterialDiscardedEvent;
@@ -106,6 +108,10 @@ public class EliteLogParser {
                 return parseLoadGame(ts, obj);
             case LOADOUT:
                 return parseLoadout(ts, obj);
+            case STORED_SHIPS:
+                return parseStoredShips(ts, obj);
+            case SET_USER_SHIP_NAME:
+                return parseSetUserShipName(ts, obj);
             case LOCATION:
                 return parseLocation(ts, obj);
             case START_JUMP:
@@ -401,6 +407,51 @@ public class EliteLogParser {
                 rebuy,
                 modules
         );
+    }
+
+    private StoredShipsEvent parseStoredShips(Instant ts, JsonObject obj) {
+        String station = getString(obj, "StationName");
+        List<StoredShipsEvent.StoredShip> here = parseStoredShipList(obj, "ShipsHere", false);
+        List<StoredShipsEvent.StoredShip> remote = parseStoredShipList(obj, "ShipsRemote", true);
+        return new StoredShipsEvent(ts, obj, station, here, remote);
+    }
+
+    private SetUserShipNameEvent parseSetUserShipName(Instant ts, JsonObject obj) {
+        String userShipId = getString(obj, "UserShipId");
+        if (userShipId == null || userShipId.isBlank()) {
+            userShipId = getString(obj, "UserShipID");
+        }
+        return new SetUserShipNameEvent(
+                ts,
+                obj,
+                getString(obj, "Ship"),
+                getLong(obj, "ShipID", -1L),
+                getString(obj, "UserShipName"),
+                userShipId);
+    }
+
+    private List<StoredShipsEvent.StoredShip> parseStoredShipList(JsonObject obj, String field, boolean remote) {
+        List<StoredShipsEvent.StoredShip> out = new ArrayList<>();
+        if (obj == null || !obj.has(field) || !obj.get(field).isJsonArray()) {
+            return out;
+        }
+        for (JsonElement el : obj.getAsJsonArray(field)) {
+            if (el == null || !el.isJsonObject()) {
+                continue;
+            }
+            JsonObject s = el.getAsJsonObject();
+            long shipId = getLong(s, "ShipID", -1L);
+            if (shipId < 0) {
+                continue;
+            }
+            out.add(new StoredShipsEvent.StoredShip(
+                    shipId,
+                    getString(s, "ShipType"),
+                    getString(s, "ShipType_Localised"),
+                    getString(s, "Name"),
+                    remote));
+        }
+        return out;
     }
 
     private LoadoutEvent.Module parseLoadoutModule(JsonObject m) {

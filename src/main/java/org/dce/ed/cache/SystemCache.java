@@ -100,11 +100,22 @@ public final class SystemCache implements SystemStore {
     }
 
     /**
-     * Deletes the SQLite cache database and resets the singleton connection.
+     * Deletes the SQLite system/body cache database and resets the singleton connection.
+     * <p>
+     * Preserves {@code overlay_global_state.session_json} (engineering goals, missions, routes,
+     * etc.) so a full journal rescan does not erase commander overlay setup.
      */
     @Override
     public synchronized void clearAndDeleteOnDisk() {
         System.out.println("Delete cache DB " + cacheDbPath);
+        String preservedSessionJson = null;
+        try {
+            if (sqliteReady && sqliteConnection != null && globalStateHasColumn("session_json")) {
+                preservedSessionJson = sqliteReadSessionJsonRaw();
+            }
+        } catch (Exception ex) {
+            System.err.println("SystemCache: could not snapshot session_json before cache wipe: " + ex.getMessage());
+        }
         lastLoadedSystem = null;
         try {
             if (sqliteConnection != null) {
@@ -120,7 +131,24 @@ public final class SystemCache implements SystemStore {
         } catch (IOException ex) {
             System.err.println("SystemCache: failed to delete sqlite cache file " + cacheDbPath + ": " + ex.getMessage());
         }
+        try {
+            Path wal = cacheDbPath.resolveSibling(cacheDbPath.getFileName().toString() + "-wal");
+            Path shm = cacheDbPath.resolveSibling(cacheDbPath.getFileName().toString() + "-shm");
+            Files.deleteIfExists(wal);
+            Files.deleteIfExists(shm);
+        } catch (IOException ignored) {
+        }
         sqliteReady = initializeSqlite();
+        if (preservedSessionJson != null && !preservedSessionJson.isBlank()) {
+            try {
+                writeSessionJsonRaw(preservedSessionJson);
+                System.out.println("SystemCache: restored session_json after cache wipe ("
+                        + preservedSessionJson.length() + " chars).");
+            } catch (Exception ex) {
+                System.err.println("SystemCache: failed to restore session_json after cache wipe: "
+                        + ex.getMessage());
+            }
+        }
     }
 
     public static SystemCache getInstance() {
@@ -1180,6 +1208,53 @@ public final class SystemCache implements SystemStore {
         return Boolean.parseBoolean(System.getProperty(CACHE_BULK_SYSTEM_WRITE_PROPERTY, "false"));
     }
 
+    /**
+     * Coalesce SQLite commits for the duration of a bulk journal replay.
+     * Nested / no-op when already in a transaction or SQLite is unavailable.
+     */
+    public void beginBulkSqliteTransaction() {
+        if (!sqliteReady || sqliteConnection == null) {
+            return;
+        }
+        try {
+            if (!sqliteConnection.getAutoCommit()) {
+                return;
+            }
+            sqliteConnection.setAutoCommit(false);
+        } catch (SQLException ex) {
+            System.err.println("SystemCache: beginBulkSqliteTransaction failed: " + ex.getMessage());
+        }
+    }
+
+    /** Commit (or roll back) and restore auto-commit after {@link #beginBulkSqliteTransaction()}. */
+    public void endBulkSqliteTransaction() {
+        if (sqliteConnection == null) {
+            return;
+        }
+        try {
+            if (sqliteConnection.getAutoCommit()) {
+                return;
+            }
+            try {
+                sqliteConnection.commit();
+            } catch (SQLException ex) {
+                System.err.println("SystemCache: bulk SQLite commit failed: " + ex.getMessage());
+                try {
+                    sqliteConnection.rollback();
+                } catch (SQLException ignored) {
+                }
+            } finally {
+                try {
+                    sqliteConnection.setAutoCommit(true);
+                } catch (SQLException ex) {
+                    System.err.println("SystemCache: restore autoCommit failed: " + ex.getMessage());
+                }
+            }
+        } catch (SQLException ex) {
+            System.err.println("SystemCache: endBulkSqliteTransaction failed: " + ex.getMessage());
+        }
+    }
+
     /** True while {@link org.dce.ed.logreader.RescanCurrentSystemFromJournal} replaces one cache row from journal replay. */
     public static boolean isJournalReplaceSystemWrite() {
         return Boolean.parseBoolean(System.getProperty(CACHE_JOURNAL_REPLACE_SYSTEM_WRITE_PROPERTY, "false"));
@@ -1713,7 +1788,13 @@ public final class SystemCache implements SystemStore {
         if (sqliteConnection == null || state == null) {
             return;
         }
-        String json = sessionGson.toJson(state);
+        writeSessionJsonRaw(sessionGson.toJson(state));
+    }
+
+    private void writeSessionJsonRaw(String json) throws SQLException {
+        if (sqliteConnection == null || json == null || json.isBlank()) {
+            return;
+        }
         if (isSlimGlobalTable()) {
             try (PreparedStatement ps = sqliteConnection.prepareStatement(
                     "INSERT INTO " + SQLITE_GLOBAL_TABLE + " (singleton, schema_version, session_json) VALUES (1, ?, ?) "

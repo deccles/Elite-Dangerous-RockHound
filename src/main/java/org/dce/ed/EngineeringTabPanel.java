@@ -10,17 +10,23 @@ import java.awt.Font;
 import java.awt.Window;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.BooleanSupplier;
 
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JList;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -43,8 +49,11 @@ import javax.swing.table.TableModel;
 import javax.swing.table.TableRowSorter;
 
 import org.dce.ed.engineering.BlueprintGrade;
+import org.dce.ed.engineering.EngineeringCraftStore;
 import org.dce.ed.engineering.EngineeringDatabase;
 import org.dce.ed.engineering.EngineeringGoal;
+import org.dce.ed.engineering.EngineeringShipCatalog;
+import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.EngineeringGoalProgress;
 import org.dce.ed.engineering.EngineeringInventoryTracker;
 import org.dce.ed.engineering.EngineeringMaterialKeys;
@@ -58,9 +67,12 @@ import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.logreader.event.SetUserShipNameEvent;
+import org.dce.ed.logreader.event.StoredShipsEvent;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.EngineeringSessionData;
 import org.dce.ed.session.EngineeringSessionData.EngineeringGoalPersisted;
+import org.dce.ed.session.EngineeringSessionData.ShipPersisted;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
@@ -86,6 +98,11 @@ public class EngineeringTabPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
     private static final int HOVER_CLICK_DELAY_MS = 500;
+    private static final int INCLUDE_HOVER_DELAY_MS = 350;
+    private static final int INCLUDE_COL_WIDTH = 44;
+    private static final int INCLUDE_HIT_EXPAND_PX = 28;
+    private static final int EDIT_COL_WIDTH = 40;
+    private static final int EDIT_HIT_EXPAND_LEFT_PX = 20;
     private static final int HEADER_SORT_HOVER_MS = 500;
 
     private static final int COL_MATERIAL = 0;
@@ -121,6 +138,11 @@ public class EngineeringTabPanel extends JPanel {
     private final MaterialTradePlanner tradePlanner = new MaterialTradePlanner(database);
 
     private final List<EngineeringGoal> goals = new ArrayList<>();
+    private final EngineeringShipCatalog shipCatalog = new EngineeringShipCatalog();
+    /** null = show / plan for all ships. */
+    private Long goalsShipFilterId;
+    private JComboBox<ShipFilterItem> shipFilterCombo;
+
     private final List<GoalReadiness> goalReadiness = new ArrayList<>();
     private final List<String> goalStatusText = new ArrayList<>();
     private Runnable sessionStateChangeCallback;
@@ -163,33 +185,40 @@ public class EngineeringTabPanel extends JPanel {
         goalsTable.getColumnModel().getColumn(COL_GOAL_STATUS).setCellRenderer(new GoalStatusCellRenderer());
         goalsTable.setDefaultRenderer(Boolean.class, new GoalIncludeCellRenderer());
         goalsTable.getColumnModel().getColumn(0).setCellRenderer(goalsTable.getDefaultRenderer(Boolean.class));
-        goalsTable.getColumnModel().getColumn(0).setMaxWidth(36);
+        goalsTable.getColumnModel().getColumn(0).setMinWidth(INCLUDE_COL_WIDTH);
+        goalsTable.getColumnModel().getColumn(0).setMaxWidth(INCLUDE_COL_WIDTH);
+        goalsTable.getColumnModel().getColumn(0).setPreferredWidth(INCLUDE_COL_WIDTH);
+        goalsTable.setRowSelectionAllowed(false);
+        goalsTable.setColumnSelectionAllowed(false);
+        goalsTable.setCellSelectionEnabled(false);
         TableColumn editCol = goalsTable.getColumnModel().getColumn(COL_GOAL_EDIT);
-        editCol.setMaxWidth(32);
-        editCol.setMinWidth(28);
-        editCol.setPreferredWidth(28);
+        editCol.setMinWidth(EDIT_COL_WIDTH);
+        editCol.setMaxWidth(EDIT_COL_WIDTH);
+        editCol.setPreferredWidth(EDIT_COL_WIDTH);
         goalsTable.getColumnModel().getColumn(COL_GOAL_EDIT).setCellRenderer(new GoalEditCellRenderer());
         goalsTable.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(MouseEvent e) {
+            public void mousePressed(MouseEvent e) {
                 if (!SwingUtilities.isLeftMouseButton(e)) {
                     return;
                 }
-                // Cell editors fight OverlayCheckBoxStyle / MPT hover; toggle include via click when not MPT.
+                // Cell editors fight OverlayCheckBoxStyle / MPT hover; toggle include via press when not MPT.
                 if (passThroughEnabledSupplier != null && passThroughEnabledSupplier.getAsBoolean()) {
                     return;
                 }
                 int row = goalsTable.rowAtPoint(e.getPoint());
-                int col = goalsTable.columnAtPoint(e.getPoint());
-                if (row < 0 || col < 0) {
+                if (row < 0) {
                     return;
                 }
-                int modelCol = goalsTable.convertColumnIndexToModel(col);
                 int modelRow = goalsTable.convertRowIndexToModel(row);
-                if (modelCol == COL_GOAL_INCLUDE) {
+                if (isIncludeHit(goalsTable, e.getPoint(), row)) {
                     toggleGoalInclude(modelRow);
-                } else if (modelCol == COL_GOAL_EDIT) {
+                    e.consume();
+                    return;
+                }
+                if (isEditHit(goalsTable, e.getPoint(), row)) {
                     openEditGoalDialog(modelRow);
+                    e.consume();
                 }
             }
         });
@@ -198,12 +227,14 @@ public class EngineeringTabPanel extends JPanel {
                 COL_GOAL_EDIT,
                 passThroughEnabledSupplier,
                 HOVER_CLICK_DELAY_MS,
+                EDIT_HIT_EXPAND_LEFT_PX,
                 this::openEditGoalDialog);
         TableCellHoverToggleSupport.install(
                 goalsTable,
                 COL_GOAL_INCLUDE,
                 passThroughEnabledSupplier,
-                HOVER_CLICK_DELAY_MS,
+                INCLUDE_HOVER_DELAY_MS,
+                INCLUDE_HIT_EXPAND_PX,
                 this::toggleGoalInclude);
         configureTable(shoppingTable, base, new ShoppingCellRenderer());
         configureTable(tradeTable, base, new TradeCellRenderer());
@@ -252,7 +283,15 @@ public class EngineeringTabPanel extends JPanel {
 
         JPanel header = new JPanel(new BorderLayout(4, 0));
         header.setOpaque(false);
-        header.add(sectionHeader("Goals", base, fontSize), BorderLayout.WEST);
+        JPanel titleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        titleRow.setOpaque(false);
+        shipFilterCombo = new JComboBox<>();
+        styleShipFilterCombo(shipFilterCombo, base);
+        shipFilterCombo.setToolTipText("Filter goals, materials, and trades by ship");
+        shipFilterCombo.addActionListener(e -> onShipFilterChanged());
+        titleRow.add(shipFilterCombo);
+        titleRow.add(sectionHeader("Goals", base, fontSize));
+        header.add(titleRow, BorderLayout.WEST);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         buttons.setOpaque(false);
@@ -277,6 +316,7 @@ public class EngineeringTabPanel extends JPanel {
         p.add(header, BorderLayout.NORTH);
 
         p.add(goalsScroll = wrapScroll(goalsTable, 120), BorderLayout.CENTER);
+        rebuildShipFilterCombo();
         return p;
     }
 
@@ -433,8 +473,8 @@ public class EngineeringTabPanel extends JPanel {
         if (avail <= 0 || goalsTable == null) {
             return;
         }
-        int wCheck = 36;
-        int wEdit = 28;
+        int wCheck = INCLUDE_COL_WIDTH;
+        int wEdit = EDIT_COL_WIDTH;
         int rowSample = Math.max(goalsTable.getRowCount(), 1);
         int wTarget = clampColumnWidth(goalsTable, COL_GOAL_TARGET, 40, 80, rowSample);
         int wExp = clampColumnWidth(goalsTable, COL_GOAL_EXP, 76, 220, rowSample);
@@ -814,18 +854,29 @@ public class EngineeringTabPanel extends JPanel {
 
     public void hydrateFromJournalIfNeeded(String clientKey) {
         inventoryTracker.bootstrapFromJournal(clientKey);
+        shipCatalog.bootstrapFromJournal(clientKey);
+        rememberCurrentShipFromLoadout();
+        for (EngineeringGoal g : goals) {
+            shipCatalog.rememberGoal(g);
+        }
+        assignLegacyGoalsToCurrentShip();
+        for (EngineeringShipRef ref : shipCatalog.all()) {
+            refreshGoalShipLabels(ref.getShipId());
+        }
+        rebuildShipFilterCombo();
         if (EngineeringGoalProgress.bootstrapFromJournal(goals, clientKey, database)) {
             fireSessionChanged();
         }
         scheduleRefresh();
     }
 
-    /** Re-read journal/loadout into goals (e.g. before opening Build Progress). */
+    /** Re-read craft/loadout store into goals (e.g. after external journal changes). */
     public void refreshGoalProgressFromJournal() {
         String clientKey = EliteDangerousOverlay.clientKey;
         if (clientKey == null || clientKey.isBlank()) {
             return;
         }
+        EngineeringCraftStore.reparseFromJournal(clientKey);
         if (EngineeringGoalProgress.bootstrapFromJournal(goals, clientKey, database)) {
             fireSessionChanged();
         }
@@ -833,10 +884,17 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     private void openBuildProgressDialog() {
-        refreshGoalProgressFromJournal();
         Window owner = SwingUtilities.getWindowAncestor(this);
         String clientKey = EliteDangerousOverlay.clientKey;
-        EngineeringBuildProgressDialog.show(owner, goals, database, clientKey, passThroughEnabledSupplier);
+        // Dialog loads journal progress on a background thread; don't block the EDT with a full rescan first.
+        EngineeringBuildProgressDialog.show(
+                owner,
+                List.copyOf(goals),
+                shipCatalog,
+                goalsShipFilterId,
+                database,
+                clientKey,
+                passThroughEnabledSupplier);
     }
 
     public void handleLogEvent(EliteLogEvent event) {
@@ -853,15 +911,68 @@ public class EngineeringTabPanel extends JPanel {
             scheduleRefresh();
         }
         if (type == EliteEventType.ENGINEER_CRAFT && event instanceof EngineerCraftEvent craft) {
-            if (EngineeringGoalProgress.applyCraft(goals, craft, database)) {
+            long shipId = -1L;
+            LoadoutEvent latest = EliteOverlayTabbedPane.getLatestLoadout();
+            if (latest != null && latest.getShipId() >= 0) {
+                shipId = latest.getShipId();
+            }
+            String clientKey = EliteDangerousOverlay.clientKey;
+            if (clientKey != null && !clientKey.isBlank() && shipId >= 0) {
+                EngineeringCraftStore.rememberCraft(clientKey, craft, shipId);
+            }
+            if (EngineeringGoalProgress.applyCraft(goals, craft, database, shipId)) {
                 fireSessionChanged();
                 scheduleRefresh();
             }
         }
         if (type == EliteEventType.LOADOUT && event instanceof LoadoutEvent loadout) {
-            if (EngineeringGoalProgress.applyLoadout(goals, loadout, database)) {
+            shipCatalog.rememberLoadout(loadout);
+            String clientKey = EliteDangerousOverlay.clientKey;
+            if (clientKey != null && !clientKey.isBlank()) {
+                EngineeringCraftStore.rememberLoadout(clientKey, loadout);
+            }
+            SwingUtilities.invokeLater(() -> {
+                refreshGoalShipLabels(loadout.getShipId());
+                rebuildShipFilterCombo();
+                EngineeringGoalDialog.refreshActiveShipChoices();
+                if (EngineeringGoalProgress.applyLoadout(goals, loadout, database)) {
+                    fireSessionChanged();
+                    refreshUi();
+                } else {
+                    fireSessionChanged();
+                }
+            });
+        }
+        if (type == EliteEventType.STORED_SHIPS && event instanceof StoredShipsEvent stored) {
+            shipCatalog.rememberStoredShips(stored);
+            rebuildShipFilterCombo();
+            fireSessionChanged();
+        }
+        if (type == EliteEventType.SET_USER_SHIP_NAME && event instanceof SetUserShipNameEvent renamed) {
+            shipCatalog.rememberSetUserShipName(renamed);
+            SwingUtilities.invokeLater(() -> {
+                refreshGoalShipLabels(renamed.getShipId());
+                rebuildShipFilterCombo();
+                EngineeringGoalDialog.refreshActiveShipChoices();
                 fireSessionChanged();
-                scheduleRefresh();
+                refreshUi();
+            });
+        }
+    }
+
+    private void refreshGoalShipLabels(long shipId) {
+        if (shipId < 0) {
+            return;
+        }
+        EngineeringShipRef ref = shipCatalog.get(shipId);
+        if (ref == null) {
+            return;
+        }
+        String label = shipCatalog.displayLabel(ref);
+        for (int i = 0; i < goals.size(); i++) {
+            EngineeringGoal g = goals.get(i);
+            if (g != null && g.getShipId() == shipId) {
+                goals.set(i, g.withShip(shipId, label));
             }
         }
     }
@@ -888,16 +999,41 @@ public class EngineeringTabPanel extends JPanel {
             p.setExperimentalApplied(g.isExperimentalApplied());
             p.setQuantity(g.getQuantity());
             p.setCompletedUnits(g.getCompletedUnits());
+            if (g.hasShip()) {
+                p.setShipId(Long.valueOf(g.getShipId()));
+                p.setShipLabel(g.getShipLabel());
+            }
             persisted.add(p);
         }
         data.setGoals(persisted);
+        List<ShipPersisted> ships = new ArrayList<>();
+        for (EngineeringShipRef ref : shipCatalog.listSorted()) {
+            ShipPersisted sp = new ShipPersisted();
+            sp.setShipId(ref.getShipId());
+            sp.setShipType(ref.getShipType());
+            sp.setShipName(ref.getShipName());
+            sp.setShipIdent(ref.getShipIdent());
+            ships.add(sp);
+        }
+        data.setKnownShips(ships);
+        data.setGoalsShipFilterId(goalsShipFilterId);
         state.setEngineering(data);
     }
 
     public void applySessionState(EdoSessionState state) {
         goals.clear();
+        shipCatalog.clear();
+        goalsShipFilterId = null;
         if (state != null && state.getEngineering() != null) {
-            for (EngineeringGoalPersisted p : state.getEngineering().goalsOrEmpty()) {
+            EngineeringSessionData eng = state.getEngineering();
+            for (ShipPersisted sp : eng.knownShipsOrEmpty()) {
+                if (sp != null && sp.getShipId() >= 0) {
+                    shipCatalog.remember(new EngineeringShipRef(
+                            sp.getShipId(), sp.getShipType(), sp.getShipName(), sp.getShipIdent()));
+                }
+            }
+            goalsShipFilterId = eng.getGoalsShipFilterId();
+            for (EngineeringGoalPersisted p : eng.goalsOrEmpty()) {
                 if ("__inventory_consolidation__".equals(p.getBlueprintId())) {
                     continue;
                 }
@@ -912,39 +1048,288 @@ public class EngineeringTabPanel extends JPanel {
                         p.includeInPlanningOrDefault(),
                         p.isExperimentalApplied(),
                         p.getQuantity(),
-                        p.getCompletedUnits()));
+                        p.getCompletedUnits(),
+                        p.shipIdOrUnknown(),
+                        p.getShipLabel()));
+                if (!goals.isEmpty()) {
+                    shipCatalog.rememberGoal(goals.get(goals.size() - 1));
+                }
             }
         }
+        rebuildShipFilterCombo();
         scheduleRefresh();
     }
 
-    private void toggleGoalInclude(int modelRow) {
-        if (modelRow < 0 || modelRow >= goals.size()) {
+
+    private List<EngineeringGoal> goalsForUi() {
+        if (goalsShipFilterId == null) {
+            return List.copyOf(goals);
+        }
+        List<EngineeringGoal> out = new ArrayList<>();
+        for (EngineeringGoal g : goals) {
+            if (g != null && g.getShipId() == goalsShipFilterId.longValue()) {
+                out.add(g);
+            }
+        }
+        return out;
+    }
+
+    private EngineeringGoal goalAtUiRow(int uiRow) {
+        List<EngineeringGoal> visible = goalsForUi();
+        if (uiRow < 0 || uiRow >= visible.size()) {
+            return null;
+        }
+        return visible.get(uiRow);
+    }
+
+    private EngineeringShipRef currentShipRef() {
+        LoadoutEvent loadout = EliteOverlayTabbedPane.getLatestLoadout();
+        EngineeringShipRef ref = EngineeringShipCatalog.fromLoadout(loadout);
+        if (ref.isKnown()) {
+            shipCatalog.remember(ref);
+        }
+        return ref;
+    }
+
+    private void rememberCurrentShipFromLoadout() {
+        EngineeringShipRef ref = currentShipRef();
+        if (ref.isKnown()) {
+            shipCatalog.remember(ref);
+        }
+    }
+
+    private void assignLegacyGoalsToCurrentShip() {
+        EngineeringShipRef current = currentShipRef();
+        if (!current.isKnown()) {
             return;
         }
-        boolean include = goals.get(modelRow).isIncludeInPlanning();
+        boolean changed = false;
+        for (int i = 0; i < goals.size(); i++) {
+            EngineeringGoal g = goals.get(i);
+            if (g != null && !g.hasShip()) {
+                goals.set(i, g.withShip(current.getShipId(), shipCatalog.displayLabel(current)));
+                changed = true;
+            }
+        }
+        if (changed) {
+            fireSessionChanged();
+        }
+    }
+
+    private void rebuildShipFilterCombo() {
+        if (shipFilterCombo == null) {
+            return;
+        }
+        Long keep = goalsShipFilterId;
+        Set<Long> shipsWithGoals = new HashSet<>();
+        for (EngineeringGoal g : goals) {
+            if (g != null && g.hasShip()) {
+                shipsWithGoals.add(Long.valueOf(g.getShipId()));
+            }
+        }
+        List<EngineeringShipRef> withGoals = new ArrayList<>();
+        List<EngineeringShipRef> withoutGoals = new ArrayList<>();
+        for (EngineeringShipRef ref : shipCatalog.listSorted()) {
+            if (shipsWithGoals.contains(Long.valueOf(ref.getShipId()))) {
+                withGoals.add(ref);
+            } else {
+                withoutGoals.add(ref);
+            }
+        }
+        shipFilterCombo.removeAllItems();
+        shipFilterCombo.addItem(ShipFilterItem.all());
+        for (EngineeringShipRef ref : withGoals) {
+            shipFilterCombo.addItem(ShipFilterItem.ship(ref, shipCatalog.displayLabel(ref)));
+        }
+        if (!withGoals.isEmpty() && !withoutGoals.isEmpty()) {
+            shipFilterCombo.addItem(ShipFilterItem.separator());
+        }
+        for (EngineeringShipRef ref : withoutGoals) {
+            shipFilterCombo.addItem(ShipFilterItem.ship(ref, shipCatalog.displayLabel(ref)));
+        }
+        ShipFilterItem select = findShipFilterItem(keep);
+        shipFilterCombo.setSelectedItem(select);
+        goalsShipFilterId = select.shipId();
+        widenShipFilterComboToFitItems();
+    }
+
+    private void widenShipFilterComboToFitItems() {
+        if (shipFilterCombo == null) {
+            return;
+        }
+        Font font = shipFilterCombo.getFont();
+        int maxText = 0;
+        java.awt.FontMetrics fm = shipFilterCombo.getFontMetrics(font != null ? font : new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        for (int i = 0; i < shipFilterCombo.getItemCount(); i++) {
+            ShipFilterItem item = shipFilterCombo.getItemAt(i);
+            if (item == null || item.isSeparator()) {
+                continue;
+            }
+            maxText = Math.max(maxText, fm.stringWidth(item.label()));
+        }
+        Dimension pref = shipFilterCombo.getPreferredSize();
+        int width = Math.max(260, maxText + 48);
+        shipFilterCombo.setPreferredSize(new Dimension(width, pref.height));
+        shipFilterCombo.revalidate();
+    }
+
+    private ShipFilterItem findShipFilterItem(Long shipId) {
+        if (shipFilterCombo == null) {
+            return ShipFilterItem.all();
+        }
+        if (shipId == null) {
+            return ShipFilterItem.all();
+        }
+        for (int i = 0; i < shipFilterCombo.getItemCount(); i++) {
+            ShipFilterItem item = shipFilterCombo.getItemAt(i);
+            if (item != null && !item.isSeparator() && shipId.equals(item.shipId())) {
+                return item;
+            }
+        }
+        return ShipFilterItem.all();
+    }
+
+    private void onShipFilterChanged() {
+        if (shipFilterCombo == null) {
+            return;
+        }
+        ShipFilterItem item = (ShipFilterItem) shipFilterCombo.getSelectedItem();
+        if (item != null && item.isSeparator()) {
+            shipFilterCombo.setSelectedItem(findShipFilterItem(goalsShipFilterId));
+            return;
+        }
+        Long next = item != null ? item.shipId() : null;
+        if ((goalsShipFilterId == null && next == null)
+                || (goalsShipFilterId != null && goalsShipFilterId.equals(next))) {
+            return;
+        }
+        goalsShipFilterId = next;
+        fireSessionChanged();
+        refreshUi();
+    }
+
+    private void styleShipFilterCombo(JComboBox<ShipFilterItem> combo, Font base) {
+        combo.setFont(base);
+        combo.setForeground(EdoUi.User.MAIN_TEXT);
+        combo.setBackground(EdoUi.User.PANEL_BG);
+        combo.setMaximumRowCount(12);
+        Dimension pref = combo.getPreferredSize();
+        combo.setPreferredSize(new Dimension(Math.max(260, pref.width), pref.height));
+        OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
+        combo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                if (value instanceof ShipFilterItem item && item.isSeparator()) {
+                    JPanel line = new JPanel() {
+                        @Override
+                        protected void paintComponent(java.awt.Graphics g) {
+                            super.paintComponent(g);
+                            g.setColor(EdoUi.Internal.separatorLineStrong());
+                            int y = getHeight() / 2;
+                            g.drawLine(6, y, getWidth() - 6, y);
+                        }
+                    };
+                    line.setOpaque(true);
+                    line.setBackground(EdoUi.User.PANEL_BG);
+                    line.setPreferredSize(new Dimension(1, Math.max(8, base.getSize() / 2)));
+                    return line;
+                }
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof ShipFilterItem item) {
+                    setText(item.label());
+                }
+                setForeground(EdoUi.User.MAIN_TEXT);
+                setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
+                return c;
+            }
+        });
+    }
+
+    private void toggleGoalInclude(int modelRow) {
+        EngineeringGoal goal = goalAtUiRow(modelRow);
+        if (goal == null) {
+            return;
+        }
+        boolean include = goal.isIncludeInPlanning();
         goalsModel.setValueAt(!include, modelRow, COL_GOAL_INCLUDE);
+    }
+
+    /** Checkbox column, or a short strip into the blueprint column (larger click/hover target). */
+    private static boolean isIncludeHit(JTable table, Point point, int viewRow) {
+        if (table == null || point == null || viewRow < 0) {
+            return false;
+        }
+        int includeViewCol = -1;
+        for (int c = 0; c < table.getColumnCount(); c++) {
+            if (table.convertColumnIndexToModel(c) == COL_GOAL_INCLUDE) {
+                includeViewCol = c;
+                break;
+            }
+        }
+        if (includeViewCol < 0) {
+            return false;
+        }
+        Rectangle cell = table.getCellRect(viewRow, includeViewCol, true);
+        Rectangle hit = new Rectangle(cell.x, cell.y, cell.width + INCLUDE_HIT_EXPAND_PX, cell.height);
+        return hit.contains(point);
+    }
+
+    /** Pencil column, or a short strip into the status column (larger click/hover target). */
+    private static boolean isEditHit(JTable table, Point point, int viewRow) {
+        if (table == null || point == null || viewRow < 0) {
+            return false;
+        }
+        int editViewCol = -1;
+        for (int c = 0; c < table.getColumnCount(); c++) {
+            if (table.convertColumnIndexToModel(c) == COL_GOAL_EDIT) {
+                editViewCol = c;
+                break;
+            }
+        }
+        if (editViewCol < 0) {
+            return false;
+        }
+        Rectangle cell = table.getCellRect(viewRow, editViewCol, true);
+        Rectangle hit = new Rectangle(
+                cell.x - EDIT_HIT_EXPAND_LEFT_PX,
+                cell.y,
+                cell.width + EDIT_HIT_EXPAND_LEFT_PX,
+                cell.height);
+        return hit.contains(point);
     }
 
     private void openAddGoalDialog() {
         Window owner = SwingUtilities.getWindowAncestor(this);
-        EngineeringGoal goal = EngineeringGoalDialog.showForAdd(owner, database, passThroughEnabledSupplier);
+        EngineeringShipRef current = currentShipRef();
+        EngineeringGoal goal = EngineeringGoalDialog.showForAdd(
+                owner, database, passThroughEnabledSupplier, shipCatalog, current);
         if (goal != null) {
             goals.add(goal);
+            shipCatalog.rememberGoal(goal);
+            rebuildShipFilterCombo();
+            // Same as edit: replay crafts/loadouts so G-level + materials match the journal.
+            refreshGoalProgressFromJournal();
             fireSessionChanged();
-            scheduleRefresh();
+            refreshUi();
         }
     }
 
     private void openEditGoalDialog(int modelRow) {
-        if (modelRow < 0 || modelRow >= goals.size()) {
+        EngineeringGoal existing = goalAtUiRow(modelRow);
+        if (existing == null) {
             return;
         }
-        EngineeringGoal existing = goals.get(modelRow);
         Window owner = SwingUtilities.getWindowAncestor(this);
-        EngineeringGoal updated = EngineeringGoalDialog.showForEdit(owner, database, passThroughEnabledSupplier, existing);
+        EngineeringGoal updated = EngineeringGoalDialog.showForEdit(
+                owner, database, passThroughEnabledSupplier, existing, shipCatalog);
         if (updated != null && !updated.equals(existing)) {
-            goals.set(modelRow, updated);
+            int fullIdx = goals.indexOf(existing);
+            if (fullIdx >= 0) {
+                goals.set(fullIdx, updated);
+            }
+            shipCatalog.rememberGoal(updated);
+            rebuildShipFilterCombo();
             // Recompute craft/unit progress for the new target so Status + materials stay in sync.
             refreshGoalProgressFromJournal();
             fireSessionChanged();
@@ -953,9 +1338,14 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     private void removeSelectedGoal() {
-        int row = goalsTable.getSelectedRow();
-        if (row >= 0 && row < goals.size()) {
-            goals.remove(row);
+        int viewRow = goalsTable.getSelectedRow();
+        if (viewRow < 0) {
+            return;
+        }
+        int modelRow = goalsTable.convertRowIndexToModel(viewRow);
+        EngineeringGoal goal = goalAtUiRow(modelRow);
+        if (goal != null) {
+            goals.remove(goal);
             fireSessionChanged();
             scheduleRefresh();
         }
@@ -967,7 +1357,8 @@ public class EngineeringTabPanel extends JPanel {
 
     private void refreshUi() {
         Map<String, Integer> inv = inventoryTracker.snapshot();
-        List<EngineeringGoal> activeGoals = goals.stream()
+        List<EngineeringGoal> visibleGoals = goalsForUi();
+        List<EngineeringGoal> activeGoals = visibleGoals.stream()
                 .filter(g -> g != null && g.isIncludeInPlanning())
                 .toList();
         Map<String, Integer> required = planner.requiredMaterials(activeGoals);
@@ -978,7 +1369,7 @@ public class EngineeringTabPanel extends JPanel {
 
         goalReadiness.clear();
         goalStatusText.clear();
-        for (EngineeringGoal goal : goals) {
+        for (EngineeringGoal goal : visibleGoals) {
             if (!goal.isIncludeInPlanning()) {
                 goalReadiness.add(GoalReadiness.READY);
                 goalStatusText.add("Hidden");
@@ -993,6 +1384,7 @@ public class EngineeringTabPanel extends JPanel {
         updateTradeTable(trades, shortfalls);
         goalsModel.fireTableDataChanged();
 
+        boolean hasVisibleGoals = !visibleGoals.isEmpty();
         boolean hasGoals = !goals.isEmpty();
         boolean hasActiveGoals = !activeGoals.isEmpty();
         boolean showShopping = hasActiveGoals && !shopping.isEmpty();
@@ -1012,6 +1404,9 @@ public class EngineeringTabPanel extends JPanel {
         if (!hasGoals) {
             materialsEmptyLabel.setText("<html><body style='color:#ffcc88'>Add a goal to see required materials.</body></html>");
             tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>Trade Suggestions appear when you have material shortfalls.</body></html>");
+        } else if (!hasVisibleGoals) {
+            materialsEmptyLabel.setText("<html><body style='color:#ffcc88'>No goals for the selected ship.</body></html>");
+            tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>No goals for the selected ship.</body></html>");
         } else if (shopping.isEmpty()) {
             materialsEmptyLabel.setText("<html><body style='color:#ffcc88'>No materials computed for the current goals. "
                     + "Check that target grade is above your starting grade (G0).</body></html>");
@@ -1235,7 +1630,7 @@ public class EngineeringTabPanel extends JPanel {
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
-            boolean editable = modelRow >= 0 && modelRow < goals.size();
+            boolean editable = goalAtUiRow(modelRow) != null;
             setEnabled(editable);
             setIcon(editable ? PencilIcon.DEFAULT : null);
             return this;
@@ -1253,7 +1648,7 @@ public class EngineeringTabPanel extends JPanel {
     private final class GoalsTableModel extends AbstractTableModel {
         @Override
         public int getRowCount() {
-            return goals.size();
+            return goalsForUi().size();
         }
 
         @Override
@@ -1279,13 +1674,18 @@ public class EngineeringTabPanel extends JPanel {
 
         @Override
         public void setValueAt(Object value, int rowIndex, int columnIndex) {
-            if (columnIndex != COL_GOAL_INCLUDE || rowIndex < 0 || rowIndex >= goals.size()) {
+            EngineeringGoal goal = goalAtUiRow(rowIndex);
+            if (columnIndex != COL_GOAL_INCLUDE || goal == null) {
                 return;
             }
             boolean include = value instanceof Boolean b && b;
-            EngineeringGoal updated = goals.get(rowIndex).withIncludeInPlanning(include);
-            if (!updated.equals(goals.get(rowIndex))) {
-                goals.set(rowIndex, updated);
+            EngineeringGoal updated = goal.withIncludeInPlanning(include);
+            if (!updated.equals(goal)) {
+                int fullIdx = goals.indexOf(goal);
+                if (fullIdx >= 0) {
+                    goals.set(fullIdx, updated);
+                }
+                fireTableCellUpdated(rowIndex, columnIndex);
                 fireSessionChanged();
                 scheduleRefresh();
             }
@@ -1306,7 +1706,10 @@ public class EngineeringTabPanel extends JPanel {
 
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
-            EngineeringGoal g = goals.get(rowIndex);
+            EngineeringGoal g = goalAtUiRow(rowIndex);
+            if (g == null) {
+                return "";
+            }
             if (columnIndex == COL_GOAL_INCLUDE) {
                 return g.isIncludeInPlanning();
             }
@@ -1531,6 +1934,30 @@ public class EngineeringTabPanel extends JPanel {
                 c.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
             }
             return c;
+        }
+    }
+
+    private record ShipFilterItem(Long shipId, String label, boolean isSeparator) {
+        static ShipFilterItem all() {
+            return new ShipFilterItem(null, "All", false);
+        }
+
+        static ShipFilterItem ship(EngineeringShipRef ref, String label) {
+            String text = label != null && !label.isBlank() ? label : ref.displayLabel();
+            return new ShipFilterItem(Long.valueOf(ref.getShipId()), text, false);
+        }
+
+        static ShipFilterItem ship(EngineeringShipRef ref) {
+            return ship(ref, ref.displayLabel());
+        }
+
+        static ShipFilterItem separator() {
+            return new ShipFilterItem(null, "", true);
+        }
+
+        @Override
+        public String toString() {
+            return isSeparator ? "" : label;
         }
     }
 }

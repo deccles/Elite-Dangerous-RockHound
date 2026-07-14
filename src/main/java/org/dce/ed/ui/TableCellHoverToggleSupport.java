@@ -33,6 +33,7 @@ public final class TableCellHoverToggleSupport implements ActionListener {
         final JTable table;
         final int modelColumn;
         final int hoverDelayMs;
+        final int expandRightPx;
         final BooleanSupplier passThroughEnabled;
         final IntConsumer onToggleModelRow;
 
@@ -43,11 +44,13 @@ public final class TableCellHoverToggleSupport implements ActionListener {
         Entry(JTable table,
               int modelColumn,
               int hoverDelayMs,
+              int expandRightPx,
               BooleanSupplier passThroughEnabled,
               IntConsumer onToggleModelRow) {
             this.table = table;
             this.modelColumn = modelColumn;
             this.hoverDelayMs = hoverDelayMs;
+            this.expandRightPx = expandRightPx;
             this.passThroughEnabled = passThroughEnabled;
             this.onToggleModelRow = onToggleModelRow;
         }
@@ -56,16 +59,36 @@ public final class TableCellHoverToggleSupport implements ActionListener {
     private TableCellHoverToggleSupport() {
     }
 
+    /**
+     * Poll-based hover-to-toggle for a single table column when mouse pass-through is enabled.
+     *
+     * @param expandRightPx extra hit area into the next column (helps skinny checkbox columns)
+     */
     public static void install(JTable table,
                                int modelColumn,
                                BooleanSupplier passThroughEnabled,
                                int hoverDelayMs,
                                IntConsumer onToggleModelRow) {
+        install(table, modelColumn, passThroughEnabled, hoverDelayMs, 0, onToggleModelRow);
+    }
+
+    public static void install(JTable table,
+                               int modelColumn,
+                               BooleanSupplier passThroughEnabled,
+                               int hoverDelayMs,
+                               int expandRightPx,
+                               IntConsumer onToggleModelRow) {
         if (table == null || onToggleModelRow == null || modelColumn < 0) {
             return;
         }
         entries.removeIf(entry -> entry.table == table && entry.modelColumn == modelColumn);
-        entries.add(new Entry(table, modelColumn, Math.max(0, hoverDelayMs), passThroughEnabled, onToggleModelRow));
+        entries.add(new Entry(
+                table,
+                modelColumn,
+                Math.max(0, hoverDelayMs),
+                Math.max(0, expandRightPx),
+                passThroughEnabled,
+                onToggleModelRow));
     }
 
     @Override
@@ -106,15 +129,49 @@ public final class TableCellHoverToggleSupport implements ActionListener {
                 resetEntry(entry);
                 continue;
             }
-            if (table.convertColumnIndexToModel(viewColumn) != entry.modelColumn) {
+            int modelColumn = table.convertColumnIndexToModel(viewColumn);
+            boolean inTargetColumn = modelColumn == entry.modelColumn;
+            boolean inExpandedHit = false;
+            if (!inTargetColumn && entry.expandRightPx > 0) {
+                int targetViewCol = -1;
+                for (int c = 0; c < table.getColumnCount(); c++) {
+                    if (table.convertColumnIndexToModel(c) == entry.modelColumn) {
+                        targetViewCol = c;
+                        break;
+                    }
+                }
+                if (targetViewCol >= 0) {
+                    Rectangle targetRect = table.getCellRect(viewRow, targetViewCol, true);
+                    Rectangle expanded = new Rectangle(
+                            targetRect.x,
+                            targetRect.y,
+                            targetRect.width + entry.expandRightPx,
+                            targetRect.height);
+                    inExpandedHit = expanded.contains(local);
+                }
+            }
+            if (!inTargetColumn && !inExpandedHit) {
                 resetEntry(entry);
                 continue;
             }
-            Rectangle cellRect = table.getCellRect(viewRow, viewColumn, true);
+            int hitViewColumn = inTargetColumn ? viewColumn : /* use target */ -1;
+            if (hitViewColumn < 0) {
+                for (int c = 0; c < table.getColumnCount(); c++) {
+                    if (table.convertColumnIndexToModel(c) == entry.modelColumn) {
+                        hitViewColumn = c;
+                        break;
+                    }
+                }
+            }
+            if (hitViewColumn < 0) {
+                resetEntry(entry);
+                continue;
+            }
+            Rectangle cellRect = table.getCellRect(viewRow, hitViewColumn, true);
             Rectangle screenRect = new Rectangle(
                     tableLoc.x + cellRect.x,
                     tableLoc.y + cellRect.y,
-                    cellRect.width,
+                    cellRect.width + entry.expandRightPx,
                     cellRect.height);
             if (!screenRect.contains(mouseOnScreen)) {
                 resetEntry(entry);

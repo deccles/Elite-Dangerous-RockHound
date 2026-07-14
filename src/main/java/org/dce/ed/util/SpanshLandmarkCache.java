@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.dce.ed.cache.SystemCache;
+
 /**
  * Spansh body exobiology info (landmarks + exclude-from-exobiology) keyed by (systemName, bodyName).
  * Layered: in-memory → SQLite ({@link SpanshBodyExobiologySqliteStore}, same DB as {@link org.dce.ed.cache.SystemCache})
@@ -34,8 +36,14 @@ public final class SpanshLandmarkCache {
     /**
      * Returns exobiology info from memory, else SQLite, else Spansh; persists successful HTTP results to SQLite.
      * Returns null on API/search failure (not stored).
+     * <p>
+     * During bulk journal rescan, never opens a second SQLite connection or hits the network
+     * (the cache writer holds a long transaction).
      */
     public SpanshBodyExobiologyInfo getOrFetch(String systemName, String bodyName) {
+        if (SystemCache.isBulkSystemWrite()) {
+            return memoryOnly(systemName, bodyName);
+        }
         String k = key(systemName, bodyName);
         SpanshBodyExobiologyInfo mem = cache.get(k);
         if (mem != null) {
@@ -57,8 +65,13 @@ public final class SpanshLandmarkCache {
     /**
      * Returns exobiology info from memory or SQLite; never performs network I/O.
      * Populates the in-memory cache when loaded from disk.
+     * <p>
+     * During bulk journal rescan, memory-only (avoids {@code SQLITE_BUSY} against the write transaction).
      */
     public SpanshBodyExobiologyInfo getIfPresent(String systemName, String bodyName) {
+        if (SystemCache.isBulkSystemWrite()) {
+            return memoryOnly(systemName, bodyName);
+        }
         String k = key(systemName, bodyName);
         SpanshBodyExobiologyInfo mem = cache.get(k);
         if (mem != null) {
@@ -69,5 +82,9 @@ public final class SpanshLandmarkCache {
             cache.put(k, disk);
         }
         return disk;
+    }
+
+    private SpanshBodyExobiologyInfo memoryOnly(String systemName, String bodyName) {
+        return cache.get(key(systemName, bodyName));
     }
 }

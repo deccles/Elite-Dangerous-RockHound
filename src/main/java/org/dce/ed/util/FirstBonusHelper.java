@@ -36,14 +36,20 @@ public final class FirstBonusHelper {
     }
 
     /**
-     * Core logic: first bonus applies when wasFootfalled is not true and Spansh does not have landmarks.
-     * When spanshLandmarks is null we do not downgrade (treat as unknown).
+     * Core logic: first bonus applies only when we know there was no footfall and Spansh was
+     * consulted and reported no landmarks.
+     * <p>
+     * When {@code spanshLandmarks} is {@code null} (not fetched yet), returns {@code false} —
+     * omit first-bonus rather than guess. Live UI should {@code getOrFetch} Spansh before calling
+     * this so an empty list can mean “resolved, none found” and unlock first-bonus.
      */
     public static boolean firstBonusApplies(Boolean wasFootfalled, List<SpanshLandmark> spanshLandmarks) {
         if (Boolean.TRUE.equals(wasFootfalled)) {
             return false;
         }
-        boolean spanshHasLandmarks = spanshLandmarks != null && !spanshLandmarks.isEmpty();
-        return !spanshHasLandmarks;
+        if (spanshLandmarks == null) {
+            return false;
+        }
+        return spanshLandmarks.isEmpty();
     }
 }

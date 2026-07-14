@@ -1,13 +1,19 @@
 package org.dce.ed.ui;
 
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Point;
 
+import javax.accessibility.Accessible;
 import javax.swing.BorderFactory;
+import javax.swing.JComboBox;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.SwingUtilities;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 
 /**
  * Overlay table scroll panes: transparent chrome and {@link SubtleScrollBarUI} thumb styling.
@@ -66,6 +72,51 @@ public final class OverlayScrollPaneSupport {
             hsb.setUI(new SubtleScrollBarUI());
             hsb.setPreferredSize(new Dimension(Integer.MAX_VALUE, 12));
             hsb.setUnitIncrement(16);
+        }
+    }
+
+    /**
+     * Applies {@link SubtleScrollBarUI} to a combo box dropdown scroller when the popup opens.
+     */
+    public static void installSubtleScrollBarsOnComboPopup(JComboBox<?> combo) {
+        if (combo == null) {
+            return;
+        }
+        Object tagged = combo.getClientProperty("edo.subtleComboScroll");
+        if (Boolean.TRUE.equals(tagged)) {
+            return;
+        }
+        combo.putClientProperty("edo.subtleComboScroll", Boolean.TRUE);
+        combo.addPopupMenuListener(new PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                SwingUtilities.invokeLater(() -> styleComboPopupScrollBars(combo));
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+                // no-op
+            }
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent e) {
+                // no-op
+            }
+        });
+    }
+
+    private static void styleComboPopupScrollBars(JComboBox<?> combo) {
+        if (combo == null || combo.getUI() == null) {
+            return;
+        }
+        Accessible child = combo.getUI().getAccessibleChild(combo, 0);
+        if (!(child instanceof JPopupMenu popup)) {
+            return;
+        }
+        for (Component c : popup.getComponents()) {
+            if (c instanceof JScrollPane sp) {
+                installSubtleScrollBars(sp);
+            }
         }
     }
 

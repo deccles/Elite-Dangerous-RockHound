@@ -22,6 +22,10 @@ public final class EngineeringGoal {
     private final int quantity;
     /** How many modules are fully finished (grades + experimental when required). */
     private final int completedUnits;
+    /** Elite ShipID for this goal's hull; {@link EngineeringShipRef#UNKNOWN_SHIP_ID} if unset. */
+    private final long shipId;
+    /** Cached display label for the ship (name / type). */
+    private final String shipLabel;
 
     public EngineeringGoal(String blueprintId,
                            String moduleType,
@@ -78,6 +82,24 @@ public final class EngineeringGoal {
                            boolean experimentalApplied,
                            int quantity,
                            int completedUnits) {
+        this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
+                experimentalId, includeInPlanning, experimentalApplied, quantity, completedUnits,
+                EngineeringShipRef.UNKNOWN_SHIP_ID, "");
+    }
+
+    public EngineeringGoal(String blueprintId,
+                           String moduleType,
+                           String blueprintName,
+                           int fromGrade,
+                           int craftsAtCurrentGrade,
+                           int targetGrade,
+                           String experimentalId,
+                           boolean includeInPlanning,
+                           boolean experimentalApplied,
+                           int quantity,
+                           int completedUnits,
+                           long shipId,
+                           String shipLabel) {
         this.blueprintId = blueprintId != null ? blueprintId : "";
         this.moduleType = moduleType != null ? moduleType : "";
         this.blueprintName = blueprintName != null ? blueprintName : "";
@@ -89,6 +111,8 @@ public final class EngineeringGoal {
         this.experimentalApplied = experimentalApplied;
         this.quantity = Math.max(1, quantity);
         this.completedUnits = Math.max(0, Math.min(completedUnits, this.quantity));
+        this.shipId = shipId;
+        this.shipLabel = shipLabel != null ? shipLabel : "";
     }
 
     public String getBlueprintId() {
@@ -135,6 +159,18 @@ public final class EngineeringGoal {
         return completedUnits;
     }
 
+    public long getShipId() {
+        return shipId;
+    }
+
+    public String getShipLabel() {
+        return shipLabel;
+    }
+
+    public boolean hasShip() {
+        return shipId >= 0;
+    }
+
     /** Modules still to finish (including the in-progress unit). */
     public int remainingUnits() {
         if (isComplete()) {
@@ -176,7 +212,9 @@ public final class EngineeringGoal {
                 includeInPlanning,
                 experimentalApplied,
                 quantity,
-                completedUnits);
+                completedUnits,
+                shipId,
+                shipLabel);
     }
 
     public EngineeringGoal withExperimentalApplied(boolean applied) {
@@ -194,7 +232,9 @@ public final class EngineeringGoal {
                 includeInPlanning,
                 applied,
                 quantity,
-                completedUnits);
+                completedUnits,
+                shipId,
+                shipLabel);
     }
 
     public EngineeringGoal withIncludeInPlanning(boolean include) {
@@ -212,7 +252,9 @@ public final class EngineeringGoal {
                 include,
                 experimentalApplied,
                 quantity,
-                completedUnits);
+                completedUnits,
+                shipId,
+                shipLabel);
     }
 
     public EngineeringGoal withQuantity(int newQuantity) {
@@ -231,7 +273,9 @@ public final class EngineeringGoal {
                 includeInPlanning,
                 experimentalApplied,
                 q,
-                Math.min(completedUnits, q));
+                Math.min(completedUnits, q),
+                shipId,
+                shipLabel);
     }
 
     public EngineeringGoal withCompletedUnits(int newCompletedUnits) {
@@ -250,7 +294,9 @@ public final class EngineeringGoal {
                 includeInPlanning,
                 experimentalApplied,
                 quantity,
-                units);
+                units,
+                shipId,
+                shipLabel);
     }
 
     /**
@@ -291,7 +337,9 @@ public final class EngineeringGoal {
                 includeInPlanning,
                 expApplied,
                 q,
-                units);
+                units,
+                shipId,
+                shipLabel);
     }
 
     public EngineeringGoal withFromGrade(int newFromGrade) {
@@ -311,7 +359,40 @@ public final class EngineeringGoal {
                 includeInPlanning,
                 false,
                 quantity,
-                0);
+                0,
+                shipId,
+                shipLabel);
+    }
+
+
+    public EngineeringGoal withShip(long newShipId, String newShipLabel) {
+        String label = newShipLabel != null ? newShipLabel : "";
+        if (shipId == newShipId && shipLabel.equals(label)) {
+            return this;
+        }
+        return new EngineeringGoal(
+                blueprintId,
+                moduleType,
+                blueprintName,
+                fromGrade,
+                craftsAtCurrentGrade,
+                targetGrade,
+                experimentalId,
+                includeInPlanning,
+                experimentalApplied,
+                quantity,
+                completedUnits,
+                newShipId,
+                label);
+    }
+
+    public EngineeringGoal withUserSettings(int newTargetGrade,
+                                           String newExperimentalId,
+                                           int newQuantity,
+                                           long newShipId,
+                                           String newShipLabel) {
+        return withUserSettings(newTargetGrade, newExperimentalId, newQuantity)
+                .withShip(newShipId, newShipLabel);
     }
 
     public String displayLabel() {
@@ -347,7 +428,9 @@ public final class EngineeringGoal {
                 && includeInPlanning == other.includeInPlanning
                 && experimentalApplied == other.experimentalApplied
                 && quantity == other.quantity
-                && completedUnits == other.completedUnits;
+                && completedUnits == other.completedUnits
+                && shipId == other.shipId
+                && shipLabel.equals(other.shipLabel);
     }
 
     @Override
@@ -363,6 +446,8 @@ public final class EngineeringGoal {
         result = 31 * result + Boolean.hashCode(experimentalApplied);
         result = 31 * result + quantity;
         result = 31 * result + completedUnits;
+        result = 31 * result + Long.hashCode(shipId);
+        result = 31 * result + shipLabel.hashCode();
         return result;
     }
 }

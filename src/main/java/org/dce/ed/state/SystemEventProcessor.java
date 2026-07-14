@@ -249,6 +249,10 @@ public class SystemEventProcessor {
         if (bodyId > 0 && systemAddress != 0L) {
             state.setCarrierParkedBodyId(Integer.valueOf(bodyId));
             state.setCarrierParkedSystemAddress(systemAddress);
+            // During bulk rescan, session_json is merged once after replay; avoid per-event writes.
+            if (SystemCache.isBulkSystemWrite()) {
+                return;
+            }
             // RescanJournalsMain and any other caller of handleEvent bypass UI tabs — persist into session_json here.
             try {
                 SystemCache.getInstance().mergeCommanderSessionFromReplayedState(state);
@@ -880,8 +884,11 @@ public class SystemEventProcessor {
                 // Publish first (so UI can render immediately), then return.
                 info.setPredictions(filtered);
 
-                if (!Boolean.TRUE.equals(info.getWasFootfalled()) && info.getSpanshLandmarks() == null) {
-                    SpanshBodyExobiologyInfo spanshInfo = SpanshLandmarkCache.getInstance().getOrFetch(info.getStarSystem(), info.getBodyName());
+                if (!SystemCache.isBulkSystemWrite()
+                        && !Boolean.TRUE.equals(info.getWasFootfalled())
+                        && info.getSpanshLandmarks() == null) {
+                    SpanshBodyExobiologyInfo spanshInfo = SpanshLandmarkCache.getInstance()
+                            .getOrFetch(info.getStarSystem(), info.getBodyName());
                     if (spanshInfo != null) {
                         info.setSpanshLandmarks(spanshInfo.getLandmarks());
                         info.setSpanshExcludeFromExobiology(spanshInfo.isExcludeFromExobiology());
@@ -906,8 +913,11 @@ public class SystemEventProcessor {
 
         // *** FIX: publish to BodyInfo BEFORE dispatching the event ***
         info.setPredictions(candidates);
-        if (!Boolean.TRUE.equals(info.getWasFootfalled()) && info.getSpanshLandmarks() == null) {
-            SpanshBodyExobiologyInfo spanshInfo = SpanshLandmarkCache.getInstance().getOrFetch(info.getStarSystem(), info.getBodyName());
+        if (!SystemCache.isBulkSystemWrite()
+                && !Boolean.TRUE.equals(info.getWasFootfalled())
+                && info.getSpanshLandmarks() == null) {
+            SpanshBodyExobiologyInfo spanshInfo = SpanshLandmarkCache.getInstance()
+                    .getOrFetch(info.getStarSystem(), info.getBodyName());
             if (spanshInfo != null) {
                 info.setSpanshLandmarks(spanshInfo.getLandmarks());
                 info.setSpanshExcludeFromExobiology(spanshInfo.isExcludeFromExobiology());

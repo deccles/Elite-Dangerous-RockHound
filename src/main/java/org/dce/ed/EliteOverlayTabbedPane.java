@@ -66,6 +66,7 @@ import org.dce.ed.logreader.event.FssDiscoveryScanEvent;
 import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.logreader.event.SetUserShipNameEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.StartJumpEvent;
@@ -617,6 +618,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 			snap.updateFromLoadGame(lg);
 		} else if (event instanceof LoadoutEvent lo) {
 			snap.updateFromLoadout(lo);
+		} else if (event instanceof SetUserShipNameEvent renamed) {
+			snap.updateFromSetUserShipName(renamed);
 		} else if (event instanceof StatusEvent se) {
 			snap.updateFromStatus(se);
 		} else if (event instanceof FsdTargetEvent ft) {

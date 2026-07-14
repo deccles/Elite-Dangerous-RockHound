@@ -33,6 +33,7 @@ public final class TableCellHoverClickSupport implements ActionListener {
         final JTable table;
         final int modelColumn;
         final int hoverDelayMs;
+        final int expandLeftPx;
         final BooleanSupplier passThroughEnabled;
         final IntConsumer onClickModelRow;
 
@@ -43,11 +44,13 @@ public final class TableCellHoverClickSupport implements ActionListener {
         Entry(JTable table,
               int modelColumn,
               int hoverDelayMs,
+              int expandLeftPx,
               BooleanSupplier passThroughEnabled,
               IntConsumer onClickModelRow) {
             this.table = table;
             this.modelColumn = modelColumn;
             this.hoverDelayMs = hoverDelayMs;
+            this.expandLeftPx = expandLeftPx;
             this.passThroughEnabled = passThroughEnabled;
             this.onClickModelRow = onClickModelRow;
         }
@@ -61,11 +64,29 @@ public final class TableCellHoverClickSupport implements ActionListener {
                                BooleanSupplier passThroughEnabled,
                                int hoverDelayMs,
                                IntConsumer onClickModelRow) {
+        install(table, modelColumn, passThroughEnabled, hoverDelayMs, 0, onClickModelRow);
+    }
+
+    /**
+     * @param expandLeftPx extra hit area into the previous column (helps skinny action columns)
+     */
+    public static void install(JTable table,
+                               int modelColumn,
+                               BooleanSupplier passThroughEnabled,
+                               int hoverDelayMs,
+                               int expandLeftPx,
+                               IntConsumer onClickModelRow) {
         if (table == null || onClickModelRow == null || modelColumn < 0) {
             return;
         }
         entries.removeIf(entry -> entry.table == table && entry.modelColumn == modelColumn);
-        entries.add(new Entry(table, modelColumn, Math.max(0, hoverDelayMs), passThroughEnabled, onClickModelRow));
+        entries.add(new Entry(
+                table,
+                modelColumn,
+                Math.max(0, hoverDelayMs),
+                Math.max(0, expandLeftPx),
+                passThroughEnabled,
+                onClickModelRow));
     }
 
     @Override
@@ -106,16 +127,38 @@ public final class TableCellHoverClickSupport implements ActionListener {
                 resetEntry(entry);
                 continue;
             }
-            if (table.convertColumnIndexToModel(viewColumn) != entry.modelColumn) {
+            int modelColumn = table.convertColumnIndexToModel(viewColumn);
+            boolean inTargetColumn = modelColumn == entry.modelColumn;
+            boolean inExpandedHit = false;
+            int targetViewCol = -1;
+            for (int c = 0; c < table.getColumnCount(); c++) {
+                if (table.convertColumnIndexToModel(c) == entry.modelColumn) {
+                    targetViewCol = c;
+                    break;
+                }
+            }
+            if (targetViewCol < 0) {
                 resetEntry(entry);
                 continue;
             }
-            Rectangle cellRect = table.getCellRect(viewRow, viewColumn, true);
+            Rectangle targetRect = table.getCellRect(viewRow, targetViewCol, true);
+            Rectangle expanded = new Rectangle(
+                    targetRect.x - entry.expandLeftPx,
+                    targetRect.y,
+                    targetRect.width + entry.expandLeftPx,
+                    targetRect.height);
+            if (!inTargetColumn && entry.expandLeftPx > 0) {
+                inExpandedHit = expanded.contains(local);
+            }
+            if (!inTargetColumn && !inExpandedHit) {
+                resetEntry(entry);
+                continue;
+            }
             Rectangle screenRect = new Rectangle(
-                    tableLoc.x + cellRect.x,
-                    tableLoc.y + cellRect.y,
-                    cellRect.width,
-                    cellRect.height);
+                    tableLoc.x + expanded.x,
+                    tableLoc.y + expanded.y,
+                    expanded.width,
+                    expanded.height);
             if (!screenRect.contains(mouseOnScreen)) {
                 resetEntry(entry);
                 continue;

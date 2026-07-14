@@ -51,6 +51,8 @@ public enum EliteEventType {
     SRV_DESTROYED("SRVDestroyed"),
     CARGO("Cargo"),
     LOADOUT("Loadout"),
+    STORED_SHIPS("StoredShips"),
+    SET_USER_SHIP_NAME("SetUserShipName"),
     SHIP_LOCKER("ShipLocker"),
     MISSIONS("Missions"),
     MISSION_ACCEPTED("MissionAccepted"),

@@ -1,12 +1,13 @@
 package org.dce.ed.exec.placeholder;
 
+import java.awt.Toolkit;
+import java.awt.datatransfer.DataFlavor;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
 import org.dce.ed.exec.CarrierFuelTracker;
 import org.dce.ed.exec.ExecLaunchContext;
-import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.logreader.OwnedFleetCarrierTracker;
 import org.dce.ed.route.RouteSession;
 import org.dce.ed.route.RouteTargetState;
@@ -54,7 +55,18 @@ public final class ExecPlaceholderResolver {
                 Integer n = ctx.commanderSnapshot().getFsdRemainingJumps();
                 yield n != null ? Integer.toString(n) : null;
             }
-            case CLIPBOARD -> launch != null ? blankOrNull(launch.getClipboard()) : null;
+            case CLIPBOARD -> {
+                if (launch != null && launch.isClipboardCleared()) {
+                    yield null;
+                }
+                if (launch != null) {
+                    String fromLaunch = blankOrNull(launch.getClipboard());
+                    if (fromLaunch != null) {
+                        yield fromLaunch;
+                    }
+                }
+                yield blankOrNull(readSystemClipboardText());
+            }
             case TRIGGER -> launch != null && launch.getTrigger() != null
                     ? launch.getTrigger().name().toLowerCase(Locale.ROOT) : null;
             case TIMESTAMP -> launch != null && launch.getFiredAt() != null
@@ -213,5 +225,19 @@ public final class ExecPlaceholderResolver {
 
     private static String blankOrNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    /** Best-effort read of the Windows clipboard string (empty / unavailable → null). */
+    static String readSystemClipboardText() {
+        try {
+            var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
+                return null;
+            }
+            Object data = clipboard.getData(DataFlavor.stringFlavor);
+            return data != null ? data.toString() : null;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 }
