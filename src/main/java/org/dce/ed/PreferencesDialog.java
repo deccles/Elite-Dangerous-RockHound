@@ -22,13 +22,13 @@ import java.util.stream.Stream;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
-import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JColorChooser;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
@@ -56,7 +56,13 @@ import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.mining.GoogleSheetsAuth;
 import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.mining.ProspectorWriteResult;
+import org.dce.ed.ui.EdoDialogTitleBar;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.HelpCircleIcon;
+import org.dce.ed.ui.OverlayCheckBoxStyle;
+import org.dce.ed.ui.OverlayOutlineButtonStyle;
+import org.dce.ed.ui.OverlayScrollPaneSupport;
+import org.dce.ed.ui.WindowEdgeResizeSupport;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.tts.VoiceCacheWarmer;
@@ -69,6 +75,7 @@ public class PreferencesDialog extends JDialog {
 
 	/** Index of the Mining tab in {@link #PreferencesDialog(Window, String)}'s tabbed pane (Colors, Exobiology, Fonts, Logging, Mining, …). */
 	public static final int MINING_TAB_INDEX = 4;
+	public static final int FONTS_TAB_INDEX = 2;
 	public static final int EXEC_TAB_INDEX = 7;
 
 	/**
@@ -138,6 +145,15 @@ public class PreferencesDialog extends JDialog {
 	}
 
 	public final String clientKey;
+
+	/** True after any live overlay/theme/font preview that must be reverted on Cancel. */
+	private boolean livePreviewDirty;
+	/** Prevents Cancel + windowClosed from each rebuilding the overlay. */
+	private boolean dismissHandled;
+
+	/** Cached once; enumerating system fonts on Windows is often multi-second. */
+	private static volatile String[] cachedFontFamilies;
+	private boolean fontFamiliesLoaded;
 
 	// Overlay-tab fields so OK can read them
 	private JSlider normalTransparencySlider;
@@ -231,6 +247,8 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabControlPanelVisibleCheckBox;
 
 	private ExecTabPanel execTabPanel;
+	private JButton okButton;
+	private JButton cancelButton;
 
 	private int lastPrefsTabIndex;
 
@@ -240,6 +258,7 @@ public class PreferencesDialog extends JDialog {
 
 	/** Root tabbed pane (Colors, Exobiology, …); used to jump to a specific tab from helpers. */
 	private JTabbedPane preferenceTabs;
+	private EdoDialogTitleBar titleBar;
 
 	/** Lazy shared TTS for Speech-tab “sample prospector” preview (avoids constructing Polly clients per click). */
 	private static volatile TtsSprintf speechPreferencesPreviewTts;
@@ -397,18 +416,25 @@ public class PreferencesDialog extends JDialog {
 
 
 		this.okPressed = false;
+		setUndecorated(true);
 		setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 		setLayout(new BorderLayout());
-		setMinimumSize(new Dimension(560, 380));
+		// Match typical Exec-tab layout from the prefs screenshot (~860×720 content).
+		setMinimumSize(new Dimension(780, 560));
+		setPreferredSize(new Dimension(860, 720));
+		getRootPane().setBorder(BorderFactory.createLineBorder(EdoUi.Internal.TITLEBAR_BG_HOVER, 1));
+
+		titleBar = new EdoDialogTitleBar(this, "Overlay Preferences");
+		add(titleBar, BorderLayout.NORTH);
 
 		this.preferenceTabs = new JTabbedPane();
 		preferenceTabs.addTab("Colors", createColorsPanel());
-		preferenceTabs.addTab("Exobiology", createExobiologyPanel());
+		preferenceTabs.addTab("Exobiology", wrapTabInEdoScroll(createExobiologyPanel()));
 		preferenceTabs.addTab("Fonts", createFontsPanel());
 		preferenceTabs.addTab("Logging", createLoggingPanel());
-		preferenceTabs.addTab("Mining", createMiningPanel());
-		preferenceTabs.addTab("Overlay", createOverlayPanel());
-		preferenceTabs.addTab("Speech", createSpeechPanel());
+		preferenceTabs.addTab("Mining", wrapTabInEdoScroll(createMiningPanel()));
+		preferenceTabs.addTab("Overlay", wrapTabInEdoScroll(createOverlayPanel()));
+		preferenceTabs.addTab("Speech", wrapTabInEdoScroll(createSpeechPanel()));
 		preferenceTabs.addTab("Exec", createExecPanel());
 
 		add(preferenceTabs, BorderLayout.CENTER);
@@ -422,6 +448,12 @@ public class PreferencesDialog extends JDialog {
 			lastPrefsTabIndex = selected;
 			if (selected == EXEC_TAB_INDEX) {
 				wireExecFromOwner();
+				if (execTabPanel != null) {
+					execTabPanel.refreshColumnLayout();
+				}
+			}
+			if (isFontsTabSelected(selected)) {
+				ensureFontFamiliesLoaded();
 			}
 			stylePreferenceTabChrome();
 		});
@@ -429,62 +461,58 @@ public class PreferencesDialog extends JDialog {
 		wireExecFromOwner();
 
 		pack();
+		setSize(860, 720);
 		setLocationRelativeTo(owner);
-		applyDialogChrome();
+		WindowEdgeResizeSupport.install(this);
+		applyDialogChrome(true);
+		if (execTabPanel != null) {
+			SwingUtilities.invokeLater(execTabPanel::refreshColumnLayout);
+		}
 
 		// If the user closes the dialog or hits Cancel, revert any live preview.
 		addWindowListener(new java.awt.event.WindowAdapter() {
 			@Override
 			public void windowClosed(java.awt.event.WindowEvent e) {
-				revertLivePreviewIfNeeded();
+				finishDismissWithoutSave();
 			}
 
 			@Override
 			public void windowClosing(java.awt.event.WindowEvent e) {
-				revertLivePreviewIfNeeded();
+				finishDismissWithoutSave();
 			}
 		});
 	}
 
 	private JPanel createExecPanel() {
 		execTabPanel = new ExecTabPanel();
-		JScrollPane scroll = new JScrollPane(execTabPanel);
-		scroll.setBorder(null);
-		scroll.getVerticalScrollBar().setUnitIncrement(16);
+		// No outer scroll: table scrolls inside ExecTabPanel so Add/Manage/help stay visible above OK/Cancel.
 		JPanel wrapper = new JPanel(new BorderLayout());
-		wrapper.setOpaque(false);
-		wrapper.add(scroll, BorderLayout.CENTER);
+		wrapper.setOpaque(true);
+		wrapper.setBackground(EdoUi.User.BACKGROUND);
+		wrapper.add(execTabPanel, BorderLayout.CENTER);
 		return wrapper;
 	}
 
 	private JPanel createOverlayPanel() {
-		JPanel panel = new JPanel(new BorderLayout());
+		JPanel panel = new JPanel();
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 		panel.setOpaque(false);
-
-		JPanel content = new JPanel(new GridBagLayout());
-		content.setOpaque(false);
-
-		GridBagConstraints outer = new GridBagConstraints();
-		outer.gridx = 0;
-		outer.gridy = 0;
-		outer.fill = GridBagConstraints.HORIZONTAL;
-		outer.anchor = GridBagConstraints.NORTHWEST;
-		outer.weightx = 1.0;
-		outer.insets = new Insets(6, 6, 6, 6);
+		initLeftSectionStack(panel);
 
 		// --- Controls / Hotkeys ---
 		JPanel hotkeyPanel = new JPanel(new GridBagLayout());
 		hotkeyPanel.setOpaque(false);
-		hotkeyPanel.setBorder(BorderFactory.createTitledBorder("Controls"));
+		hotkeyPanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Controls"));
 
 		GridBagConstraints gbc = new GridBagConstraints();
 		gbc.gridx = 0;
 		gbc.gridy = 0;
 		gbc.anchor = GridBagConstraints.WEST;
-		gbc.insets = new Insets(4, 4, 4, 4);
+		gbc.insets = new Insets(6, 8, 6, 8);
 
-		JLabel hotkeyLabel = new JLabel("Mouse-pass through toggle key:");
+		JLabel hotkeyLabel = new JLabel("Overlay window mode toggle key:");
 		hotkeyPanel.add(hotkeyLabel, gbc);
 
 		gbc.gridx = 1;
@@ -513,18 +541,18 @@ public class PreferencesDialog extends JDialog {
 
 		gbc.gridwidth = 1;
 
-		content.add(hotkeyPanel, outer);
-
-		outer.gridy++;
+		addLeftStackedSection(panel, hotkeyPanel);
 		JPanel tabsPanel = new JPanel(new GridBagLayout());
 		tabsPanel.setOpaque(false);
-		tabsPanel.setBorder(BorderFactory.createTitledBorder("Visible tabs"));
+		tabsPanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Visible tabs"));
 
 		GridBagConstraints tgc = new GridBagConstraints();
 		tgc.gridx = 0;
 		tgc.gridy = 0;
 		tgc.anchor = GridBagConstraints.WEST;
-		tgc.insets = new Insets(2, 4, 2, 4);
+		tgc.insets = new Insets(2, 8, 2, 8);
 
 		overlayTabRouteVisibleCheckBox = new JCheckBox("Route");
 		overlayTabRouteVisibleCheckBox.setOpaque(false);
@@ -573,18 +601,18 @@ public class PreferencesDialog extends JDialog {
 		overlayTabControlPanelVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabControlPanelVisible());
 		tabsPanel.add(overlayTabControlPanelVisibleCheckBox, tgc);
 
-		content.add(tabsPanel, outer);
-
-		outer.gridy++;
+		addLeftStackedSection(panel, tabsPanel);
 		JPanel systemTabPrefsPanel = new JPanel(new GridBagLayout());
 		systemTabPrefsPanel.setOpaque(false);
-		systemTabPrefsPanel.setBorder(BorderFactory.createTitledBorder("System tab"));
+		systemTabPrefsPanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"System tab"));
 
 		GridBagConstraints stc = new GridBagConstraints();
 		stc.gridx = 0;
 		stc.gridy = 0;
 		stc.anchor = GridBagConstraints.WEST;
-		stc.insets = new Insets(2, 4, 2, 4);
+		stc.insets = new Insets(2, 8, 2, 8);
 
 		JLabel shipRefLabel = new JLabel("Ship / plan map reference body:");
 		systemTabPrefsPanel.add(shipRefLabel, stc);
@@ -632,18 +660,18 @@ public class PreferencesDialog extends JDialog {
 		systemTabPrefsPanel.add(systemPlanMapAutoZoomHudTargetCheckBox, stc);
 		stc.gridwidth = 1;
 
-		content.add(systemTabPrefsPanel, outer);
-
-		outer.gridy++;
+		addLeftStackedSection(panel, systemTabPrefsPanel);
 		JPanel autoSwitchPanel = new JPanel(new GridBagLayout());
 		autoSwitchPanel.setOpaque(false);
-		autoSwitchPanel.setBorder(BorderFactory.createTitledBorder("Auto-switch tabs"));
+		autoSwitchPanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Auto-switch tabs"));
 
 		GridBagConstraints agc = new GridBagConstraints();
 		agc.gridx = 0;
 		agc.gridy = 0;
 		agc.anchor = GridBagConstraints.WEST;
-		agc.insets = new Insets(2, 4, 2, 4);
+		agc.insets = new Insets(2, 8, 2, 8);
 
 		autoSwitchGalaxyMapToRouteCheckBox = new JCheckBox(
 				"Open Galaxy Map → Route tab (Fleet Carrier only after carrier management, then map from right panel / station services)");
@@ -695,9 +723,8 @@ public class PreferencesDialog extends JDialog {
 		autoSwitchFleetCarrierOnJsonDropCheckBox.setSelected(OverlayPreferences.isAutoSwitchFleetCarrierOnJsonDrop());
 		autoSwitchPanel.add(autoSwitchFleetCarrierOnJsonDropCheckBox, agc);
 
-		content.add(autoSwitchPanel, outer);
-
-		panel.add(content, BorderLayout.NORTH);
+		addLeftStackedSection(panel, autoSwitchPanel);
+		finishLeftSectionStack(panel);
 		return panel;
 	}
 
@@ -705,39 +732,41 @@ public class PreferencesDialog extends JDialog {
 	 * Logging tab: choose between auto-detected live folder and a custom test folder.
 	 */
 	private JPanel createLoggingPanel() {
-		JPanel panel = new JPanel(new BorderLayout());
+		JPanel panel = new JPanel();
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 		panel.setOpaque(false);
+		initLeftSectionStack(panel);
 
-		JPanel content = new JPanel(new GridBagLayout());
-		content.setOpaque(false);
+		JPanel box = new JPanel(new GridBagLayout());
+		box.setOpaque(false);
+		box.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Journal folder"));
 
 		GridBagConstraints gbc = new GridBagConstraints();
 		gbc.gridx = 0;
 		gbc.gridy = 0;
 		gbc.anchor = GridBagConstraints.WEST;
-		gbc.insets = new Insets(4, 4, 4, 4);
+		gbc.insets = new Insets(6, 8, 6, 8);
 
-		// --- Auto-detect checkbox ---
 		JLabel journalLabel = new JLabel("Use auto-detected ED log folder:");
 		autoDetectCheckBox = new JCheckBox();
 		autoDetectCheckBox.setOpaque(false);
-
-		// Load current prefs
 		boolean auto = OverlayPreferences.isAutoLogDir(clientKey);
 		autoDetectCheckBox.setSelected(auto);
 
-		content.add(journalLabel, gbc);
+		box.add(journalLabel, gbc);
 		gbc.gridx = 1;
-		content.add(autoDetectCheckBox, gbc);
+		box.add(autoDetectCheckBox, gbc);
 
-		// --- Custom path field + browse button ---
 		gbc.gridx = 0;
 		gbc.gridy++;
 		JLabel pathLabel = new JLabel("Custom journal folder:");
-		content.add(pathLabel, gbc);
+		box.add(pathLabel, gbc);
 
 		gbc.gridx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.weightx = 1.0;
 		JPanel pathPanel = new JPanel(new BorderLayout(4, 0));
 		pathPanel.setOpaque(false);
 
@@ -764,9 +793,8 @@ public class PreferencesDialog extends JDialog {
 
 		pathPanel.add(customPathField, BorderLayout.CENTER);
 		pathPanel.add(browseButton, BorderLayout.EAST);
-		content.add(pathPanel, gbc);
+		box.add(pathPanel, gbc);
 
-		// Enable/disable fields based on auto-detect state
 		Runnable updateEnabled = () -> {
 			boolean useAuto = autoDetectCheckBox.isSelected();
 			customPathField.setEnabled(!useAuto);
@@ -775,67 +803,83 @@ public class PreferencesDialog extends JDialog {
 		autoDetectCheckBox.addActionListener(e -> updateEnabled.run());
 		updateEnabled.run();
 
-		panel.add(content, BorderLayout.NORTH);
+		addLeftStackedSection(panel, box);
+		finishLeftSectionStack(panel);
 		return panel;
 	}
 
 
 	private JPanel createFontsPanel() {
-		JPanel panel = new JPanel(new BorderLayout());
+		JPanel panel = new JPanel();
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 		panel.setOpaque(false);
+		initLeftSectionStack(panel);
 
-		JPanel content = new JPanel(new GridBagLayout());
-		content.setOpaque(false);
+		JPanel box = new JPanel(new GridBagLayout());
+		box.setOpaque(false);
+		box.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"UI font"));
 
 		GridBagConstraints gbc = new GridBagConstraints();
 		gbc.gridx = 0;
 		gbc.gridy = 0;
 		gbc.anchor = GridBagConstraints.WEST;
-		gbc.insets = new Insets(6, 6, 6, 6);
+		gbc.insets = new Insets(6, 8, 6, 8);
 
-		// Font family
-		JLabel fontLabel = new JLabel("Font:");
-		content.add(fontLabel, gbc);
-
+		box.add(new JLabel("Font:"), gbc);
 		gbc.gridx = 1;
-		String[] families = GraphicsEnvironment.getLocalGraphicsEnvironment()
-				.getAvailableFontFamilyNames();
-		uiFontNameCombo = new JComboBox<>(families);
-		uiFontNameCombo.setSelectedItem(OverlayPreferences.getUiFontName());
+		// Defer full family enumeration — it is slow on Windows — until Fonts tab is shown.
+		String currentFamily = OverlayPreferences.getUiFontName();
+		uiFontNameCombo = new JComboBox<>(new String[] { currentFamily });
+		uiFontNameCombo.setSelectedItem(currentFamily);
 		uiFontNameCombo.setPrototypeDisplayValue("Segoe UI Semibold");
-		content.add(uiFontNameCombo, gbc);
+		box.add(uiFontNameCombo, gbc);
 
-		// Font size
 		gbc.gridx = 0;
 		gbc.gridy++;
-		JLabel sizeLabel = new JLabel("Size:");
-		content.add(sizeLabel, gbc);
-
+		box.add(new JLabel("Size:"), gbc);
 		gbc.gridx = 1;
 		int sz = OverlayPreferences.getUiFontSize();
 		uiFontSizeSpinner = new JSpinner(new SpinnerNumberModel(sz, 8, 72, 1));
 		((JSpinner.DefaultEditor) uiFontSizeSpinner.getEditor()).getTextField().setColumns(4);
-		content.add(uiFontSizeSpinner, gbc);
-
-		// Preview
-		gbc.gridx = 0;
-		gbc.gridy++;
-		gbc.gridwidth = 2;
+		box.add(uiFontSizeSpinner, gbc);
 
 		uiFontNameCombo.addActionListener(e -> updatePreviewLabelFont());
 		uiFontSizeSpinner.addChangeListener(e -> updatePreviewLabelFont());
 
-		panel.add(content, BorderLayout.NORTH);
+		addLeftStackedSection(panel, box);
+		finishLeftSectionStack(panel);
 		return panel;
+	}
+
+	private static boolean isFontsTabSelected(int selectedIndex) {
+		return selectedIndex == FONTS_TAB_INDEX;
+	}
+
+	private void ensureFontFamiliesLoaded() {
+		if (fontFamiliesLoaded || uiFontNameCombo == null) {
+			return;
+		}
+		fontFamiliesLoaded = true;
+		String selected = (String) uiFontNameCombo.getSelectedItem();
+		String[] families = cachedFontFamilies;
+		if (families == null) {
+			families = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+			cachedFontFamilies = families;
+		}
+		uiFontNameCombo.setModel(new javax.swing.DefaultComboBoxModel<>(families));
+		if (selected != null) {
+			uiFontNameCombo.setSelectedItem(selected);
+		}
 	}
 
 
 	private JPanel createColorsPanel() {
 		JPanel panel = new JPanel();
 		panel.setOpaque(false);
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+		initLeftSectionStack(panel);
 
 		int initialMainRgb = OverlayPreferences.getUiMainTextRgb();
 		int initialBgRgb = OverlayPreferences.getUiBackgroundRgb();
@@ -843,17 +887,19 @@ public class PreferencesDialog extends JDialog {
 		int initialPrimaryHighlightRgb = OverlayPreferences.getUiPrimaryHighlightRgb();
 		int initialSecondaryHighlightRgb = OverlayPreferences.getUiSecondaryHighlightRgb();
 
-		JPanel grid = new JPanel(new GridBagLayout());
-		grid.setOpaque(false);
+		JPanel themeBox = new JPanel(new GridBagLayout());
+		themeBox.setOpaque(false);
+		themeBox.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Theme colors"));
 
 		GridBagConstraints gbc = new GridBagConstraints();
 		gbc.gridx = 0;
 		gbc.gridy = 0;
 		gbc.anchor = GridBagConstraints.WEST;
-		gbc.insets = new Insets(6, 6, 6, 6);
+		gbc.insets = new Insets(6, 8, 6, 8);
 
-		grid.add(new JLabel("Main text:"), gbc);
-
+		themeBox.add(new JLabel("Main text:"), gbc);
 		gbc.gridx = 1;
 		uiMainTextColorButton = new JButton("Choose...");
 		uiMainTextColorButton.setBackground(rgbToColor(initialMainRgb));
@@ -865,12 +911,11 @@ public class PreferencesDialog extends JDialog {
 				applyLiveColorPreviewFromButtons();
 			}
 		});
-		grid.add(uiMainTextColorButton, gbc);
+		themeBox.add(uiMainTextColorButton, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridy++;
-		grid.add(new JLabel("Background:"), gbc);
-
+		themeBox.add(new JLabel("Background:"), gbc);
 		gbc.gridx = 1;
 		uiBackgroundColorButton = new JButton("Choose...");
 		uiBackgroundColorButton.setBackground(rgbToColor(initialBgRgb));
@@ -882,14 +927,11 @@ public class PreferencesDialog extends JDialog {
 				applyLiveColorPreviewFromButtons();
 			}
 		});
-		grid.add(uiBackgroundColorButton, gbc);
+		themeBox.add(uiBackgroundColorButton, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridy++;
-		gbc.gridwidth = 1;
-		gbc.anchor = GridBagConstraints.WEST;
-		grid.add(new JLabel("Sneaker (landable icon):"), gbc);
-
+		themeBox.add(new JLabel("Sneaker (landable icon):"), gbc);
 		gbc.gridx = 1;
 		uiSneakerColorButton = new JButton("Choose...");
 		uiSneakerColorButton.setBackground(rgbToColor(initialSneakerRgb));
@@ -901,14 +943,11 @@ public class PreferencesDialog extends JDialog {
 				applyLiveColorPreviewFromButtons();
 			}
 		});
-		grid.add(uiSneakerColorButton, gbc);
+		themeBox.add(uiSneakerColorButton, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridy++;
-		gbc.gridwidth = 1;
-		gbc.anchor = GridBagConstraints.WEST;
-		grid.add(new JLabel("Primary highlight (complete exob, prospector match):"), gbc);
-
+		themeBox.add(new JLabel("Primary highlight (complete exob, prospector match):"), gbc);
 		gbc.gridx = 1;
 		uiPrimaryHighlightColorButton = new JButton("Choose...");
 		uiPrimaryHighlightColorButton.setBackground(rgbToColor(initialPrimaryHighlightRgb));
@@ -921,12 +960,11 @@ public class PreferencesDialog extends JDialog {
 				applyLiveColorPreviewFromButtons();
 			}
 		});
-		grid.add(uiPrimaryHighlightColorButton, gbc);
+		themeBox.add(uiPrimaryHighlightColorButton, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridy++;
-		grid.add(new JLabel("Secondary highlight (exob in progress):"), gbc);
-
+		themeBox.add(new JLabel("Secondary highlight (exob in progress):"), gbc);
 		gbc.gridx = 1;
 		uiSecondaryHighlightColorButton = new JButton("Choose...");
 		uiSecondaryHighlightColorButton.setBackground(rgbToColor(initialSecondaryHighlightRgb));
@@ -939,13 +977,12 @@ public class PreferencesDialog extends JDialog {
 				applyLiveColorPreviewFromButtons();
 			}
 		});
-		grid.add(uiSecondaryHighlightColorButton, gbc);
+		themeBox.add(uiSecondaryHighlightColorButton, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridy++;
 		gbc.gridwidth = 2;
-		gbc.anchor = GridBagConstraints.CENTER;
-
+		gbc.anchor = GridBagConstraints.WEST;
 		JButton resetColorsButton = new JButton("Reset to defaults");
 		resetColorsButton.addActionListener(e -> {
 			uiMainTextColorButton.setBackground(new Color(255, 140, 0));
@@ -955,17 +992,12 @@ public class PreferencesDialog extends JDialog {
 			uiSecondaryHighlightColorButton.setBackground(new Color(255, 255, 0));
 			applyLiveColorPreviewFromButtons();
 		});
-		grid.add(resetColorsButton, gbc);
+		themeBox.add(resetColorsButton, gbc);
 
-		panel.add(grid);
-
-		// -----------------------------------------------------------------
-		// Overlay background transparency (moved from Overlay tab)
-		// -----------------------------------------------------------------
-		panel.add(Box.createVerticalStrut(10));
+		addLeftStackedSection(panel, themeBox);
 
 		JPanel normalPanel = createOverlayAppearanceSection(
-				"Overlay background (Normal mode)",
+				"Overlay background (Normal — mouse pass-through off)",
 				originalNormalTransparencyPct,
 				(slider, valueLabel) -> {
 					normalTransparencySlider = slider;
@@ -973,13 +1005,10 @@ public class PreferencesDialog extends JDialog {
 				},
 				() -> applyLiveOverlayBackgroundPreview(false)
 				);
-		normalPanel.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-		panel.add(normalPanel);
-
-		panel.add(Box.createVerticalStrut(8));
+		addLeftStackedSection(panel, normalPanel, 8);
 
 		JPanel ptPanel = createOverlayAppearanceSection(
-				"Overlay background (Mouse-pass through mode)",
+				"Overlay background (Mouse pass-through on)",
 				originalPassThroughTransparencyPct,
 				(slider, valueLabel) -> {
 					passThroughTransparencySlider = slider;
@@ -987,12 +1016,68 @@ public class PreferencesDialog extends JDialog {
 				},
 				() -> applyLiveOverlayBackgroundPreview(true)
 				);
-		ptPanel.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-		panel.add(ptPanel);
+		addLeftStackedSection(panel, ptPanel, 6);
 
-		panel.add(Box.createVerticalGlue());
-
+		JLabel transparencyHint = new JLabel(
+				"<html>See-through transparency requires the undecorated overlay window "
+						+ "(not the standard titled window). Toggle mouse pass-through on the title bar "
+						+ "to switch which slider applies.</html>");
+		addLeftStackedSection(panel, transparencyHint, 0);
+		finishLeftSectionStack(panel);
 		return panel;
+	}
+
+	/**
+	 * Stack preference sections top-to-bottom, full width, flush left.
+	 * Do not use {@link BoxLayout#Y_AXIS} for this — mixed {@code alignmentX} (glue/struts default
+	 * to center) pulls titled boxes toward the middle.
+	 */
+	private static void initLeftSectionStack(JPanel stack) {
+		if (stack == null) {
+			return;
+		}
+		stack.setLayout(new GridBagLayout());
+		stack.putClientProperty("edo.prefs.stackRow", Integer.valueOf(0));
+	}
+
+	private static void addLeftStackedSection(JPanel stack, JComponent section) {
+		addLeftStackedSection(stack, section, 10);
+	}
+
+	private static void addLeftStackedSection(JPanel stack, JComponent section, int bottomGapPx) {
+		if (stack == null || section == null) {
+			return;
+		}
+		Object raw = stack.getClientProperty("edo.prefs.stackRow");
+		int row = raw instanceof Integer i ? i.intValue() : 0;
+		GridBagConstraints c = new GridBagConstraints();
+		c.gridx = 0;
+		c.gridy = row;
+		c.weightx = 1.0;
+		c.weighty = 0.0;
+		c.fill = GridBagConstraints.HORIZONTAL;
+		c.anchor = GridBagConstraints.NORTHWEST;
+		c.insets = new Insets(0, 0, Math.max(0, bottomGapPx), 0);
+		stack.add(section, c);
+		stack.putClientProperty("edo.prefs.stackRow", Integer.valueOf(row + 1));
+	}
+
+	private static void finishLeftSectionStack(JPanel stack) {
+		if (stack == null) {
+			return;
+		}
+		Object raw = stack.getClientProperty("edo.prefs.stackRow");
+		int row = raw instanceof Integer i ? i.intValue() : 0;
+		JPanel filler = new JPanel();
+		filler.setOpaque(false);
+		GridBagConstraints c = new GridBagConstraints();
+		c.gridx = 0;
+		c.gridy = row;
+		c.weightx = 1.0;
+		c.weighty = 1.0;
+		c.fill = GridBagConstraints.BOTH;
+		stack.add(filler, c);
+		stack.putClientProperty("edo.prefs.stackRow", Integer.valueOf(row + 1));
 	}
 	private void applyLiveColorPreviewFromButtons() {
 		if (uiMainTextColorButton == null || uiBackgroundColorButton == null || uiSneakerColorButton == null
@@ -1019,7 +1104,8 @@ public class PreferencesDialog extends JDialog {
 		OverlayPreferences.setUiPrimaryHighlightRgb(primaryHighlightRgb);
 		OverlayPreferences.setUiSecondaryHighlightRgb(secondaryHighlightRgb);
 		OverlayPreferences.applyThemeToEdoUi();
-		applyDialogChrome();
+		applyDialogChrome(false);
+		livePreviewDirty = true;
 
 		if (getOwner() instanceof OverlayUiPreviewHost) {
 			OverlayUiPreviewHost f = (OverlayUiPreviewHost) getOwner();
@@ -1036,9 +1122,10 @@ public class PreferencesDialog extends JDialog {
 								: originalNormalTransparencyPct;
 			}
 
-			// Push overlay fill first so rebuildTabbedPane() copies the correct parent background.
-			f.applyOverlayBackgroundPreview(pt, bgRgb, pct);
+			// Background RGB is driven by the unified theme in the Colors tab.
+			// Re-apply fill after theme so mouse-PT transparency survives rebuildTabbedPane().
 			f.applyThemeFromPreferences();
+			f.applyOverlayBackgroundPreview(pt, bgRgb, pct);
 		}
 	}
 
@@ -1049,7 +1136,7 @@ public class PreferencesDialog extends JDialog {
 
 		JPanel outer = new JPanel();
 		outer.setOpaque(false);
-		outer.setLayout(new BoxLayout(outer, BoxLayout.Y_AXIS));
+		initLeftSectionStack(outer);
 
 		// -----------------------------------------------------------------
 		// Prospector box
@@ -1111,8 +1198,7 @@ public class PreferencesDialog extends JDialog {
 		JLabel hint = new JLabel("Tip: leave materials blank to announce ANY material above the thresholds.");
 		prospectorBox.add(hint, gbc);
 
-		outer.add(prospectorBox);
-		outer.add(Box.createVerticalStrut(10));
+		addLeftStackedSection(outer, prospectorBox);
 
 		// -----------------------------------------------------------------
 		// Log / Spreadsheet (local CSV vs Google Sheets)
@@ -1256,20 +1342,19 @@ public class PreferencesDialog extends JDialog {
 		miningLogBackendLocalRadio.addActionListener(miningBackendRadioChange);
 		miningLogBackendBothRadio.addActionListener(miningBackendRadioChange);
 
-		outer.add(logBackendBox);
-		outer.add(Box.createVerticalStrut(10));
+		addLeftStackedSection(outer, logBackendBox);
 
 		// -----------------------------------------------------------------
 		// Limpet reminder thresholds (announcement toggle is on Speech tab)
 		// -----------------------------------------------------------------
 		JPanel limpetPanel = new JPanel();
 		limpetPanel.setOpaque(false);
-		limpetPanel.setLayout(new BoxLayout(limpetPanel, BoxLayout.Y_AXIS));
+		initLeftSectionStack(limpetPanel);
 
 		JPanel limpetIntroRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
 		limpetIntroRow.setOpaque(false);
 		limpetIntroRow.add(new JLabel("Low limpet reminder thresholds (announce on Speech tab):"));
-		limpetPanel.add(limpetIntroRow);
+		addLeftStackedSection(limpetPanel, limpetIntroRow, 4);
 
 		// Row 1: COUNT (indented)
 		JPanel limpetCountRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -1293,7 +1378,7 @@ public class PreferencesDialog extends JDialog {
 		JLabel limpetCountUnitsLabel = new JLabel("limpets");
 		limpetCountRow.add(limpetCountUnitsLabel);
 
-		limpetPanel.add(limpetCountRow);
+		addLeftStackedSection(limpetPanel, limpetCountRow, 4);
 
 		// Row 2: PERCENT (indented)
 		JPanel limpetPercentRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -1315,7 +1400,7 @@ public class PreferencesDialog extends JDialog {
 		JLabel limpetPercentUnitsLabel = new JLabel("% of cargo capacity");
 		limpetPercentRow.add(limpetPercentUnitsLabel);
 
-		limpetPanel.add(limpetPercentRow);
+		addLeftStackedSection(limpetPanel, limpetPercentRow, 0);
 
 		// Force both spinners to the same preferred size (whichever is wider)
 		Dimension s1 = miningLowLimpetReminderThresholdSpinner.getPreferredSize();
@@ -1352,13 +1437,7 @@ public class PreferencesDialog extends JDialog {
 		updateLimpetEnabled.run();
 
 
-		limpetPanel.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-		JPanel limpetWrap = new JPanel(new BorderLayout());
-		limpetWrap.setOpaque(false);
-		limpetWrap.add(limpetPanel, BorderLayout.WEST);
-
-		outer.add(limpetWrap);
-		outer.add(Box.createVerticalStrut(10));
+		addLeftStackedSection(outer, limpetPanel);
 
 		// -----------------------------------------------------------------
 		// Mining scatter gather animation sizes (gun + asteroid line-art)
@@ -1418,17 +1497,19 @@ public class PreferencesDialog extends JDialog {
 				"Draw every prospector log point as a line-art asteroid. Only the current asteroid position(s) "
 						+ "for the active run spin; older points stay static. Off by default (plain dots).");
 		animBox.add(miningScatterAsteroidIconsAllPointsCheckBox, abc);
-		outer.add(animBox);
+		addLeftStackedSection(outer, animBox, 0);
+		finishLeftSectionStack(outer);
 
-		panel.add(outer, BorderLayout.NORTH);
+		panel.add(outer, BorderLayout.CENTER);
 		return panel;
 	}
 
 	/** Exobiology tab: valuable-bio threshold. */
 	private JPanel createExobiologyPanel() {
-		JPanel panel = new JPanel(new BorderLayout());
+		JPanel panel = new JPanel();
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 		panel.setOpaque(false);
+		initLeftSectionStack(panel);
 
 		JPanel box = new JPanel(new GridBagLayout());
 		box.setOpaque(false);
@@ -1443,7 +1524,7 @@ public class PreferencesDialog extends JDialog {
 		gbc.gridx = 0;
 		gbc.gridy = 0;
 		gbc.anchor = GridBagConstraints.WEST;
-		gbc.insets = new Insets(8, 10, 8, 10);
+		gbc.insets = new Insets(6, 8, 6, 8);
 
 		JLabel valuableBioLabel = new JLabel("Minimum valuable exobiology (M Cr):");
 		valuableBioLabel.setToolTipText(
@@ -1469,6 +1550,7 @@ public class PreferencesDialog extends JDialog {
 		box.add(autoExpandBioOnTargetedBodyCheckBox, gbc);
 
 		gbc.gridy = 2;
+		gbc.gridwidth = 1;
 		JLabel biologyMapDisplayLabel = new JLabel("ExoBio map display:");
 		biologyMapDisplayLabel.setToolTipText(
 				"<html>Rays draw lines from your position to each sample pin with distance and heading.<br>"
@@ -1493,12 +1575,19 @@ public class PreferencesDialog extends JDialog {
 		biologyMapDisplayModeComboBox.setToolTipText(biologyMapDisplayLabel.getToolTipText());
 		box.add(biologyMapDisplayModeComboBox, gbc);
 
-		panel.add(box, BorderLayout.NORTH);
+		addLeftStackedSection(panel, box);
+		finishLeftSectionStack(panel);
 		return panel;
 	}
 
 	private void updatePreviewLabelFont() {
 		Font f = buildSelectedUiFont();
+		if (originalUiFont != null
+				&& f.getName().equals(originalUiFont.getName())
+				&& f.getSize() == originalUiFont.getSize()) {
+			return;
+		}
+		livePreviewDirty = true;
 		applyLivePreview(f);
 	}
 
@@ -1553,20 +1642,205 @@ public class PreferencesDialog extends JDialog {
 		return t;
 	}
 
+	/**
+	 * Scroll tall preference bodies inside the tab so dialog OK/Cancel stay pinned.
+	 * Uses EDO subtle scroll thumbs (prefs main-text color).
+	 */
+	private JPanel wrapTabInEdoScroll(JComponent content) {
+		Color bg = EdoUi.User.BACKGROUND;
+		if (content != null) {
+			content.setOpaque(true);
+			content.setBackground(bg);
+		}
+		JScrollPane scroll = new JScrollPane(content);
+		scroll.setBorder(null);
+		scroll.setOpaque(true);
+		scroll.setBackground(bg);
+		scroll.getViewport().setOpaque(true);
+		scroll.getViewport().setBackground(bg);
+		scroll.getVerticalScrollBar().setUnitIncrement(16);
+		OverlayScrollPaneSupport.installSubtleScrollBars(scroll);
+		JPanel wrapper = new JPanel(new BorderLayout());
+		wrapper.setOpaque(true);
+		wrapper.setBackground(bg);
+		wrapper.add(scroll, BorderLayout.CENTER);
+		return wrapper;
+	}
+
 	private void applyDialogChrome() {
+		applyDialogChrome(true);
+	}
+
+	/**
+	 * @param restyleControls full checkbox/chip/scrollbar restyle (open). Live color previews only need colors.
+	 */
+	private void applyDialogChrome(boolean restyleControls) {
 		if (preferenceTabs == null) {
 			return;
 		}
 		Color bg = EdoUi.User.BACKGROUND;
 		Color fg = EdoUi.User.MAIN_TEXT;
-		Color panel = EdoUi.User.PANEL_BG;
-		getContentPane().setBackground(panel);
+		if (getContentPane() instanceof JComponent content) {
+			content.setOpaque(true);
+			content.setBackground(bg);
+		} else {
+			getContentPane().setBackground(bg);
+		}
+		if (getRootPane() != null) {
+			getRootPane().setBackground(bg);
+			getRootPane().setBorder(BorderFactory.createLineBorder(EdoUi.Internal.TITLEBAR_BG_HOVER, 1));
+		}
+		setBackground(bg);
+		if (titleBar != null) {
+			titleBar.refreshTheme();
+		}
 		preferenceTabs.setOpaque(true);
 		preferenceTabs.setBackground(bg);
 		preferenceTabs.setForeground(fg);
+		javax.swing.UIManager.put("TabbedPane.contentAreaColor", bg);
+		javax.swing.UIManager.put("TabbedPane.background", bg);
+		javax.swing.UIManager.put("Panel.background", bg);
+		javax.swing.UIManager.put("Viewport.background", bg);
+		javax.swing.UIManager.put("ScrollPane.background", bg);
 		stylePreferenceTabChrome();
+		Font chipFont = restyleControls ? OverlayPreferences.getUiFont() : null;
+		if (chipFont == null && restyleControls) {
+			chipFont = getFont();
+		}
+		applyPreferenceChromeRecursive(getContentPane(), bg, fg, chipFont, restyleControls);
+		if (execTabPanel != null) {
+			execTabPanel.applyThemeColors();
+		}
+		if (restyleControls) {
+			styleDialogActionButtons();
+		}
 		preferenceTabs.revalidate();
 		preferenceTabs.repaint();
+	}
+
+	/**
+	 * One tree walk for surface paint, label colors, chips/checkboxes, and scrollbars.
+	 */
+	private void applyPreferenceChromeRecursive(
+			Component root, Color bg, Color fg, Font chipFont, boolean restyleControls) {
+		if (root == null || bg == null) {
+			return;
+		}
+		if (root instanceof JButton button && isColorSwatchButton(button)) {
+			if (restyleControls && root instanceof java.awt.Container container) {
+				for (Component child : container.getComponents()) {
+					applyPreferenceChromeRecursive(child, bg, fg, chipFont, restyleControls);
+				}
+			}
+			return;
+		}
+		if (!(root instanceof JButton)
+				&& !(root instanceof JCheckBox)
+				&& !(root instanceof JRadioButton)
+				&& !(root instanceof JLabel)
+				&& !(root instanceof JTextField)
+				&& !(root instanceof JTextArea)
+				&& !(root instanceof JComboBox)
+				&& !(root instanceof JSpinner)
+				&& !(root instanceof JSlider)
+				&& !(root instanceof javax.swing.JTable)) {
+			if (root instanceof JPanel
+					|| root instanceof JScrollPane
+					|| root instanceof javax.swing.JViewport
+					|| root instanceof JTabbedPane
+					|| root instanceof JComponent) {
+				root.setBackground(bg);
+				if (root instanceof JComponent jc) {
+					jc.setOpaque(true);
+				}
+			}
+		}
+		if (root instanceof JLabel || root instanceof JCheckBox || root instanceof JRadioButton) {
+			root.setForeground(fg);
+		}
+		if (root instanceof JComponent jc && jc.getBorder() instanceof javax.swing.border.TitledBorder titled) {
+			titled.setTitleColor(fg);
+		}
+		if (restyleControls) {
+			if (root instanceof JCheckBox checkBox) {
+				OverlayCheckBoxStyle.apply(checkBox);
+			} else if (root instanceof JButton button && shouldStylePreferenceActionButton(button)) {
+				OverlayOutlineButtonStyle.applyChip(button, chipFont, false);
+			}
+			if (root instanceof JScrollPane scrollPane) {
+				OverlayScrollPaneSupport.installSubtleScrollBars(scrollPane);
+			}
+		}
+		if (root instanceof java.awt.Container container) {
+			for (Component child : container.getComponents()) {
+				applyPreferenceChromeRecursive(child, bg, fg, chipFont, restyleControls);
+			}
+		}
+	}
+
+	/**
+	 * Apply Engineering-style checkboxes and outline chip buttons across all prefs tabs.
+	 * Color swatch “Choose…” buttons keep opaque fills. Help chips get {@link HelpCircleIcon}.
+	 */
+	private void stylePreferenceTabControls(Component root) {
+		Font chipFont = OverlayPreferences.getUiFont();
+		if (chipFont == null) {
+			chipFont = getFont();
+		}
+		applyPreferenceChromeRecursive(root, EdoUi.User.BACKGROUND, EdoUi.User.MAIN_TEXT, chipFont, true);
+		if (miningGoogleSetupHelpButton != null) {
+			HelpCircleIcon.applyTo(miningGoogleSetupHelpButton);
+		}
+	}
+
+	private boolean shouldStylePreferenceActionButton(JButton button) {
+		if (button == null || isColorSwatchButton(button)) {
+			return false;
+		}
+		// Spinner / combo arrows are JButtons with no label — leave native.
+		if (button instanceof javax.swing.plaf.basic.BasicArrowButton) {
+			return false;
+		}
+		String text = button.getText();
+		return text != null && !text.isBlank();
+	}
+
+	private boolean isColorSwatchButton(JButton button) {
+		return button == uiMainTextColorButton
+				|| button == uiBackgroundColorButton
+				|| button == uiSneakerColorButton
+				|| button == uiPrimaryHighlightColorButton
+				|| button == uiSecondaryHighlightColorButton;
+	}
+
+	/** Prefs / nested dialogs: thin main-text thumbs instead of Windows LAF bars. */
+	private static void installEdoScrollBars(Component root) {
+		if (root instanceof JScrollPane scrollPane) {
+			OverlayScrollPaneSupport.installSubtleScrollBars(scrollPane);
+		}
+		if (root instanceof java.awt.Container container) {
+			for (Component child : container.getComponents()) {
+				installEdoScrollBars(child);
+			}
+		}
+	}
+
+	private static JScrollPane edoScroll(JScrollPane scrollPane) {
+		OverlayScrollPaneSupport.installSubtleScrollBars(scrollPane);
+		return scrollPane;
+	}
+
+	private void styleDialogActionButtons() {
+		Font chipFont = OverlayPreferences.getUiFont();
+		if (chipFont == null) {
+			chipFont = getFont();
+		}
+		if (okButton != null) {
+			OverlayOutlineButtonStyle.applyChip(okButton, chipFont, false);
+		}
+		if (cancelButton != null) {
+			OverlayOutlineButtonStyle.applyChip(cancelButton, chipFont, false);
+		}
 	}
 
 	private void stylePreferenceTabChrome() {
@@ -1575,21 +1849,26 @@ public class PreferencesDialog extends JDialog {
 		}
 		Color bg = EdoUi.User.BACKGROUND;
 		Color fg = EdoUi.User.MAIN_TEXT;
-		Color panel = EdoUi.User.PANEL_BG;
-		int selected = preferenceTabs.getSelectedIndex();
 		for (int i = 0; i < preferenceTabs.getTabCount(); i++) {
-			if (i == selected) {
-				preferenceTabs.setBackgroundAt(i, panel);
-				preferenceTabs.setForegroundAt(i, fg);
-			} else {
-				preferenceTabs.setBackgroundAt(i, bg);
-				preferenceTabs.setForegroundAt(i, fg);
-			}
+			preferenceTabs.setBackgroundAt(i, bg);
+			preferenceTabs.setForegroundAt(i, fg);
+		}
+		if (miningGoogleSetupHelpButton != null) {
+			HelpCircleIcon.applyTo(miningGoogleSetupHelpButton);
 		}
 	}
 
+	/** Cancel / window close: run once, and only rebuild the overlay if a live preview ran. */
+	private void finishDismissWithoutSave() {
+		if (dismissHandled || okPressed) {
+			return;
+		}
+		dismissHandled = true;
+		revertLivePreviewIfNeeded();
+	}
+
 	private void revertLivePreviewIfNeeded() {
-		if (okPressed) {
+		if (okPressed || !livePreviewDirty) {
 			return;
 		}
 		if (!(getOwner() instanceof OverlayUiPreviewHost)) {
@@ -1605,7 +1884,7 @@ public class PreferencesDialog extends JDialog {
 		OverlayPreferences.setUiPrimaryHighlightRgb(originalUiPrimaryHighlightRgb);
 		OverlayPreferences.setUiSecondaryHighlightRgb(originalUiSecondaryHighlightRgb);
 		OverlayPreferences.applyThemeToEdoUi();
-		applyDialogChrome();
+		// Do not restyle this dialog — it is closing.
 
 		// Revert font (clear preview overrides so icon sizing matches saved prefs)
 		f.revertUiFontLivePreview(originalUiFont);
@@ -1615,21 +1894,26 @@ public class PreferencesDialog extends JDialog {
 		int pct = pt ? originalPassThroughTransparencyPct : originalNormalTransparencyPct;
 		f.applyOverlayBackgroundPreview(pt, originalUiBackgroundRgb, pct);
 		f.applyThemeFromPreferences();
+		livePreviewDirty = false;
 	}
 
 	private JPanel createSpeechPanel() {
-		JPanel panel = new JPanel(new BorderLayout());
+		JPanel panel = new JPanel();
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
 		panel.setOpaque(false);
+		initLeftSectionStack(panel);
 
 		JPanel content = new JPanel(new GridBagLayout());
 		content.setOpaque(false);
+		content.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Speech"));
 
 		GridBagConstraints gbc = new GridBagConstraints();
 		gbc.gridx = 0;
 		gbc.gridy = 0;
 		gbc.anchor = GridBagConstraints.WEST;
-		gbc.insets = new Insets(4, 4, 4, 4);
+		gbc.insets = new Insets(6, 8, 6, 8);
 
 		// Enabled
 		JLabel enabledLabel = new JLabel("Enable speech (Amazon Polly):");
@@ -1871,19 +2155,24 @@ public class PreferencesDialog extends JDialog {
 		speechEnabledCheckBox.addActionListener(e -> updateSpeechPanelEnabled.run());
 		updateSpeechPanelEnabled.run();
 
-		panel.add(content, BorderLayout.NORTH);
+		addLeftStackedSection(panel, content);
+		finishLeftSectionStack(panel);
 		return panel;
 	}
 
 	private JPanel createButtonPanel() {
 		JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		panel.setBorder(new EmptyBorder(8, 8, 8, 8));
-		panel.setOpaque(false);
+		panel.setOpaque(true);
+		panel.setBackground(EdoUi.User.BACKGROUND);
+		// Pin OK/Cancel so a tall Exec table cannot steal their vertical space.
+		panel.setMinimumSize(new Dimension(120, 48));
 
-		JButton ok = new JButton("OK");
-		JButton cancel = new JButton("Cancel");
+		okButton = new JButton("OK");
+		cancelButton = new JButton("Cancel");
+		styleDialogActionButtons();
 
-		ok.addActionListener(e -> {
+		okButton.addActionListener(e -> {
 			if (!validateMiningGoogleSettingsBeforeSave()) {
 				return;
 			}
@@ -1891,13 +2180,29 @@ public class PreferencesDialog extends JDialog {
 				execTabPanel.commitPendingEdits();
 			}
 			okPressed = true;
+			dismissHandled = true;
+			boolean colorsChanged = colorsDifferFromOriginal();
+			boolean fontChanged = fontDifferFromOriginal();
+			boolean transparencyChanged = transparencyDifferFromOriginal();
 			applyAndSavePreferences();
 
 			if (getOwner() instanceof OverlayUiPreviewHost) {
 				OverlayUiPreviewHost f = (OverlayUiPreviewHost) getOwner();
-				f.applyOverlayBackgroundFromPreferences(f.isPassThroughEnabled());
-				f.applyUiFontPreferences();
-				f.applyThemeFromPreferences();
+				// Full overlay tab rebuild is expensive — only when colors need rebaking into components.
+				if (colorsChanged) {
+					f.applyThemeFromPreferences();
+					f.applyOverlayBackgroundFromPreferences(f.isPassThroughEnabled());
+					if (fontChanged) {
+						f.applyUiFontPreferences();
+					}
+				} else {
+					if (fontChanged) {
+						f.applyUiFontPreferences();
+					}
+					if (transparencyChanged) {
+						f.applyOverlayBackgroundFromPreferences(f.isPassThroughEnabled());
+					}
+				}
 				f.refreshSystemTabFromSavedPreferences();
 				f.refreshOverlayTabBarFromSavedPreferences();
 
@@ -1912,14 +2217,46 @@ public class PreferencesDialog extends JDialog {
 			dispose();
 		});
 
-		cancel.addActionListener(e -> {
-			revertLivePreviewIfNeeded();
+		cancelButton.addActionListener(e -> {
+			finishDismissWithoutSave();
 			dispose();
 		});
 
-		panel.add(cancel);
-		panel.add(ok);
+		panel.add(cancelButton);
+		panel.add(okButton);
 		return panel;
+	}
+
+	private boolean colorsDifferFromOriginal() {
+		if (uiMainTextColorButton == null) {
+			return false;
+		}
+		return colorToRgb(uiMainTextColorButton.getBackground()) != originalUiMainTextRgb
+				|| colorToRgb(uiBackgroundColorButton.getBackground()) != originalUiBackgroundRgb
+				|| colorToRgb(uiSneakerColorButton.getBackground()) != originalUiSneakerRgb
+				|| colorToRgb(uiPrimaryHighlightColorButton.getBackground()) != originalUiPrimaryHighlightRgb
+				|| colorToRgb(uiSecondaryHighlightColorButton.getBackground()) != originalUiSecondaryHighlightRgb;
+	}
+
+	private boolean fontDifferFromOriginal() {
+		if (uiFontNameCombo == null || uiFontSizeSpinner == null || originalUiFont == null) {
+			return false;
+		}
+		Object name = uiFontNameCombo.getSelectedItem();
+		int size = ((Number) uiFontSizeSpinner.getValue()).intValue();
+		return name == null
+				|| !name.toString().equals(originalUiFont.getName())
+				|| size != originalUiFont.getSize();
+	}
+
+	private boolean transparencyDifferFromOriginal() {
+		int normal = normalTransparencySlider != null
+				? normalTransparencySlider.getValue()
+				: originalNormalTransparencyPct;
+		int pt = passThroughTransparencySlider != null
+				? passThroughTransparencySlider.getValue()
+				: originalPassThroughTransparencyPct;
+		return normal != originalNormalTransparencyPct || pt != originalPassThroughTransparencyPct;
 	}
 
 	private boolean validateMiningGoogleSettingsBeforeSave() {
@@ -2015,7 +2352,7 @@ public class PreferencesDialog extends JDialog {
 		area.setEditable(false);
 		area.setLineWrap(true);
 		area.setWrapStyleWord(true);
-		JOptionPane.showMessageDialog(this, new JScrollPane(area), "Google Sheets setup", JOptionPane.INFORMATION_MESSAGE);
+		JOptionPane.showMessageDialog(this, edoScroll(new JScrollPane(area)), "Google Sheets setup", JOptionPane.INFORMATION_MESSAGE);
 	}
 
 	private void connectToGoogleAndStoreToken() {
@@ -2543,6 +2880,7 @@ public class PreferencesDialog extends JDialog {
 			}
 
 			f.applyOverlayBackgroundPreview(passThroughSection, rgb, pct);
+			livePreviewDirty = true;
 		}
 
 		private interface OverlaySectionBinder {
@@ -2557,17 +2895,21 @@ public class PreferencesDialog extends JDialog {
 				) {
 			JPanel panel = new JPanel(new GridBagLayout());
 			panel.setOpaque(false);
-			panel.setBorder(BorderFactory.createTitledBorder(title));
+			panel.setBorder(BorderFactory.createTitledBorder(
+					BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+					title));
 
 			GridBagConstraints gbc = new GridBagConstraints();
 			gbc.gridx = 0;
 			gbc.gridy = 0;
 			gbc.anchor = GridBagConstraints.WEST;
-			gbc.insets = new Insets(4, 4, 4, 4);
+			gbc.insets = new Insets(6, 8, 6, 8);
 
 			panel.add(new JLabel("Background transparency:"), gbc);
 
 			gbc.gridx = 1;
+			gbc.fill = GridBagConstraints.HORIZONTAL;
+			gbc.weightx = 1.0;
 			JSlider slider = new JSlider(0, 100, clampPct(initialTransparencyPct));
 			slider.setPaintTicks(true);
 			slider.setMajorTickSpacing(25);
@@ -2575,6 +2917,8 @@ public class PreferencesDialog extends JDialog {
 			panel.add(slider, gbc);
 
 			gbc.gridx = 2;
+			gbc.fill = GridBagConstraints.NONE;
+			gbc.weightx = 0;
 			JLabel valueLabel = new JLabel(slider.getValue() + "%");
 			panel.add(valueLabel, gbc);
 

@@ -316,7 +316,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     		passThroughFrame.prepareForShow(true);
     		passThroughFrame.setRightStatusListener(null);
     		passThroughFrame.refreshRightStatusDisplay();
-    		passThroughFrame.applyOverlayBackgroundFromPreferences(true);
+    		passThroughFrame.applyOverlayBackgroundFromPreferences(passThroughFrame.isPassThroughEnabled());
     		passThroughFrame.applyUiFontPreferences();
     		passThroughFrame.validate();
     		passThroughFrame.repaint();
@@ -575,9 +575,8 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         }
     }
 
-    //
-    // Global key listener: F9 toggles between click-through overlay and a normal decorated window.
-    //
+    // Global key listener: configurable hotkey toggles undecorated overlay vs normal decorated window.
+    // (Mouse pass-through itself is the title-bar toggle on OverlayFrame.)
     @Override
     public void nativeKeyPressed(com.github.kwhat.jnativehook.keyboard.NativeKeyEvent e) {
         int toggleKey = OverlayPreferences.getPassThroughToggleKeyCode();

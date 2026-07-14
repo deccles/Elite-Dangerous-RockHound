@@ -20,7 +20,6 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.BooleanSupplier;
 
-import javax.swing.DefaultCellEditor;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
@@ -45,7 +44,6 @@ import javax.swing.table.TableRowSorter;
 
 import org.dce.ed.engineering.BlueprintGrade;
 import org.dce.ed.engineering.EngineeringDatabase;
-import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringGoal;
 import org.dce.ed.engineering.EngineeringGoalProgress;
 import org.dce.ed.engineering.EngineeringInventoryTracker;
@@ -66,6 +64,7 @@ import org.dce.ed.session.EngineeringSessionData.EngineeringGoalPersisted;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
+import org.dce.ed.ui.InfoCircleIcon;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
@@ -103,7 +102,7 @@ public class EngineeringTabPanel extends JPanel {
     private static final int COL_GOAL_EDIT = 5;
 
     /** Status column is capped at this width; longer values ellipsize with a tooltip. */
-    private static final String GOAL_STATUS_WIDTH_CAP_TEXT = "Ready w/ trades";
+    private static final String GOAL_STATUS_WIDTH_CAP_TEXT = "Trades";
 
     private static final int COL_TRADE_MATERIAL = 0;
     private static final int COL_TRADE_NEED = 1;
@@ -129,7 +128,7 @@ public class EngineeringTabPanel extends JPanel {
     private final JLabel materialsEmptyLabel = new JLabel();
     private final JLabel tradeEmptyLabel = new JLabel();
     private final GoalsTableModel goalsModel = new GoalsTableModel();
-    private final JTable goalsTable = createOverlayTable(goalsModel);
+    private final JTable goalsTable = createGoalsOverlayTable(goalsModel);
     private final ShoppingTableModel shoppingModel = new ShoppingTableModel();
     private final JTable shoppingTable = createOverlayTable(shoppingModel);
     private final TradeTableModel tradeModel = new TradeTableModel();
@@ -163,22 +162,7 @@ public class EngineeringTabPanel extends JPanel {
         goalsTable.getColumnModel().getColumn(COL_GOAL_TARGET).setCellRenderer(new EllipsisTextCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_STATUS).setCellRenderer(new GoalStatusCellRenderer());
         goalsTable.setDefaultRenderer(Boolean.class, new GoalIncludeCellRenderer());
-        JCheckBox includeEditor = new JCheckBox();
-        OverlayCheckBoxStyle.apply(includeEditor);
         goalsTable.getColumnModel().getColumn(0).setCellRenderer(goalsTable.getDefaultRenderer(Boolean.class));
-        goalsTable.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(includeEditor) {
-            private static final long serialVersionUID = 1L;
-
-            @Override
-            public Component getTableCellEditorComponent(JTable table, Object value,
-                    boolean isSelected, int row, int column) {
-                Component c = super.getTableCellEditorComponent(table, value, isSelected, row, column);
-                if (c instanceof JCheckBox checkBox) {
-                    OverlayCheckBoxStyle.apply(checkBox);
-                }
-                return c;
-            }
-        });
         goalsTable.getColumnModel().getColumn(0).setMaxWidth(36);
         TableColumn editCol = goalsTable.getColumnModel().getColumn(COL_GOAL_EDIT);
         editCol.setMaxWidth(32);
@@ -191,11 +175,21 @@ public class EngineeringTabPanel extends JPanel {
                 if (!SwingUtilities.isLeftMouseButton(e)) {
                     return;
                 }
+                // Cell editors fight OverlayCheckBoxStyle / MPT hover; toggle include via click when not MPT.
+                if (passThroughEnabledSupplier != null && passThroughEnabledSupplier.getAsBoolean()) {
+                    return;
+                }
                 int row = goalsTable.rowAtPoint(e.getPoint());
                 int col = goalsTable.columnAtPoint(e.getPoint());
-                if (row >= 0 && col >= 0
-                        && goalsTable.convertColumnIndexToModel(col) == COL_GOAL_EDIT) {
-                    openEditGoalDialog(goalsTable.convertRowIndexToModel(row));
+                if (row < 0 || col < 0) {
+                    return;
+                }
+                int modelCol = goalsTable.convertColumnIndexToModel(col);
+                int modelRow = goalsTable.convertRowIndexToModel(row);
+                if (modelCol == COL_GOAL_INCLUDE) {
+                    toggleGoalInclude(modelRow);
+                } else if (modelCol == COL_GOAL_EDIT) {
+                    openEditGoalDialog(modelRow);
                 }
             }
         });
@@ -207,16 +201,10 @@ public class EngineeringTabPanel extends JPanel {
                 this::openEditGoalDialog);
         TableCellHoverToggleSupport.install(
                 goalsTable,
-                0,
+                COL_GOAL_INCLUDE,
                 passThroughEnabledSupplier,
                 HOVER_CLICK_DELAY_MS,
-                modelRow -> {
-                    if (modelRow < 0 || modelRow >= goals.size()) {
-                        return;
-                    }
-                    boolean include = goals.get(modelRow).isIncludeInPlanning();
-                    goalsModel.setValueAt(!include, modelRow, 0);
-                });
+                this::toggleGoalInclude);
         configureTable(shoppingTable, base, new ShoppingCellRenderer());
         configureTable(tradeTable, base, new TradeCellRenderer());
         configureTradeNeedColumn();
@@ -268,6 +256,12 @@ public class EngineeringTabPanel extends JPanel {
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         buttons.setOpaque(false);
+        JButton progressBtn = new JButton();
+        OverlayOutlineButtonStyle.applyChip(progressBtn, base, false);
+        InfoCircleIcon.applyTo(progressBtn);
+        progressBtn.setToolTipText("Build progress — grade / multi-module craft status for all goals");
+        progressBtn.addActionListener(e -> openBuildProgressDialog());
+        HoverClickPoller.register(progressBtn, HOVER_CLICK_DELAY_MS, this::openBuildProgressDialog, passThroughEnabledSupplier);
         JButton addBtn = new JButton("Add a goal");
         OverlayOutlineButtonStyle.applyChip(addBtn, base, false);
         addBtn.addActionListener(e -> openAddGoalDialog());
@@ -276,6 +270,7 @@ public class EngineeringTabPanel extends JPanel {
         OverlayOutlineButtonStyle.applyChip(removeBtn, base, false);
         removeBtn.addActionListener(e -> removeSelectedGoal());
         HoverClickPoller.register(removeBtn, HOVER_CLICK_DELAY_MS, this::removeSelectedGoal, passThroughEnabledSupplier);
+        buttons.add(progressBtn);
         buttons.add(addBtn);
         buttons.add(removeBtn);
         header.add(buttons, BorderLayout.EAST);
@@ -476,9 +471,18 @@ public class EngineeringTabPanel extends JPanel {
         Component header = headerRenderer.getTableCellRendererComponent(
                 goalsTable, col.getHeaderValue(), false, false, 0, COL_GOAL_STATUS);
         GoalStatusCellRenderer cellRenderer = new GoalStatusCellRenderer();
-        Component cell = cellRenderer.getTableCellRendererComponent(
+        Component capCell = cellRenderer.getTableCellRendererComponent(
                 goalsTable, GOAL_STATUS_WIDTH_CAP_TEXT, false, false, 0, COL_GOAL_STATUS);
-        return Math.max(header.getPreferredSize().width, cell.getPreferredSize().width) + 10;
+        int maxWidth = Math.max(header.getPreferredSize().width, capCell.getPreferredSize().width) + 10;
+        int width = header.getPreferredSize().width + 10;
+        int rows = goalsTable.getRowCount();
+        for (int row = 0; row < rows; row++) {
+            Object value = goalsTable.getValueAt(row, COL_GOAL_STATUS);
+            Component cell = cellRenderer.getTableCellRendererComponent(
+                    goalsTable, value, false, false, row, COL_GOAL_STATUS);
+            width = Math.max(width, cell.getPreferredSize().width + 10);
+        }
+        return Math.max(header.getPreferredSize().width + 10, Math.min(maxWidth, width));
     }
 
     private void applyShoppingTableColumnLayout() {
@@ -486,7 +490,7 @@ public class EngineeringTabPanel extends JPanel {
         if (avail <= 0 || shoppingTable == null) {
             return;
         }
-        int wType = clampColumnWidth(shoppingTable, COL_TYPE, 48, 88, 8);
+        int wType = clampColumnWidth(shoppingTable, COL_TYPE, 48, 112, Math.max(shoppingTable.getRowCount(), 1));
         int wNeed = clampColumnWidth(shoppingTable, COL_NEED, 40, 56, 4);
         int wHave = clampColumnWidth(shoppingTable, COL_HAVE, 40, 56, 4);
         int wShort = clampColumnWidth(shoppingTable, COL_SHORT, 52, 72, 8);
@@ -665,6 +669,36 @@ public class EngineeringTabPanel extends JPanel {
         };
     }
 
+    private JTable createGoalsOverlayTable(TableModel model) {
+        return new JTable(model) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public String getToolTipText(MouseEvent event) {
+                Point p = event.getPoint();
+                int row = rowAtPoint(p);
+                int col = columnAtPoint(p);
+                if (row >= 0 && col >= 0 && convertColumnIndexToModel(col) == COL_GOAL_STATUS) {
+                    Object value = getValueAt(row, col);
+                    if (value != null && "Trades".equals(value.toString())) {
+                        return "Trades available to complete";
+                    }
+                }
+                String tip = TableCellToolTipSupport.cellTextAt(this, event);
+                return tip != null ? tip : super.getToolTipText(event);
+            }
+
+            @Override
+            protected void configureEnclosingScrollPane() {
+                super.configureEnclosingScrollPane();
+                Container parent = SwingUtilities.getAncestorOfClass(JScrollPane.class, this);
+                if (parent instanceof JScrollPane sp) {
+                    stripOverlayScrollChrome(sp);
+                }
+            }
+        };
+    }
+
     public void applyOverlayBackground(Color bgWithAlpha, boolean treatAsTransparent) {
         boolean opaque = !treatAsTransparent;
         setOpaque(opaque);
@@ -786,6 +820,25 @@ public class EngineeringTabPanel extends JPanel {
         scheduleRefresh();
     }
 
+    /** Re-read journal/loadout into goals (e.g. before opening Build Progress). */
+    public void refreshGoalProgressFromJournal() {
+        String clientKey = EliteDangerousOverlay.clientKey;
+        if (clientKey == null || clientKey.isBlank()) {
+            return;
+        }
+        if (EngineeringGoalProgress.bootstrapFromJournal(goals, clientKey, database)) {
+            fireSessionChanged();
+        }
+        scheduleRefresh();
+    }
+
+    private void openBuildProgressDialog() {
+        refreshGoalProgressFromJournal();
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        String clientKey = EliteDangerousOverlay.clientKey;
+        EngineeringBuildProgressDialog.show(owner, goals, database, clientKey, passThroughEnabledSupplier);
+    }
+
     public void handleLogEvent(EliteLogEvent event) {
         if (event == null) {
             return;
@@ -865,6 +918,14 @@ public class EngineeringTabPanel extends JPanel {
         scheduleRefresh();
     }
 
+    private void toggleGoalInclude(int modelRow) {
+        if (modelRow < 0 || modelRow >= goals.size()) {
+            return;
+        }
+        boolean include = goals.get(modelRow).isIncludeInPlanning();
+        goalsModel.setValueAt(!include, modelRow, COL_GOAL_INCLUDE);
+    }
+
     private void openAddGoalDialog() {
         Window owner = SwingUtilities.getWindowAncestor(this);
         EngineeringGoal goal = EngineeringGoalDialog.showForAdd(owner, database, passThroughEnabledSupplier);
@@ -884,8 +945,10 @@ public class EngineeringTabPanel extends JPanel {
         EngineeringGoal updated = EngineeringGoalDialog.showForEdit(owner, database, passThroughEnabledSupplier, existing);
         if (updated != null && !updated.equals(existing)) {
             goals.set(modelRow, updated);
+            // Recompute craft/unit progress for the new target so Status + materials stay in sync.
+            refreshGoalProgressFromJournal();
             fireSessionChanged();
-            scheduleRefresh();
+            refreshUi();
         }
     }
 
@@ -942,6 +1005,9 @@ public class EngineeringTabPanel extends JPanel {
         if (tradeScroll != null) {
             tradeScroll.setVisible(showTrades);
         }
+        // Grade edits can flip shopping from empty→populated; force layout so the list appears.
+        revalidate();
+        repaint();
 
         if (!hasGoals) {
             materialsEmptyLabel.setText("<html><body style='color:#ffcc88'>Add a goal to see required materials.</body></html>");
@@ -1036,20 +1102,8 @@ public class EngineeringTabPanel extends JPanel {
         }
         return switch (readiness) {
             case READY -> "Ready";
-            case READY_WITH_TRADES -> "Ready w/ trades";
-            case STILL_SHORT -> {
-                Map<String, Integer> missing = planner.goalMaterialShortfalls(goal, invAfterTrades);
-                if (missing.isEmpty()) {
-                    missing = planner.goalMaterialShortfalls(goal, inventoryTracker.snapshot());
-                }
-                if (missing.isEmpty()) {
-                    yield "Short";
-                }
-                String first = missing.entrySet().iterator().next().getKey();
-                int extra = missing.size() - 1;
-                String name = database.materialDisplayName(first);
-                yield extra > 0 ? "Short: " + name + " +" + extra : "Short: " + name;
-            }
+            case READY_WITH_TRADES -> "Trades";
+            case STILL_SHORT -> "Short";
         };
     }
 
@@ -1126,7 +1180,13 @@ public class EngineeringTabPanel extends JPanel {
             Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
             if (c instanceof JLabel label && value != null) {
                 String text = value.toString();
-                label.setToolTipText(text.isBlank() ? null : text);
+                if (text.isBlank()) {
+                    label.setToolTipText(null);
+                } else if ("Trades".equals(text)) {
+                    label.setToolTipText("Trades available to complete");
+                } else {
+                    label.setToolTipText(text);
+                }
             }
             int modelRow = table.convertRowIndexToModel(row);
             int modelCol = table.convertColumnIndexToModel(column);
@@ -1214,12 +1274,12 @@ public class EngineeringTabPanel extends JPanel {
 
         @Override
         public boolean isCellEditable(int rowIndex, int columnIndex) {
-            return columnIndex == 0;
+            return false;
         }
 
         @Override
         public void setValueAt(Object value, int rowIndex, int columnIndex) {
-            if (columnIndex != 0 || rowIndex < 0 || rowIndex >= goals.size()) {
+            if (columnIndex != COL_GOAL_INCLUDE || rowIndex < 0 || rowIndex >= goals.size()) {
                 return;
             }
             boolean include = value instanceof Boolean b && b;
@@ -1234,11 +1294,11 @@ public class EngineeringTabPanel extends JPanel {
         @Override
         public String getColumnName(int column) {
             return switch (column) {
-                case 0 -> "";
-                case 1 -> "Blueprint";
-                case 2 -> "Lvl";
-                case 3 -> "Experimental";
-                case 4 -> "Status";
+                case COL_GOAL_INCLUDE -> "";
+                case COL_GOAL_BLUEPRINT -> "Blueprint";
+                case COL_GOAL_TARGET -> "Target";
+                case COL_GOAL_EXP -> "Experimental";
+                case COL_GOAL_STATUS -> "Status";
                 case COL_GOAL_EDIT -> "";
                 default -> "";
             };
@@ -1247,17 +1307,17 @@ public class EngineeringTabPanel extends JPanel {
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             EngineeringGoal g = goals.get(rowIndex);
-            if (columnIndex == 0) {
+            if (columnIndex == COL_GOAL_INCLUDE) {
                 return g.isIncludeInPlanning();
             }
             if (columnIndex == COL_GOAL_EDIT) {
                 return "";
             }
             return switch (columnIndex) {
-                case 1 -> blueprintDisplayName(g);
-                case 2 -> EngineeringGradeProgress.progressLabel(g);
-                case 3 -> g.getExperimentalId().isBlank() ? "—" : experimentalName(g.getExperimentalId());
-                case 4 -> rowIndex < goalStatusText.size() ? goalStatusText.get(rowIndex) : "";
+                case COL_GOAL_BLUEPRINT -> blueprintDisplayName(g);
+                case COL_GOAL_TARGET -> "G" + g.getTargetGrade();
+                case COL_GOAL_EXP -> g.getExperimentalId().isBlank() ? "—" : experimentalName(g.getExperimentalId());
+                case COL_GOAL_STATUS -> rowIndex < goalStatusText.size() ? goalStatusText.get(rowIndex) : "";
                 default -> "";
             };
         }

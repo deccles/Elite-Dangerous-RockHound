@@ -61,6 +61,9 @@ class TransparencyTest {
 
     private boolean savedOverlayTransparent;
     private boolean savedPassThroughActive;
+    private boolean savedMousePassThrough;
+    private int savedNormalTransparencyPct;
+    private int savedPassThroughTransparencyPct;
 
     @BeforeEach
     void assumeDisplayAndSavePrefs() {
@@ -69,6 +72,9 @@ class TransparencyTest {
                 "Transparency tests require a display (no headless)");
         savedOverlayTransparent = OverlayPreferences.isOverlayTransparent();
         savedPassThroughActive = OverlayPreferences.isPassThroughWindowActive();
+        savedMousePassThrough = OverlayPreferences.isOverlayMousePassThroughToGame();
+        savedNormalTransparencyPct = OverlayPreferences.getNormalTransparencyPercent();
+        savedPassThroughTransparencyPct = OverlayPreferences.getPassThroughTransparencyPercent();
     }
 
     @AfterEach
@@ -76,7 +82,19 @@ class TransparencyTest {
         if (!GraphicsEnvironment.getLocalGraphicsEnvironment().isHeadless()) {
             OverlayPreferences.setOverlayTransparent(savedOverlayTransparent);
             OverlayPreferences.setPassThroughWindowActive(savedPassThroughActive);
+            OverlayPreferences.setOverlayMousePassThroughToGame(savedMousePassThrough);
+            OverlayPreferences.setNormalTransparencyPercent(savedNormalTransparencyPct);
+            OverlayPreferences.setPassThroughTransparencyPercent(savedPassThroughTransparencyPct);
         }
+    }
+
+    private static void enableSeeThroughOverlayChrome() {
+        OverlayPreferences.setOverlayTransparent(true);
+        OverlayPreferences.setPassThroughWindowActive(true);
+        OverlayPreferences.setOverlayMousePassThroughToGame(true);
+        OverlayPreferences.setPassThroughTransparencyPercent(100);
+        OverlayPreferences.setNormalTransparencyPercent(100);
+        OverlayPreferences.applyThemeToEdoUi();
     }
 
     /**
@@ -257,9 +275,7 @@ class TransparencyTest {
 
     @Test
     void minimalTransparentPanel_showsBackingThroughEntireArea() throws Exception {
-        OverlayPreferences.setOverlayTransparent(true);
-        OverlayPreferences.setPassThroughWindowActive(true);
-        OverlayPreferences.applyThemeToEdoUi();
+        enableSeeThroughOverlayChrome();
 
         JPanel p = new JPanel();
         p.setOpaque(false);
@@ -280,9 +296,7 @@ class TransparencyTest {
 
     @Test
     void miningTabPanel_transparentMode_showsBackingAtAllComponentCenters() throws Exception {
-        OverlayPreferences.setOverlayTransparent(true);
-        OverlayPreferences.setPassThroughWindowActive(true);
-        OverlayPreferences.applyThemeToEdoUi();
+        enableSeeThroughOverlayChrome();
 
         GalacticAveragePrices prices = GalacticAveragePrices.loadDefault();
         MiningTabPanel panel = new MiningTabPanel(prices, () -> false);
@@ -300,9 +314,7 @@ class TransparencyTest {
 
     @Test
     void systemTabPanel_transparentMode_showsBackingInSomeRegions() throws Exception {
-        OverlayPreferences.setOverlayTransparent(true);
-        OverlayPreferences.setPassThroughWindowActive(true);
-        OverlayPreferences.applyThemeToEdoUi();
+        enableSeeThroughOverlayChrome();
 
         Path tempJournal = Files.createTempDirectory("edo-transparency-test");
         tempJournal.toFile().deleteOnExit();
@@ -333,9 +345,7 @@ class TransparencyTest {
 
     @Test
     void biologyTabPanel_transparentMode_showsBackingAtAllComponentCenters() throws Exception {
-        OverlayPreferences.setOverlayTransparent(true);
-        OverlayPreferences.setPassThroughWindowActive(true);
-        OverlayPreferences.applyThemeToEdoUi();
+        enableSeeThroughOverlayChrome();
 
         BiologyTabPanel panel = new BiologyTabPanel();
         panel.setPreferredSize(new java.awt.Dimension(400, 320));

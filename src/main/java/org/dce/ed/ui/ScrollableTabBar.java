@@ -101,23 +101,30 @@ public final class ScrollableTabBar extends JPanel {
 
     /**
      * Match {@link org.dce.ed.EliteOverlayTabbedPane#applyOverlayBackground} for the old flat tab bar.
+     * <p>
+     * When mouse pass-through is off, keep an opaque plate even if the body is see-through — otherwise
+     * Windows layered hit-testing drops clicks on alpha-0 gaps between tabs.
      */
     public void applyOverlayChrome(Color background, boolean treatAsTransparent) {
-        boolean opaque = !treatAsTransparent;
+        boolean mousePassThrough = passThroughEnabled != null && passThroughEnabled.getAsBoolean();
+        boolean seeThrough = treatAsTransparent && mousePassThrough;
+        boolean opaque = !seeThrough;
+        Color fill = seeThrough
+                ? background
+                : solidHitPlate(background);
         setOpaque(opaque);
-        setBackground(background);
+        setBackground(fill);
         tabStrip.setOpaque(opaque);
-        tabStrip.setBackground(background);
+        tabStrip.setBackground(fill);
         scrollPane.setOpaque(opaque);
-        scrollPane.setBackground(background);
+        scrollPane.setBackground(fill);
         scrollPane.getViewport().setOpaque(opaque);
-        scrollPane.getViewport().setBackground(background);
-        boolean chevronOpaque = !OverlayPreferences.overlayChromeRequestsTransparency();
-        scrollLeftBtn.setOpaque(chevronOpaque);
-        scrollRightBtn.setOpaque(chevronOpaque);
-        if (chevronOpaque) {
-            scrollLeftBtn.setBackground(EdoUi.Internal.DARK_ALPHA_220);
-            scrollRightBtn.setBackground(EdoUi.Internal.DARK_ALPHA_220);
+        scrollPane.getViewport().setBackground(fill);
+        scrollLeftBtn.setOpaque(opaque);
+        scrollRightBtn.setOpaque(opaque);
+        if (opaque) {
+            scrollLeftBtn.setBackground(fill);
+            scrollRightBtn.setBackground(fill);
         } else {
             scrollLeftBtn.setBackground(EdoUi.Internal.TRANSPARENT);
             scrollRightBtn.setBackground(EdoUi.Internal.TRANSPARENT);
@@ -126,9 +133,20 @@ public final class ScrollableTabBar extends JPanel {
         repaint();
     }
 
+    private static Color solidHitPlate(Color background) {
+        if (background != null && background.getAlpha() > 0) {
+            return new Color(background.getRed(), background.getGreen(), background.getBlue());
+        }
+        Color dark = EdoUi.Internal.DARK_ALPHA_220;
+        return new Color(dark.getRed(), dark.getGreen(), dark.getBlue());
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
-        if (!isOpaque() || OverlayPreferences.overlayChromeRequestsTransparency()) {
+        boolean mousePassThrough = passThroughEnabled != null && passThroughEnabled.getAsBoolean();
+        // Only clear for see-through while mouse pass-through is on. Clearing while interactive
+        // leaves alpha-0 tabs/gaps that never receive OS mouse events.
+        if (mousePassThrough && (!isOpaque() || OverlayPreferences.overlayChromeRequestsTransparency())) {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setComposite(AlphaComposite.Clear);

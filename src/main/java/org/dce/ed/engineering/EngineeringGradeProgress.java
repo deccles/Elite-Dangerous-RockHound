@@ -44,11 +44,9 @@ public final class EngineeringGradeProgress {
             }
             return goal.withProgress(completed, crafts);
         }
-        if (crafts > 0) {
-            // Still rolling the current grade — do not skip ahead on a higher-level craft.
-            return goal;
-        }
-        // Started tracking after the module was already partially engineered.
+        // craftLevel > completed + 1: journal advanced past the grade we were counting
+        // (incomplete history, or fewer than ROLLS_PER_GRADE logged applications). Treat the
+        // higher Level as authoritative — lower grades are finished.
         return goal.withProgress(craftLevel - 1, 1);
     }
 

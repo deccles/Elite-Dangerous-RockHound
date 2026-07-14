@@ -11,6 +11,8 @@ public final class ExecBindingsConfig {
 
     private int fleetTritiumLowThreshold = DEFAULT_TRITIUM_LOW_THRESHOLD;
     private int fleetTritiumLowHysteresis = DEFAULT_TRITIUM_LOW_HYSTERESIS;
+    /** Shared named programs (name → path) selectable in the Exec Program column. */
+    private List<ExecProgram> programs = new ArrayList<>();
     private List<ExecBinding> bindings = new ArrayList<>();
 
     public int getFleetTritiumLowThreshold() {
@@ -27,6 +29,14 @@ public final class ExecBindingsConfig {
 
     public void setFleetTritiumLowHysteresis(int fleetTritiumLowHysteresis) {
         this.fleetTritiumLowHysteresis = Math.max(0, fleetTritiumLowHysteresis);
+    }
+
+    public List<ExecProgram> getPrograms() {
+        return programs;
+    }
+
+    public void setPrograms(List<ExecProgram> programs) {
+        this.programs = programs != null ? new ArrayList<>(programs) : new ArrayList<>();
     }
 
     public List<ExecBinding> getBindings() {

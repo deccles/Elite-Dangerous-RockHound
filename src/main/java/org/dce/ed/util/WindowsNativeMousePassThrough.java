@@ -59,20 +59,25 @@ public final class WindowsNativeMousePassThrough {
     }
 
     /**
-     * Applies or clears {@link WinUser#WS_EX_TRANSPARENT} on one Win32 HWND and commits with {@code SetWindowPos}.
+     * Applies or clears {@link WinUser#WS_EX_TRANSPARENT} on one Win32 HWND and commits with {@code SetWindowPos}
+     * only when the click-through bit actually changes.
+     * <p>
+     * Do <b>not</b> force {@link WinUser#WS_EX_LAYERED}: Java's undecorated translucent frames already use
+     * per-pixel alpha via UpdateLayeredWindow. Re-asserting LAYERED on every paint/timer tick can knock the
+     * window out of that path so see-through transparency stops working while mouse pass-through is on.
      */
     static void applyNativePassThroughToHwnd(HWND target, boolean enable) {
         if (target == null || Pointer.nativeValue(target.getPointer()) == 0L) {
             return;
         }
         int exStyle = User32.INSTANCE.GetWindowLong(target, WinUser.GWL_EXSTYLE);
-        if (enable) {
-            exStyle = exStyle | WinUser.WS_EX_LAYERED | WinUser.WS_EX_TRANSPARENT;
-        } else {
-            exStyle = exStyle | WinUser.WS_EX_LAYERED;
-            exStyle = exStyle & ~WinUser.WS_EX_TRANSPARENT;
+        int next = enable
+                ? (exStyle | WinUser.WS_EX_TRANSPARENT)
+                : (exStyle & ~WinUser.WS_EX_TRANSPARENT);
+        if (next == exStyle) {
+            return;
         }
-        User32.INSTANCE.SetWindowLong(target, WinUser.GWL_EXSTYLE, exStyle);
+        User32.INSTANCE.SetWindowLong(target, WinUser.GWL_EXSTYLE, next);
         User32.INSTANCE.SetWindowPos(target, null, 0, 0, 0, 0,
                 WinUser.SWP_NOMOVE | WinUser.SWP_NOSIZE | WinUser.SWP_NOZORDER | WinUser.SWP_FRAMECHANGED);
     }

@@ -42,6 +42,10 @@ class ExecBindingsStoreTest {
         assertEquals(ExecTriggerId.JOURNAL_EVENT, rows.get(0).getTrigger());
         assertEquals(10_000, rows.get(0).getDelayMs());
         assertEquals("C:\\tools\\demo.jar", rows.get(0).getJarPath());
+        assertEquals("RoboHound", rows.get(0).getProgramName());
+        assertEquals(1, loaded.getPrograms().size());
+        assertEquals("RoboHound", loaded.getPrograms().get(0).getName());
+        assertEquals("C:\\tools\\demo.jar", loaded.getPrograms().get(0).getPath());
         assertEquals("--foo", rows.get(0).getProgramArgs());
         assertEquals("Docked", rows.get(0).getJournalEventType());
         assertEquals("My macro", rows.get(0).getName());

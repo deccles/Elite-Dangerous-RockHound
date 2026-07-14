@@ -62,4 +62,53 @@ class EngineeringGoalQuantityTest {
         assertFalse(goal.isComplete());
         assertEquals(2, goal.remainingUnits());
     }
+
+    @Test
+    void withUserSettings_raisingTargetClearsCompletedUnits() {
+        EngineeringGoal g4Complete = new EngineeringGoal(
+                "id", "Pulse Laser", "Efficient Weapon", 4, 0, 4, "",
+                true, false, 3, 3);
+        assertTrue(g4Complete.isComplete());
+
+        EngineeringGoal g5 = g4Complete.withUserSettings(5, "", 3);
+        assertEquals(5, g5.getTargetGrade());
+        assertEquals(4, g5.getFromGrade());
+        assertEquals(0, g5.getCompletedUnits());
+        assertFalse(g5.isComplete());
+    }
+
+    @Test
+    void withUserSettings_raisingTargetIncreasesMaterialNeed() {
+        BlueprintGrade g5 = db.getAllBlueprints().stream()
+                .filter(b -> "Shield Booster".equals(b.getModuleType()))
+                .filter(b -> "Heavy Duty".equals(b.getName()))
+                .filter(b -> b.getGrade() == 5)
+                .findFirst()
+                .orElseThrow();
+
+        EngineeringGoal atG3 = new EngineeringGoal(
+                g5.getId(), "Shield Booster", "Heavy Duty", 3, 0, 3, "",
+                true, false, 4, 4);
+        assertTrue(atG3.isComplete());
+        assertTrue(planner.materialsForGoal(atG3).isEmpty());
+
+        EngineeringGoal raised = atG3.withUserSettings(5, "", 4);
+        Map<String, Integer> mats = planner.materialsForGoal(raised);
+        assertFalse(raised.isComplete());
+        assertFalse(mats.isEmpty(), "G3→G5 must add materials for remaining grades");
+        // G4 and G5 still needed on the in-progress unit; remaining grades include higher-tier mats.
+        assertTrue(mats.values().stream().mapToInt(Integer::intValue).sum() > 0);
+    }
+
+    @Test
+    void withUserSettings_loweringTargetKeepsUnitsWhenAlreadyPastNewGrade() {
+        EngineeringGoal g5Done = new EngineeringGoal(
+                "id", "Multi-cannon", "Overcharged Weapon", 5, 0, 5, "",
+                true, false, 5, 5);
+        EngineeringGoal g4 = g5Done.withUserSettings(4, "", 5);
+        assertEquals(4, g4.getTargetGrade());
+        assertEquals(4, g4.getFromGrade());
+        assertEquals(5, g4.getCompletedUnits());
+        assertTrue(g4.isComplete());
+    }
 }

@@ -38,6 +38,7 @@ import org.dce.ed.exec.ExecJournalAttributeFilter.MatchMode;
 import org.dce.ed.exec.ExecJournalHistoryScanner.JournalExample;
 import org.dce.ed.exec.placeholder.ExecPlaceholderFieldSupport;
 import org.dce.ed.logreader.EliteEventType;
+import org.dce.ed.ui.OverlayScrollPaneSupport;
 
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
@@ -119,8 +120,11 @@ final class ExecJournalExamplePickerDialog extends JDialog {
             }
         });
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                new JScrollPane(fieldTree), new JScrollPane(jsonArea));
+        JScrollPane treeScroll = new JScrollPane(fieldTree);
+        JScrollPane jsonScroll = new JScrollPane(jsonArea);
+        OverlayScrollPaneSupport.installSubtleScrollBars(treeScroll);
+        OverlayScrollPaneSupport.installSubtleScrollBars(jsonScroll);
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, treeScroll, jsonScroll);
         split.setResizeWeight(0.35);
         root.add(split, BorderLayout.CENTER);
 

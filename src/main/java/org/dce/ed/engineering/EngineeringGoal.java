@@ -255,6 +255,10 @@ public final class EngineeringGoal {
 
     /**
      * Updates user-facing settings from the edit dialog while preserving journal progress where possible.
+     *
+     * <p>Raising the target grade clears {@code completedUnits}: those units were finished for the
+     * previous target only. Callers should re-bootstrap from the journal so multi-module progress
+     * is recomputed against the new target.
      */
     public EngineeringGoal withUserSettings(int newTargetGrade, String newExperimentalId, int newQuantity) {
         int grade = Math.max(1, newTargetGrade);
@@ -266,12 +270,22 @@ public final class EngineeringGoal {
             expApplied = false;
         }
         int progFrom = Math.min(fromGrade, grade);
+        int crafts = craftsAtCurrentGrade;
+        if (grade > targetGrade) {
+            // Previously "done" units only met the old target.
+            units = 0;
+        }
+        if (progFrom >= grade) {
+            crafts = 0;
+        } else if (progFrom < fromGrade) {
+            crafts = 0;
+        }
         return new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
                 progFrom,
-                craftsAtCurrentGrade,
+                crafts,
                 grade,
                 expId,
                 includeInPlanning,

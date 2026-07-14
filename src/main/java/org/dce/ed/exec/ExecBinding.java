@@ -20,6 +20,8 @@ public final class ExecBinding {
     private boolean includeOnControlPanel;
     private ExecTriggerId trigger;
     private int delayMs;
+    /** Selected catalog name from {@link ExecBindingsConfig#getPrograms()}; empty when unset. */
+    private String programName = "";
     private String jarPath;
     private String programArgs;
     /** When {@link ExecTriggerId#JOURNAL_EVENT}: journal {@code event} name (e.g. {@code Docked}). */
@@ -33,6 +35,7 @@ public final class ExecBinding {
         this.enabled = false;
         this.trigger = ExecTriggerId.NONE;
         this.delayMs = 0;
+        this.programName = "";
         this.jarPath = "";
         this.programArgs = "";
     }
@@ -103,6 +106,14 @@ public final class ExecBinding {
 
     public void setDelayMs(int delayMs) {
         this.delayMs = Math.max(0, delayMs);
+    }
+
+    public String getProgramName() {
+        return programName;
+    }
+
+    public void setProgramName(String programName) {
+        this.programName = programName != null ? programName.trim() : "";
     }
 
     public String getJarPath() {

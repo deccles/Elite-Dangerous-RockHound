@@ -39,6 +39,7 @@ import java.util.function.BooleanSupplier;
 import javax.swing.AbstractButton;
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.plaf.basic.BasicButtonUI;
 import javax.swing.SwingUtilities;
@@ -1039,6 +1040,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 		// Default: slightly translucent dark background when overlay is transparent.
 		// Selected tab gets an opaque background in applyTabButtonStyle to prevent
 		// adjacent tab text from peeking through (z-order/alpha bleed).
+		// When mouse pass-through is off, applyTabButtonStyle forces a solid fill so the
+		// entire chip is a hit target (Windows layered windows ignore alpha-0 pixels).
 		button.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
 		button.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 
@@ -1050,9 +1053,27 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * BasicButtonUI clips labels with an ellipsis when the laid-out width is smaller than the text.
 	 * On some JDK/LAF/DPI combinations the preferred width is underestimated (border + margin),
 	 * which shows up intermittently as abbreviated tab names (e.g. "Rou...").
+	 * <p>
+	 * Also paints the button background when {@link AbstractButton#isContentAreaFilled()} so that
+	 * interactive (non–mouse-pass-through) tabs keep a full-rect hit target under per-pixel alpha.
 	 */
 	private static final class TabButtonUI extends BasicButtonUI {
 		private static final TabButtonUI INSTANCE = new TabButtonUI();
+
+		@Override
+		public void paint(Graphics g, JComponent c) {
+			AbstractButton b = (AbstractButton) c;
+			if (b.isContentAreaFilled() && b.getBackground() != null) {
+				Graphics2D g2 = (Graphics2D) g.create();
+				try {
+					g2.setColor(b.getBackground());
+					g2.fillRoundRect(0, 0, c.getWidth(), c.getHeight(), 6, 6);
+				} finally {
+					g2.dispose();
+				}
+			}
+			super.paint(g, c);
+		}
 
 		@Override
 		protected void paintText(Graphics g, AbstractButton b, Rectangle textRect, String text) {
@@ -1316,15 +1337,31 @@ public class EliteOverlayTabbedPane extends JPanel {
 				? TAB_WHITE
 				: (selected ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.MAIN_TEXT_ALPHA_220);
 
-		if (selected && !useOverlayTabChrome) {
+		if (!passThrough) {
+			/*
+			 * Mouse is interactive: Windows layered/per-pixel-alpha hit-testing only delivers clicks to
+			 * non-zero-alpha pixels. With contentAreaFilled(false) only the glyph was hittable, so most
+			 * tab clicks were dropped. Paint a solid chip for the full button bounds.
+			 */
+			button.setContentAreaFilled(true);
+			button.setOpaque(true);
+			if (selected) {
+				button.setBackground(new Color(70, 70, 70));
+			} else {
+				button.setBackground(new Color(40, 40, 40));
+			}
+		} else if (selected && !useOverlayTabChrome) {
+			button.setContentAreaFilled(true);
 			button.setOpaque(true);
 			button.setBackground(TAB_SELECTED_BG);
 		} else if (!useOverlayTabChrome) {
+			button.setContentAreaFilled(true);
 			button.setOpaque(true);
 			Color base = EdoUi.User.BACKGROUND;
 			button.setBackground(new Color(base.getRed(), base.getGreen(), base.getBlue(), 255));
 		} else {
-			button.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
+			button.setContentAreaFilled(false);
+			button.setOpaque(false);
 			button.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 		}
 

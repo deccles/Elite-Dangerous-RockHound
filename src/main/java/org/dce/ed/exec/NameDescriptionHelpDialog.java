@@ -14,6 +14,8 @@ import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.table.AbstractTableModel;
 
+import org.dce.ed.ui.OverlayScrollPaneSupport;
+
 /** Two-column reference dialog (name + brief description). */
 public final class NameDescriptionHelpDialog {
 
@@ -64,6 +66,7 @@ public final class NameDescriptionHelpDialog {
         table.getColumnModel().getColumn(1).setPreferredWidth(420);
 
         JScrollPane scroll = new JScrollPane(table);
+        OverlayScrollPaneSupport.installSubtleScrollBars(scroll);
         scroll.setPreferredSize(new Dimension(640, 420));
         dialog.add(scroll, BorderLayout.CENTER);
 

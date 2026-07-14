@@ -798,7 +798,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         }
         add(this.contentPanel, BorderLayout.CENTER);
 
-        applyOverlayBackgroundFromPreferences(OverlayPreferences.isPassThroughWindowActive());
+        // Transparency % follows mouse pass-through, not which window host is active.
+        applyOverlayBackgroundFromPreferences(passThroughEnabled);
 
         Rectangle passThroughRect = readPassThroughStoredBounds();
         setBounds(passThroughRect.x, passThroughRect.y, passThroughRect.width, passThroughRect.height);
@@ -1868,7 +1869,8 @@ private void refreshPassThroughUnifiedStatus() {
         }
         if (stateChanged) {
             resetPassThroughCloseHoverState();
-            applyOverlayBackgroundFromPreferences(OverlayPreferences.isPassThroughWindowActive());
+            // Normal vs mouse-pass-through transparency prefs track click-through, not OverlayFrame vs Decorated.
+            applyOverlayBackgroundFromPreferences(this.passThroughEnabled);
             System.out.println("Pass-through " + (this.passThroughEnabled ? "ENABLED" : "DISABLED"));
         }
         // Always push Win32 extended style (setBounds / re-show can clear WS_EX_TRANSPARENT).
@@ -1949,6 +1951,9 @@ private void refreshPassThroughUnifiedStatus() {
         if (contentPanel != null) {
             contentPanel.rebuildTabbedPane();
         }
+
+        // Rebuild copies getBackground(); re-push prefs so mouse-PT vs Normal % and alpha stay authoritative.
+        applyOverlayBackgroundFromPreferences(passThroughEnabled);
 
         if (titleBar != null) {
             titleBar.setPassThrough(passThroughEnabled);
@@ -2033,6 +2038,8 @@ private void refreshPassThroughUnifiedStatus() {
 
     /**
      * Used by PreferencesDialog for live preview.
+     * {@code passThroughMode} selects which transparency preset was edited; paint always uses the given percent
+     * on this undecorated frame (per-pixel alpha). Decorated window mode cannot see through to the game.
      */
     public void applyOverlayBackgroundPreview(boolean passThroughMode, int rgb, int transparencyPercent) {
         int pct = Math.max(0, Math.min(100, transparencyPercent));
@@ -2125,13 +2132,16 @@ private void refreshPassThroughUnifiedStatus() {
         revalidate();
     }
     public void prepareForShow(boolean passThroughAppearanceMode) {
-        // Make sure we have the right background color/alpha set BEFORE first paint
-        applyOverlayBackgroundFromPreferences(passThroughAppearanceMode);
         if (passThroughAppearanceMode) {
-            // Transparent overlay window implies clicks pass through to the game (title-bar toggle can disable).
-            setPassThroughEnabled(true, true);
-        } else if (titleBar != null) {
-            titleBar.setPassThrough(this.passThroughEnabled);
+            // Restore last mouse pass-through choice; apply the matching transparency % (Normal when off).
+            boolean mousePt = OverlayPreferences.getOverlayMousePassThroughToGamePersisted(true);
+            applyOverlayBackgroundFromPreferences(mousePt);
+            setPassThroughEnabled(mousePt, false);
+        } else {
+            applyOverlayBackgroundFromPreferences(false);
+            if (titleBar != null) {
+                titleBar.setPassThrough(this.passThroughEnabled);
+            }
         }
 
         // Defensive: avoid any default opaque background painting

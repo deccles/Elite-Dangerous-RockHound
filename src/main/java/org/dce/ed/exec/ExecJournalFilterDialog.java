@@ -19,6 +19,7 @@ import javax.swing.JTable;
 import javax.swing.table.AbstractTableModel;
 
 import org.dce.ed.exec.ExecJournalAttributeFilter.MatchMode;
+import org.dce.ed.ui.OverlayScrollPaneSupport;
 
 /** Edit journal attribute filters on an {@link ExecBinding}. */
 public final class ExecJournalFilterDialog extends JDialog {
@@ -59,7 +60,9 @@ public final class ExecJournalFilterDialog extends JDialog {
         filtersTable.setRowHeight(22);
         JComboBox<MatchMode> modeCombo = new JComboBox<>(MatchMode.values());
         filtersTable.getColumnModel().getColumn(COL_MODE).setCellEditor(new DefaultCellEditor(modeCombo));
-        root.add(new JScrollPane(filtersTable), BorderLayout.CENTER);
+        JScrollPane filtersScroll = new JScrollPane(filtersTable);
+        OverlayScrollPaneSupport.installSubtleScrollBars(filtersScroll);
+        root.add(filtersScroll, BorderLayout.CENTER);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton add = new JButton("Add filter");

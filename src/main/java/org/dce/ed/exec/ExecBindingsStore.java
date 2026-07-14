@@ -41,7 +41,15 @@ public final class ExecBindingsStore {
         }
         try (Reader reader = Files.newBufferedReader(configPath, StandardCharsets.UTF_8)) {
             ExecBindingsConfig config = GSON.fromJson(reader, ExecBindingsConfig.class);
-            return normalize(config);
+            ExecBindingsConfig normalized = normalize(config);
+            if (ExecPrograms.ensureMigrated(normalized)) {
+                try {
+                    save(normalized);
+                } catch (IOException ignored) {
+                    // Keep in-memory migration even if first write fails.
+                }
+            }
+            return normalized;
         } catch (Exception e) {
             return new ExecBindingsConfig();
         }
@@ -49,6 +57,7 @@ public final class ExecBindingsStore {
 
     public void save(ExecBindingsConfig config) throws IOException {
         ExecBindingsConfig normalized = normalize(config);
+        ExecPrograms.ensureMigrated(normalized);
         Files.createDirectories(configPath.getParent());
         try (Writer writer = Files.newBufferedWriter(configPath, StandardCharsets.UTF_8)) {
             GSON.toJson(normalized, writer);
@@ -61,6 +70,9 @@ public final class ExecBindingsStore {
         }
         if (config.getBindings() == null) {
             config.setBindings(new java.util.ArrayList<>());
+        }
+        if (config.getPrograms() == null) {
+            config.setPrograms(new java.util.ArrayList<>());
         }
         config.setFleetTritiumLowThreshold(config.getFleetTritiumLowThreshold());
         config.setFleetTritiumLowHysteresis(config.getFleetTritiumLowHysteresis());

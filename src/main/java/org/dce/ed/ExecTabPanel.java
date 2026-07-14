@@ -3,12 +3,13 @@ package org.dce.ed;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -19,7 +20,6 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
-import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -31,7 +31,6 @@ import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellEditor;
@@ -41,15 +40,23 @@ import org.dce.ed.exec.ExecBinding;
 import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecBindingsStore;
 import org.dce.ed.exec.ExecJournalFilterDialog;
+import org.dce.ed.exec.ExecProgram;
+import org.dce.ed.exec.ExecPrograms;
+import org.dce.ed.exec.ExecProgramsDialog;
 import org.dce.ed.exec.ExecShortcutKeys;
 import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.exec.ExecReferenceHelp;
 import org.dce.ed.exec.NameDescriptionHelpDialog;
+import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HelpCircleIcon;
+import org.dce.ed.ui.OverlayCheckBoxStyle;
+import org.dce.ed.ui.OverlayOutlineButtonStyle;
+import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.exec.placeholder.ExecPlaceholderId;
 import org.dce.ed.exec.placeholder.ExecPlaceholderFieldSupport;
 import org.dce.ed.logreader.EliteEventType;
+import org.dce.ed.ui.EdoUi;
 
 /**
  * Exec tab: configure programs to run on overlay triggers (fleet cooldown complete, low tritium, etc.).
@@ -71,45 +78,42 @@ public final class ExecTabPanel extends JPanel {
     private final ExecBindingsConfig config = store.load();
     private final BindingsTableModel tableModel = new BindingsTableModel(config.getBindings());
     private final JTable table = new JTable(tableModel);
+    private final JScrollPane tableScroll = new JScrollPane(table);
     private final JLabel statusLabel = new JLabel(" ");
     private final JSpinner tritiumThresholdSpinner = new JSpinner(
             new SpinnerNumberModel(config.getFleetTritiumLowThreshold(), 0, 10_000, 10));
     private final JSpinner tritiumHysteresisSpinner = new JSpinner(
             new SpinnerNumberModel(config.getFleetTritiumLowHysteresis(), 0, 5_000, 10));
     private final JLabel fuelLevelLabel = new JLabel("Carrier fuel (last CarrierStats): —");
+    private final JPanel tritiumPanel;
+    private final java.util.List<JButton> actionButtons = new ArrayList<>();
 
     private ExecTriggerService triggerService;
     private boolean editorsInstalled;
 
     public ExecTabPanel() {
         super(new BorderLayout(8, 8));
-        setOpaque(false);
+        setOpaque(true);
+        setBackground(EdoUi.User.BACKGROUND);
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        JLabel intro = new JLabel(
-                "<html>Run external programs on journal/overlay events. Pick a <code>.exe</code> "
-                        + "(e.g. RoboHound) or a <code>.jar</code> (runs with bundled/Java <code>java -jar</code>). "
-                        + "Use trigger <b>Journal event</b> and pick any journal event from the list, "
-                        + "or <b>Shortcut key</b> (F1–F12) to run while the game has focus. "
-                        + "Type <code>$</code> in Args for game-state symbols; hover a symbol to preview its current value. "
-                        + "Order must match RoboHound macro arguments after <code>--play</code>.</html>");
-        intro.setOpaque(false);
-        add(intro, BorderLayout.NORTH);
-
         JPanel center = new JPanel(new BorderLayout(6, 6));
-        center.setOpaque(false);
+        center.setOpaque(true);
+        center.setBackground(EdoUi.User.BACKGROUND);
 
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        table.setOpaque(false);
+        table.setOpaque(true);
         table.getTableHeader().setReorderingAllowed(false);
-        table.setRowHeight(Math.max(22, table.getRowHeight()));
+        // Compact rows so tritium + action buttons stay visible under the table in Preferences.
+        table.setRowHeight(20);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
                 int col = table.columnAtPoint(e.getPoint());
                 int row = table.rowAtPoint(e.getPoint());
                 if (e.getClickCount() == 2 && col == COL_PROGRAM) {
-                    browseProgramForRow(row);
+                    openManageProgramsDialog();
                     return;
                 }
                 if (e.getClickCount() == 2 && col == COL_JOURNAL_EVENT && row >= 0 && row < config.getBindings().size()) {
@@ -158,13 +162,18 @@ public final class ExecTabPanel extends JPanel {
                 }
             }
         });
-        JScrollPane scroll = new JScrollPane(table);
-        scroll.setOpaque(false);
-        scroll.getViewport().setOpaque(false);
-        center.add(scroll, BorderLayout.CENTER);
+        tableScroll.setOpaque(true);
+        tableScroll.getViewport().setOpaque(true);
+        OverlayScrollPaneSupport.installSubtleScrollBars(tableScroll);
+        // Prefer a short viewport; BorderLayout.CENTER will grow it when space allows.
+        int headerH = 24;
+        int visibleRows = 6;
+        tableScroll.setPreferredSize(new Dimension(640, headerH + visibleRows * table.getRowHeight() + 4));
+        center.add(tableScroll, BorderLayout.CENTER);
 
-        JPanel tritiumPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        tritiumPanel.setOpaque(false);
+        tritiumPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        tritiumPanel.setOpaque(true);
+        tritiumPanel.setBackground(EdoUi.User.BACKGROUND);
         tritiumPanel.setBorder(BorderFactory.createTitledBorder("Fleet tritium low trigger"));
         tritiumPanel.add(new JLabel("Threshold (tons in tank):"));
         tritiumPanel.add(tritiumThresholdSpinner);
@@ -175,29 +184,31 @@ public final class ExecTabPanel extends JPanel {
         add(center, BorderLayout.CENTER);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        buttons.setOpaque(false);
-        JButton addButton = new JButton("Add row");
-        JButton removeButton = new JButton("Remove");
-        JButton browseButton = new JButton("Browse program…");
-        browseButton.setToolTipText("Select a table row, then pick a .exe or .jar (or double-click the Program cell)");
-        JButton runNowButton = new JButton("Run now");
-        JButton journalFiltersButton = new JButton("Journal filters…");
+        buttons.setOpaque(true);
+        buttons.setBackground(EdoUi.User.BACKGROUND);
+        JButton addButton = styleActionButton(new JButton("Add row"));
+        JButton removeButton = styleActionButton(new JButton("Remove"));
+        JButton manageProgramsButton = styleActionButton(new JButton("Manage programs…"));
+        manageProgramsButton.setToolTipText("Edit named programs (path + unique name), or choose Add Program… in the Program column");
+        JButton runNowButton = styleActionButton(new JButton("Run now"));
+        JButton journalFiltersButton = styleActionButton(new JButton("Journal filters…"));
         journalFiltersButton.setToolTipText("Edit attribute filters for the selected Journal event row (or double-click Journal event column)");
         journalFiltersButton.addActionListener(e -> editJournalFiltersForSelectedRow());
         buttons.add(addButton);
         buttons.add(removeButton);
-        buttons.add(browseButton);
+        buttons.add(manageProgramsButton);
         buttons.add(runNowButton);
         buttons.add(journalFiltersButton);
 
         JPanel helpRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        helpRow.setOpaque(false);
-        JButton eventHelpButton = new JButton("Event help");
+        helpRow.setOpaque(true);
+        helpRow.setBackground(EdoUi.User.BACKGROUND);
+        JButton eventHelpButton = styleActionButton(new JButton("Event help"));
         HelpCircleIcon.applyTo(eventHelpButton);
         eventHelpButton.setToolTipText("Journal events available for the Journal event trigger");
         eventHelpButton.addActionListener(e -> NameDescriptionHelpDialog.show(this, "Journal events",
                 "Event", "Description", ExecReferenceHelp.journalEventRows()));
-        JButton variableHelpButton = new JButton("Variable help");
+        JButton variableHelpButton = styleActionButton(new JButton("Variable help"));
         HelpCircleIcon.applyTo(variableHelpButton);
         variableHelpButton.setToolTipText("$SYMBOL placeholders for Exec program args");
         variableHelpButton.addActionListener(e -> NameDescriptionHelpDialog.show(this, "Exec variables",
@@ -206,13 +217,16 @@ public final class ExecTabPanel extends JPanel {
         helpRow.add(variableHelpButton);
 
         JPanel south = new JPanel();
-        south.setOpaque(false);
+        south.setOpaque(true);
+        south.setBackground(EdoUi.User.BACKGROUND);
         south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
         south.add(buttons);
         south.add(helpRow);
         statusLabel.setOpaque(false);
         statusLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 0, 4));
         south.add(statusLabel);
+        // Keep action rows from being compressed away when the dialog is short.
+        south.setMinimumSize(new Dimension(0, 96));
         add(south, BorderLayout.SOUTH);
 
         addButton.addActionListener(e -> {
@@ -238,7 +252,7 @@ public final class ExecTabPanel extends JPanel {
             autoSizeExecTableColumns();
         });
 
-        browseButton.addActionListener(e -> browseProgramForSelectedRow());
+        manageProgramsButton.addActionListener(e -> openManageProgramsDialog());
         runNowButton.addActionListener(e -> runSelectedRowNow());
 
         tritiumThresholdSpinner.addChangeListener(e -> {
@@ -256,6 +270,83 @@ public final class ExecTabPanel extends JPanel {
         }
         if (table.getRowCount() > 0 && table.getSelectedRow() < 0) {
             table.setRowSelectionInterval(0, 0);
+        }
+
+        applyThemeColors();
+    }
+
+    /**
+     * Match overlay / Preferences dark chrome: {@link EdoUi.User#MAIN_TEXT} on dark plate.
+     * Call again after live color preview updates {@link EdoUi}.
+     */
+    public void applyThemeColors() {
+        Color fg = EdoUi.User.MAIN_TEXT;
+        Color bg = EdoUi.User.BACKGROUND;
+        Color panel = EdoUi.User.PANEL_BG;
+
+        setOpaque(true);
+        setBackground(bg);
+        statusLabel.setForeground(fg);
+        fuelLevelLabel.setForeground(fg);
+        themeLabelTree(tritiumPanel, fg);
+        tritiumPanel.setOpaque(true);
+        tritiumPanel.setBackground(bg);
+
+        table.setForeground(fg);
+        table.setBackground(bg);
+        table.setSelectionForeground(bg);
+        table.setSelectionBackground(fg);
+        table.setGridColor(EdoUi.Internal.separatorLine());
+        if (table.getTableHeader() != null) {
+            table.getTableHeader().setForeground(fg);
+            table.getTableHeader().setBackground(panel);
+            table.getTableHeader().setOpaque(true);
+        }
+
+        Component scrollParent = table.getParent() != null ? table.getParent().getParent() : null;
+        if (scrollParent instanceof JScrollPane pane) {
+            pane.setBackground(bg);
+            pane.getViewport().setBackground(bg);
+            OverlayScrollPaneSupport.installSubtleScrollBars(pane);
+        } else {
+            tableScroll.setBackground(bg);
+            tableScroll.getViewport().setBackground(bg);
+            OverlayScrollPaneSupport.installSubtleScrollBars(tableScroll);
+        }
+
+        if (tritiumPanel.getBorder() instanceof javax.swing.border.TitledBorder titled) {
+            titled.setTitleColor(fg);
+        }
+        for (JButton button : actionButtons) {
+            styleActionButton(button);
+        }
+        revalidate();
+        repaint();
+    }
+
+    private JButton styleActionButton(JButton button) {
+        if (button == null) {
+            return null;
+        }
+        Font base = OverlayPreferences.getUiFont();
+        if (base == null) {
+            base = getFont();
+        }
+        OverlayOutlineButtonStyle.applyChip(button, base, false);
+        if (!actionButtons.contains(button)) {
+            actionButtons.add(button);
+        }
+        return button;
+    }
+
+    private static void themeLabelTree(Component root, Color fg) {
+        if (root instanceof JLabel label) {
+            label.setForeground(fg);
+        }
+        if (root instanceof java.awt.Container container) {
+            for (Component child : container.getComponents()) {
+                themeLabelTree(child, fg);
+            }
         }
     }
 
@@ -304,6 +395,7 @@ public final class ExecTabPanel extends JPanel {
         if (opaque && bgWithAlpha != null) {
             setBackground(bgWithAlpha);
         }
+        applyThemeColors();
         revalidate();
         repaint();
     }
@@ -317,52 +409,55 @@ public final class ExecTabPanel extends JPanel {
         fuelLevelLabel.setFont(font);
         table.setFont(font);
         table.getTableHeader().setFont(font);
+        for (JButton button : actionButtons) {
+            styleActionButton(button);
+        }
         autoSizeExecTableColumns();
     }
 
-    private void browseProgramForSelectedRow() {
-        browseProgramForRow(resolveSelectedModelRow(true));
+    /** Re-measure Program / text columns after the dialog is shown or the Exec tab is selected. */
+    public void refreshColumnLayout() {
+        autoSizeExecTableColumns();
     }
 
-    private void browseProgramForRow(int modelRow) {
-        if (modelRow < 0 || modelRow >= config.getBindings().size()) {
-            setStatus("Select a table row first (click the row), then Browse program…");
-            return;
-        }
+    private void openManageProgramsDialog() {
         if (table.isEditing()) {
             table.getCellEditor().stopCellEditing();
         }
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Select program to run");
-        chooser.addChoosableFileFilter(new FileNameExtensionFilter("Windows executable (*.exe)", "exe"));
-        chooser.addChoosableFileFilter(new FileNameExtensionFilter("Java JAR (*.jar)", "jar"));
-        chooser.setAcceptAllFileFilterUsed(true);
-        ExecBinding binding = config.getBindings().get(modelRow);
-        if (binding.getJarPath() != null && !binding.getJarPath().isBlank()) {
-            File existing = new File(binding.getJarPath());
-            if (existing.getParentFile() != null && existing.getParentFile().isDirectory()) {
-                chooser.setCurrentDirectory(existing.getParentFile());
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+        ExecProgramsDialog.Result result = ExecProgramsDialog.show(owner, config.getPrograms());
+        if (result == null) {
+            return;
+        }
+        applyProgramsCatalog(result);
+        persistConfig();
+        tableModel.fireTableDataChanged();
+        autoSizeExecTableColumns();
+        setStatus(config.getPrograms().isEmpty()
+                ? "No programs configured — choose Add Program… in the Program column."
+                : "Programs updated (" + config.getPrograms().size() + ").");
+    }
+
+    private void applyProgramsCatalog(ExecProgramsDialog.Result result) {
+        Map<String, String> renameMap = result.renameMap();
+        config.setPrograms(new ArrayList<>(result.programs()));
+        for (ExecBinding binding : config.getBindings()) {
+            if (binding == null) {
+                continue;
+            }
+            String name = binding.getProgramName();
+            if (name != null && renameMap.containsKey(name)) {
+                name = renameMap.get(name);
+            }
+            ExecProgram match = ExecPrograms.findByName(config.getPrograms(), name);
+            if (match != null) {
+                binding.setProgramName(match.getName());
+                binding.setJarPath(match.getPath());
+            } else {
+                binding.setProgramName("");
+                binding.setJarPath("");
             }
         }
-        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
-        int result = owner != null
-                ? chooser.showOpenDialog(owner)
-                : chooser.showOpenDialog(this);
-        if (result != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-        File file = chooser.getSelectedFile();
-        if (file == null) {
-            return;
-        }
-        binding.setJarPath(file.getAbsolutePath());
-        tableModel.fireTableCellUpdated(modelRow, COL_PROGRAM);
-        table.setRowSelectionInterval(
-                table.convertRowIndexToView(modelRow),
-                table.convertRowIndexToView(modelRow));
-        table.repaint();
-        persistConfig();
-        setStatus("Program set: " + file.getName());
     }
 
     /** @param allowDefaultToFirstRow when true and nothing is selected, use row 0 */
@@ -487,7 +582,10 @@ public final class ExecTabPanel extends JPanel {
                     yield b.getJournalEventTypeEnum();
                 }
                 case COL_DELAY_SEC -> b.getDelayMs() / 1000;
-                case COL_PROGRAM -> b.getJarPath();
+                case COL_PROGRAM -> {
+                    String programName = b.getProgramName();
+                    yield programName != null ? programName : "";
+                }
                 case COL_ARGS -> b.getProgramArgs();
                 default -> "";
             };
@@ -532,7 +630,7 @@ public final class ExecTabPanel extends JPanel {
                     }
                     b.setDelayMs(sec * 1000);
                 }
-                case COL_PROGRAM -> b.setJarPath(value != null ? value.toString() : "");
+                case COL_PROGRAM -> applyProgramSelection(b, value != null ? value.toString() : "");
                 case COL_ARGS -> b.setProgramArgs(value != null ? value.toString() : "");
                 default -> {
                 }
@@ -543,6 +641,21 @@ public final class ExecTabPanel extends JPanel {
             }
             persistConfig();
         }
+    }
+
+    private void applyProgramSelection(ExecBinding binding, String selection) {
+        if (binding == null) {
+            return;
+        }
+        if (selection == null || selection.isBlank() || ExecPrograms.ADD_PROGRAM_LABEL.equals(selection)) {
+            return;
+        }
+        ExecProgram match = ExecPrograms.findByName(config.getPrograms(), selection);
+        if (match == null) {
+            return;
+        }
+        binding.setProgramName(match.getName());
+        binding.setJarPath(match.getPath());
     }
 
     static {
@@ -612,39 +725,29 @@ public final class ExecTabPanel extends JPanel {
             }
         });
 
-        JCheckBox check = new JCheckBox();
-        check.setOpaque(false);
-        table.getColumnModel().getColumn(COL_ENABLED).setCellEditor(new javax.swing.DefaultCellEditor(check));
+        JCheckBox enabledCheck = new JCheckBox();
+        OverlayCheckBoxStyle.apply(enabledCheck);
+        table.setDefaultRenderer(Boolean.class, new OverlayBooleanCellRenderer());
+        table.getColumnModel().getColumn(COL_ENABLED).setCellEditor(overlayCheckBoxEditor(enabledCheck));
         JCheckBox controlPanelCheck = new JCheckBox();
-        controlPanelCheck.setOpaque(false);
-        table.getColumnModel().getColumn(COL_CONTROL_PANEL).setCellEditor(new javax.swing.DefaultCellEditor(controlPanelCheck));
+        OverlayCheckBoxStyle.apply(controlPanelCheck);
+        table.getColumnModel().getColumn(COL_CONTROL_PANEL).setCellEditor(overlayCheckBoxEditor(controlPanelCheck));
+        constrainCheckboxColumn(COL_ENABLED, 36);
+        constrainCheckboxColumn(COL_CONTROL_PANEL, 96);
 
-        JTextField programField = new JTextField();
-        programField.getDocument().addDocumentListener(new DocumentListener() {
-            private void changed() {
-                int row = table.getEditingRow() >= 0 ? table.getEditingRow() : table.getSelectedRow();
-                if (row >= 0 && row < config.getBindings().size()
-                        && table.getEditingColumn() == COL_PROGRAM) {
-                    persistConfig();
-                }
-            }
+        table.getColumnModel().getColumn(COL_PROGRAM).setCellEditor(new ProgramCellEditor());
+        table.getColumnModel().getColumn(COL_PROGRAM).setCellRenderer(new DefaultTableCellRenderer() {
+            private static final long serialVersionUID = 1L;
 
             @Override
-            public void insertUpdate(DocumentEvent e) {
-                changed();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                changed();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                changed();
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean isSelected,
+                    boolean hasFocus, int row, int column) {
+                super.getTableCellRendererComponent(t, value, isSelected, hasFocus, row, column);
+                String text = value != null ? value.toString() : "";
+                setText(text.isBlank() ? "—" : text);
+                return this;
             }
         });
-        table.getColumnModel().getColumn(COL_PROGRAM).setCellEditor(new javax.swing.DefaultCellEditor(programField));
 
         JTextField argsField = new JTextField();
         new ExecPlaceholderFieldSupport(argsField, () ->
@@ -678,8 +781,118 @@ public final class ExecTabPanel extends JPanel {
     }
 
     private void autoSizeExecTableColumns() {
-        table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
-        SwingUtilities.invokeLater(() -> UtilTable.autoSizeTableColumns(table));
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        SwingUtilities.invokeLater(() -> {
+            UtilTable.autoSizeTableColumns(table);
+            constrainCheckboxColumn(COL_ENABLED, 36);
+            constrainCheckboxColumn(COL_CONTROL_PANEL, 96);
+            table.revalidate();
+            table.repaint();
+        });
+    }
+
+    private void constrainCheckboxColumn(int modelColumn, int width) {
+        if (modelColumn < 0 || modelColumn >= table.getColumnModel().getColumnCount()) {
+            return;
+        }
+        javax.swing.table.TableColumn column = table.getColumnModel().getColumn(modelColumn);
+        column.setMinWidth(width);
+        column.setPreferredWidth(width);
+        column.setMaxWidth(width);
+    }
+
+    private static javax.swing.DefaultCellEditor overlayCheckBoxEditor(JCheckBox checkBox) {
+        return new javax.swing.DefaultCellEditor(checkBox) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public Component getTableCellEditorComponent(JTable table, Object value,
+                    boolean isSelected, int row, int column) {
+                Component c = super.getTableCellEditorComponent(table, value, isSelected, row, column);
+                if (c instanceof JCheckBox editorCheck) {
+                    OverlayCheckBoxStyle.apply(editorCheck);
+                    editorCheck.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
+                }
+                return c;
+            }
+        };
+    }
+
+    private static final class OverlayBooleanCellRenderer extends JCheckBox
+            implements javax.swing.table.TableCellRenderer {
+        private static final long serialVersionUID = 1L;
+
+        OverlayBooleanCellRenderer() {
+            OverlayCheckBoxStyle.apply(this);
+            setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            setSelected(value instanceof Boolean b && b);
+            return this;
+        }
+    }
+
+    private final class ProgramCellEditor extends AbstractCellEditor implements TableCellEditor {
+
+        private static final long serialVersionUID = 1L;
+
+        private final JComboBox<String> combo = new JComboBox<>();
+        private String committedValue = "";
+        private boolean ignoreAction;
+
+        ProgramCellEditor() {
+            combo.setOpaque(false);
+            combo.addActionListener(e -> {
+                if (ignoreAction) {
+                    return;
+                }
+                Object selected = combo.getSelectedItem();
+                if (selected == null) {
+                    return;
+                }
+                String value = selected.toString();
+                if (ExecPrograms.ADD_PROGRAM_LABEL.equals(value)) {
+                    SwingUtilities.invokeLater(() -> {
+                        fireEditingCanceled();
+                        openManageProgramsDialog();
+                    });
+                    return;
+                }
+                committedValue = value;
+                fireEditingStopped();
+            });
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable t, Object value, boolean isSelected, int row, int column) {
+            ignoreAction = true;
+            combo.removeAllItems();
+            for (ExecProgram program : config.getPrograms()) {
+                if (program != null && !program.getName().isBlank()) {
+                    combo.addItem(program.getName());
+                }
+            }
+            combo.addItem(ExecPrograms.ADD_PROGRAM_LABEL);
+            String current = value != null ? value.toString() : "";
+            committedValue = current;
+            if (!current.isBlank()) {
+                combo.setSelectedItem(current);
+            } else if (combo.getItemCount() > 1) {
+                combo.setSelectedIndex(-1);
+            } else {
+                combo.setSelectedItem(ExecPrograms.ADD_PROGRAM_LABEL);
+            }
+            ignoreAction = false;
+            return combo;
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            return committedValue;
+        }
     }
 
     private final class BindingDetailCellEditor extends AbstractCellEditor implements TableCellEditor {

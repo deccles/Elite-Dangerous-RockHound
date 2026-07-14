@@ -10,5 +10,13 @@
   "ShieldGenerator_Thermic": {
     "moduleType": "Shield Generator",
     "blueprintName": "Thermal Resistant Shields"
+  },
+  "ShieldBooster_Resistive": {
+    "moduleType": "Shield Booster",
+    "blueprintName": "Resistance Augmented"
+  },
+  "Sensor_LightWeight": {
+    "moduleType": "Sensors",
+    "blueprintName": "Light Weight Scanner"
   }
 }

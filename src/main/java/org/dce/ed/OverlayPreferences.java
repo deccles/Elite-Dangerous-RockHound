@@ -268,9 +268,17 @@ public final class OverlayPreferences {
 
     /**
      * True when table headers, tab row, etc. should use transparent fills so the desktop shows through.
+     * Only the undecorated overlay host supports see-through; percent follows mouse pass-through on/off.
      */
     public static boolean overlayChromeRequestsTransparency() {
-        return isOverlayTransparent() && passThroughWindowActive;
+        return passThroughWindowActive && getActiveOverlayTransparencyPercent() > 0;
+    }
+
+    /** Active background transparency % for the current mouse pass-through state on the overlay host. */
+    public static int getActiveOverlayTransparencyPercent() {
+        return isOverlayMousePassThroughToGame()
+                ? getPassThroughTransparencyPercent()
+                : getNormalTransparencyPercent();
     }
 
     // ---------------------------------------------------------------------
@@ -1805,7 +1813,12 @@ public static Engine getSpeechEngine() {
         UIManager.put("Viewport.background", bg);
         UIManager.put("ScrollPane.background", bg);
         UIManager.put("Table.background", bg);
-        UIManager.put("TabbedPane.background", bg);
+        UIManager.put("Table.foreground", fg);
+        UIManager.put("Table.selectionBackground", fg);
+        UIManager.put("Table.selectionForeground", bg);
+        UIManager.put("Label.foreground", fg);
+        UIManager.put("CheckBox.foreground", fg);
+        UIManager.put("TitledBorder.titleColor", fg);
         UIManager.put("TabbedPane.foreground", fg);
         UIManager.put("TabbedPane.selected", panel);
         UIManager.put("TabbedPane.highlight", panel);

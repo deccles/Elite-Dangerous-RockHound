@@ -87,24 +87,25 @@ class EngineeringGradeProgressTest {
     }
 
     @Test
-    void afterCraft_higherGradeIgnoredWhileCurrentGradeInProgress() {
+    void afterCraft_higherGradeSnapsAheadEvenWhenLowerGradeWasInProgress() {
+        // Real journals often log 1×L1 then L2… — fewer than 5 crafts per grade visible.
         EngineeringGoal goal = new EngineeringGoal(
                 "power-distributor-charge-enhanced-g5",
                 "Power Distributor",
                 "Charge Enhanced",
+                0,
                 1,
-                2,
                 5,
                 "");
 
-        EngineeringGoal after = EngineeringGradeProgress.afterCraft(goal, 3);
+        EngineeringGoal after = EngineeringGradeProgress.afterCraft(goal, 2);
 
         assertEquals(1, after.getFromGrade());
-        assertEquals(2, after.getCraftsAtCurrentGrade());
+        assertEquals(1, after.getCraftsAtCurrentGrade());
     }
 
     @Test
-    void afterCraft_higherGradeSnapsOnlyWhenNoRollsInProgress() {
+    void afterCraft_higherGradeSnapsWhenStartingMidProgress() {
         EngineeringGoal goal = new EngineeringGoal(
                 "power-distributor-charge-enhanced-g5",
                 "Power Distributor",
@@ -118,6 +119,18 @@ class EngineeringGradeProgressTest {
 
         assertEquals(2, after.getFromGrade());
         assertEquals(1, after.getCraftsAtCurrentGrade());
+    }
+
+    @Test
+    void afterCraft_realPulseEfficientJournalSequenceReachesG4() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "pulse", "Pulse Laser", "Efficient Weapon", 0, 0, 5, "");
+        int[] levels = {1, 2, 2, 3, 3, 3, 4, 4, 4, 4, 4};
+        for (int level : levels) {
+            goal = EngineeringGradeProgress.afterCraft(goal, level);
+        }
+        assertEquals(4, goal.getFromGrade());
+        assertEquals(0, goal.getCraftsAtCurrentGrade());
     }
 
     @Test
