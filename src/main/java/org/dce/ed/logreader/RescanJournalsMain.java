@@ -238,7 +238,7 @@ public class RescanJournalsMain {
 			System.out.println("Clearing local system cache database...");
 			System.out.flush();
 			reportProgress(progress, "Clearing cache", -1, null);
-			cache.clearAndDeleteOnDisk();
+			cache.clearAndDeleteOnDiskPreservingSession();
 			System.out.println("Cache cleared; rebuilding from journal events...");
 			System.out.flush();
 		}

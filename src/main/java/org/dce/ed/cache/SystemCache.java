@@ -100,21 +100,36 @@ public final class SystemCache implements SystemStore {
     }
 
     /**
-     * Deletes the SQLite system/body cache database and resets the singleton connection.
-     * <p>
-     * Preserves {@code overlay_global_state.session_json} (engineering goals, missions, routes,
-     * etc.) so a full journal rescan does not erase commander overlay setup.
+     * Deletes the SQLite system/body cache database and resets the singleton connection,
+     * including commander {@code session_json}. Prefer
+     * {@link #clearAndDeleteOnDiskPreservingSession()} for full journal rescans that must keep
+     * overlay setup (goals, routes, missions).
      */
     @Override
     public synchronized void clearAndDeleteOnDisk() {
+        clearAndDeleteOnDisk(false);
+    }
+
+    /**
+     * Like {@link #clearAndDeleteOnDisk()}, but snapshots and restores {@code session_json} so a
+     * full journal rescan does not erase commander overlay setup.
+     */
+    public synchronized void clearAndDeleteOnDiskPreservingSession() {
+        clearAndDeleteOnDisk(true);
+    }
+
+    private synchronized void clearAndDeleteOnDisk(boolean preserveSessionJson) {
         System.out.println("Delete cache DB " + cacheDbPath);
         String preservedSessionJson = null;
-        try {
-            if (sqliteReady && sqliteConnection != null && globalStateHasColumn("session_json")) {
-                preservedSessionJson = sqliteReadSessionJsonRaw();
+        if (preserveSessionJson) {
+            try {
+                if (sqliteReady && sqliteConnection != null && globalStateHasColumn("session_json")) {
+                    preservedSessionJson = sqliteReadSessionJsonRaw();
+                }
+            } catch (Exception ex) {
+                System.err.println("SystemCache: could not snapshot session_json before cache wipe: "
+                        + ex.getMessage());
             }
-        } catch (Exception ex) {
-            System.err.println("SystemCache: could not snapshot session_json before cache wipe: " + ex.getMessage());
         }
         lastLoadedSystem = null;
         try {

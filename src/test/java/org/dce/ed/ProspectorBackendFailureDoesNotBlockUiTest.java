@@ -83,14 +83,19 @@ class ProspectorBackendFailureDoesNotBlockUiTest {
 
         MiningTabPanel panel = new MiningTabPanel(prices, () -> false, tts, backendSupplier);
 
-        // Wait for the initial spreadsheet refresh (constructor triggers one).
-        long deadlineMs = System.currentTimeMillis() + 2_000;
+        // Wait for the initial spreadsheet refresh (constructor triggers a SwingWorker).
+        // Pump the EDT so done() can apply rows — under a full suite the EventQueue can sit idle
+        // otherwise and this wait times out even though loadRows already returned.
+        long deadlineMs = System.currentTimeMillis() + 5_000;
         int spreadsheetRows = panel.getProspectorSpreadsheetRowCountForTests();
         while (System.currentTimeMillis() < deadlineMs && spreadsheetRows <= 0) {
             Thread.sleep(20);
+            SwingUtilities.invokeAndWait(() -> {
+            });
             spreadsheetRows = panel.getProspectorSpreadsheetRowCountForTests();
         }
-        assertTrue(spreadsheetRows > 0, "Spreadsheet should load last-good rows initially");
+        assertTrue(spreadsheetRows > 0,
+                "Spreadsheet should load last-good rows initially (loadCalls=" + loadCalls.get() + ")");
 
         // Now populate the prospector table.
         ProspectedAsteroidEvent event = new ProspectedAsteroidEvent(
@@ -105,34 +110,43 @@ class ProspectorBackendFailureDoesNotBlockUiTest {
         int prospectorRows = panel.getProspectorTableRowCount();
         assertTrue(prospectorRows > 0, "Prospector table should populate");
 
+        // Stop the periodic refresh timer — only the two explicit loads matter for this test.
+        javax.swing.Timer timer = findSpreadsheetRefreshTimer(panel);
+        if (timer != null) {
+            timer.stop();
+        }
+
         // Trigger backend failure: second refreshSpreadsheetFromBackend() loadRows call throws.
         panel.refreshSpreadsheetFromBackend();
 
-        deadlineMs = System.currentTimeMillis() + 2_000;
-        int afterSpreadsheetRows = panel.getProspectorSpreadsheetRowCountForTests();
-        while (System.currentTimeMillis() < deadlineMs && loadCalls.get() < 2) {
-            Thread.sleep(20);
-        }
-
-        // Second refresh runs on a SwingWorker; wait for done() on the EDT to set mining status.
-        deadlineMs = System.currentTimeMillis() + 2_000;
+        deadlineMs = System.currentTimeMillis() + 5_000;
         while (System.currentTimeMillis() < deadlineMs
-                && (lastError.get() == null || lastError.get().isBlank())) {
+                && (loadCalls.get() < 2 || lastError.get() == null || lastError.get().isBlank())) {
             Thread.sleep(20);
+            SwingUtilities.invokeAndWait(() -> {
+            });
         }
         SwingUtilities.invokeAndWait(() -> {
         });
 
         // On ERROR, MiningTabPanel keeps showing last-good rows.
-        afterSpreadsheetRows = panel.getProspectorSpreadsheetRowCountForTests();
+        int afterSpreadsheetRows = panel.getProspectorSpreadsheetRowCountForTests();
         assertEquals(spreadsheetRows, afterSpreadsheetRows, "Spreadsheet row count should remain unchanged on backend failure");
         assertEquals(prospectorRows, panel.getProspectorTableRowCount(), "Prospector table should not be wiped by backend errors");
 
         String err = lastError.get();
-        assertTrue(err != null && !err.isBlank(), "Expected mining status error text when refresh fails");
+        assertTrue(err != null && !err.isBlank(),
+                "Expected mining status error text when refresh fails (loadCalls=" + loadCalls.get() + ")");
         assertTrue(err.contains("backend boom") || err.contains("Could not load mining log"),
                 "Error text should surface failure: " + err);
         assertTrue(clearCount.get() >= 1, "Successful initial load should clear mining status at least once");
+    }
+
+    private static javax.swing.Timer findSpreadsheetRefreshTimer(MiningTabPanel panel) throws Exception {
+        java.lang.reflect.Field f = MiningTabPanel.class.getDeclaredField("spreadsheetRefreshTimer");
+        f.setAccessible(true);
+        Object v = f.get(panel);
+        return v instanceof javax.swing.Timer t ? t : null;
     }
 }
 
