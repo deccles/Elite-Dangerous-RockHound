@@ -123,7 +123,7 @@ public final class EngineeringDatabase {
             if (!bp.isExperimental()) {
                 continue;
             }
-            if (!bp.getModuleType().equalsIgnoreCase(moduleType)) {
+            if (!EngineeringJournalBlueprintResolver.sameModuleType(bp.getModuleType(), moduleType)) {
                 continue;
             }
             String parent = bp.getParentBlueprint();

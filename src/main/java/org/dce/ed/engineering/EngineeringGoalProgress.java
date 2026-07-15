@@ -590,7 +590,7 @@ public final class EngineeringGoalProgress {
                 0,
                 template.getTargetGrade(),
                 template.getExperimentalId(),
-                template.isIncludeInPlanning(),
+                template.getPriority(),
                 false,
                 1,
                 0,

@@ -96,6 +96,17 @@ public final class OverlayPreferences {
     private static final String KEY_ENGINEERING_TRADE_SORT_DESC = "overlay.engineering.trade.sortDescending";
     private static final String KEY_ENGINEERING_BLUEPRINT_SORT_COLUMN = "overlay.engineering.blueprintPicker.sortColumn";
     private static final String KEY_ENGINEERING_BLUEPRINT_SORT_DESC = "overlay.engineering.blueprintPicker.sortDescending";
+    private static final String KEY_ENGINEERING_BLUEPRINT_INSTALLED_ONLY =
+            "overlay.engineering.blueprintPicker.installedOnly";
+    /** Build progress: hide All engineered / Unengineered rows that already have a matching goal. */
+    private static final String KEY_ENGINEERING_BUILD_PROGRESS_HIDE_MODULES_WITH_GOALS =
+            "overlay.engineering.buildProgress.hideModulesWithGoals";
+    /** Last ship chosen in Add Goal; kept until the equipped ship changes. */
+    private static final String KEY_ENGINEERING_ADD_GOAL_PREFERRED_SHIP_ID =
+            "overlay.engineering.addGoal.preferredShipId";
+    /** Equipped ship id when the preferred Add Goal ship was last set. */
+    private static final String KEY_ENGINEERING_ADD_GOAL_EQUIPPED_BASELINE_ID =
+            "overlay.engineering.addGoal.equippedBaselineId";
     private static final String KEY_OVERLAY_TAB_CONTROL_PANEL_VISIBLE = "overlay.tab.controlPanel.visible";
     /** @deprecated legacy key; migrated on read */
     private static final String KEY_OVERLAY_TAB_EXEC_VISIBLE = "overlay.tab.exec.visible";
@@ -426,6 +437,55 @@ public final class OverlayPreferences {
 
     public static void setEngineeringBlueprintPickerSortDescending(boolean descending) {
         PREFS.putBoolean(KEY_ENGINEERING_BLUEPRINT_SORT_DESC, descending);
+    }
+
+    public static boolean isEngineeringBlueprintPickerInstalledOnly() {
+        return PREFS.getBoolean(KEY_ENGINEERING_BLUEPRINT_INSTALLED_ONLY, true);
+    }
+
+    public static void setEngineeringBlueprintPickerInstalledOnly(boolean installedOnly) {
+        PREFS.putBoolean(KEY_ENGINEERING_BLUEPRINT_INSTALLED_ONLY, installedOnly);
+    }
+
+    public static boolean isEngineeringBuildProgressHideModulesWithGoals() {
+        return PREFS.getBoolean(KEY_ENGINEERING_BUILD_PROGRESS_HIDE_MODULES_WITH_GOALS, true);
+    }
+
+    public static void setEngineeringBuildProgressHideModulesWithGoals(boolean hide) {
+        PREFS.putBoolean(KEY_ENGINEERING_BUILD_PROGRESS_HIDE_MODULES_WITH_GOALS, hide);
+    }
+
+    /**
+     * Ship id last chosen in Add Goal, or {@code null} if unset / follow equipped.
+     */
+    public static Long getEngineeringAddGoalPreferredShipId() {
+        long id = PREFS.getLong(KEY_ENGINEERING_ADD_GOAL_PREFERRED_SHIP_ID, -1L);
+        return id >= 0L ? Long.valueOf(id) : null;
+    }
+
+    public static void setEngineeringAddGoalPreferredShipId(long shipId) {
+        if (shipId < 0L) {
+            PREFS.remove(KEY_ENGINEERING_ADD_GOAL_PREFERRED_SHIP_ID);
+            return;
+        }
+        PREFS.putLong(KEY_ENGINEERING_ADD_GOAL_PREFERRED_SHIP_ID, shipId);
+    }
+
+    /**
+     * Equipped ship id when the Add Goal preferred ship was recorded.
+     * When the current loadout ship differs, Add Goal should return to the equipped ship.
+     */
+    public static Long getEngineeringAddGoalEquippedBaselineId() {
+        long id = PREFS.getLong(KEY_ENGINEERING_ADD_GOAL_EQUIPPED_BASELINE_ID, -1L);
+        return id >= 0L ? Long.valueOf(id) : null;
+    }
+
+    public static void setEngineeringAddGoalEquippedBaselineId(long shipId) {
+        if (shipId < 0L) {
+            PREFS.remove(KEY_ENGINEERING_ADD_GOAL_EQUIPPED_BASELINE_ID);
+            return;
+        }
+        PREFS.putLong(KEY_ENGINEERING_ADD_GOAL_EQUIPPED_BASELINE_ID, shipId);
     }
 
     public static boolean isOverlayTabControlPanelVisible() {

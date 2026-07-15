@@ -53,8 +53,10 @@ public final class EngineeringSessionData {
         private int craftsAtCurrentGrade;
         private int targetGrade;
         private String experimentalId;
-        /** {@code null} = include (legacy sessions). */
+        /** {@code null} = include (legacy sessions). Prefer {@link #priority}. */
         private Boolean includeInPlanning;
+        /** {@code HIGH}/{@code MEDIUM}/{@code LOW}/{@code DISABLED}; null = migrate from includeInPlanning. */
+        private String priority;
         private boolean experimentalApplied;
         /** {@code null} or {@code <= 0} = 1 (legacy sessions). */
         private Integer quantity;
@@ -129,6 +131,22 @@ public final class EngineeringSessionData {
 
         public boolean includeInPlanningOrDefault() {
             return includeInPlanning == null || includeInPlanning;
+        }
+
+        public String getPriority() {
+            return priority;
+        }
+
+        public void setPriority(String priority) {
+            this.priority = priority;
+        }
+
+        /** Resolved priority for load; migrates legacy includeInPlanning. */
+        public org.dce.ed.engineering.GoalPriority priorityOrDefault() {
+            if (priority != null && !priority.isBlank()) {
+                return org.dce.ed.engineering.GoalPriority.parse(priority);
+            }
+            return org.dce.ed.engineering.GoalPriority.fromInclude(includeInPlanningOrDefault());
         }
 
         public boolean isExperimentalApplied() {

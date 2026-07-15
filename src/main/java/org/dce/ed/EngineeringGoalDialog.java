@@ -11,15 +11,20 @@ import java.awt.Insets;
 import java.awt.Window;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -29,6 +34,7 @@ import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingConstants;
 import javax.swing.ListSelectionModel;
 import javax.swing.RowSorter;
 import javax.swing.SortOrder;
@@ -42,15 +48,19 @@ import javax.swing.table.TableRowSorter;
 
 import org.dce.ed.edsm.UtilTable;
 import org.dce.ed.engineering.BlueprintGrade;
+import org.dce.ed.engineering.EngineeringCraftStore;
 import org.dce.ed.engineering.EngineeringDatabase;
 import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringGoal;
+import org.dce.ed.engineering.EngineeringJournalBlueprintResolver;
 import org.dce.ed.engineering.EngineeringMaterialKeys;
 import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.MaterialRequirement;
+import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
+import org.dce.ed.ui.OverlayCheckBoxStyle;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.TableHeaderSortSupport;
@@ -77,6 +87,7 @@ final class EngineeringGoalDialog extends JDialog {
     private final JLabel blueprintSummaryLabel = new JLabel(" ");
     private final JSpinner quantitySpinner = new JSpinner(new SpinnerNumberModel(1, 1, MAX_QUANTITY, 1));
     private final JTextField filterField = new JTextField(24);
+    private final JCheckBox installedOnlyCheck = new JCheckBox("Installed only");
     private final BlueprintTableModel blueprintModel = new BlueprintTableModel();
     private final JTable blueprintTable = new JTable(blueprintModel);
     private final TableRowSorter<BlueprintTableModel> blueprintSorter = new TableRowSorter<>(blueprintModel);
@@ -88,6 +99,8 @@ final class EngineeringGoalDialog extends JDialog {
     private final EngineeringShipCatalog shipCatalog;
     private List<EngineeringShipRef> shipChoices;
     private final EngineeringShipRef defaultShip;
+    private final AddPrefill addPrefill;
+    private boolean applyingPrefill;
 
     private EngineeringGoal result;
 
@@ -97,7 +110,8 @@ final class EngineeringGoalDialog extends JDialog {
                                   Mode mode,
                                   EngineeringGoal editSource,
                                   EngineeringShipCatalog shipCatalog,
-                                  EngineeringShipRef defaultShip) {
+                                  EngineeringShipRef defaultShip,
+                                  AddPrefill addPrefill) {
         super(owner, mode == Mode.EDIT ? "Edit engineering goal" : "Add engineering goal", ModalityType.APPLICATION_MODAL);
         this.mode = mode;
         this.editSource = editSource;
@@ -106,16 +120,40 @@ final class EngineeringGoalDialog extends JDialog {
         this.shipCatalog = shipCatalog;
         this.shipChoices = shipCatalog != null ? shipCatalog.listSorted() : List.of();
         this.defaultShip = defaultShip;
+        this.addPrefill = addPrefill != null ? addPrefill : AddPrefill.EMPTY;
         buildUi();
         if (mode == Mode.ADD) {
-            reloadBlueprintList();
             selectShipInCombo(defaultShip);
+            reloadBlueprintList();
+            applyAddPrefill();
         } else {
             prefillFromGoal(editSource);
         }
         pack();
         setMinimumSize(new Dimension(mode == Mode.EDIT ? 420 : 520, mode == Mode.EDIT ? 260 : 460));
         setLocationRelativeTo(owner);
+    }
+
+    /** Prefill options when opening Add Goal from build progress / elsewhere. */
+    static record AddPrefill(
+            String moduleType,
+            String blueprintName,
+            String searchText,
+            String experimentalName,
+            int quantity) {
+        static final AddPrefill EMPTY = new AddPrefill("", "", "", "", 1);
+
+        AddPrefill {
+            moduleType = moduleType != null ? moduleType.trim() : "";
+            blueprintName = blueprintName != null ? blueprintName.trim() : "";
+            searchText = searchText != null ? searchText.trim() : "";
+            experimentalName = experimentalName != null ? experimentalName.trim() : "";
+            quantity = Math.max(1, quantity);
+        }
+
+        static AddPrefill of(String moduleType, String blueprintName) {
+            return new AddPrefill(moduleType, blueprintName, "", "", 1);
+        }
     }
 
     private static volatile EngineeringGoalDialog activeInstance;
@@ -156,11 +194,41 @@ final class EngineeringGoalDialog extends JDialog {
                                       BooleanSupplier passThroughEnabledSupplier,
                                       EngineeringShipCatalog shipCatalog,
                                       EngineeringShipRef defaultShip) {
+        return showForAdd(owner, database, passThroughEnabledSupplier, shipCatalog, defaultShip, AddPrefill.EMPTY);
+    }
+
+    static EngineeringGoal showForAdd(Window owner,
+                                      EngineeringDatabase database,
+                                      BooleanSupplier passThroughEnabledSupplier,
+                                      EngineeringShipCatalog shipCatalog,
+                                      EngineeringShipRef defaultShip,
+                                      String preferredModuleType) {
+        return showForAdd(owner, database, passThroughEnabledSupplier, shipCatalog, defaultShip,
+                AddPrefill.of(preferredModuleType, null));
+    }
+
+    static EngineeringGoal showForAdd(Window owner,
+                                      EngineeringDatabase database,
+                                      BooleanSupplier passThroughEnabledSupplier,
+                                      EngineeringShipCatalog shipCatalog,
+                                      EngineeringShipRef defaultShip,
+                                      String preferredModuleType,
+                                      String preferredBlueprintName) {
+        return showForAdd(owner, database, passThroughEnabledSupplier, shipCatalog, defaultShip,
+                AddPrefill.of(preferredModuleType, preferredBlueprintName));
+    }
+
+    static EngineeringGoal showForAdd(Window owner,
+                                      EngineeringDatabase database,
+                                      BooleanSupplier passThroughEnabledSupplier,
+                                      EngineeringShipCatalog shipCatalog,
+                                      EngineeringShipRef defaultShip,
+                                      AddPrefill prefill) {
         if (database == null) {
             return null;
         }
         EngineeringGoalDialog dialog = new EngineeringGoalDialog(
-                owner, database, passThroughEnabledSupplier, Mode.ADD, null, shipCatalog, defaultShip);
+                owner, database, passThroughEnabledSupplier, Mode.ADD, null, shipCatalog, defaultShip, prefill);
         activeInstance = dialog;
         try {
             dialog.setVisible(true);
@@ -188,7 +256,7 @@ final class EngineeringGoalDialog extends JDialog {
             }
         }
         EngineeringGoalDialog dialog = new EngineeringGoalDialog(
-                owner, database, passThroughEnabledSupplier, Mode.EDIT, existing, shipCatalog, def);
+                owner, database, passThroughEnabledSupplier, Mode.EDIT, existing, shipCatalog, def, AddPrefill.EMPTY);
         activeInstance = dialog;
         try {
             dialog.setVisible(true);
@@ -312,6 +380,21 @@ final class EngineeringGoalDialog extends JDialog {
         shipCombo.setSelectedItem(wanted);
     }
 
+    /**
+     * Remember the Add Goal ship until the equipped loadout ship changes.
+     */
+    private void persistAddGoalShipChoice() {
+        EngineeringShipRef selected = (EngineeringShipRef) shipCombo.getSelectedItem();
+        if (selected == null || !selected.isKnown()) {
+            return;
+        }
+        OverlayPreferences.setEngineeringAddGoalPreferredShipId(selected.getShipId());
+        EngineeringShipRef equipped = EngineeringShipCatalog.fromLoadout(EliteOverlayTabbedPane.getLatestLoadout());
+        if (equipped != null && equipped.isKnown()) {
+            OverlayPreferences.setEngineeringAddGoalEquippedBaselineId(equipped.getShipId());
+        }
+    }
+
     private void buildUi() {
         Font base = OverlayPreferences.getUiFont();
         int fontSize = OverlayPreferences.getUiFontSize();
@@ -338,7 +421,29 @@ final class EngineeringGoalDialog extends JDialog {
         } else {
             styleTextField(filterField, base);
             filterField.setToolTipText("Filter by module or blueprint name");
-            center.add(filterField, BorderLayout.NORTH);
+            OverlayCheckBoxStyle.apply(installedOnlyCheck);
+            installedOnlyCheck.setFont(base.deriveFont(Font.PLAIN, fontSize));
+            installedOnlyCheck.setToolTipText(
+                    "Show only blueprints for module types fitted on the selected ship");
+            installedOnlyCheck.setSelected(OverlayPreferences.isEngineeringBlueprintPickerInstalledOnly());
+            installedOnlyCheck.addItemListener(e -> {
+                if (e.getStateChange() != java.awt.event.ItemEvent.SELECTED
+                        && e.getStateChange() != java.awt.event.ItemEvent.DESELECTED) {
+                    return;
+                }
+                OverlayPreferences.setEngineeringBlueprintPickerInstalledOnly(installedOnlyCheck.isSelected());
+                reloadBlueprintList();
+            });
+            HoverClickPoller.register(
+                    installedOnlyCheck,
+                    HOVER_CLICK_DELAY_MS,
+                    () -> installedOnlyCheck.setSelected(!installedOnlyCheck.isSelected()),
+                    passThroughEnabledSupplier);
+            JPanel searchRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+            searchRow.setOpaque(false);
+            searchRow.add(filterField);
+            searchRow.add(installedOnlyCheck);
+            center.add(searchRow, BorderLayout.NORTH);
 
             configureBlueprintTable(base, fontSize);
             JScrollPane tableScroll = new JScrollPane(blueprintTable);
@@ -369,50 +474,9 @@ final class EngineeringGoalDialog extends JDialog {
         gbc.insets = new Insets(4, 4, 4, 8);
         gbc.anchor = GridBagConstraints.WEST;
 
-        JLabel gradeLabel = fieldLabel("Target grade:", base, fontSize);
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        form.add(gradeLabel, gbc);
-        styleCombo(gradeCombo, base);
-        constrainComboHeight(gradeCombo);
-        gradeCombo.addActionListener(e -> updateGradeDetails());
-        gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1;
-        form.add(gradeCombo, gbc);
-
-        JLabel qtyLabel = fieldLabel("Quantity:", base, fontSize);
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        form.add(qtyLabel, gbc);
-        quantitySpinner.setFont(base);
-        quantitySpinner.setToolTipText("How many modules to engineer (e.g. four gimbal weapons)");
-        gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1;
-        form.add(quantitySpinner, gbc);
-
-        JLabel expLabel = fieldLabel("Experimental:", base, fontSize);
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        form.add(expLabel, gbc);
-        styleCombo(experimentalCombo, base);
-        constrainComboHeight(experimentalCombo);
-        experimentalCombo.addItem("(none)");
-        gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1;
-        form.add(experimentalCombo, gbc);
-
         JLabel shipLabel = fieldLabel("Ship:", base, fontSize);
         gbc.gridx = 0;
-        gbc.gridy = 3;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
+        gbc.gridy = 0;
         form.add(shipLabel, gbc);
         styleCombo(shipCombo, base);
         constrainComboHeight(shipCombo);
@@ -433,10 +497,52 @@ final class EngineeringGoalDialog extends JDialog {
         });
         populateShipCombo();
         selectShipInCombo(defaultShip);
+        if (mode == Mode.ADD) {
+            shipCombo.addActionListener(e -> {
+                persistAddGoalShipChoice();
+                if (installedOnlyCheck.isSelected()) {
+                    reloadBlueprintList();
+                }
+            });
+        }
         gbc.gridx = 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1;
         form.add(shipCombo, gbc);
+
+        JLabel gradeLabel = fieldLabel("Target grade:", base, fontSize);
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        form.add(gradeLabel, gbc);
+        styleCombo(gradeCombo, base);
+        constrainComboHeight(gradeCombo);
+        gradeCombo.addActionListener(e -> updateGradeDetails());
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        form.add(gradeCombo, gbc);
+
+        JLabel qtyLabel = fieldLabel("Quantity:", base, fontSize);
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        form.add(qtyLabel, gbc);
+        styleQuantitySpinner(base);
+        quantitySpinner.setToolTipText("How many modules to engineer (e.g. four gimbal weapons)");
+        gbc.gridx = 1;
+        form.add(quantitySpinner, gbc);
+
+        JLabel expLabel = fieldLabel("Experimental:", base, fontSize);
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        form.add(expLabel, gbc);
+        styleCombo(experimentalCombo, base);
+        constrainComboHeight(experimentalCombo);
+        experimentalCombo.addItem("(none)");
+        gbc.gridx = 1;
+        form.add(experimentalCombo, gbc);
+        equalizeGradeQtyExperimentalWidths();
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         buttons.setOpaque(false);
@@ -466,17 +572,23 @@ final class EngineeringGoalDialog extends JDialog {
             filterField.getDocument().addDocumentListener(new DocumentListener() {
                 @Override
                 public void insertUpdate(DocumentEvent e) {
-                    reloadBlueprintList();
+                    if (!applyingPrefill) {
+                        reloadBlueprintList();
+                    }
                 }
 
                 @Override
                 public void removeUpdate(DocumentEvent e) {
-                    reloadBlueprintList();
+                    if (!applyingPrefill) {
+                        reloadBlueprintList();
+                    }
                 }
 
                 @Override
                 public void changedUpdate(DocumentEvent e) {
-                    reloadBlueprintList();
+                    if (!applyingPrefill) {
+                        reloadBlueprintList();
+                    }
                 }
             });
         }
@@ -538,18 +650,24 @@ final class EngineeringGoalDialog extends JDialog {
     }
 
     private void reloadBlueprintList() {
-        String q = filterField.getText().trim().toLowerCase();
+        String q = filterField.getText().trim();
         BlueprintOption selected = selectedOption();
+        Set<String> installedTypes = null;
+        if (mode == Mode.ADD && installedOnlyCheck.isSelected()) {
+            installedTypes = installedModuleTypesForSelectedShip();
+        }
         Map<String, BlueprintOption> unique = new LinkedHashMap<>();
         for (BlueprintGrade bp : database.getAllBlueprints()) {
             if (bp.isExperimental()) {
                 continue;
             }
-            if (!q.isEmpty()) {
-                String hay = (bp.getModuleType() + " " + bp.getName()).toLowerCase();
-                if (!hay.contains(q)) {
-                    continue;
-                }
+            if (installedTypes != null && !moduleTypeMatchesInstalled(bp.getModuleType(), installedTypes)) {
+                continue;
+            }
+            if (!q.isEmpty()
+                    && !EngineeringJournalBlueprintResolver.matchesModuleSearch(
+                            q, bp.getModuleType(), bp.getName())) {
+                continue;
             }
             String key = EngineeringDatabase.groupKey(bp.getModuleType(), bp.getName());
             BlueprintOption existing = unique.get(key);
@@ -562,6 +680,44 @@ final class EngineeringGoalDialog extends JDialog {
         blueprintModel.setRows(new ArrayList<>(unique.values()));
         selectOption(selected);
         SwingUtilities.invokeLater(() -> UtilTable.autoSizeTableColumns(blueprintTable));
+    }
+
+    /**
+     * Module types fitted on the currently selected ship (from the latest stored loadout), used by
+     * {@code Installed only}.
+     */
+    private Set<String> installedModuleTypesForSelectedShip() {
+        EngineeringShipRef ship = (EngineeringShipRef) shipCombo.getSelectedItem();
+        if (ship == null || !ship.isKnown()) {
+            return Set.of();
+        }
+        String clientKey = EliteDangerousOverlay.clientKey;
+        if (clientKey == null || clientKey.isBlank()) {
+            return Set.of();
+        }
+        LoadoutEvent loadout = EngineeringCraftStore.loadLatestLoadouts(clientKey).get(Long.valueOf(ship.getShipId()));
+        if (loadout == null) {
+            return Set.of();
+        }
+        Set<String> types = new HashSet<>();
+        for (LoadoutEvent.Module module : loadout.getModules()) {
+            if (module == null || module.getItem() == null || module.getItem().isBlank()) {
+                continue;
+            }
+            String type = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
+            if (!type.isBlank()) {
+                types.add(EngineeringJournalBlueprintResolver.normalizeToken(type));
+            }
+        }
+        return types;
+    }
+
+    private static boolean moduleTypeMatchesInstalled(String moduleType, Set<String> installedTypesNormalized) {
+        if (moduleType == null || moduleType.isBlank()
+                || installedTypesNormalized == null || installedTypesNormalized.isEmpty()) {
+            return false;
+        }
+        return installedTypesNormalized.contains(EngineeringJournalBlueprintResolver.normalizeToken(moduleType));
     }
 
     private void selectOption(BlueprintOption selected) {
@@ -592,6 +748,71 @@ final class EngineeringGoalDialog extends JDialog {
         }
     }
 
+    /** Prefer search text, blueprint, quantity, and experimental from {@link #addPrefill}. */
+    private void applyAddPrefill() {
+        if (addPrefill.moduleType().isBlank()
+                && addPrefill.blueprintName().isBlank()
+                && addPrefill.searchText().isBlank()
+                && addPrefill.experimentalName().isBlank()
+                && addPrefill.quantity() <= 1) {
+            return;
+        }
+        applyingPrefill = true;
+        try {
+            if (!addPrefill.moduleType().isBlank() && !addPrefill.blueprintName().isBlank()) {
+                selectOption(new BlueprintOption(addPrefill.moduleType(), addPrefill.blueprintName(), 1));
+            } else if (!addPrefill.moduleType().isBlank()) {
+                for (int modelRow = 0; modelRow < blueprintModel.getRowCount(); modelRow++) {
+                    BlueprintOption row = blueprintModel.rowAt(modelRow);
+                    if (row != null
+                            && EngineeringJournalBlueprintResolver.sameModuleType(
+                                    addPrefill.moduleType(), row.moduleType())) {
+                        int viewRow = blueprintTable.convertRowIndexToView(modelRow);
+                        if (viewRow >= 0) {
+                            blueprintTable.setRowSelectionInterval(viewRow, viewRow);
+                            blueprintTable.scrollRectToVisible(blueprintTable.getCellRect(viewRow, 0, true));
+                            break;
+                        }
+                    }
+                }
+            }
+            updateSelectionDetails();
+            if (addPrefill.quantity() > 1) {
+                quantitySpinner.setValue(Integer.valueOf(addPrefill.quantity()));
+            }
+            if (!addPrefill.experimentalName().isBlank()
+                    && !"(none)".equalsIgnoreCase(addPrefill.experimentalName())) {
+                experimentalCombo.setSelectedItem(addPrefill.experimentalName());
+            }
+            if (!addPrefill.searchText().isBlank()) {
+                filterField.setText(addPrefill.searchText());
+            }
+        } finally {
+            applyingPrefill = false;
+        }
+        // Re-filter with hyphen/space-tolerant matching so component labels still keep the pick.
+        if (!addPrefill.searchText().isBlank()) {
+            reloadBlueprintList();
+            if (!addPrefill.moduleType().isBlank() && !addPrefill.blueprintName().isBlank()) {
+                selectOption(new BlueprintOption(addPrefill.moduleType(), addPrefill.blueprintName(), 1));
+                updateSelectionDetails();
+            }
+            if (addPrefill.quantity() > 1) {
+                quantitySpinner.setValue(Integer.valueOf(addPrefill.quantity()));
+            }
+            if (!addPrefill.experimentalName().isBlank()
+                    && !"(none)".equalsIgnoreCase(addPrefill.experimentalName())) {
+                experimentalCombo.setSelectedItem(addPrefill.experimentalName());
+            }
+        }
+        SwingUtilities.invokeLater(() -> {
+            if (!addPrefill.experimentalName().isBlank()
+                    && !"(none)".equalsIgnoreCase(addPrefill.experimentalName())) {
+                experimentalCombo.setSelectedItem(addPrefill.experimentalName());
+            }
+        });
+    }
+
     private BlueprintOption selectedOption() {
         int viewRow = blueprintTable.getSelectedRow();
         if (viewRow < 0) {
@@ -609,6 +830,7 @@ final class EngineeringGoalDialog extends JDialog {
         if (selected == null) {
             effectsLabel.setText(" ");
             materialsLabel.setText(" ");
+            equalizeGradeQtyExperimentalWidths();
             return;
         }
         for (int g = 1; g <= selected.maxGrade(); g++) {
@@ -620,6 +842,7 @@ final class EngineeringGoalDialog extends JDialog {
         for (BlueprintGrade exp : database.experimentalsFor(selected.moduleType(), selected.blueprintName())) {
             experimentalCombo.addItem(exp.getName());
         }
+        equalizeGradeQtyExperimentalWidths();
     }
 
     private void updateGradeDetails() {
@@ -773,6 +996,50 @@ final class EngineeringGoalDialog extends JDialog {
         combo.setBackground(EdoUi.User.PANEL_BG);
         combo.setMaximumRowCount(12);
         OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
+    }
+
+    private void styleQuantitySpinner(Font base) {
+        quantitySpinner.setFont(base);
+        quantitySpinner.setForeground(EdoUi.User.MAIN_TEXT);
+        quantitySpinner.setBackground(EdoUi.User.PANEL_BG);
+        quantitySpinner.setOpaque(true);
+        JComponent editor = quantitySpinner.getEditor();
+        if (editor instanceof JSpinner.DefaultEditor defaultEditor) {
+            JTextField field = defaultEditor.getTextField();
+            field.setFont(base);
+            field.setForeground(EdoUi.User.MAIN_TEXT);
+            field.setBackground(EdoUi.User.PANEL_BG);
+            field.setCaretColor(EdoUi.User.MAIN_TEXT);
+            field.setHorizontalAlignment(SwingConstants.LEFT);
+            field.setOpaque(true);
+            field.setBorder(new EmptyBorder(2, 6, 2, 4));
+        }
+        Dimension pref = quantitySpinner.getPreferredSize();
+        quantitySpinner.setMaximumSize(new Dimension(Integer.MAX_VALUE, pref.height));
+    }
+
+    /**
+     * Size target-grade / quantity / experimental to content, then match them to one shared width.
+     */
+    private void equalizeGradeQtyExperimentalWidths() {
+        gradeCombo.setPreferredSize(null);
+        experimentalCombo.setPreferredSize(null);
+        quantitySpinner.setPreferredSize(null);
+        Dimension g = gradeCombo.getPreferredSize();
+        Dimension e = experimentalCombo.getPreferredSize();
+        Dimension q = quantitySpinner.getPreferredSize();
+        int width = Math.max(g.width, Math.max(e.width, q.width));
+        int height = Math.max(g.height, Math.max(e.height, q.height));
+        Dimension size = new Dimension(width, height);
+        gradeCombo.setPreferredSize(size);
+        experimentalCombo.setPreferredSize(size);
+        quantitySpinner.setPreferredSize(size);
+        gradeCombo.setMinimumSize(size);
+        experimentalCombo.setMinimumSize(size);
+        quantitySpinner.setMinimumSize(size);
+        gradeCombo.revalidate();
+        experimentalCombo.revalidate();
+        quantitySpinner.revalidate();
     }
 
     private static void constrainComboHeight(JComboBox<?> combo) {

@@ -23,8 +23,14 @@ public class UtilTable {
      *
      * @param table
      *            The table to resize.
+     * @param fixedColumns
+     *            Column indices (view order) to lock to their computed content width
+     *            after auto-sizing ({@code min = max = preferred}).
      */
     public static void autoSizeTableColumns(JTable table, int[] fixedColumns ) {
+        if (table == null) {
+            return;
+        }
         TableModel model = table.getModel();
         TableColumn column = null;
         Component comp = null;
@@ -60,9 +66,30 @@ public class UtilTable {
                 if (cellWidth >= maxCellWidth)
                     maxCellWidth = cellWidth;
             }
+            if (maxCellWidth == Integer.MIN_VALUE) {
+                maxCellWidth = 0;
+            }
             maxCellWidth += 10;
-            column.setPreferredWidth(Math.max(headerWidth, maxCellWidth));
+            int width = Math.max(headerWidth, maxCellWidth);
+            column.setPreferredWidth(width);
+            if (isFixedColumn(fixedColumns, i)) {
+                column.setMinWidth(width);
+                column.setMaxWidth(width);
+                column.setWidth(width);
+            }
         }
+    }
+
+    private static boolean isFixedColumn(int[] fixedColumns, int column) {
+        if (fixedColumns == null) {
+            return false;
+        }
+        for (int fixed : fixedColumns) {
+            if (fixed == column) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

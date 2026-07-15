@@ -226,7 +226,19 @@ public final class MaterialTradePlanner {
                     shortfall,
                     options));
         }
+        // Red (still short after suggested trades) first — caller may also re-sort with post-trade shortfalls.
+        out.sort(Comparator
+                .comparingInt((TradeTargetGroup g) -> isShortfallUncovered(g) ? 0 : 1)
+                .thenComparing(TradeTargetGroup::getToName, String.CASE_INSENSITIVE_ORDER));
         return out;
+    }
+
+    private static boolean isShortfallUncovered(TradeTargetGroup group) {
+        if (group == null) {
+            return false;
+        }
+        int covered = group.getOptions().stream().mapToInt(TradeSuggestion::getToCount).sum();
+        return group.getShortfall() > covered;
     }
 
     private static int traderTypeRank(String type) {

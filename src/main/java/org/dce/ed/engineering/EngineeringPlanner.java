@@ -1,6 +1,7 @@
 package org.dce.ed.engineering;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -112,17 +113,146 @@ public final class EngineeringPlanner {
         return GoalReadiness.STILL_SHORT;
     }
 
+    /**
+     * Trades and readiness planned High → Medium → Low so higher-priority goals claim inventory
+     * and trade stock first. Disabled goals are omitted from readiness.
+     *
+     * <p>{@code inventoryAfterTrades} applies suggested trades only (no craft claims), for shopping.
+     */
+    public PriorityPlanResult planByPriority(List<EngineeringGoal> goals,
+                                             Map<String, Integer> inventory,
+                                             MaterialTradePlanner tradePlanner) {
+        List<TradeSuggestion> trades = new ArrayList<>();
+        Map<EngineeringGoal, GoalReadiness> readiness = new LinkedHashMap<>();
+        Map<String, Integer> planningInv = mutableCopy(inventory);
+        Map<String, Integer> shoppingInv = mutableCopy(inventory);
+        if (goals == null || goals.isEmpty() || tradePlanner == null) {
+            return new PriorityPlanResult(List.of(), shoppingInv, readiness);
+        }
+
+        List<EngineeringGoal> claimOrder = new ArrayList<>();
+        for (EngineeringGoal goal : goals) {
+            if (goal != null && goal.getPriority().isActive()) {
+                claimOrder.add(goal);
+            }
+        }
+        claimOrder.sort(Comparator
+                .comparingInt((EngineeringGoal g) -> g.getPriority().sortRank())
+                .thenComparingInt(goals::indexOf));
+
+        for (EngineeringGoal goal : claimOrder) {
+            if (goal.isComplete()) {
+                readiness.put(goal, GoalReadiness.READY);
+                continue;
+            }
+            Map<String, Integer> before = mutableCopy(planningInv);
+            Map<String, Integer> shortfalls = goalMaterialShortfalls(goal, planningInv);
+            Map<String, Integer> required = materialsForGoal(goal);
+            List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, required);
+            if (!goalTrades.isEmpty()) {
+                trades.addAll(goalTrades);
+                planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
+                shoppingInv = tradePlanner.inventoryAfterTrades(shoppingInv, goalTrades);
+            }
+            readiness.put(goal, goalReadiness(goal, before, planningInv));
+            claimGoalMaterials(goal, planningInv);
+        }
+        return new PriorityPlanResult(List.copyOf(trades), shoppingInv, readiness);
+    }
+
+    /**
+     * Readiness using a precomputed post-trade inventory (inventory + trade stock claimed
+     * High → Medium → Low). Prefer {@link #planByPriority} so trades themselves respect priority.
+     */
+    public Map<EngineeringGoal, GoalReadiness> goalReadinessWithPriorityClaim(
+            List<EngineeringGoal> goals,
+            Map<String, Integer> inventory,
+            Map<String, Integer> inventoryAfterTrades) {
+        Map<EngineeringGoal, GoalReadiness> out = new LinkedHashMap<>();
+        if (goals == null || goals.isEmpty()) {
+            return out;
+        }
+        List<EngineeringGoal> claimOrder = new ArrayList<>();
+        for (EngineeringGoal goal : goals) {
+            if (goal != null && goal.getPriority().isActive()) {
+                claimOrder.add(goal);
+            }
+        }
+        claimOrder.sort(Comparator
+                .comparingInt((EngineeringGoal g) -> g.getPriority().sortRank())
+                .thenComparingInt(goals::indexOf));
+
+        Map<String, Integer> working = mutableCopy(inventory);
+        Map<String, Integer> workingTrades = mutableCopy(inventoryAfterTrades);
+        for (EngineeringGoal goal : claimOrder) {
+            out.put(goal, goalReadiness(goal, working, workingTrades));
+            if (!goal.isComplete()) {
+                claimGoalMaterials(goal, working);
+                claimGoalMaterials(goal, workingTrades);
+            }
+        }
+        return out;
+    }
+
+    private void claimGoalMaterials(EngineeringGoal goal, Map<String, Integer> working) {
+        if (working == null || working.isEmpty() || goal == null) {
+            return;
+        }
+        for (Map.Entry<String, Integer> need : materialsForGoal(goal).entrySet()) {
+            int remaining = need.getValue() != null ? need.getValue() : 0;
+            if (remaining <= 0) {
+                continue;
+            }
+            String want = EngineeringMaterialKeys.canonicalKey(need.getKey());
+            for (Map.Entry<String, Integer> have : new ArrayList<>(working.entrySet())) {
+                if (remaining <= 0) {
+                    break;
+                }
+                if (!EngineeringMaterialKeys.canonicalKey(have.getKey()).equals(want)) {
+                    continue;
+                }
+                int stock = have.getValue() != null ? have.getValue() : 0;
+                int take = Math.min(stock, remaining);
+                working.put(have.getKey(), stock - take);
+                remaining -= take;
+            }
+        }
+    }
+
+    private static Map<String, Integer> mutableCopy(Map<String, Integer> source) {
+        if (source == null || source.isEmpty()) {
+            return new LinkedHashMap<>();
+        }
+        return new LinkedHashMap<>(source);
+    }
+
     public int countGoalsWithReadiness(List<EngineeringGoal> goals,
                                        Map<String, Integer> inventory,
                                        Map<String, Integer> inventoryAfterTrades,
                                        GoalReadiness readiness) {
         int count = 0;
-        for (EngineeringGoal goal : goals) {
-            if (goal != null && goalReadiness(goal, inventory, inventoryAfterTrades) == readiness) {
+        for (GoalReadiness r : goalReadinessWithPriorityClaim(goals, inventory, inventoryAfterTrades).values()) {
+            if (r == readiness) {
                 count++;
             }
         }
         return count;
+    }
+
+    /** Result of {@link #planByPriority}. */
+    public record PriorityPlanResult(
+            List<TradeSuggestion> trades,
+            Map<String, Integer> inventoryAfterTrades,
+            Map<EngineeringGoal, GoalReadiness> readinessByGoal) {
+        public PriorityPlanResult {
+            trades = trades != null ? List.copyOf(trades) : List.of();
+            inventoryAfterTrades = inventoryAfterTrades != null
+                    ? Map.copyOf(inventoryAfterTrades)
+                    : Map.of();
+            readinessByGoal = readinessByGoal != null
+                    ? Map.copyOf(readinessByGoal)
+                    : Map.of();
+        }
     }
 
     /** Total materials required across all active goals (including grades already covered). */

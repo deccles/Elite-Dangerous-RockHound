@@ -28,10 +28,20 @@ public final class OverlayCheckBoxStyle {
         checkBox.setContentAreaFilled(false);
         checkBox.setBackground(EdoUi.Internal.TRANSPARENT);
         checkBox.setForeground(EdoUi.User.MAIN_TEXT);
-        checkBox.setIcon(new OverlayCheckBoxIcon(false, false));
-        checkBox.setSelectedIcon(new OverlayCheckBoxIcon(true, false));
+        checkBox.setIcon(unselectedIcon());
+        checkBox.setSelectedIcon(selectedIcon());
         checkBox.setDisabledIcon(new OverlayCheckBoxIcon(false, true));
         checkBox.setDisabledSelectedIcon(new OverlayCheckBoxIcon(true, true));
+    }
+
+    /** Checked box glyph (medium priority). */
+    public static Icon selectedIcon() {
+        return new OverlayCheckBoxIcon(true, false);
+    }
+
+    /** Empty box glyph (disabled / opt-in). */
+    public static Icon unselectedIcon() {
+        return new OverlayCheckBoxIcon(false, false);
     }
 
     private static final class OverlayCheckBoxIcon implements Icon {

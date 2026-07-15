@@ -9,12 +9,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
-import javax.swing.JButton;
+import javax.swing.AbstractButton;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 /**
- * Poll-based hover-to-click for buttons when Swing mouse events do not reach the overlay (MPT).
+ * Poll-based hover-to-click for buttons/checkboxes when Swing mouse events do not reach the overlay (MPT).
  */
 public final class HoverClickPoller implements ActionListener {
 
@@ -29,7 +29,7 @@ public final class HoverClickPoller implements ActionListener {
     }
 
     private static final class Entry {
-        final JButton button;
+        final AbstractButton button;
         final int delayMs;
         final Runnable action;
         final BooleanSupplier enabled;
@@ -38,7 +38,8 @@ public final class HoverClickPoller implements ActionListener {
         long hoverStartMs = -1L;
         boolean firedForCurrentHover;
 
-        Entry(JButton button, int delayMs, Runnable action, BooleanSupplier enabled, BooleanSupplier hoverable) {
+        Entry(AbstractButton button, int delayMs, Runnable action, BooleanSupplier enabled,
+                BooleanSupplier hoverable) {
             this.button = button;
             this.delayMs = delayMs;
             this.action = action;
@@ -57,14 +58,14 @@ public final class HoverClickPoller implements ActionListener {
     private HoverClickPoller() {
     }
 
-    public static void register(JButton button, int delayMs, Runnable action, BooleanSupplier enabled) {
+    public static void register(AbstractButton button, int delayMs, Runnable action, BooleanSupplier enabled) {
         register(button, delayMs, action, enabled, null);
     }
 
     /**
-     * @param hoverable when non-null, used instead of {@link JButton#isEnabled()} to decide if hover can fire
+     * @param hoverable when non-null, used instead of {@link AbstractButton#isEnabled()} to decide if hover can fire
      */
-    public static void register(JButton button, int delayMs, Runnable action, BooleanSupplier enabled,
+    public static void register(AbstractButton button, int delayMs, Runnable action, BooleanSupplier enabled,
             BooleanSupplier hoverable) {
         if (button == null || action == null) {
             return;
@@ -92,7 +93,7 @@ public final class HoverClickPoller implements ActionListener {
                 entry.firedForCurrentHover = false;
                 continue;
             }
-            JButton button = entry.button;
+            AbstractButton button = entry.button;
             if (button == null || !button.isShowing() || !entry.acceptsHover()) {
                 entry.hoverStartMs = -1L;
                 entry.firedForCurrentHover = false;

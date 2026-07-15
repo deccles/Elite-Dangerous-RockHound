@@ -90,6 +90,7 @@ import org.dce.ed.state.SystemState;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.DistanceToggleIcons;
 import org.dce.ed.ui.HoverCopyButtonSupport;
+import org.dce.ed.ui.StatusCircleIcon;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
 import org.dce.ed.ui.EdoUi.User;
 import org.dce.ed.util.EdsmClient;
@@ -116,15 +117,14 @@ public class RouteTabPanel extends JPanel {
 	private static final long serialVersionUID = 1L;
 	private Font uiFont = OverlayPreferences.getUiFont();
 	private static final Icon ICON_FULLY_DISCOVERED_VISITED =
-			new StatusCircleIcon(EdoUi.User.MAIN_TEXT, "\u2713");
+			StatusCircleIcon.check(EdoUi.User.MAIN_TEXT);
 	private static final Icon ICON_FULLY_DISCOVERED_NOT_VISITED =
-			new StatusCircleIcon(EdoUi.STATUS_GRAY, "\u2713");
+			StatusCircleIcon.check(EdoUi.STATUS_GRAY);
 	// Crossed-out eye equivalents when any body is missing discovery.commander.
-	// (Rendered as an X in a colored circle; you can swap to a real eye icon later.)
 	private static final Icon ICON_DISCOVERY_MISSING_VISITED =
-			new StatusCircleIcon(EdoUi.STATUS_BLUE, "X");
+			StatusCircleIcon.cross(EdoUi.STATUS_BLUE);
 	private static final Icon ICON_DISCOVERY_MISSING_NOT_VISITED =
-			new StatusCircleIcon(EdoUi.STATUS_GRAY, "X");
+			StatusCircleIcon.cross(EdoUi.STATUS_GRAY);
 	// BodyCount mismatch between EDSM bodyCount and the number of bodies returned.
 	private static final Icon ICON_BODYCOUNT_MISMATCH_VISITED =
 			new StatusCircleIcon(EdoUi.STATUS_YELLOW, "!");
@@ -2064,61 +2064,6 @@ public class RouteTabPanel extends JPanel {
 			}
 		}
 	}
-	private static final class StatusCircleIcon implements Icon {
-		private final Color circleColor;
-		private final String symbol;
-		StatusCircleIcon(Color circleColor, String symbol) {
-			this(circleColor, symbol, 18);
-		}
-		StatusCircleIcon(Color circleColor, String symbol, int size) {
-			this.circleColor = circleColor;
-			this.symbol = symbol;
-			//            this.size = size;
-		}
-		@Override
-		public int getIconWidth() {
-			return getFontSize();
-		}
-		@Override
-		public int getIconHeight() {
-			return getFontSize();
-		}
-		@Override
-		public void paintIcon(Component c, Graphics g, int x, int y) {
-			Graphics2D g2 = (Graphics2D) g.create();
-			try {
-				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-						RenderingHints.VALUE_ANTIALIAS_ON);
-				int d = getFontSize() - 1;
-				g2.setColor(circleColor);
-				g2.fillOval(x, y, d, d);
-				g2.setColor(Color.BLACK);
-				g2.drawOval(x, y, d, d);
-				if (symbol != null && !symbol.isEmpty()) {
-					Font font = iconFont();
-					if (font != null) {
-						font = font.deriveFont(Font.BOLD); // 
-						//                                               Math.max(10f, font.getSize2D()));
-						g2.setFont(font);
-					}
-					java.awt.FontMetrics fm = g2.getFontMetrics();
-					int textWidth = fm.stringWidth(symbol);
-					int textAscent = fm.getAscent();
-					int tx = x + (getFontSize() - textWidth) / 2;
-					int ty = y + (getFontSize() + textAscent) / 2 - 2;
-					g2.drawString(symbol, tx, ty);
-				}
-			} finally {
-				g2.dispose();
-			}
-		}
-		/**
-		 * @return the size
-		 */
-		private int getFontSize() {
-			return OverlayPreferences.getUiFontSize();
-		}
-	}
 	private static final class StatusRenderer extends DefaultTableCellRenderer {
 		private static final long serialVersionUID = 1L;
 		StatusRenderer() {
@@ -2925,17 +2870,6 @@ public class RouteTabPanel extends JPanel {
 			h = 18;
 		}
 		return h;
-	}
-	private static Font iconFont() {
-		// Consolas exists on most Windows installs.
-		// If it’s missing, fall back to logical Monospaced.
-		String family = "SansSerif";
-		Font uiFont = OverlayPreferences.getUiFont();
-		Font f = new Font(family, Font.BOLD, uiFont.getSize() -1);
-		if (!family.equalsIgnoreCase(f.getFamily())) {
-			f = new Font(Font.MONOSPACED, Font.PLAIN, uiFont.getSize());
-		}
-		return f;
 	}
 	
 }
