@@ -19,12 +19,19 @@ import javax.imageio.ImageIO;
 public final class AppIconUtil {
 
     /**
-     * Window + taskbar icon (classpath). Zoomed-in branding for small chrome; splash uses {@code RockHound.png}.
+     * Window + taskbar icon (classpath). Zoomed-in branding for small chrome; splash uses
+     * {@link #SPLASH_ICON_RESOURCE}.
      */
     public static final String APP_ICON_RESOURCE = "/org/dce/ed/RockHound-window.png";
 
-    /** Wider framing for startup splash only (not used for window / taskbar icons). */
-    private static final String SPLASH_ICON_RESOURCE = "/org/dce/ed/RockHound.png";
+    /**
+     * Wider framing for startup splash only (not used for window / taskbar icons).
+     * Original splash art remains at {@code /org/dce/ed/RockHound.png}.
+     */
+    private static final String SPLASH_ICON_RESOURCE = "/org/dce/ed/RockHound-splash-rings.png";
+
+    /** Previous splash artwork (wolf howl without ringed planet); kept as fallback. */
+    private static final String LEGACY_SPLASH_ICON_RESOURCE = "/org/dce/ed/RockHound.png";
 
     private static final String LEGACY_APP_ICON_RESOURCE = "/org/dce/ed/edsm/locate_icon.png";
 
@@ -47,6 +54,9 @@ public final class AppIconUtil {
      */
     public static BufferedImage loadAppIconForSplash() {
         BufferedImage src = loadIconBuffered(SPLASH_ICON_RESOURCE);
+        if (src == null) {
+            src = loadIconBuffered(LEGACY_SPLASH_ICON_RESOURCE);
+        }
         if (src == null) {
             src = loadIconBuffered(APP_ICON_RESOURCE);
         }

@@ -309,8 +309,8 @@ public class EngineeringTabPanel extends JPanel {
         JPanel materialsPanel = buildMaterialsPanel(base, fontSize);
         JPanel tradePanel = buildTradePanel(base, fontSize);
 
-        lowerSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, materialsPanel, tradePanel);
-        configureSplitPane(lowerSplit, 0.55);
+        lowerSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tradePanel, materialsPanel);
+        configureSplitPane(lowerSplit, 0.45);
         lowerSplit.setFocusable(false);
         EdoMiningSplitPaneUi.install(lowerSplit);
 
