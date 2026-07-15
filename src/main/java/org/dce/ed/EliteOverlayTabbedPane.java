@@ -274,8 +274,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		if (initialLoadout != null && initialLoadout.getShip() != null && !initialLoadout.getShip().isBlank()) {
 			miningTab.updateCurrentShipType(initialLoadout.getShip());
 		}
-		Path journalDir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
-		NpcCrewTracker.getInstance().bootstrapFromJournal(journalDir, initialLoadout);
+		NpcCrewTracker.getInstance().bootstrapFromSession(initialLoadout);
 		// Treat docking as the end of a mining "trip": when we transition to docked,
 		// flush any pending mining gains and advance the run counter if needed.
 		addDockedStateListener(docked -> {

@@ -66,6 +66,7 @@ import org.dce.ed.logreader.OwnedFleetCarrierTracker;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
+import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.state.BodyInfo;
@@ -861,6 +862,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getMissionsTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getEngineeringTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getBiologyTabPanel().setSessionStateChangeCallback(debouncedSave);
+        NpcCrewTracker.getInstance().setSessionStateChangeCallback(debouncedSave);
         restoreSessionState();
         tabs.getMissionsTabPanel().hydrateTrackerFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
         tabs.getEngineeringTabPanel().hydrateFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
@@ -915,6 +917,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         state.setExobiologyCreditsTotalUnsold(exoCreditsTotal);
         state.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
         state.setBountyCreditsTotalUnclaimed(Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
+        NpcCrewTracker.getInstance().fillSessionState(state);
         fillCarrierSessionState(state);
         EdoSessionPersistence.save(state);
     }
@@ -960,6 +963,11 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             bountyCreditsTracker.setUnclaimedTotal(state.getBountyCreditsTotalUnclaimed().longValue());
         } else {
             bountyCreditsTracker.setUnclaimedTotal(0L);
+        }
+        NpcCrewTracker.getInstance().applySessionState(state);
+        LoadoutEvent loadout = EliteOverlayTabbedPane.getLatestLoadout();
+        if (loadout != null) {
+            NpcCrewTracker.getInstance().onLoadout(loadout);
         }
         updateRightStatusDefault();
     }

@@ -1,23 +1,20 @@
 package org.dce.ed;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import org.dce.ed.logreader.EliteEventType;
-import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.session.EdoSessionState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -26,11 +23,11 @@ class NpcCrewTrackerTest {
 
 	@BeforeEach
 	void resetTracker() {
-		OverlayPreferences.setNpcCrewActiveName(1, null);
-		OverlayPreferences.setNpcCrewActiveName(2, null);
-		OverlayPreferences.setNpcCrewActiveName(7, null);
-		OverlayPreferences.setNpcCrewActiveName(13, null);
-		NpcCrewTracker.getInstance().onLoadout(null);
+		OverlayPreferences.clearNpcCrewActiveByShipId();
+		NpcCrewTracker tracker = NpcCrewTracker.getInstance();
+		tracker.replaceActiveCrewByShipIdForTests(Map.of());
+		tracker.setSessionStateChangeCallback(null);
+		tracker.onLoadout(null);
 	}
 
 	@Test
@@ -73,7 +70,7 @@ class NpcCrewTrackerTest {
 
 	@Test
 	void sameShipLoadoutRestoresPersistedActiveCrew() {
-		OverlayPreferences.setNpcCrewActiveName(1, "Dannie Koller");
+		NpcCrewTracker.getInstance().replaceActiveCrewByShipIdForTests(Map.of(1, "Dannie Koller"));
 		LoadoutEvent loadout = loadoutWithFighterHangar(1, 1);
 		NpcCrewTracker.getInstance().onLoadout(loadout);
 		assertTrue(NpcCrewTracker.getInstance().hasActiveNpcCrew());
@@ -105,7 +102,7 @@ class NpcCrewTrackerTest {
 
 	@Test
 	void secondSameShipLoadoutAfterSwapDoesNotRestoreStalePilot() {
-		OverlayPreferences.setNpcCrewActiveName(1, "Dannie Koller");
+		NpcCrewTracker.getInstance().replaceActiveCrewByShipIdForTests(Map.of(1, "Dannie Koller"));
 		LoadoutEvent fighter = loadoutWithFighterHangar(1, 2);
 		LoadoutEvent mandalay = loadoutWithoutFighterHangar(2);
 
@@ -121,7 +118,7 @@ class NpcCrewTrackerTest {
 
 	@Test
 	void crewAssignOnShoreLeaveClearsActiveAndPersistence() {
-		OverlayPreferences.setNpcCrewActiveName(1, "Roscoe Francis");
+		NpcCrewTracker.getInstance().replaceActiveCrewByShipIdForTests(Map.of(1, "Roscoe Francis"));
 		LoadoutEvent loadout = loadoutWithFighterHangar(1, 1);
 		NpcCrewTracker.getInstance().onLoadout(loadout);
 		assertTrue(NpcCrewTracker.getInstance().hasActiveNpcCrew());
@@ -130,7 +127,7 @@ class NpcCrewTrackerTest {
 
 		assertFalse(NpcCrewTracker.getInstance().hasActiveNpcCrew());
 		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, loadout));
-		assertNull(OverlayPreferences.getNpcCrewActiveName(1));
+		assertNull(NpcCrewTracker.getInstance().snapshotActiveCrewByShipIdForTests().get(1));
 	}
 
 	@Test
@@ -155,47 +152,37 @@ class NpcCrewTrackerTest {
 	}
 
 	@Test
-	void bootstrapAfterShipSwapIgnoresPersistedPilot(@TempDir Path tempDir) throws IOException {
-		OverlayPreferences.setNpcCrewActiveName(7, "Roscoe Francis");
-		writeJournal(tempDir,
-				journalLoadoutLine("krait_mkii", 13, "2026-06-26T12:52:35Z"),
-				journalLoadoutLine("anaconda", 7, "2026-06-26T19:57:41Z"));
+	void sessionRoundTripRestoresActivePilotWithoutJournal() {
+		LoadoutEvent loadout = loadoutWithFighterHangar(7, 2);
+		NpcCrewTracker tracker = NpcCrewTracker.getInstance();
+		tracker.onLoadout(loadout);
+		applyCrewEvent("{\"event\":\"CrewAssign\",\"Name\":\"Roscoe Francis\",\"Role\":\"Active\"}");
 
-		EliteJournalReader reader = new EliteJournalReader(tempDir);
-		LoadoutEvent anaconda = (LoadoutEvent) reader.findMostRecentEvent(EliteEventType.LOADOUT, 1);
+		EdoSessionState state = new EdoSessionState();
+		tracker.fillSessionState(state);
+		assertEquals("Roscoe Francis", state.getNpcCrewActiveByShipId().get("7"));
 
-		NpcCrewTracker.getInstance().bootstrapFromJournal(tempDir, anaconda);
+		tracker.onLoadout(null);
+		tracker.replaceActiveCrewByShipIdForTests(Map.of());
+		tracker.applySessionState(state);
+		tracker.onLoadout(loadout);
 
-		assertFalse(NpcCrewTracker.getInstance().hasActiveNpcCrew());
-		assertNull(OverlayPreferences.getNpcCrewActiveName(7));
-		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, anaconda));
+		assertTrue(tracker.hasActiveNpcCrew());
+		assertEquals("Roscoe Francis", tracker.getActiveNpcCrewName());
+		assertFalse(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, loadout));
 	}
 
 	@Test
-	void bootstrapDoesNotRestorePilotWhenLastAssignWasOnShoreLeave(@TempDir Path tempDir) throws IOException {
-		OverlayPreferences.setNpcCrewActiveName(7, "Roscoe Francis");
-		writeJournal(tempDir,
-				journalLoadoutLine("anaconda", 7, "2026-06-26T19:57:41Z"),
-				"{ \"timestamp\":\"2026-06-26T19:58:00Z\", \"event\":\"CrewAssign\", \"Name\":\"Roscoe Francis\", \"Role\":\"OnShoreLeave\" }");
+	void bootstrapFromSessionUsesPersistedMap() {
+		EdoSessionState state = new EdoSessionState();
+		state.setNpcCrewActiveByShipId(Map.of("7", "Roscoe Francis"));
+		NpcCrewTracker.getInstance().applySessionState(state);
 
-		EliteJournalReader reader = new EliteJournalReader(tempDir);
-		LoadoutEvent anaconda = (LoadoutEvent) reader.findMostRecentEvent(EliteEventType.LOADOUT, 1);
+		LoadoutEvent anaconda = loadoutWithFighterHangar(7, 2);
+		NpcCrewTracker.getInstance().onLoadout(anaconda);
 
-		NpcCrewTracker.getInstance().bootstrapFromJournal(tempDir, anaconda);
-
-		assertFalse(NpcCrewTracker.getInstance().hasActiveNpcCrew());
-		assertNull(OverlayPreferences.getNpcCrewActiveName(7));
-		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, anaconda));
-	}
-
-	private static void writeJournal(Path dir, String... lines) throws IOException {
-		Path file = dir.resolve("Journal.2026-06-26T084957.01.log");
-		Files.writeString(file, String.join(System.lineSeparator(), lines) + System.lineSeparator(), StandardCharsets.UTF_8);
-	}
-
-	private static String journalLoadoutLine(String ship, int shipId, String timestamp) {
-		return "{ \"timestamp\":\"" + timestamp + "\", \"event\":\"Loadout\", \"Ship\":\"" + ship + "\", \"ShipID\":" + shipId
-				+ ", \"Modules\":[ { \"Slot\":\"Slot04_Size6\", \"Item\":\"int_fighterbay_size6_class1\", \"On\":true, \"Priority\":0 } ] }";
+		assertTrue(NpcCrewTracker.getInstance().hasActiveNpcCrew());
+		assertFalse(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, anaconda));
 	}
 
 	private static void applyCrewEvent(String json) {

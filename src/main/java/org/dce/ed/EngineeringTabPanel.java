@@ -23,6 +23,8 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.BooleanSupplier;
 
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -76,7 +78,6 @@ import org.dce.ed.session.EngineeringSessionData.ShipPersisted;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
-import org.dce.ed.ui.InfoCircleIcon;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
@@ -281,26 +282,38 @@ public class EngineeringTabPanel extends JPanel {
         JPanel p = new JPanel(new BorderLayout(4, 4));
         p.setOpaque(false);
 
-        JPanel header = new JPanel(new BorderLayout(4, 0));
-        header.setOpaque(false);
-        JPanel titleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        titleRow.setOpaque(false);
+        JPanel north = new JPanel();
+        north.setOpaque(false);
+        north.setLayout(new BoxLayout(north, BoxLayout.Y_AXIS));
+
+        JPanel shipRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        shipRow.setOpaque(false);
+        shipRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel shipLbl = new JLabel("Ship:");
+        shipLbl.setFont(base.deriveFont(Font.PLAIN, fontSize));
+        shipLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+        shipRow.add(shipLbl);
         shipFilterCombo = new JComboBox<>();
         styleShipFilterCombo(shipFilterCombo, base);
         shipFilterCombo.setToolTipText("Filter goals, materials, and trades by ship");
         shipFilterCombo.addActionListener(e -> onShipFilterChanged());
-        titleRow.add(shipFilterCombo);
-        titleRow.add(sectionHeader("Goals", base, fontSize));
-        header.add(titleRow, BorderLayout.WEST);
+        shipRow.add(shipFilterCombo);
+        JButton loadoutBtn = new JButton("Loadout");
+        OverlayOutlineButtonStyle.applyChip(loadoutBtn, base, false);
+        loadoutBtn.setToolTipText("Build progress — grade / multi-module craft status and fitted engineering");
+        loadoutBtn.addActionListener(e -> openBuildProgressDialog());
+        HoverClickPoller.register(loadoutBtn, HOVER_CLICK_DELAY_MS, this::openBuildProgressDialog, passThroughEnabledSupplier);
+        shipRow.add(loadoutBtn);
+        north.add(shipRow);
+        north.add(Box.createVerticalStrut(4));
+
+        JPanel header = new JPanel(new BorderLayout(4, 0));
+        header.setOpaque(false);
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.add(sectionHeader("Goals", base, fontSize), BorderLayout.WEST);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         buttons.setOpaque(false);
-        JButton progressBtn = new JButton();
-        OverlayOutlineButtonStyle.applyChip(progressBtn, base, false);
-        InfoCircleIcon.applyTo(progressBtn);
-        progressBtn.setToolTipText("Build progress — grade / multi-module craft status for all goals");
-        progressBtn.addActionListener(e -> openBuildProgressDialog());
-        HoverClickPoller.register(progressBtn, HOVER_CLICK_DELAY_MS, this::openBuildProgressDialog, passThroughEnabledSupplier);
         JButton addBtn = new JButton("Add a goal");
         OverlayOutlineButtonStyle.applyChip(addBtn, base, false);
         addBtn.addActionListener(e -> openAddGoalDialog());
@@ -309,12 +322,12 @@ public class EngineeringTabPanel extends JPanel {
         OverlayOutlineButtonStyle.applyChip(removeBtn, base, false);
         removeBtn.addActionListener(e -> removeSelectedGoal());
         HoverClickPoller.register(removeBtn, HOVER_CLICK_DELAY_MS, this::removeSelectedGoal, passThroughEnabledSupplier);
-        buttons.add(progressBtn);
         buttons.add(addBtn);
         buttons.add(removeBtn);
         header.add(buttons, BorderLayout.EAST);
-        p.add(header, BorderLayout.NORTH);
+        north.add(header);
 
+        p.add(north, BorderLayout.NORTH);
         p.add(goalsScroll = wrapScroll(goalsTable, 120), BorderLayout.CENTER);
         rebuildShipFilterCombo();
         return p;
@@ -1408,15 +1421,16 @@ public class EngineeringTabPanel extends JPanel {
             materialsEmptyLabel.setText("<html><body style='color:#ffcc88'>No goals for the selected ship.</body></html>");
             tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>No goals for the selected ship.</body></html>");
         } else if (shopping.isEmpty()) {
-            materialsEmptyLabel.setText("<html><body style='color:#ffcc88'>No materials computed for the current goals. "
-                    + "Check that target grade is above your starting grade (G0).</body></html>");
+            materialsEmptyLabel.setForeground(EdoUi.User.MAIN_TEXT);
+            materialsEmptyLabel.setText("No materials required");
         } else {
             materialsEmptyLabel.setText("");
         }
         if (hasGoals && trades.isEmpty() && !shortfalls.isEmpty()) {
             tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>No material-trader swaps found from current inventory.</body></html>");
         } else if (hasGoals && trades.isEmpty() && hasActiveGoals) {
-            tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>No trades required</body></html>");
+            tradeEmptyLabel.setForeground(EdoUi.User.MAIN_TEXT);
+            tradeEmptyLabel.setText("No trades required");
         } else if (hasGoals && trades.isEmpty()) {
             tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>Enable a goal (checkbox) to see materials and trades.</body></html>");
         }

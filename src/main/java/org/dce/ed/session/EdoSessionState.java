@@ -66,6 +66,11 @@ public final class EdoSessionState {
     private Long geoSurveyCreditsTotal;
     /** Unclaimed combat bounty credits total (toolbar). */
     private Long bountyCreditsTotalUnclaimed;
+    /**
+     * Active NPC fighter pilot by journal {@code ShipID} (decimal string key → crew name).
+     * Survives overlay restart so same-ship {@code Loadout} does not require re-parsing journals.
+     */
+    private Map<String, String> npcCrewActiveByShipId;
     /** Last known docked flag from journals / Status. */
     private Boolean docked;
     /**
@@ -461,6 +466,14 @@ public final class EdoSessionState {
 
     public void setBountyCreditsTotalUnclaimed(Long bountyCreditsTotalUnclaimed) {
         this.bountyCreditsTotalUnclaimed = bountyCreditsTotalUnclaimed;
+    }
+
+    public Map<String, String> getNpcCrewActiveByShipId() {
+        return npcCrewActiveByShipId;
+    }
+
+    public void setNpcCrewActiveByShipId(Map<String, String> npcCrewActiveByShipId) {
+        this.npcCrewActiveByShipId = npcCrewActiveByShipId;
     }
 
     public Boolean getDocked() {

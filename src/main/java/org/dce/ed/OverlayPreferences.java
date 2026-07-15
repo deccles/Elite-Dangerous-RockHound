@@ -1564,6 +1564,46 @@ public static Engine getSpeechEngine() {
         }
     }
 
+    /**
+     * Export legacy per-ship Active NPC crew prefs (before session_json storage). Empty if none.
+     */
+    public static java.util.Map<Integer, String> exportNpcCrewActiveByShipId() {
+        java.util.Map<Integer, String> out = new java.util.LinkedHashMap<>();
+        try {
+            for (String key : PREFS.keys()) {
+                if (key == null || !key.startsWith(KEY_NPC_CREW_ACTIVE_SHIP_PREFIX)) {
+                    continue;
+                }
+                String suffix = key.substring(KEY_NPC_CREW_ACTIVE_SHIP_PREFIX.length());
+                try {
+                    int shipId = Integer.parseInt(suffix);
+                    String name = PREFS.get(key, "");
+                    if (name != null && !name.isBlank()) {
+                        out.put(shipId, name.trim());
+                    }
+                } catch (NumberFormatException ignored) {
+                    // Skip non-numeric keys.
+                }
+            }
+        } catch (Exception ignored) {
+            return out;
+        }
+        return out;
+    }
+
+    /** Remove legacy per-ship Active NPC crew prefs after migrating into session_json. */
+    public static void clearNpcCrewActiveByShipId() {
+        try {
+            for (String key : PREFS.keys()) {
+                if (key != null && key.startsWith(KEY_NPC_CREW_ACTIVE_SHIP_PREFIX)) {
+                    PREFS.remove(key);
+                }
+            }
+        } catch (Exception ignored) {
+            // Best-effort cleanup.
+        }
+    }
+
     // ----------------------------
     // Mining: low-limpet reminder
     // ----------------------------

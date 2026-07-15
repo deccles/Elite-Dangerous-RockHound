@@ -1,18 +1,19 @@
 package org.dce.ed;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Instant;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.session.EdoSessionPersistence;
+import org.dce.ed.session.EdoSessionState;
 
 import com.google.gson.JsonObject;
 
@@ -20,8 +21,9 @@ import com.google.gson.JsonObject;
  * Tracks NPC crew assignment from journal events so we can warn when a ship has fighters
  * available but no crew member is set Active in the crew lounge.
  *
- * Active crew per ship is also persisted in preferences so overlay restarts and same-ship
- * {@code Loadout} events (e.g. game startup) can restore assignment without a new {@code CrewAssign}.
+ * Active crew per ship is persisted in {@link EdoSessionState} (with exobio/bounty totals) so
+ * overlay restarts and same-ship {@code Loadout} events can restore assignment without re-reading
+ * journals for {@code CrewAssign}.
  */
 public final class NpcCrewTracker {
 
@@ -38,15 +40,17 @@ public final class NpcCrewTracker {
 
 	private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 	private final Set<String> hiredCrew = new HashSet<>();
+	/** ShipID → Active crew name (authoritative in-memory copy of session state). */
+	private final ConcurrentHashMap<Integer, String> activeCrewByShipId = new ConcurrentHashMap<>();
 
 	private volatile String activeCrewName;
 	private volatile int currentShipId = -1;
-	private volatile Instant lastLoadoutTimestamp;
 	/**
 	 * After swapping ships, crew must be set Active again in the crew lounge before we trust
 	 * persisted assignment or skip the fighter-pilot warning.
 	 */
 	private volatile boolean requiresCrewLoungeAssign;
+	private volatile Runnable sessionStateChangeCallback;
 
 	private NpcCrewTracker() {
 	}
@@ -57,9 +61,19 @@ public final class NpcCrewTracker {
 		}
 	}
 
+	public void setSessionStateChangeCallback(Runnable callback) {
+		this.sessionStateChangeCallback = callback;
+	}
+
 	public boolean hasActiveNpcCrew() {
 		String n = activeCrewName;
 		return n != null && !n.isBlank();
+	}
+
+	/** Current Active pilot name for the tracked ship, or {@code null}. */
+	public String getActiveNpcCrewName() {
+		String n = activeCrewName;
+		return n != null && !n.isBlank() ? n : null;
 	}
 
 	public void onLoadout(LoadoutEvent loadout) {
@@ -74,14 +88,13 @@ public final class NpcCrewTracker {
 		int shipId = loadout.getShipId();
 		boolean shipSwap = currentShipId >= 0 && currentShipId != shipId;
 		currentShipId = shipId;
-		lastLoadoutTimestamp = loadout.getTimestamp();
 
 		if (shipSwap) {
 			activeCrewName = null;
-			OverlayPreferences.setNpcCrewActiveName(shipId, null);
+			persistActiveCrewName(null);
 			requiresCrewLoungeAssign = true;
 		} else if (!requiresCrewLoungeAssign) {
-			activeCrewName = OverlayPreferences.getNpcCrewActiveName(shipId);
+			activeCrewName = getPersistedActiveName(shipId);
 		}
 
 		if (!hasFighterHangar(loadout)) {
@@ -119,113 +132,85 @@ public final class NpcCrewTracker {
 	}
 
 	/**
-	 * Rebuild crew state from journal events recorded after the most recent {@code Loadout},
-	 * then fall back to persisted per-ship assignment when the journal is silent.
+	 * Restore Active crew from {@link EdoSessionState} (or migrate legacy prefs), then apply the
+	 * current loadout. Does not scan journals.
 	 */
-	public void bootstrapFromJournal(Path journalDir, LoadoutEvent loadout) {
+	public void bootstrapFromSession(LoadoutEvent loadout) {
 		hiredCrew.clear();
 		activeCrewName = null;
 		currentShipId = -1;
 		requiresCrewLoungeAssign = false;
-		lastLoadoutTimestamp = loadout != null ? loadout.getTimestamp() : null;
+		activeCrewByShipId.clear();
+
+		EdoSessionState state = EdoSessionPersistence.load();
+		applySessionState(state);
+		if (activeCrewByShipId.isEmpty()) {
+			migrateLegacyPrefsIntoSessionMap();
+		}
+
 		if (loadout != null) {
-			currentShipId = loadout.getShipId();
-		}
-
-		List<EliteLogEvent> events = List.of();
-		if (journalDir != null && Files.isDirectory(journalDir)) {
-			try {
-				EliteJournalReader reader = new EliteJournalReader(journalDir);
-				events = reader.readEventsFromLastNJournalFiles(8);
-			} catch (IOException ignored) {
-				// Keep best-effort in-memory state.
-			}
-		}
-
-		if (loadout != null && wasShipSwap(events, loadout)) {
-			requiresCrewLoungeAssign = true;
-			OverlayPreferences.setNpcCrewActiveName(loadout.getShipId(), null);
-		}
-
-		int start = 0;
-		if (loadout != null && loadout.getTimestamp() != null && !events.isEmpty()) {
-			Instant loadoutTs = loadout.getTimestamp();
-			for (int i = events.size() - 1; i >= 0; i--) {
-				EliteLogEvent e = events.get(i);
-				if (e instanceof LoadoutEvent lo && loadoutTs.equals(lo.getTimestamp())) {
-					start = i + 1;
-					break;
-				}
-			}
-		}
-		for (int i = start; i < events.size(); i++) {
-			applyJournalEvent(events.get(i));
-		}
-
-		if (loadout != null && !hasActiveNpcCrew() && !requiresCrewLoungeAssign) {
-			String persisted = OverlayPreferences.getNpcCrewActiveName(currentShipId);
-			if (persisted != null && shouldRestorePersistedActiveCrew(events, persisted)) {
-				activeCrewName = persisted;
-			} else if (persisted != null) {
-				OverlayPreferences.setNpcCrewActiveName(currentShipId, null);
-			}
+			onLoadout(loadout);
 		}
 		notifyListeners();
 	}
 
-	private static boolean wasShipSwap(List<EliteLogEvent> events, LoadoutEvent current) {
-		if (current == null || events == null || events.isEmpty()) {
-			return false;
-		}
-		int currentIdx = -1;
-		for (int i = events.size() - 1; i >= 0; i--) {
-			EliteLogEvent e = events.get(i);
-			if (!(e instanceof LoadoutEvent lo)) {
-				continue;
-			}
-			if (current.getTimestamp().equals(lo.getTimestamp()) && current.getShipId() == lo.getShipId()) {
-				currentIdx = i;
-				break;
-			}
-		}
-		if (currentIdx <= 0) {
-			return false;
-		}
-		for (int i = currentIdx - 1; i >= 0; i--) {
-			if (events.get(i) instanceof LoadoutEvent previous) {
-				return previous.getShipId() != current.getShipId();
-			}
-		}
-		return false;
+	/**
+	 * @deprecated Use {@link #bootstrapFromSession(LoadoutEvent)}; journal reparse is no longer needed.
+	 */
+	@Deprecated
+	public void bootstrapFromJournal(java.nio.file.Path journalDir, LoadoutEvent loadout) {
+		bootstrapFromSession(loadout);
 	}
 
-	private static boolean shouldRestorePersistedActiveCrew(List<EliteLogEvent> events, String name) {
-		String lastRole = findLastCrewAssignRole(events, name);
-		if (lastRole == null) {
-			return true;
+	public void fillSessionState(EdoSessionState state) {
+		if (state == null) {
+			return;
 		}
-		return "Active".equalsIgnoreCase(lastRole);
+		Map<String, String> out = new LinkedHashMap<>();
+		for (Map.Entry<Integer, String> e : activeCrewByShipId.entrySet()) {
+			if (e.getKey() == null || e.getValue() == null || e.getValue().isBlank()) {
+				continue;
+			}
+			out.put(Integer.toString(e.getKey()), e.getValue().trim());
+		}
+		state.setNpcCrewActiveByShipId(out.isEmpty() ? null : out);
 	}
 
-	private static String findLastCrewAssignRole(List<EliteLogEvent> events, String name) {
-		if (events == null || name == null || name.isBlank()) {
-			return null;
+	public void applySessionState(EdoSessionState state) {
+		activeCrewByShipId.clear();
+		if (state == null || state.getNpcCrewActiveByShipId() == null) {
+			return;
 		}
-		String lastRole = null;
-		for (EliteLogEvent event : events) {
-			JsonObject raw = event.getRawJson();
-			if (raw == null || !raw.has("event")) {
+		for (Map.Entry<String, String> e : state.getNpcCrewActiveByShipId().entrySet()) {
+			if (e.getKey() == null || e.getKey().isBlank() || e.getValue() == null || e.getValue().isBlank()) {
 				continue;
 			}
-			if (!"CrewAssign".equals(raw.get("event").getAsString())) {
-				continue;
-			}
-			String crewName = getString(raw, "Name");
-			if (name.equals(crewName)) {
-				lastRole = getString(raw, "Role");
+			try {
+				int shipId = Integer.parseInt(e.getKey().trim());
+				activeCrewByShipId.put(shipId, e.getValue().trim());
+			} catch (NumberFormatException ignored) {
+				// Skip corrupt keys.
 			}
 		}
-		return lastRole;
+		if (currentShipId >= 0 && !requiresCrewLoungeAssign) {
+			activeCrewName = getPersistedActiveName(currentShipId);
+		}
+	}
+
+	private void migrateLegacyPrefsIntoSessionMap() {
+		Map<Integer, String> legacy = OverlayPreferences.exportNpcCrewActiveByShipId();
+		if (legacy == null || legacy.isEmpty()) {
+			return;
+		}
+		activeCrewByShipId.putAll(legacy);
+		try {
+			EdoSessionState state = EdoSessionPersistence.load();
+			fillSessionState(state);
+			EdoSessionPersistence.save(state);
+			OverlayPreferences.clearNpcCrewActiveByShipId();
+		} catch (Exception ignored) {
+			// Keep prefs if session write failed so the next startup can retry migration.
+		}
 	}
 
 	private static boolean isFighterBayModuleItem(String item) {
@@ -343,7 +328,7 @@ public final class NpcCrewTracker {
 			activeCrewName = null;
 			changed = true;
 		}
-		if (name.equals(OverlayPreferences.getNpcCrewActiveName(currentShipId))) {
+		if (name.equals(getPersistedActiveName(currentShipId))) {
 			persistActiveCrewName(null);
 			changed = true;
 		}
@@ -372,11 +357,34 @@ public final class NpcCrewTracker {
 		return changed;
 	}
 
+	private String getPersistedActiveName(int shipId) {
+		if (shipId < 0) {
+			return null;
+		}
+		String n = activeCrewByShipId.get(shipId);
+		return n != null && !n.isBlank() ? n : null;
+	}
+
 	private void persistActiveCrewName(String name) {
 		if (currentShipId < 0) {
 			return;
 		}
-		OverlayPreferences.setNpcCrewActiveName(currentShipId, name);
+		if (name == null || name.isBlank()) {
+			activeCrewByShipId.remove(currentShipId);
+		} else {
+			activeCrewByShipId.put(currentShipId, name.trim());
+		}
+		requestSessionPersist();
+	}
+
+	private void requestSessionPersist() {
+		Runnable cb = sessionStateChangeCallback;
+		if (cb != null) {
+			try {
+				cb.run();
+			} catch (Exception ignored) {
+			}
+		}
 	}
 
 	private static String getString(JsonObject obj, String key) {
@@ -397,5 +405,17 @@ public final class NpcCrewTracker {
 			} catch (Exception ignored) {
 			}
 		}
+	}
+
+	/** Test helper: replace in-memory ship→crew map. */
+	void replaceActiveCrewByShipIdForTests(Map<Integer, String> map) {
+		activeCrewByShipId.clear();
+		if (map != null) {
+			activeCrewByShipId.putAll(map);
+		}
+	}
+
+	Map<Integer, String> snapshotActiveCrewByShipIdForTests() {
+		return new HashMap<>(activeCrewByShipId);
 	}
 }

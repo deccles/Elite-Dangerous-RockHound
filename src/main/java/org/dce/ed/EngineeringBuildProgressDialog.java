@@ -11,11 +11,13 @@ import java.awt.Insets;
 import java.awt.Window;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BooleanSupplier;
 
@@ -25,14 +27,21 @@ import javax.swing.BoxLayout;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 import javax.swing.border.EmptyBorder;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.JTableHeader;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 
 import org.dce.ed.engineering.BlueprintGrade;
 import org.dce.ed.engineering.EngineeringCraftStore;
@@ -70,6 +79,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 	private List<ModuleUnitProgress> allUnits = List.of();
 	/** Ship id → engineered modules from the latest stored loadout. */
 	private Map<Long, List<FittedModuleRow>> fittedByShip = Map.of();
+	private Long lastSelectedShipFilterId;
 	private SwingWorker<?, ?> loadWorker;
 
 	private EngineeringBuildProgressDialog(Window owner,
@@ -100,7 +110,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 		JPanel filterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
 		filterRow.setOpaque(false);
-		JLabel shipLbl = new JLabel("Ship");
+		JLabel shipLbl = new JLabel("Ship:");
 		shipLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
 		shipLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
 		filterRow.add(shipLbl);
@@ -109,9 +119,19 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		shipCombo.addItem(ShipFilterItem.all());
 		shipCombo.setEnabled(false);
 		shipCombo.addActionListener(e -> {
-			if (shipCombo.isEnabled()) {
-				rebuildContent();
+			if (!shipCombo.isEnabled()) {
+				return;
 			}
+			ShipFilterItem item = (ShipFilterItem) shipCombo.getSelectedItem();
+			if (item != null && item.isSeparator()) {
+				Long prefer = lastSelectedShipFilterId != null
+						? lastSelectedShipFilterId
+						: initialShipFilterId;
+				shipCombo.setSelectedItem(findShipFilterItem(prefer));
+				return;
+			}
+			lastSelectedShipFilterId = item != null ? item.shipId() : null;
+			rebuildContent();
 		});
 		filterRow.add(shipCombo);
 		north.add(filterRow, BorderLayout.SOUTH);
@@ -248,36 +268,88 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		ShipFilterItem keep = (ShipFilterItem) shipCombo.getSelectedItem();
 		Long prefer = preferShipFilterId != null
 				? preferShipFilterId
-				: (keep != null ? keep.shipId() : null);
+				: (keep != null && !keep.isSeparator() ? keep.shipId() : lastSelectedShipFilterId);
 		shipCombo.removeAllItems();
 		shipCombo.addItem(ShipFilterItem.all());
-		Map<Long, String> ships = new LinkedHashMap<>();
+
+		Set<Long> shipsWithGoals = new HashSet<>();
 		for (ModuleUnitProgress u : allUnits) {
-			if (u.shipId() >= 0 && !ships.containsKey(Long.valueOf(u.shipId()))) {
-				ships.put(Long.valueOf(u.shipId()), resolveShipTitle(u.shipId(), List.of(u)));
+			if (u.shipId() >= 0) {
+				shipsWithGoals.add(Long.valueOf(u.shipId()));
+			}
+		}
+
+		List<EngineeringShipRef> withGoals = new ArrayList<>();
+		List<EngineeringShipRef> withoutGoals = new ArrayList<>();
+		Set<Long> seen = new HashSet<>();
+		for (EngineeringShipRef ref : shipCatalog.listSorted()) {
+			Long id = Long.valueOf(ref.getShipId());
+			seen.add(id);
+			if (shipsWithGoals.contains(id)) {
+				withGoals.add(ref);
+			} else {
+				withoutGoals.add(ref);
+			}
+		}
+		// Fitted-only / goal-only hulls not yet in the catalog.
+		for (Long shipId : shipsWithGoals) {
+			if (shipId != null && seen.add(shipId) && shipId >= 0) {
+				withGoals.add(new EngineeringShipRef(shipId.longValue(), "", resolveShipTitle(shipId, List.of()), ""));
 			}
 		}
 		for (Long shipId : fittedByShip.keySet()) {
-			if (shipId != null && shipId >= 0 && !ships.containsKey(shipId)) {
-				ships.put(shipId, resolveShipTitle(shipId.longValue(), List.of()));
+			if (shipId != null && shipId >= 0 && seen.add(shipId) && !shipsWithGoals.contains(shipId)) {
+				withoutGoals.add(new EngineeringShipRef(shipId.longValue(), "", resolveShipTitle(shipId, List.of()), ""));
 			}
 		}
-		List<Map.Entry<Long, String>> sorted = new ArrayList<>(ships.entrySet());
-		sorted.sort(Comparator.comparing(Map.Entry::getValue, String.CASE_INSENSITIVE_ORDER));
-		for (Map.Entry<Long, String> e : sorted) {
-			shipCombo.addItem(new ShipFilterItem(e.getKey(), e.getValue()));
+		withGoals.sort(Comparator.comparing(r -> shipCatalog.displayLabel(r), String.CASE_INSENSITIVE_ORDER));
+		withoutGoals.sort(Comparator.comparing(r -> shipCatalog.displayLabel(r), String.CASE_INSENSITIVE_ORDER));
+
+		for (EngineeringShipRef ref : withGoals) {
+			shipCombo.addItem(ShipFilterItem.ship(ref.getShipId(), shipCatalog.displayLabel(ref)));
 		}
-		ShipFilterItem select = ShipFilterItem.all();
-		if (prefer != null) {
-			for (int i = 0; i < shipCombo.getItemCount(); i++) {
-				ShipFilterItem item = shipCombo.getItemAt(i);
-				if (item != null && prefer.equals(item.shipId())) {
-					select = item;
-					break;
-				}
-			}
+		if (!withGoals.isEmpty() && !withoutGoals.isEmpty()) {
+			shipCombo.addItem(ShipFilterItem.separator());
 		}
+		for (EngineeringShipRef ref : withoutGoals) {
+			shipCombo.addItem(ShipFilterItem.ship(ref.getShipId(), shipCatalog.displayLabel(ref)));
+		}
+
+		ShipFilterItem select = findShipFilterItem(prefer);
 		shipCombo.setSelectedItem(select);
+		lastSelectedShipFilterId = select.shipId();
+		widenShipComboToFitItems();
+	}
+
+	private ShipFilterItem findShipFilterItem(Long shipId) {
+		if (shipId == null) {
+			return ShipFilterItem.all();
+		}
+		for (int i = 0; i < shipCombo.getItemCount(); i++) {
+			ShipFilterItem item = shipCombo.getItemAt(i);
+			if (item != null && !item.isSeparator() && shipId.equals(item.shipId())) {
+				return item;
+			}
+		}
+		return ShipFilterItem.all();
+	}
+
+	private void widenShipComboToFitItems() {
+		Font font = shipCombo.getFont();
+		int maxText = 0;
+		java.awt.FontMetrics fm = shipCombo.getFontMetrics(
+				font != null ? font : new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+		for (int i = 0; i < shipCombo.getItemCount(); i++) {
+			ShipFilterItem item = shipCombo.getItemAt(i);
+			if (item == null || item.isSeparator()) {
+				continue;
+			}
+			maxText = Math.max(maxText, fm.stringWidth(item.label()));
+		}
+		Dimension pref = shipCombo.getPreferredSize();
+		int width = Math.max(260, maxText + 48);
+		shipCombo.setPreferredSize(new Dimension(width, pref.height));
+		shipCombo.revalidate();
 	}
 
 	private void styleShipCombo(JComboBox<ShipFilterItem> combo) {
@@ -286,12 +358,27 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		combo.setBackground(EdoUi.User.PANEL_BG);
 		combo.setMaximumRowCount(12);
 		Dimension pref = combo.getPreferredSize();
-		combo.setPreferredSize(new Dimension(Math.max(220, pref.width), pref.height));
+		combo.setPreferredSize(new Dimension(Math.max(260, pref.width), pref.height));
 		OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
 		combo.setRenderer(new DefaultListCellRenderer() {
 			@Override
 			public Component getListCellRendererComponent(JList<?> list, Object value, int index,
 					boolean isSelected, boolean cellHasFocus) {
+				if (value instanceof ShipFilterItem item && item.isSeparator()) {
+					JPanel line = new JPanel() {
+						@Override
+						protected void paintComponent(java.awt.Graphics g) {
+							super.paintComponent(g);
+							g.setColor(EdoUi.Internal.separatorLineStrong());
+							int y = getHeight() / 2;
+							g.drawLine(6, y, getWidth() - 6, y);
+						}
+					};
+					line.setOpaque(true);
+					line.setBackground(EdoUi.User.PANEL_BG);
+					line.setPreferredSize(new Dimension(1, Math.max(8, fontSize / 2)));
+					return line;
+				}
 				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 				if (value instanceof ShipFilterItem item) {
 					setText(item.label());
@@ -376,9 +463,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 				}
 				contentPanel.add(sectionHeadline("All engineered on this ship"));
 				contentPanel.add(Box.createVerticalStrut(4));
-				for (FittedModuleRow row : fitted) {
-					contentPanel.add(fittedModuleSubline(row));
-				}
+				contentPanel.add(createFittedTablePanel(fitted));
 			}
 		}
 		contentPanel.add(Box.createVerticalGlue());
@@ -506,27 +591,103 @@ final class EngineeringBuildProgressDialog extends JDialog {
 				gradeColor(unit));
 	}
 
-	private JPanel fittedModuleSubline(FittedModuleRow row) {
-		String left = row.slotLabel();
-		if (!row.moduleLabel().isBlank()) {
-			left = left.isBlank() ? row.moduleLabel() : left + " · " + row.moduleLabel();
-		}
-		String right = row.blueprintLabel();
-		if (row.level() > 0) {
-			String grade = "G" + row.level();
-			if (row.quality() >= 0 && row.quality() < 0.999d) {
-				grade += " · " + Math.round(row.quality() * 100.0) + "%";
+	private JComponent createFittedTablePanel(List<FittedModuleRow> fitted) {
+		FittedTableModel model = new FittedTableModel(fitted);
+		JTable table = new JTable(model);
+		table.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		table.setRowHeight(Math.max(22, fontSize + 10));
+		table.setOpaque(false);
+		table.setBackground(EdoUi.Internal.TRANSPARENT);
+		table.setForeground(EdoUi.User.MAIN_TEXT);
+		table.setShowGrid(false);
+		table.setShowHorizontalLines(false);
+		table.setShowVerticalLines(false);
+		table.setIntercellSpacing(new Dimension(0, 0));
+		table.setFocusable(false);
+		table.setRowSelectionAllowed(false);
+		table.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
+		table.setFillsViewportHeight(true);
+
+		DefaultTableCellRenderer cell = new DefaultTableCellRenderer() {
+			@Override
+			public Component getTableCellRendererComponent(JTable t, Object value,
+					boolean isSelected, boolean hasFocus, int row, int column) {
+				Component c = super.getTableCellRendererComponent(t, value, false, false, row, column);
+				if (c instanceof JLabel label) {
+					label.setOpaque(false);
+					label.setBorder(new EmptyBorder(1, 6, 1, 6));
+					label.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+					label.setForeground(column == FittedTableModel.COL_GRADE
+							? EdoUi.User.MAIN_TEXT
+							: EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+					if (column == FittedTableModel.COL_GRADE) {
+						label.setHorizontalAlignment(SwingConstants.CENTER);
+					} else {
+						label.setHorizontalAlignment(SwingConstants.LEFT);
+					}
+					String text = value != null ? value.toString() : "";
+					label.setToolTipText(text.isBlank() ? null : text);
+				}
+				return c;
 			}
-			right = right.isBlank() ? grade : right + " · " + grade;
+		};
+		table.setDefaultRenderer(Object.class, cell);
+
+		JTableHeader header = table.getTableHeader();
+		if (header != null) {
+			header.setFont(baseFont.deriveFont(Font.BOLD, fontSize));
+			header.setForeground(EdoUi.User.MAIN_TEXT);
+			header.setBackground(EdoUi.User.PANEL_BG);
+			header.setReorderingAllowed(false);
+			header.setResizingAllowed(true);
+			header.setDefaultRenderer(new DefaultTableCellRenderer() {
+				@Override
+				public Component getTableCellRendererComponent(JTable t, Object value,
+						boolean isSelected, boolean hasFocus, int row, int column) {
+					Component c = super.getTableCellRendererComponent(t, value, false, false, row, column);
+					if (c instanceof JLabel label) {
+						label.setOpaque(true);
+						label.setBackground(EdoUi.User.PANEL_BG);
+						label.setForeground(EdoUi.User.MAIN_TEXT);
+						label.setFont(baseFont.deriveFont(Font.BOLD, fontSize));
+						label.setBorder(new EmptyBorder(2, 6, 4, 6));
+						label.setHorizontalAlignment(column == FittedTableModel.COL_GRADE
+								? SwingConstants.CENTER
+								: SwingConstants.LEFT);
+					}
+					return c;
+				}
+			});
 		}
-		if (!row.experimentalLabel().isBlank()) {
-			right = right.isBlank() ? row.experimentalLabel() : right + " · " + row.experimentalLabel();
-		}
-		return twoColumnRow(
-				left,
-				right,
-				EdoUi.Internal.MAIN_TEXT_ALPHA_220,
-				EdoUi.User.MAIN_TEXT);
+
+		TableColumnModel cols = table.getColumnModel();
+		setColWidth(cols.getColumn(FittedTableModel.COL_MODULE), 200, 140, 320);
+		setColWidth(cols.getColumn(FittedTableModel.COL_BLUEPRINT), 170, 110, 260);
+		setColWidth(cols.getColumn(FittedTableModel.COL_GRADE), 56, 48, 72);
+		setColWidth(cols.getColumn(FittedTableModel.COL_EXPERIMENTAL), 140, 100, 240);
+
+		int headerH = header != null ? header.getPreferredSize().height : fontSize + 12;
+		int bodyH = table.getRowHeight() * Math.max(1, fitted.size());
+		int tableH = headerH + bodyH + 2;
+
+		JScrollPane scroll = new JScrollPane(table);
+		scroll.setBorder(BorderFactory.createEmptyBorder());
+		scroll.setOpaque(false);
+		scroll.getViewport().setOpaque(false);
+		scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		scroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_NEVER);
+		OverlayScrollPaneSupport.installSubtleScrollBars(scroll);
+		scroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		scroll.setPreferredSize(new Dimension(620, tableH));
+		scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, tableH));
+		scroll.setMinimumSize(new Dimension(280, Math.min(tableH, headerH + table.getRowHeight() * 3)));
+		return scroll;
+	}
+
+	private static void setColWidth(TableColumn col, int preferred, int min, int max) {
+		col.setPreferredWidth(preferred);
+		col.setMinWidth(min);
+		col.setMaxWidth(max);
 	}
 
 	private JPanel twoColumnRow(String leftText, String rightText,
@@ -660,7 +821,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 				rows.add(new FittedModuleRow(
 						shipId,
 						shipLabel,
-						module.getSlot() != null ? module.getSlot().trim() : "",
+						friendlifySlot(module.getSlot()),
 						friendlifyItemId(module.getItem()),
 						blueprint,
 						engineering.getLevel(),
@@ -684,13 +845,10 @@ final class EngineeringBuildProgressDialog extends JDialog {
 				EngineeringJournalBlueprintResolver.resolve(
 						module.getSlot(), module.getItem(), engineering.getBlueprintName(), db);
 		if (resolved.isPresent()) {
-			EngineeringJournalBlueprintResolver.ResolvedBlueprint parts = resolved.get();
-			String mod = parts.moduleType();
-			String bp = parts.blueprintName();
-			if (!mod.isBlank() && !bp.isBlank()) {
-				return mod + " · " + bp;
+			String bp = resolved.get().blueprintName();
+			if (bp != null && !bp.isBlank()) {
+				return bp;
 			}
-			return !bp.isBlank() ? bp : mod;
 		}
 		return friendlifyJournalToken(engineering.getBlueprintName());
 	}
@@ -742,6 +900,29 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		return titleCaseWords(s.replace('_', ' '));
 	}
 
+	/** {@code LargeHardpoint1} → {@code Large Hardpoint 1}; {@code Slot01_Size7} → {@code Slot 01 Size 7}. */
+	private static String friendlifySlot(String slot) {
+		if (slot == null || slot.isBlank()) {
+			return "";
+		}
+		String s = slot.trim().replace('_', ' ');
+		StringBuilder out = new StringBuilder(s.length() + 8);
+		for (int i = 0; i < s.length(); i++) {
+			char c = s.charAt(i);
+			if (i > 0) {
+				char prev = s.charAt(i - 1);
+				boolean boundary = (Character.isLowerCase(prev) && Character.isUpperCase(c))
+						|| (Character.isLetter(prev) && Character.isDigit(c))
+						|| (Character.isDigit(prev) && Character.isLetter(c));
+				if (boundary && out.charAt(out.length() - 1) != ' ') {
+					out.append(' ');
+				}
+			}
+			out.append(c);
+		}
+		return titleCaseWords(out.toString());
+	}
+
 	private static String friendlifyJournalToken(String value) {
 		if (value == null || value.isBlank()) {
 			return "";
@@ -788,16 +969,83 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			int level,
 			double quality,
 			String experimentalLabel) {
+		String gradeLabel() {
+			if (level <= 0) {
+				return "";
+			}
+			if (quality >= 0 && quality < 0.999d) {
+				return "G" + level + " · " + Math.round(quality * 100.0) + "%";
+			}
+			return "G" + level;
+		}
 	}
 
-	private record ShipFilterItem(Long shipId, String label) {
+	private static final class FittedTableModel extends AbstractTableModel {
+		static final int COL_MODULE = 0;
+		static final int COL_BLUEPRINT = 1;
+		static final int COL_GRADE = 2;
+		static final int COL_EXPERIMENTAL = 3;
+
+		private final List<FittedModuleRow> rows;
+
+		FittedTableModel(List<FittedModuleRow> rows) {
+			this.rows = rows != null ? List.copyOf(rows) : List.of();
+		}
+
+		@Override
+		public int getRowCount() {
+			return rows.size();
+		}
+
+		@Override
+		public int getColumnCount() {
+			return 4;
+		}
+
+		@Override
+		public String getColumnName(int column) {
+			return switch (column) {
+				case COL_MODULE -> "Module";
+				case COL_BLUEPRINT -> "Blueprint";
+				case COL_GRADE -> "Grade";
+				case COL_EXPERIMENTAL -> "Experimental";
+				default -> "";
+			};
+		}
+
+		@Override
+		public Object getValueAt(int rowIndex, int columnIndex) {
+			if (rowIndex < 0 || rowIndex >= rows.size()) {
+				return "";
+			}
+			FittedModuleRow row = rows.get(rowIndex);
+			return switch (columnIndex) {
+				case COL_MODULE -> row.moduleLabel();
+				case COL_BLUEPRINT -> row.blueprintLabel();
+				case COL_GRADE -> row.gradeLabel();
+				case COL_EXPERIMENTAL -> row.experimentalLabel();
+				default -> "";
+			};
+		}
+	}
+
+	private record ShipFilterItem(Long shipId, String label, boolean isSeparator) {
 		static ShipFilterItem all() {
-			return new ShipFilterItem(null, "All");
+			return new ShipFilterItem(null, "All", false);
+		}
+
+		static ShipFilterItem ship(long shipId, String label) {
+			String text = label != null && !label.isBlank() ? label : "Ship #" + shipId;
+			return new ShipFilterItem(Long.valueOf(shipId), text, false);
+		}
+
+		static ShipFilterItem separator() {
+			return new ShipFilterItem(null, "", true);
 		}
 
 		@Override
 		public String toString() {
-			return label;
+			return isSeparator ? "" : label;
 		}
 	}
 }
