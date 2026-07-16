@@ -105,6 +105,58 @@ class EngineeringInventoryTrackerTest {
         assertEquals(1, tracker.getCount("crackedindustrialfirmware"));
     }
 
+    @Test
+    void engineerContribution_material_decrementsInventory() {
+        EngineeringInventoryTracker tracker = new EngineeringInventoryTracker();
+        tracker.applyEvent(materialsSnapshot(
+                List.of(new MaterialStack("arsenic", "", 10)),
+                List.of(),
+                List.of()));
+
+        String json = """
+                {
+                  "timestamp": "2017-05-24T10:41:51Z",
+                  "event": "EngineerContribution",
+                  "Engineer": "Elvira Martuuk",
+                  "EngineerID": 300160,
+                  "Type": "Material",
+                  "Material": "arsenic",
+                  "Quantity": 2,
+                  "TotalQuantity": 3
+                }
+                """;
+        tracker.applyEvent(assertInstanceOf(
+                org.dce.ed.logreader.event.EngineerContributionEvent.class,
+                parser.parseRecord(json)));
+
+        assertEquals(8, tracker.getCount("arsenic"));
+    }
+
+    @Test
+    void engineerContribution_commodity_doesNotChangeMaterialInventory() {
+        EngineeringInventoryTracker tracker = new EngineeringInventoryTracker();
+        tracker.applyEvent(materialsSnapshot(
+                List.of(new MaterialStack("arsenic", "", 10)),
+                List.of(),
+                List.of()));
+
+        String json = """
+                {
+                  "timestamp": "2017-05-24T10:41:51Z",
+                  "event": "EngineerContribution",
+                  "Engineer": "Elvira Martuuk",
+                  "EngineerID": 300160,
+                  "Type": "Commodity",
+                  "Commodity": "soontillrelics",
+                  "Quantity": 2,
+                  "TotalQuantity": 3
+                }
+                """;
+        tracker.applyEvent(parser.parseRecord(json));
+
+        assertEquals(10, tracker.getCount("arsenic"));
+    }
+
     private static MaterialsEvent materialsSnapshot(List<MaterialStack> raw,
                                                     List<MaterialStack> manufactured,
                                                     List<MaterialStack> encoded) {

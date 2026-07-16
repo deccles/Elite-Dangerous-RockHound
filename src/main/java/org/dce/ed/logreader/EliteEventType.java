@@ -18,6 +18,7 @@ public enum EliteEventType {
     MATERIAL_DISCARDED("MaterialDiscarded"),
     MATERIAL_TRADE("MaterialTrade"),
     ENGINEER_CRAFT("EngineerCraft"),
+    ENGINEER_CONTRIBUTION("EngineerContribution"),
     RANK("Rank"),
     PROGRESS("Progress"),
     REPUTATION("Reputation"),
@@ -137,6 +138,7 @@ public enum EliteEventType {
             case DOCK_SRV -> "SRV docked back into the mothership.";
             case DOCKED -> "Commander docked at a station or fleet carrier.";
             case ENGINEER_CRAFT -> "Module engineered at an engineer (materials consumed, grade applied).";
+            case ENGINEER_CONTRIBUTION -> "Items or credits donated to unlock/progress an engineer.";
             case ENGINEER_PROGRESS -> "Engineer unlock/progress updated.";
             case FSS_ALL_BODIES_FOUND -> "FSS completed for all bodies in the system.";
             case FSS_BODY_SIGNAL_DISCOVERED -> "FSS body signal discovered.";

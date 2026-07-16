@@ -11,6 +11,7 @@ import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
+import org.dce.ed.logreader.event.EngineerContributionEvent;
 import org.dce.ed.logreader.event.MaterialCollectedEvent;
 import org.dce.ed.logreader.event.MaterialDiscardedEvent;
 import org.dce.ed.logreader.event.MaterialStack;
@@ -74,6 +75,10 @@ public final class EngineeringInventoryTracker {
                     changed = true;
                 }
             }
+        } else if (event instanceof EngineerContributionEvent e) {
+            if (e.isMaterialContribution()) {
+                changed = add(e.getMaterial(), e.getMaterialLocalised(), -e.getQuantity());
+            }
         }
         if (changed) {
             notifyChanged();
@@ -95,7 +100,8 @@ public final class EngineeringInventoryTracker {
                         || type == EliteEventType.MATERIAL_COLLECTED
                         || type == EliteEventType.MATERIAL_DISCARDED
                         || type == EliteEventType.MATERIAL_TRADE
-                        || type == EliteEventType.ENGINEER_CRAFT) {
+                        || type == EliteEventType.ENGINEER_CRAFT
+                        || type == EliteEventType.ENGINEER_CONTRIBUTION) {
                     applyEvent(event);
                 }
             }

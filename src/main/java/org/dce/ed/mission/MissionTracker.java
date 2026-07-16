@@ -10,22 +10,29 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.dce.ed.CargoMonitor;
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
+import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
+import org.dce.ed.logreader.event.CarrierJumpEvent;
+import org.dce.ed.logreader.event.FsdJumpEvent;
+import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.MissionAbandonedEvent;
 import org.dce.ed.logreader.event.MissionAcceptedEvent;
 import org.dce.ed.logreader.event.MissionCompletedEvent;
 import org.dce.ed.logreader.event.MissionFailedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
+import org.dce.ed.logreader.event.SupercruiseExitEvent;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.MissionSessionData;
 import org.dce.ed.session.MissionSessionData.MissionRecordPersisted;
@@ -39,9 +46,20 @@ public final class MissionTracker {
     private final Set<Long> dismissedRedirectIds = ConcurrentHashMap.newKeySet();
     private volatile Runnable changeCallback;
     private volatile Instant lastUpdated = Instant.now();
+    private volatile Supplier<String> currentSystemSupplier;
+    /**
+     * Lowest remaining kills among missions updated by the last qualifying {@link BountyEvent};
+     * consumed for speech.
+     */
+    private volatile Integer lastMassacreKillRemaining;
 
     public void setChangeCallback(Runnable changeCallback) {
         this.changeCallback = changeCallback;
+    }
+
+    /** Used to require commander presence in the mission hunt system before attributing kills. */
+    public void setCurrentSystemSupplier(Supplier<String> currentSystemSupplier) {
+        this.currentSystemSupplier = currentSystemSupplier;
     }
 
     public boolean applyEvent(EliteLogEvent event) {
@@ -61,6 +79,8 @@ public final class MissionTracker {
             changed = onRedirected(e);
         } else if (event instanceof CargoDepotEvent e) {
             changed = onCargoDepot(e);
+        } else if (event instanceof BountyEvent e) {
+            changed = onBounty(e);
         } else if (event instanceof MissionsEvent e) {
             changed = onMissionsSnapshot(e);
         }
@@ -95,7 +115,17 @@ public final class MissionTracker {
             r.setDestinationSettlement(e.getDestinationSettlement());
         }
         r.setTargetFaction(e.getTargetFaction());
-        r.setTarget(e.getTarget());
+        String targetName = e.getTargetLocalised();
+        if (targetName == null || targetName.isBlank()) {
+            targetName = e.getTarget();
+        }
+        r.setTarget(targetName);
+        if (e.getTargetType() != null) {
+            r.setTargetType(e.getTargetType());
+        }
+        if (e.getTargetTypeLocalised() != null) {
+            r.setTargetTypeLocalised(e.getTargetTypeLocalised());
+        }
         if (e.getKillCount() > 0) {
             r.setKillCount(e.getKillCount());
         }
@@ -136,8 +166,118 @@ public final class MissionTracker {
             r.setDestinationStation(e.getNewDestinationStation());
         }
         r.setRedirected(true);
+        if (r.getKillCount() > 0) {
+            r.setKillsCompleted(r.getKillCount());
+        }
         dismissedRedirectIds.remove(e.getMissionId());
         return true;
+    }
+
+    /**
+     * Clears estimated massacre kill progress for incomplete combat missions.
+     * Used before a full journal replay that will rebuild counts from {@link BountyEvent}s.
+     * Redirected missions are left alone (objective already complete).
+     */
+    public void resetEstimatedMassacreProgress() {
+        for (MissionRecord r : activeById.values()) {
+            if (r.getCategory() != MissionCategory.COMBAT) {
+                continue;
+            }
+            if (r.getKillCount() <= 0 || r.isRedirected()) {
+                continue;
+            }
+            r.setKillsCompleted(0);
+        }
+        lastMassacreKillRemaining = null;
+    }
+
+    /**
+     * Attributes a wanted kill to every incomplete massacre mission whose
+     * {@code TargetFaction} matches {@link BountyEvent#getVictimFaction()} and whose
+     * hunt {@code DestinationSystem} matches the commander's current system.
+     * <p>
+     * Still an estimate (body-specific / pirate-vs-deserter nuance is not in the journal),
+     * but system gating avoids counting bounties from unrelated systems.
+     * Stacked missions sharing faction+system all advance on one kill.
+     */
+    private boolean onBounty(BountyEvent e) {
+        String victimFaction = e.getVictimFaction();
+        if (victimFaction == null || victimFaction.isBlank()) {
+            return false;
+        }
+        String target = e.getTarget();
+        if (target != null && target.equalsIgnoreCase("Skimmer")) {
+            return false;
+        }
+        String currentSystem = currentSystemSupplier != null ? currentSystemSupplier.get() : null;
+        if (currentSystem == null || currentSystem.isBlank()) {
+            return false;
+        }
+        List<MissionRecord> matched = new ArrayList<>();
+        for (MissionRecord r : activeById.values()) {
+            if (!isMassacreKillCandidate(r, victimFaction, currentSystem)) {
+                continue;
+            }
+            matched.add(r);
+        }
+        if (matched.isEmpty()) {
+            return false;
+        }
+        int minRemaining = Integer.MAX_VALUE;
+        for (MissionRecord r : matched) {
+            r.setKillsCompleted(r.getKillsCompleted() + 1);
+            int remaining = Math.max(0, r.getKillCount() - r.getKillsCompleted());
+            if (remaining < minRemaining) {
+                minRemaining = remaining;
+            }
+        }
+        lastMassacreKillRemaining = Integer.valueOf(minRemaining);
+        return true;
+    }
+
+    static boolean isMassacreKillCandidate(MissionRecord r, String victimFaction, String currentSystem) {
+        if (r == null || r.getCategory() != MissionCategory.COMBAT) {
+            return false;
+        }
+        if (r.getKillCount() <= 0 || r.isRedirected()) {
+            return false;
+        }
+        if (r.getKillsCompleted() >= r.getKillCount()) {
+            return false;
+        }
+        String tf = r.getTargetFaction();
+        if (tf == null || !tf.equalsIgnoreCase(victimFaction.trim())) {
+            return false;
+        }
+        // Named assassination targets are not advanced by generic faction bounties.
+        if (r.getTarget() != null && !r.getTarget().isBlank() && r.getKillCount() <= 1) {
+            return false;
+        }
+        String huntSystem = r.getDestinationSystem();
+        if (huntSystem == null || huntSystem.isBlank()) {
+            return false;
+        }
+        return huntSystem.equalsIgnoreCase(currentSystem.trim());
+    }
+
+    /**
+     * Lowest remaining massacre kills after the last qualifying {@link BountyEvent}, if any.
+     * Cleared on read so each kill is announced at most once.
+     */
+    public OptionalInt consumeLastMassacreKillRemaining() {
+        Integer v = lastMassacreKillRemaining;
+        lastMassacreKillRemaining = null;
+        if (v == null) {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(v.intValue());
+    }
+
+    public MissionRecord findById(long missionId) {
+        if (missionId == 0L) {
+            return null;
+        }
+        return activeById.get(missionId);
     }
 
     private boolean onCargoDepot(CargoDepotEvent e) {
@@ -264,6 +404,88 @@ public final class MissionTracker {
         } catch (IOException ex) {
             return false;
         }
+    }
+
+    /**
+     * Rebuilds incomplete massacre {@code killsCompleted} from journal {@code Bounty} events,
+     * gated by hunt {@code DestinationSystem} + {@code TargetFaction}. Safe to call after session
+     * restore or full rescan when live attribution may have missed kills (overlay off / wrong system).
+     */
+    public boolean rebuildMassacreKillProgressFromJournals(String clientKey) {
+        if (!hasIncompleteMassacreMissions()) {
+            return false;
+        }
+        Path dir = OverlayPreferences.resolveJournalDirectory(clientKey);
+        if (dir == null) {
+            return false;
+        }
+        try {
+            EliteJournalReader reader = new EliteJournalReader(dir);
+            Set<String> include = Set.of(
+                    "Location",
+                    "FSDJump",
+                    "CarrierJump",
+                    "SupercruiseExit",
+                    "MissionRedirected",
+                    "MissionCompleted",
+                    "MissionFailed",
+                    "MissionAbandoned",
+                    "Bounty");
+            List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(Integer.MAX_VALUE, include);
+            if (events.isEmpty()) {
+                return false;
+            }
+
+            resetEstimatedMassacreProgress();
+            final String[] system = { null };
+            Supplier<String> savedSupplier = currentSystemSupplier;
+            Runnable savedCallback = changeCallback;
+            currentSystemSupplier = () -> system[0];
+            changeCallback = null;
+            boolean changed = false;
+            try {
+                for (EliteLogEvent event : events) {
+                    if (event instanceof LocationEvent le) {
+                        system[0] = le.getStarSystem();
+                    } else if (event instanceof FsdJumpEvent je) {
+                        system[0] = je.getStarSystem();
+                    } else if (event instanceof CarrierJumpEvent cj) {
+                        system[0] = cj.getStarSystem();
+                    } else if (event instanceof SupercruiseExitEvent sc) {
+                        system[0] = sc.getStarSystem();
+                    } else if (event instanceof MissionRedirectedEvent
+                            || event instanceof MissionCompletedEvent
+                            || event instanceof MissionFailedEvent
+                            || event instanceof MissionAbandonedEvent
+                            || event instanceof BountyEvent) {
+                        if (applyEvent(event)) {
+                            changed = true;
+                        }
+                    }
+                }
+            } finally {
+                currentSystemSupplier = savedSupplier;
+                changeCallback = savedCallback;
+            }
+            if (changed) {
+                lastUpdated = Instant.now();
+                notifyChanged();
+            }
+            return changed;
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
+    private boolean hasIncompleteMassacreMissions() {
+        for (MissionRecord r : activeById.values()) {
+            if (r.getCategory() == MissionCategory.COMBAT
+                    && r.getKillCount() > 0
+                    && !r.isRedirected()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -487,7 +709,10 @@ public final class MissionTracker {
         p.setDestinationSettlement(r.getDestinationSettlement());
         p.setTargetFaction(r.getTargetFaction());
         p.setTarget(r.getTarget());
+        p.setTargetType(r.getTargetType());
+        p.setTargetTypeLocalised(r.getTargetTypeLocalised());
         p.setKillCount(r.getKillCount());
+        p.setKillsCompleted(r.getKillsCompleted());
         p.setDonation(r.getDonation());
         p.setReward(r.getReward());
         p.setExpiryIso(r.getExpiryIso());
@@ -524,7 +749,10 @@ public final class MissionTracker {
         r.setDestinationSettlement(p.getDestinationSettlement());
         r.setTargetFaction(p.getTargetFaction());
         r.setTarget(p.getTarget());
+        r.setTargetType(p.getTargetType());
+        r.setTargetTypeLocalised(p.getTargetTypeLocalised());
         r.setKillCount(p.getKillCount());
+        r.setKillsCompleted(p.getKillsCompleted());
         r.setDonation(p.getDonation());
         r.setReward(p.getReward());
         r.setExpiryIso(p.getExpiryIso());

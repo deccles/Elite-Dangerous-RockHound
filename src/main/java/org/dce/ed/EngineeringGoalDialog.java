@@ -406,10 +406,74 @@ final class EngineeringGoalDialog extends JDialog {
 
         JLabel intro = new JLabel(mode == Mode.EDIT
                 ? "Change quantity, target grade, or experimental for this goal."
-                : "Search and select a blueprint, then choose how many, grade, and optional experimental.");
+                : "Choose ship, grade, and quantity, then search and select a blueprint.");
         intro.setFont(base.deriveFont(Font.PLAIN, fontSize));
         intro.setForeground(EdoUi.User.MAIN_TEXT);
-        root.add(intro, BorderLayout.NORTH);
+
+        // Ship / target grade / quantity at the top (Add and Edit).
+        styleCombo(shipCombo, base);
+        constrainComboHeight(shipCombo);
+        shipCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof EngineeringShipRef ship) {
+                    setText(shipCatalog != null
+                            ? shipCatalog.displayLabel(ship)
+                            : EngineeringShipRef.displayLabelAmong(ship, shipChoices));
+                }
+                setForeground(EdoUi.User.MAIN_TEXT);
+                setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
+                return c;
+            }
+        });
+        populateShipCombo();
+        selectShipInCombo(defaultShip);
+        if (mode == Mode.ADD) {
+            shipCombo.addActionListener(e -> {
+                persistAddGoalShipChoice();
+                if (installedOnlyCheck.isSelected()) {
+                    reloadBlueprintList();
+                }
+            });
+        }
+        styleCombo(gradeCombo, base);
+        constrainComboHeight(gradeCombo);
+        gradeCombo.addActionListener(e -> updateGradeDetails());
+        styleQuantitySpinner(base);
+        quantitySpinner.setToolTipText("How many modules to engineer (e.g. four gimbal weapons)");
+
+        JPanel topSettings = new JPanel(new GridBagLayout());
+        topSettings.setOpaque(false);
+        GridBagConstraints topGbc = new GridBagConstraints();
+        topGbc.insets = new Insets(4, 4, 4, 8);
+        topGbc.anchor = GridBagConstraints.WEST;
+        topGbc.gridx = 0;
+        topGbc.gridy = 0;
+        topSettings.add(fieldLabel("Ship:", base, fontSize), topGbc);
+        topGbc.gridx = 1;
+        topGbc.fill = GridBagConstraints.HORIZONTAL;
+        topGbc.weightx = 1;
+        topSettings.add(shipCombo, topGbc);
+        topGbc.gridx = 0;
+        topGbc.gridy = 1;
+        topGbc.weightx = 0;
+        topGbc.fill = GridBagConstraints.NONE;
+        topSettings.add(fieldLabel("Target grade:", base, fontSize), topGbc);
+        topGbc.gridx = 1;
+        topSettings.add(gradeCombo, topGbc);
+        topGbc.gridx = 0;
+        topGbc.gridy = 2;
+        topSettings.add(fieldLabel("Quantity:", base, fontSize), topGbc);
+        topGbc.gridx = 1;
+        topSettings.add(quantitySpinner, topGbc);
+
+        JPanel north = new JPanel(new BorderLayout(0, 6));
+        north.setOpaque(false);
+        north.add(intro, BorderLayout.NORTH);
+        north.add(topSettings, BorderLayout.CENTER);
+        root.add(north, BorderLayout.NORTH);
 
         JPanel center = new JPanel(new BorderLayout(6, 6));
         center.setOpaque(false);
@@ -439,11 +503,17 @@ final class EngineeringGoalDialog extends JDialog {
                     HOVER_CLICK_DELAY_MS,
                     () -> installedOnlyCheck.setSelected(!installedOnlyCheck.isSelected()),
                     passThroughEnabledSupplier);
+
+            JLabel blueprintSection = sectionHeader("Blueprint", base, fontSize);
             JPanel searchRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
             searchRow.setOpaque(false);
             searchRow.add(filterField);
             searchRow.add(installedOnlyCheck);
-            center.add(searchRow, BorderLayout.NORTH);
+            JPanel searchBlock = new JPanel(new BorderLayout(0, 4));
+            searchBlock.setOpaque(false);
+            searchBlock.add(blueprintSection, BorderLayout.NORTH);
+            searchBlock.add(searchRow, BorderLayout.CENTER);
+            center.add(searchBlock, BorderLayout.NORTH);
 
             configureBlueprintTable(base, fontSize);
             JScrollPane tableScroll = new JScrollPane(blueprintTable);
@@ -462,86 +532,20 @@ final class EngineeringGoalDialog extends JDialog {
             detailPanel.add(materialsLabel, BorderLayout.SOUTH);
             center.add(detailPanel, BorderLayout.SOUTH);
         }
-        if (mode == Mode.ADD) {
-            root.add(center, BorderLayout.CENTER);
-        } else {
-            root.add(center, BorderLayout.NORTH);
-        }
 
-        JPanel form = new JPanel(new GridBagLayout());
-        form.setOpaque(false);
+        JPanel bottomForm = new JPanel(new GridBagLayout());
+        bottomForm.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(4, 4, 4, 8);
         gbc.anchor = GridBagConstraints.WEST;
-
-        JLabel shipLabel = fieldLabel("Ship:", base, fontSize);
         gbc.gridx = 0;
         gbc.gridy = 0;
-        form.add(shipLabel, gbc);
-        styleCombo(shipCombo, base);
-        constrainComboHeight(shipCombo);
-        shipCombo.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                                                          boolean isSelected, boolean cellHasFocus) {
-                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof EngineeringShipRef ship) {
-                    setText(shipCatalog != null
-                            ? shipCatalog.displayLabel(ship)
-                            : EngineeringShipRef.displayLabelAmong(ship, shipChoices));
-                }
-                setForeground(EdoUi.User.MAIN_TEXT);
-                setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
-                return c;
-            }
-        });
-        populateShipCombo();
-        selectShipInCombo(defaultShip);
-        if (mode == Mode.ADD) {
-            shipCombo.addActionListener(e -> {
-                persistAddGoalShipChoice();
-                if (installedOnlyCheck.isSelected()) {
-                    reloadBlueprintList();
-                }
-            });
-        }
-        gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1;
-        form.add(shipCombo, gbc);
-
-        JLabel gradeLabel = fieldLabel("Target grade:", base, fontSize);
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        gbc.weightx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        form.add(gradeLabel, gbc);
-        styleCombo(gradeCombo, base);
-        constrainComboHeight(gradeCombo);
-        gradeCombo.addActionListener(e -> updateGradeDetails());
-        gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.weightx = 0;
-        form.add(gradeCombo, gbc);
-
-        JLabel qtyLabel = fieldLabel("Quantity:", base, fontSize);
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        form.add(qtyLabel, gbc);
-        styleQuantitySpinner(base);
-        quantitySpinner.setToolTipText("How many modules to engineer (e.g. four gimbal weapons)");
-        gbc.gridx = 1;
-        form.add(quantitySpinner, gbc);
-
-        JLabel expLabel = fieldLabel("Experimental:", base, fontSize);
-        gbc.gridx = 0;
-        gbc.gridy = 3;
-        form.add(expLabel, gbc);
+        bottomForm.add(fieldLabel("Experimental:", base, fontSize), gbc);
         styleCombo(experimentalCombo, base);
         constrainComboHeight(experimentalCombo);
         experimentalCombo.addItem("(none)");
         gbc.gridx = 1;
-        form.add(experimentalCombo, gbc);
+        bottomForm.add(experimentalCombo, gbc);
         equalizeGradeQtyExperimentalWidths();
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
@@ -559,13 +563,14 @@ final class EngineeringGoalDialog extends JDialog {
 
         JPanel south = new JPanel(new BorderLayout());
         south.setOpaque(false);
-        south.add(form, BorderLayout.CENTER);
+        south.add(bottomForm, BorderLayout.CENTER);
         south.add(buttons, BorderLayout.SOUTH);
         if (mode == Mode.ADD) {
             root.add(center, BorderLayout.CENTER);
             root.add(south, BorderLayout.PAGE_END);
         } else {
-            root.add(south, BorderLayout.CENTER);
+            root.add(center, BorderLayout.CENTER);
+            root.add(south, BorderLayout.PAGE_END);
         }
 
         if (mode == Mode.ADD) {
@@ -977,6 +982,14 @@ final class EngineeringGoalDialog extends JDialog {
         JLabel label = new JLabel(text);
         label.setFont(base.deriveFont(Font.PLAIN, fontSize));
         label.setForeground(EdoUi.User.MAIN_TEXT);
+        return label;
+    }
+
+    private static JLabel sectionHeader(String text, Font base, int fontSize) {
+        JLabel label = new JLabel(text);
+        label.setFont(base.deriveFont(Font.BOLD, fontSize + 1));
+        label.setForeground(EdoUi.User.MAIN_TEXT);
+        label.setBorder(new EmptyBorder(4, 0, 2, 0));
         return label;
     }
 

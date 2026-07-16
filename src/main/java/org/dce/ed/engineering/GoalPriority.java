@@ -2,20 +2,23 @@ package org.dce.ed.engineering;
 
 /**
  * Planning priority for an engineering goal.
- * Active goals claim inventory High → Medium → Low; {@link #DISABLED} is omitted from materials/trades.
+ * Active goals claim inventory High → Medium → Low when {@code enabled}.
+ * {@link #DISABLED} is kept only for session migration (maps to enabled=false + {@link #MEDIUM}).
  */
 public enum GoalPriority {
     HIGH,
     MEDIUM,
     LOW,
+    /** @deprecated Prefer a separate enabled flag; still parsed from older sessions. */
+    @Deprecated
     DISABLED;
 
-    /** Included in materials / trade planning. */
+    /** True for High / Medium / Low (not the legacy Disabled sentinel). */
     public boolean isActive() {
         return this != DISABLED;
     }
 
-    /** Ascending sort rank: High first, Disabled last. */
+    /** Ascending sort rank: High first, then Medium, Low; legacy Disabled last. */
     public int sortRank() {
         return ordinal();
     }
@@ -24,9 +27,21 @@ public enum GoalPriority {
         return switch (this) {
             case HIGH -> MEDIUM;
             case MEDIUM -> LOW;
-            case LOW -> DISABLED;
-            case DISABLED -> HIGH;
+            case LOW, DISABLED -> HIGH;
         };
+    }
+
+    /** Priorities offered in the UI chooser. */
+    public static GoalPriority[] chooserValues() {
+        return new GoalPriority[] { HIGH, MEDIUM, LOW };
+    }
+
+    /** Maps legacy {@link #DISABLED} to {@link #MEDIUM}. */
+    public static GoalPriority normalize(GoalPriority priority) {
+        if (priority == null || priority == DISABLED) {
+            return MEDIUM;
+        }
+        return priority;
     }
 
     public String tooltip() {
@@ -42,6 +57,8 @@ public enum GoalPriority {
         };
     }
 
+    /** @deprecated Use an explicit enabled flag; this only yields MEDIUM vs DISABLED for migration. */
+    @Deprecated
     public static GoalPriority fromInclude(boolean include) {
         return include ? MEDIUM : DISABLED;
     }

@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.dce.ed.logreader.EliteLogParser;
+import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
 import org.dce.ed.logreader.event.MissionAcceptedEvent;
 import org.dce.ed.logreader.event.MissionCompletedEvent;
+import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
 import org.junit.jupiter.api.Test;
 
@@ -69,5 +71,178 @@ class MissionTrackerTest {
         tracker.applyEvent((MissionsEvent) parser.parseRecord(snap));
         assertEquals(1, tracker.getActive().size());
         assertEquals(2L, tracker.getActive().get(0).getMissionId());
+    }
+
+    @Test
+    void bounty_inHuntSystem_advancesMassacreProgress() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Nuenets");
+        String accept = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":10,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"TargetType_Localised\":\"Pirate\",\"KillCount\":5,"
+                + "\"DestinationSystem\":\"Nuenets\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+
+        String bounty = "{\"timestamp\":\"2026-05-22T10:10:00Z\",\"event\":\"Bounty\","
+                + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":5000,\"Target\":\"eagle\"}";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(bounty));
+
+        MissionRecord r = tracker.getActive().get(0);
+        assertEquals(1, r.getKillsCompleted());
+        assertEquals("1/5 pirates", MissionDestinationResolver.objectiveFor(r).displayLine());
+        assertEquals(4, tracker.consumeLastMassacreKillRemaining().orElse(-1));
+    }
+
+    @Test
+    void bounty_wrongSystem_doesNotAdvanceMassacreProgress() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Sol");
+        String accept = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":11,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"TargetType_Localised\":\"Pirate\",\"KillCount\":5,"
+                + "\"DestinationSystem\":\"Nuenets\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+
+        String bounty = "{\"timestamp\":\"2026-05-22T10:10:00Z\",\"event\":\"Bounty\","
+                + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":5000,\"Target\":\"eagle\"}";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(bounty));
+
+        MissionRecord r = tracker.getActive().get(0);
+        assertEquals(0, r.getKillsCompleted());
+        assertEquals("0/5 pirates", MissionDestinationResolver.objectiveFor(r).displayLine());
+        assertTrue(tracker.consumeLastMassacreKillRemaining().isEmpty());
+    }
+
+    @Test
+    void bounty_stackedMissions_advanceTogether() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Nuenets");
+        String a1 = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":12,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":5,\"DestinationSystem\":\"Nuenets\"}";
+        String a2 = "{\"timestamp\":\"2026-05-22T10:01:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":13,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":20,\"DestinationSystem\":\"Nuenets\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(a1));
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(a2));
+
+        String bounty = "{\"timestamp\":\"2026-05-22T10:10:00Z\",\"event\":\"Bounty\","
+                + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":5000,\"Target\":\"eagle\"}";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(bounty));
+
+        assertEquals(1, tracker.findById(12L).getKillsCompleted());
+        assertEquals(1, tracker.findById(13L).getKillsCompleted());
+        // Lowest remaining among stacked matches.
+        assertEquals(4, tracker.consumeLastMassacreKillRemaining().orElse(-1));
+    }
+
+    @Test
+    void bounty_skimmer_ignored() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Nuenets");
+        String accept = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":14,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":5,\"DestinationSystem\":\"Nuenets\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+        String bounty = "{\"timestamp\":\"2026-05-22T10:10:00Z\",\"event\":\"Bounty\","
+                + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":500,\"Target\":\"Skimmer\"}";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(bounty));
+        assertEquals(0, tracker.getActive().get(0).getKillsCompleted());
+    }
+
+    @Test
+    void bounty_ignoresKillsOutsideHuntSystem() {
+        MissionTracker tracker = new MissionTracker();
+        String accept = "{\"timestamp\":\"2026-07-16T00:50:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":99,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"Pirates Inc\",\"TargetType_Localised\":\"Pirate\",\"KillCount\":10,"
+                + "\"DestinationSystem\":\"HuntSys\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+        tracker.resetEstimatedMassacreProgress();
+        final String[] system = { null };
+        tracker.setCurrentSystemSupplier(() -> system[0]);
+        system[0] = "HuntSys";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-07-16T01:01:00Z\",\"event\":\"Bounty\","
+                        + "\"VictimFaction\":\"Pirates Inc\",\"TotalReward\":1000,\"Target\":\"eagle\"}"));
+        tracker.applyEvent((BountyEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-07-16T01:02:00Z\",\"event\":\"Bounty\","
+                        + "\"VictimFaction\":\"Pirates Inc\",\"TotalReward\":1000,\"Target\":\"sidewinder\"}"));
+        system[0] = "Other";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-07-16T01:04:00Z\",\"event\":\"Bounty\","
+                        + "\"VictimFaction\":\"Pirates Inc\",\"TotalReward\":1000,\"Target\":\"eagle\"}"));
+        assertEquals(2, tracker.findById(99L).getKillsCompleted());
+    }
+
+    @Test
+    void resetEstimatedMassacreProgress_clearsIncompleteOnly() {
+        MissionTracker tracker = new MissionTracker();
+        String accept = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":30,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":5,\"DestinationSystem\":\"Nuenets\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+        tracker.findById(30L).setKillsCompleted(3);
+
+        String acceptDone = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":31,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"X\",\"KillCount\":10,\"DestinationSystem\":\"A\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(acceptDone));
+        tracker.findById(31L).setKillsCompleted(10);
+        tracker.findById(31L).setRedirected(true);
+
+        tracker.resetEstimatedMassacreProgress();
+        assertEquals(0, tracker.findById(30L).getKillsCompleted());
+        assertEquals(10, tracker.findById(31L).getKillsCompleted());
+    }
+
+    @Test
+    void fullReplayStyle_rebuildsMassacreFromBountiesInHuntSystem() {
+        MissionTracker tracker = new MissionTracker();
+        // Stale session progress that would be wrong after a bad attribution era.
+        String accept = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":40,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"TargetType_Localised\":\"Pirate\",\"KillCount\":5,"
+                + "\"DestinationSystem\":\"Nuenets\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+        tracker.findById(40L).setKillsCompleted(99);
+
+        tracker.resetEstimatedMassacreProgress();
+        assertEquals(0, tracker.findById(40L).getKillsCompleted());
+
+        final String[] system = { "Sol" };
+        tracker.setCurrentSystemSupplier(() -> system[0]);
+
+        tracker.applyEvent((BountyEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-05-22T10:05:00Z\",\"event\":\"Bounty\","
+                        + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":1000,\"Target\":\"eagle\"}"));
+        assertEquals(0, tracker.findById(40L).getKillsCompleted());
+
+        system[0] = "Nuenets";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-05-22T10:10:00Z\",\"event\":\"Bounty\","
+                        + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":1000,\"Target\":\"eagle\"}"));
+        tracker.applyEvent((BountyEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-05-22T10:11:00Z\",\"event\":\"Bounty\","
+                        + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":1000,\"Target\":\"sidewinder\"}"));
+        assertEquals(2, tracker.findById(40L).getKillsCompleted());
+        assertEquals("2/5 pirates", MissionDestinationResolver.objectiveFor(tracker.findById(40L)).displayLine());
+    }
+
+    @Test
+    void redirect_fillsMassacreKillProgress() {
+        MissionTracker tracker = new MissionTracker();
+        String accept = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":20,\"Name\":\"Mission_Massacre\","
+                + "\"TargetFaction\":\"X\",\"KillCount\":12,\"DestinationSystem\":\"A\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+        String redirect = "{\"timestamp\":\"2026-05-22T11:00:00Z\",\"event\":\"MissionRedirected\","
+                + "\"MissionID\":20,\"Name\":\"Mission_Massacre\","
+                + "\"NewDestinationSystem\":\"A\",\"NewDestinationStation\":\"Hub\"}";
+        tracker.applyEvent((MissionRedirectedEvent) parser.parseRecord(redirect));
+        MissionRecord r = tracker.getActive().get(0);
+        assertTrue(r.isRedirected());
+        assertEquals(12, r.getKillsCompleted());
+        assertEquals("12/12 X", MissionDestinationResolver.objectiveFor(r).displayLine());
     }
 }

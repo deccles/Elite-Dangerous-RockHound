@@ -1,5 +1,7 @@
 package org.dce.ed.engineering;
 
+import java.util.Objects;
+
 /**
  * Material count required for one blueprint roll.
  */
@@ -18,5 +20,21 @@ public final class MaterialRequirement {
 
     public int getCount() {
         return count;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof MaterialRequirement other)) {
+            return false;
+        }
+        return count == other.count && key.equals(other.key);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(key, count);
     }
 }

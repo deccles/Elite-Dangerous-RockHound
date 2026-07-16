@@ -56,6 +56,7 @@ import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.mining.GoogleSheetsAuth;
 import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.mining.ProspectorWriteResult;
+import org.dce.ed.mission.MissionSpeechTracker;
 import org.dce.ed.ui.EdoDialogTitleBar;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HelpCircleIcon;
@@ -189,6 +190,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox firstDiscoveredSystemAnnouncementCheckBox;
 	private JCheckBox bountyScanFirstAnnouncementCheckBox;
 	private JCheckBox bountyScanAdditionalAnnouncementCheckBox;
+	private JCheckBox missionProgressAnnouncementCheckBox;
 	private JCheckBox miningLowLimpetReminderEnabledCheckBox;
 	private JCheckBox fighterPilotReminderEnabledCheckBox;
 	private JComboBox<String> speechEngineCombo;
@@ -288,6 +290,9 @@ public class PreferencesDialog extends JDialog {
 				new PreferenceSpeechTestClip(BountyScanTracker.FIRST_BOUNTY_SPEECH, Long.valueOf(250_000L)),
 				new PreferenceSpeechTestClip(BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH,
 						Long.valueOf(60_000L), Long.valueOf(310_000L)),
+				new PreferenceSpeechTestClip(MissionSpeechTracker.COMBAT_COMPLETE_SPEECH),
+				new PreferenceSpeechTestClip(MissionSpeechTracker.DELIVERED_SPEECH,
+						Integer.valueOf(12), Integer.valueOf(16)),
 				new PreferenceSpeechTestClip("First Discovered System"),
 				new PreferenceSpeechTestClip("Jump complete"),
 				new PreferenceSpeechTestClip("Cooldown complete"),
@@ -1959,6 +1964,19 @@ public class PreferencesDialog extends JDialog {
 
 		gbc.gridx = 0;
 		gbc.gridy++;
+		JLabel missionProgressAnnouncementLabel = new JLabel("Mission progress announcements:");
+		content.add(missionProgressAnnouncementLabel, gbc);
+		gbc.gridx = 1;
+		missionProgressAnnouncementCheckBox = new JCheckBox();
+		missionProgressAnnouncementCheckBox.setOpaque(false);
+		missionProgressAnnouncementCheckBox.setSelected(
+				OverlayPreferences.isMissionProgressAnnouncementEnabled());
+		missionProgressAnnouncementCheckBox.setToolTipText(
+				"Combat mission complete and cargo delivery progress.");
+		content.add(missionProgressAnnouncementCheckBox, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
 		JLabel lowLimpetAnnouncementLabel = new JLabel("Low limpet announcement:");
 		content.add(lowLimpetAnnouncementLabel, gbc);
 		gbc.gridx = 1;
@@ -2637,6 +2655,11 @@ public class PreferencesDialog extends JDialog {
         if (bountyScanAdditionalAnnouncementCheckBox != null) {
             OverlayPreferences.setBountyScanAdditionalAnnouncementEnabled(
                     bountyScanAdditionalAnnouncementCheckBox.isSelected());
+        }
+
+        if (missionProgressAnnouncementCheckBox != null) {
+            OverlayPreferences.setMissionProgressAnnouncementEnabled(
+                    missionProgressAnnouncementCheckBox.isSelected());
         }
 
         if (miningLowLimpetReminderEnabledCheckBox != null) {

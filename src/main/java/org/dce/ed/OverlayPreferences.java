@@ -75,6 +75,8 @@ public final class OverlayPreferences {
             "speech.announcement.bountyScan.first.enabled";
     private static final String KEY_SPEECH_BOUNTY_SCAN_ADDITIONAL_ENABLED =
             "speech.announcement.bountyScan.additional.enabled";
+    private static final String KEY_SPEECH_MISSION_PROGRESS_ENABLED =
+            "speech.announcement.missionProgress.enabled";
     /** Last {@link org.dce.ed.tts.VoicePackManager#SPEECH_PACK_REVISION} successfully installed while AWS synthesis was off. */
     private static final String KEY_SPEECH_PACK_INSTALLED_REVISION = "speech.packInstalledRevision";
     /** Voice id matching the last successful GitHub pack install (see {@link #KEY_SPEECH_PACK_INSTALLED_REVISION}). */
@@ -904,6 +906,14 @@ public final class OverlayPreferences {
 
     public static void setBountyScanAdditionalAnnouncementEnabled(boolean enabled) {
         PREFS.putBoolean(KEY_SPEECH_BOUNTY_SCAN_ADDITIONAL_ENABLED, enabled);
+    }
+
+    public static boolean isMissionProgressAnnouncementEnabled() {
+        return PREFS.getBoolean(KEY_SPEECH_MISSION_PROGRESS_ENABLED, true);
+    }
+
+    public static void setMissionProgressAnnouncementEnabled(boolean enabled) {
+        PREFS.putBoolean(KEY_SPEECH_MISSION_PROGRESS_ENABLED, enabled);
     }
 
     /**

@@ -31,7 +31,10 @@ public final class OverlayOutlineButtonStyle {
     private static final int DEFAULT_ARC = 12;
     private static final String DANGER_DISABLED_TEXT_KEY = "edo.outlineButton.dangerDisabledText";
     private static final String THEME_INK_KEY = "edo.outlineButton.themeInk";
-    private static final Color DANGER_DISABLED_TEXT = new Color(195, 88, 78);
+    /** True red when scripts are running — not coral/salmon. */
+    private static final Color DANGER_ACTIVE = new Color(220, 38, 38);
+    /** Idle / no scripts running. */
+    private static final Color DANGER_IDLE = new Color(130, 130, 130);
 
     private OverlayOutlineButtonStyle() {
     }
@@ -41,13 +44,17 @@ public final class OverlayOutlineButtonStyle {
         applyTheme(b, uiFont, true, new Insets(8, 18, 8, 18), true);
     }
 
-    /** Destructive action (e.g. kill rogue scripts). */
-    public static void applyDanger(JButton b, Font uiFont) {
-        Color danger = new Color(255, 110, 95);
-        applyFixed(b, uiFont, true, new Insets(8, 18, 8, 18), danger);
+    /**
+     * Destructive action (e.g. kill rogue scripts).
+     *
+     * @param active {@code true} when something is running (red); {@code false} when idle (gray)
+     */
+    public static void applyDanger(JButton b, Font uiFont, boolean active) {
+        Color ink = active ? DANGER_ACTIVE : DANGER_IDLE;
+        applyFixed(b, uiFont, true, new Insets(8, 18, 8, 18), ink);
         if (b != null) {
             b.putClientProperty(THEME_INK_KEY, Boolean.FALSE);
-            b.putClientProperty(DANGER_DISABLED_TEXT_KEY, DANGER_DISABLED_TEXT);
+            b.putClientProperty(DANGER_DISABLED_TEXT_KEY, DANGER_IDLE);
             b.setUI((ButtonUI) DangerOutlineButtonUI.createUI(b));
         }
     }

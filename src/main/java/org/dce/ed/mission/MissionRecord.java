@@ -19,7 +19,11 @@ public final class MissionRecord {
     private String destinationSettlement;
     private String targetFaction;
     private String target;
+    private String targetType;
+    private String targetTypeLocalised;
     private int killCount;
+    /** Estimated massacre progress from matching {@code Bounty} events (capped at {@link #killCount}). */
+    private int killsCompleted;
     private long donation;
     private long reward;
     private String expiryIso;
@@ -76,8 +80,17 @@ public final class MissionRecord {
     public String getTarget() { return target; }
     public void setTarget(String target) { this.target = target; }
 
+    public String getTargetType() { return targetType; }
+    public void setTargetType(String targetType) { this.targetType = targetType; }
+
+    public String getTargetTypeLocalised() { return targetTypeLocalised; }
+    public void setTargetTypeLocalised(String targetTypeLocalised) { this.targetTypeLocalised = targetTypeLocalised; }
+
     public int getKillCount() { return killCount; }
     public void setKillCount(int killCount) { this.killCount = killCount; }
+
+    public int getKillsCompleted() { return killsCompleted; }
+    public void setKillsCompleted(int killsCompleted) { this.killsCompleted = Math.max(0, killsCompleted); }
 
     public long getDonation() { return donation; }
     public void setDonation(long donation) { this.donation = donation; }

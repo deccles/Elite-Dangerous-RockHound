@@ -78,7 +78,7 @@ public final class ControlPanelTabPanel extends JPanel {
         this.killFooter = killFooter;
         add(killFooter, BorderLayout.SOUTH);
 
-        styleKillButton(OverlayPreferences.getUiFont());
+        styleKillButton(OverlayPreferences.getUiFont(), false);
         registerKillButtonHover();
     }
 
@@ -134,6 +134,7 @@ public final class ControlPanelTabPanel extends JPanel {
         }
         boolean active = triggerService != null && triggerService.hasActiveScripts();
         killButton.setEnabled(active);
+        styleKillButton(OverlayPreferences.getUiFont(), active);
     }
 
     private void rebuildButtons() {
@@ -142,8 +143,6 @@ public final class ControlPanelTabPanel extends JPanel {
         buttonPanel.add(emptyLabel);
 
         Font uiFont = OverlayPreferences.getUiFont();
-        styleKillButton(uiFont);
-
         List<ExecBinding> bindings = loadControlPanelBindings();
         emptyLabel.setVisible(bindings.isEmpty());
 
@@ -200,15 +199,14 @@ public final class ControlPanelTabPanel extends JPanel {
         triggerService.killRunningScripts();
     }
 
-    private void styleKillButton(Font uiFont) {
+    private void styleKillButton(Font uiFont, boolean active) {
         if (killButton == null) {
             return;
         }
-        OverlayOutlineButtonStyle.applyDanger(killButton, uiFont);
+        OverlayOutlineButtonStyle.applyDanger(killButton, uiFont, active);
         Dimension pref = killButton.getPreferredSize();
         int height = Math.max(28, pref.height);
         killButton.setPreferredSize(new Dimension(pref.width, height));
-        refreshKillButtonState();
     }
 
     private void runBindingById(String bindingId) {
@@ -256,7 +254,6 @@ public final class ControlPanelTabPanel extends JPanel {
         }
         setFont(font);
         emptyLabel.setFont(font);
-        styleKillButton(font);
         for (JButton button : actionButtons) {
             OverlayOutlineButtonStyle.applyPrimary(button, font);
         }

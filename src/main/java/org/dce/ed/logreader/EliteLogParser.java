@@ -42,6 +42,7 @@ import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.SetUserShipNameEvent;
 import org.dce.ed.logreader.event.StoredShipsEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
+import org.dce.ed.logreader.event.EngineerContributionEvent;
 import org.dce.ed.logreader.event.MaterialCollectedEvent;
 import org.dce.ed.logreader.event.MaterialDiscardedEvent;
 import org.dce.ed.logreader.event.MaterialStack;
@@ -210,6 +211,8 @@ public class EliteLogParser {
                 return parseMaterialTrade(ts, obj);
             case ENGINEER_CRAFT:
                 return parseEngineerCraft(ts, obj);
+            case ENGINEER_CONTRIBUTION:
+                return parseEngineerContribution(ts, obj);
             default:
                 // For everything else, fall back to generic event.
                 return new GenericEvent(ts, type, obj);
@@ -1320,6 +1323,21 @@ private static String canonicalGasName(String name) {
             }
         }
         return out;
+    }
+
+    private EngineerContributionEvent parseEngineerContribution(Instant ts, JsonObject obj) {
+        return new EngineerContributionEvent(
+                ts,
+                obj,
+                getString(obj, "Engineer"),
+                getLong(obj, "EngineerID", 0L),
+                getString(obj, "Type"),
+                firstNonBlank(getString(obj, "Material"), getString(obj, "Name")),
+                firstNonBlank(getString(obj, "Material_Localised"), getString(obj, "Name_Localised")),
+                getString(obj, "Commodity"),
+                getString(obj, "Commodity_Localised"),
+                getInt(obj, "Quantity", getInt(obj, "Count", 0)),
+                getInt(obj, "TotalQuantity", 0));
     }
 
     private EngineerCraftEvent parseEngineerCraft(Instant ts, JsonObject obj) {

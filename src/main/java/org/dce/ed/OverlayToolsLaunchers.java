@@ -141,6 +141,9 @@ public final class OverlayToolsLaunchers {
                     return;
                 }
                 if (offerRestart) {
+                    if (OverlayFrame.overlayFrame != null) {
+                        OverlayFrame.overlayFrame.reloadMissionsFromSessionAfterRescan();
+                    }
                     int restartChoice = JOptionPane.showConfirmDialog(messageParent,
                             "Journal logs have been parsed and the local cache has been rebuilt.\n\n"
                                     + "Please restart Elite Dangerous RockHound so the overlay reloads session state "

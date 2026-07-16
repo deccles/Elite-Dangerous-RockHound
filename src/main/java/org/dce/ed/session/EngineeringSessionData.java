@@ -9,6 +9,7 @@ import java.util.List;
 public final class EngineeringSessionData {
 
     private List<EngineeringGoalPersisted> goals = new ArrayList<>();
+    private List<MaterialsGoalPersisted> materialGoals = new ArrayList<>();
     private List<ShipPersisted> knownShips = new ArrayList<>();
     /** null = All ships filter. */
     private Long goalsShipFilterId;
@@ -23,6 +24,18 @@ public final class EngineeringSessionData {
 
     public List<EngineeringGoalPersisted> goalsOrEmpty() {
         return goals != null ? goals : new ArrayList<>();
+    }
+
+    public List<MaterialsGoalPersisted> getMaterialGoals() {
+        return materialGoals;
+    }
+
+    public void setMaterialGoals(List<MaterialsGoalPersisted> materialGoals) {
+        this.materialGoals = materialGoals != null ? materialGoals : new ArrayList<>();
+    }
+
+    public List<MaterialsGoalPersisted> materialGoalsOrEmpty() {
+        return materialGoals != null ? materialGoals : new ArrayList<>();
     }
 
     public List<ShipPersisted> getKnownShips() {
@@ -45,6 +58,121 @@ public final class EngineeringSessionData {
         this.goalsShipFilterId = goalsShipFilterId;
     }
 
+    public static final class MaterialsGoalPersisted {
+        private String label;
+        private List<MaterialNeedPersisted> materials = new ArrayList<>();
+        /** {@code HIGH}/{@code MEDIUM}/{@code LOW}; legacy {@code DISABLED} migrates to enabled=false. */
+        private String priority;
+        /** {@code null} = enabled (legacy). When false, omitted from materials/trades. */
+        private Boolean includeInPlanning;
+        /** null / missing = unset (commander-wide). */
+        private Long shipId;
+        private String shipLabel;
+
+        public String getLabel() {
+            return label != null ? label : "";
+        }
+
+        public void setLabel(String label) {
+            this.label = label;
+        }
+
+        public List<MaterialNeedPersisted> getMaterials() {
+            return materials;
+        }
+
+        public void setMaterials(List<MaterialNeedPersisted> materials) {
+            this.materials = materials != null ? materials : new ArrayList<>();
+        }
+
+        public List<MaterialNeedPersisted> materialsOrEmpty() {
+            return materials != null ? materials : new ArrayList<>();
+        }
+
+        public String getPriority() {
+            return priority;
+        }
+
+        public void setPriority(String priority) {
+            this.priority = priority;
+        }
+
+        public org.dce.ed.engineering.GoalPriority priorityOrDefault() {
+            if (priority != null && !priority.isBlank()) {
+                return org.dce.ed.engineering.GoalPriority.normalize(
+                        org.dce.ed.engineering.GoalPriority.parse(priority));
+            }
+            return org.dce.ed.engineering.GoalPriority.MEDIUM;
+        }
+
+        public Boolean getIncludeInPlanning() {
+            return includeInPlanning;
+        }
+
+        public void setIncludeInPlanning(Boolean includeInPlanning) {
+            this.includeInPlanning = includeInPlanning;
+        }
+
+        public boolean includeInPlanningOrDefault() {
+            if (includeInPlanning != null) {
+                return includeInPlanning;
+            }
+            if (priority != null && "DISABLED".equalsIgnoreCase(priority.trim())) {
+                return false;
+            }
+            return true;
+        }
+
+        public Long getShipId() {
+            return shipId;
+        }
+
+        public void setShipId(Long shipId) {
+            this.shipId = shipId;
+        }
+
+        public long shipIdOrUnknown() {
+            return shipId != null ? shipId.longValue() : -1L;
+        }
+
+        public String getShipLabel() {
+            return shipLabel != null ? shipLabel : "";
+        }
+
+        public void setShipLabel(String shipLabel) {
+            this.shipLabel = shipLabel;
+        }
+    }
+
+    public static final class MaterialNeedPersisted {
+        private String key;
+        private int count;
+
+        public MaterialNeedPersisted() {
+        }
+
+        public MaterialNeedPersisted(String key, int count) {
+            this.key = key;
+            this.count = count;
+        }
+
+        public String getKey() {
+            return key != null ? key : "";
+        }
+
+        public void setKey(String key) {
+            this.key = key;
+        }
+
+        public int getCount() {
+            return Math.max(0, count);
+        }
+
+        public void setCount(int count) {
+            this.count = Math.max(0, count);
+        }
+    }
+
     public static final class EngineeringGoalPersisted {
         private String blueprintId;
         private String moduleType;
@@ -53,9 +181,9 @@ public final class EngineeringSessionData {
         private int craftsAtCurrentGrade;
         private int targetGrade;
         private String experimentalId;
-        /** {@code null} = include (legacy sessions). Prefer {@link #priority}. */
+        /** {@code null} = include (legacy sessions). Prefer this over legacy DISABLED priority. */
         private Boolean includeInPlanning;
-        /** {@code HIGH}/{@code MEDIUM}/{@code LOW}/{@code DISABLED}; null = migrate from includeInPlanning. */
+        /** {@code HIGH}/{@code MEDIUM}/{@code LOW}; legacy {@code DISABLED} migrates to enabled=false. */
         private String priority;
         private boolean experimentalApplied;
         /** {@code null} or {@code <= 0} = 1 (legacy sessions). */
@@ -130,7 +258,13 @@ public final class EngineeringSessionData {
         }
 
         public boolean includeInPlanningOrDefault() {
-            return includeInPlanning == null || includeInPlanning;
+            if (includeInPlanning != null) {
+                return includeInPlanning;
+            }
+            if (priority != null && "DISABLED".equalsIgnoreCase(priority.trim())) {
+                return false;
+            }
+            return true;
         }
 
         public String getPriority() {
@@ -141,12 +275,13 @@ public final class EngineeringSessionData {
             this.priority = priority;
         }
 
-        /** Resolved priority for load; migrates legacy includeInPlanning. */
+        /** Resolved priority for load; never returns legacy DISABLED. */
         public org.dce.ed.engineering.GoalPriority priorityOrDefault() {
             if (priority != null && !priority.isBlank()) {
-                return org.dce.ed.engineering.GoalPriority.parse(priority);
+                return org.dce.ed.engineering.GoalPriority.normalize(
+                        org.dce.ed.engineering.GoalPriority.parse(priority));
             }
-            return org.dce.ed.engineering.GoalPriority.fromInclude(includeInPlanningOrDefault());
+            return org.dce.ed.engineering.GoalPriority.MEDIUM;
         }
 
         public boolean isExperimentalApplied() {

@@ -14,8 +14,10 @@ public final class EngineeringGoal {
     private final int craftsAtCurrentGrade;
     private final int targetGrade;
     private final String experimentalId;
-    /** Planning priority; {@link GoalPriority#DISABLED} omits from materials and trades. */
+    /** Planning priority (High / Medium / Low). Legacy Disabled is normalized away. */
     private final GoalPriority priority;
+    /** When false, omitted from materials and trade totals (priority is preserved). */
+    private final boolean enabled;
     /** True after the goal's experimental effect has been applied on the in-progress unit. */
     private final boolean experimentalApplied;
     /** How many modules to engineer (e.g. four gimbal weapons). */
@@ -56,7 +58,8 @@ public final class EngineeringGoal {
                            String experimentalId,
                            boolean includeInPlanning) {
         this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
-                experimentalId, GoalPriority.fromInclude(includeInPlanning), false);
+                experimentalId, GoalPriority.MEDIUM, false, 1, 0,
+                EngineeringShipRef.UNKNOWN_SHIP_ID, "", includeInPlanning);
     }
 
     public EngineeringGoal(String blueprintId,
@@ -81,7 +84,8 @@ public final class EngineeringGoal {
                            boolean includeInPlanning,
                            boolean experimentalApplied) {
         this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
-                experimentalId, GoalPriority.fromInclude(includeInPlanning), experimentalApplied, 1, 0);
+                experimentalId, GoalPriority.MEDIUM, experimentalApplied, 1, 0,
+                EngineeringShipRef.UNKNOWN_SHIP_ID, "", includeInPlanning);
     }
 
     public EngineeringGoal(String blueprintId,
@@ -109,8 +113,8 @@ public final class EngineeringGoal {
                            int quantity,
                            int completedUnits) {
         this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
-                experimentalId, GoalPriority.fromInclude(includeInPlanning), experimentalApplied, quantity,
-                completedUnits, EngineeringShipRef.UNKNOWN_SHIP_ID, "");
+                experimentalId, GoalPriority.MEDIUM, experimentalApplied, quantity,
+                completedUnits, EngineeringShipRef.UNKNOWN_SHIP_ID, "", includeInPlanning);
     }
 
     public EngineeringGoal(String blueprintId,
@@ -143,8 +147,8 @@ public final class EngineeringGoal {
                            long shipId,
                            String shipLabel) {
         this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
-                experimentalId, GoalPriority.fromInclude(includeInPlanning), experimentalApplied, quantity,
-                completedUnits, shipId, shipLabel);
+                experimentalId, GoalPriority.MEDIUM, experimentalApplied, quantity,
+                completedUnits, shipId, shipLabel, includeInPlanning);
     }
 
     public EngineeringGoal(String blueprintId,
@@ -160,6 +164,25 @@ public final class EngineeringGoal {
                            int completedUnits,
                            long shipId,
                            String shipLabel) {
+        this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
+                experimentalId, priority, experimentalApplied, quantity, completedUnits, shipId, shipLabel,
+                priority == null || priority.isActive());
+    }
+
+    public EngineeringGoal(String blueprintId,
+                           String moduleType,
+                           String blueprintName,
+                           int fromGrade,
+                           int craftsAtCurrentGrade,
+                           int targetGrade,
+                           String experimentalId,
+                           GoalPriority priority,
+                           boolean experimentalApplied,
+                           int quantity,
+                           int completedUnits,
+                           long shipId,
+                           String shipLabel,
+                           boolean enabled) {
         this.blueprintId = blueprintId != null ? blueprintId : "";
         this.moduleType = moduleType != null ? moduleType : "";
         this.blueprintName = blueprintName != null ? blueprintName : "";
@@ -167,7 +190,8 @@ public final class EngineeringGoal {
         this.craftsAtCurrentGrade = clampCrafts(craftsAtCurrentGrade);
         this.targetGrade = Math.max(1, targetGrade);
         this.experimentalId = experimentalId != null ? experimentalId : "";
-        this.priority = priority != null ? priority : GoalPriority.MEDIUM;
+        this.priority = GoalPriority.normalize(priority);
+        this.enabled = enabled;
         this.experimentalApplied = experimentalApplied;
         this.quantity = Math.max(1, quantity);
         this.completedUnits = Math.max(0, Math.min(completedUnits, this.quantity));
@@ -209,7 +233,11 @@ public final class EngineeringGoal {
 
     /** True when this goal is included in materials and trade suggestions. */
     public boolean isIncludeInPlanning() {
-        return priority.isActive();
+        return enabled;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
     }
 
     public boolean isExperimentalApplied() {
@@ -279,7 +307,8 @@ public final class EngineeringGoal {
                 quantity,
                 completedUnits,
                 shipId,
-                shipLabel);
+                shipLabel,
+                enabled);
     }
 
     public EngineeringGoal withExperimentalApplied(boolean applied) {
@@ -299,11 +328,12 @@ public final class EngineeringGoal {
                 quantity,
                 completedUnits,
                 shipId,
-                shipLabel);
+                shipLabel,
+                enabled);
     }
 
     public EngineeringGoal withPriority(GoalPriority newPriority) {
-        GoalPriority p = newPriority != null ? newPriority : GoalPriority.MEDIUM;
+        GoalPriority p = GoalPriority.normalize(newPriority);
         if (priority == p) {
             return this;
         }
@@ -320,14 +350,33 @@ public final class EngineeringGoal {
                 quantity,
                 completedUnits,
                 shipId,
-                shipLabel);
+                shipLabel,
+                enabled);
     }
 
     public EngineeringGoal withIncludeInPlanning(boolean include) {
-        if (include) {
-            return priority.isActive() ? this : withPriority(GoalPriority.MEDIUM);
+        return withEnabled(include);
+    }
+
+    public EngineeringGoal withEnabled(boolean include) {
+        if (enabled == include) {
+            return this;
         }
-        return withPriority(GoalPriority.DISABLED);
+        return new EngineeringGoal(
+                blueprintId,
+                moduleType,
+                blueprintName,
+                fromGrade,
+                craftsAtCurrentGrade,
+                targetGrade,
+                experimentalId,
+                priority,
+                experimentalApplied,
+                quantity,
+                completedUnits,
+                shipId,
+                shipLabel,
+                include);
     }
 
     public EngineeringGoal withQuantity(int newQuantity) {
@@ -348,7 +397,8 @@ public final class EngineeringGoal {
                 q,
                 Math.min(completedUnits, q),
                 shipId,
-                shipLabel);
+                shipLabel,
+                enabled);
     }
 
     public EngineeringGoal withCompletedUnits(int newCompletedUnits) {
@@ -369,7 +419,8 @@ public final class EngineeringGoal {
                 quantity,
                 units,
                 shipId,
-                shipLabel);
+                shipLabel,
+                enabled);
     }
 
     /**
@@ -412,7 +463,8 @@ public final class EngineeringGoal {
                 q,
                 units,
                 shipId,
-                shipLabel);
+                shipLabel,
+                enabled);
     }
 
     public EngineeringGoal withFromGrade(int newFromGrade) {
@@ -434,7 +486,8 @@ public final class EngineeringGoal {
                 quantity,
                 0,
                 shipId,
-                shipLabel);
+                shipLabel,
+                enabled);
     }
 
     public EngineeringGoal withShip(long newShipId, String newShipLabel) {
@@ -455,7 +508,8 @@ public final class EngineeringGoal {
                 quantity,
                 completedUnits,
                 newShipId,
-                label);
+                label,
+                enabled);
     }
 
     public EngineeringGoal withUserSettings(int newTargetGrade,
@@ -498,6 +552,7 @@ public final class EngineeringGoal {
                 && targetGrade == other.targetGrade
                 && experimentalId.equals(other.experimentalId)
                 && priority == other.priority
+                && enabled == other.enabled
                 && experimentalApplied == other.experimentalApplied
                 && quantity == other.quantity
                 && completedUnits == other.completedUnits
@@ -515,6 +570,7 @@ public final class EngineeringGoal {
         result = 31 * result + targetGrade;
         result = 31 * result + experimentalId.hashCode();
         result = 31 * result + priority.hashCode();
+        result = 31 * result + Boolean.hashCode(enabled);
         result = 31 * result + Boolean.hashCode(experimentalApplied);
         result = 31 * result + quantity;
         result = 31 * result + completedUnits;

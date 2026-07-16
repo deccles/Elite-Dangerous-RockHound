@@ -12,6 +12,8 @@ import org.dce.ed.EliteDangerousOverlay;
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.exobiology.ExobiologyData;
+import org.dce.ed.logreader.event.BountyEvent;
+import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
@@ -25,6 +27,7 @@ import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
+import org.dce.ed.logreader.event.SupercruiseExitEvent;
 import org.dce.ed.mission.MissionTracker;
 import org.dce.ed.session.EdoSessionPersistence;
 import org.dce.ed.session.EdoSessionState;
@@ -66,6 +69,7 @@ public class RescanJournalsMain {
 			"CarrierJumpCancelled",
 			"Docked",
 			"Undocked",
+			"SupercruiseExit",
 			"FSSDiscoveryScan",
 			"Scan",
 			"ScanBaryCentre",
@@ -80,7 +84,9 @@ public class RescanJournalsMain {
 			"MissionAbandoned",
 			"MissionRedirected",
 			"CargoDepot",
-			"Missions"
+			"Missions",
+			// Massacre kill rebuild during full history (system-gated with DestinationSystem).
+			"Bounty"
 	);
 
 	/**
@@ -271,6 +277,17 @@ public class RescanJournalsMain {
 		MissionTracker missionReplayTracker = new MissionTracker();
 		EdoSessionState missionReplaySeed = EdoSessionPersistence.load();
 		missionReplayTracker.applySessionState(missionReplaySeed);
+		/*
+		 * Full-history replay can rebuild massacre progress from Bounty + DestinationSystem.
+		 * Incremental windows must not: resetting would drop prior kills, and applying without
+		 * reset would double-count kills already stored in session.
+		 */
+		final boolean rebuildMassacreFromBounties = (lastImport == null);
+		final String[] missionReplaySystem = { null };
+		if (rebuildMassacreFromBounties) {
+			missionReplayTracker.resetEstimatedMassacreProgress();
+			missionReplayTracker.setCurrentSystemSupplier(() -> missionReplaySystem[0]);
+		}
 
 		String prevBulkCacheWrite = System.getProperty(SystemCache.CACHE_BULK_SYSTEM_WRITE_PROPERTY);
 		final int eventCount = events.size();
@@ -302,8 +319,13 @@ public class RescanJournalsMain {
 				}
 			} else if (event.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
 				openCarrierJumpRequest = null;
-				if (ts != null && (latestCarrierEvent == null || ts.isAfter(latestCarrierEvent.getTimestamp()))) {
-					latestCarrierEvent = event;
+				// Cancel also starts the post-jump cooldown window.
+				if (ts != null) {
+					carrierJumpCompletionTime = ts;
+					carrierJumpCompletionOffCarrier = true;
+					if (latestCarrierEvent == null || ts.isAfter(latestCarrierEvent.getTimestamp())) {
+						latestCarrierEvent = event;
+					}
 				}
 			} else if (event.getType() == EliteEventType.CARRIER_JUMP) {
 				openCarrierJumpRequest = null;
@@ -356,13 +378,26 @@ public class RescanJournalsMain {
 
 			processor.handleEvent(event);
 
+			if (rebuildMassacreFromBounties) {
+				if (event instanceof LocationEvent le) {
+					missionReplaySystem[0] = le.getStarSystem();
+				} else if (event instanceof FsdJumpEvent je) {
+					missionReplaySystem[0] = je.getStarSystem();
+				} else if (event instanceof CarrierJumpEvent cj) {
+					missionReplaySystem[0] = cj.getStarSystem();
+				} else if (event instanceof SupercruiseExitEvent sc) {
+					missionReplaySystem[0] = sc.getStarSystem();
+				}
+			}
+
 			if (event instanceof MissionAcceptedEvent
 					|| event instanceof MissionCompletedEvent
 					|| event instanceof MissionFailedEvent
 					|| event instanceof MissionAbandonedEvent
 					|| event instanceof MissionRedirectedEvent
 					|| event instanceof CargoDepotEvent
-					|| event instanceof MissionsEvent) {
+					|| event instanceof MissionsEvent
+					|| (rebuildMassacreFromBounties && event instanceof BountyEvent)) {
 				missionReplayTracker.applyEvent(event);
 			}
 
@@ -482,11 +517,13 @@ public class RescanJournalsMain {
 					sessionState.setCarrierJumpTargetSystem(null);
 				}
 				sessionState.setCarrierJumpCooldownEndTime(null);
-			} else if (latestCarrierEvent.getType() == EliteEventType.CARRIER_JUMP) {
+			} else if (latestCarrierEvent.getType() == EliteEventType.CARRIER_JUMP
+					|| latestCarrierEvent.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
 				sessionState.setCarrierJumpDepartureTime(null);
 				sessionState.setCarrierJumpTargetSystem(null);
 				Instant jumpTs = latestCarrierEvent.getTimestamp();
-				Instant cooldownEnd = CarrierJumpCooldown.cooldownEndFromJump(jumpTs);
+				boolean offCarrier = latestCarrierEvent.getType() == EliteEventType.CARRIER_JUMP_CANCELLED;
+				Instant cooldownEnd = CarrierJumpCooldown.cooldownEndFromJump(jumpTs, offCarrier);
 				if (cooldownEnd != null && cooldownEnd.isAfter(now)) {
 					sessionState.setCarrierJumpCooldownEndTime(cooldownEnd.toString());
 				} else {
@@ -499,6 +536,7 @@ public class RescanJournalsMain {
 			}
 		}
 		EdoSessionPersistence.save(sessionState);
+		logMassacreRebuildSummary(missionReplayTracker, rebuildMassacreFromBounties);
 		reportProgress(progress, "Finishing", 100, null);
 
 		if (forcedJournalFile == null && journalDirectory != null && newestEventTimestamp != null) {
@@ -514,6 +552,24 @@ public class RescanJournalsMain {
 				eventCount, systemsStored, totalSeconds);
 		System.out.flush();
 		System.out.println("Exobiology expected credits total (unsold): " + exoCreditsTotal + " Cr");
+	}
+
+	private static void logMassacreRebuildSummary(MissionTracker tracker, boolean rebuilt) {
+		if (!rebuilt || tracker == null) {
+			System.out.println("Mission massacre progress: not rebuilt (incremental rescan).");
+			return;
+		}
+		int combatWithKills = 0;
+		int attributed = 0;
+		for (org.dce.ed.mission.MissionRecord r : tracker.getActive()) {
+			if (r.getCategory() != org.dce.ed.mission.MissionCategory.COMBAT || r.getKillCount() <= 0) {
+				continue;
+			}
+			combatWithKills++;
+			attributed += r.getKillsCompleted();
+		}
+		System.out.println("Mission massacre progress rebuilt into session_json: "
+				+ combatWithKills + " combat mission(s), " + attributed + " attributed kill(s).");
 	}
 
 	/**

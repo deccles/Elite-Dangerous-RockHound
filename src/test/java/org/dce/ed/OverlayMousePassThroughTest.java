@@ -151,7 +151,7 @@ class OverlayMousePassThroughTest {
         }
     }
 
-    private static final int CROSSHAIR_POLL_MS = 16;
+    private static final int CROSSHAIR_POLL_MS = 8;
 
     /**
      * Full {@link OverlayFrame} with content can expose child HWNDs (e.g. SunAwtCanvas) that steal clicks

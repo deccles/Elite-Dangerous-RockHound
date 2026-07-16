@@ -61,7 +61,10 @@ public final class MissionSessionData {
         private String destinationSettlement;
         private String targetFaction;
         private String target;
+        private String targetType;
+        private String targetTypeLocalised;
         private int killCount;
+        private int killsCompleted;
         private long donation;
         private long reward;
         private String expiryIso;
@@ -101,8 +104,14 @@ public final class MissionSessionData {
         public void setTargetFaction(String targetFaction) { this.targetFaction = targetFaction; }
         public String getTarget() { return target; }
         public void setTarget(String target) { this.target = target; }
+        public String getTargetType() { return targetType; }
+        public void setTargetType(String targetType) { this.targetType = targetType; }
+        public String getTargetTypeLocalised() { return targetTypeLocalised; }
+        public void setTargetTypeLocalised(String targetTypeLocalised) { this.targetTypeLocalised = targetTypeLocalised; }
         public int getKillCount() { return killCount; }
         public void setKillCount(int killCount) { this.killCount = killCount; }
+        public int getKillsCompleted() { return killsCompleted; }
+        public void setKillsCompleted(int killsCompleted) { this.killsCompleted = killsCompleted; }
         public long getDonation() { return donation; }
         public void setDonation(long donation) { this.donation = donation; }
         public long getReward() { return reward; }

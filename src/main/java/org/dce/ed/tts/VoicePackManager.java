@@ -88,7 +88,7 @@ public final class VoicePackManager {
      * bump this revision, rebuild/warm packs, and upload new {@code voice-*.zip} assets — otherwise
      * pack-only clients keep stale audio until they manually clear the cache.
      */
-    public static final int SPEECH_PACK_REVISION = 5;
+    public static final int SPEECH_PACK_REVISION = 6;
 
     private static final String VOICE_PACK_PREFIX = "voice-";
     private static final String VOICE_PACK_SUFFIX = ".zip";

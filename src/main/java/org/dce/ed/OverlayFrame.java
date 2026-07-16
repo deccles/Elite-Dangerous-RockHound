@@ -168,7 +168,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     // Crosshair on glass pane (draw-only, on top of all UI; {@link CrosshairOverlay#contains} is false)
     private final CrosshairOverlay crosshairOverlay = new CrosshairOverlay();
     private final Timer crosshairTimer;
-    private static final int CROSSHAIR_POLL_MS = 16;
+    private static final int CROSSHAIR_POLL_MS = 8;
     private static final long PASS_THROUGH_CLOSE_DWELL_MS = 900L;
     private static final long PASS_THROUGH_TOGGLE_DWELL_MS = 700L;
     private static final long PASS_THROUGH_MENU_DWELL_MS = 900L;
@@ -699,7 +699,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         setGlassPane(crosshairOverlay);
         crosshairOverlay.setVisible(false);
 
-        // Poll global mouse position and update crosshair (~60 Hz, direct tracking like RoboHound game message)
+        // Poll global mouse position and update crosshair (~120 Hz, direct tracking like RoboHound game message)
         crosshairTimer = new Timer(CROSSHAIR_POLL_MS, e -> updateCrosshair());
         crosshairTimer.start();
 
@@ -883,6 +883,26 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         if (tabs != null) {
             tabs.getEngineeringTabPanel().refreshGoalProgressFromJournal();
+        }
+    }
+
+    /**
+     * Reload missions from {@code session_json} after a full journal rescan.
+     * Rescan writes rebuilt massacre progress to SQLite; the live tracker still has pre-rescan
+     * state, and {@link #prepareForApplicationRestart()} / exit would otherwise overwrite the DB
+     * with those stale zeros.
+     */
+    public void reloadMissionsFromSessionAfterRescan() {
+        EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        if (tabs == null) {
+            return;
+        }
+        try {
+            EdoSessionState state = EdoSessionPersistence.load();
+            tabs.getMissionsTabPanel().applySessionState(state);
+            tabs.getMissionsTabPanel().hydrateTrackerFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
+        } catch (Exception ex) {
+            System.err.println("OverlayFrame: reloadMissionsFromSessionAfterRescan failed: " + ex.getMessage());
         }
     }
 
@@ -1157,7 +1177,8 @@ private void installCarrierJumpTitleUpdater() {
             }
 
             if (event.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
-                SwingUtilities.invokeLater(this::clearCarrierJumpCountdown);
+                Instant cancelTs = event.getTimestamp();
+                SwingUtilities.invokeLater(() -> onCarrierJumpCancelled(cancelTs, event));
                 return;
             }
 
@@ -1221,7 +1242,60 @@ private void onCarrierJumpCompleted(Instant arrivalTime, boolean offCarrierCompl
         return;
     }
     Instant cooldownStart = arrivalTime != null ? arrivalTime : now;
-    startCarrierJumpCooldown(cooldownStart, offCarrierCompletion);
+    startCarrierJumpCooldown(cooldownStart, offCarrierCompletion, true);
+}
+
+/**
+ * Cancelling a scheduled carrier jump also starts the in-game jump cooldown; clear the T- countdown
+ * and run the same cooldown timer/viz (without "Jump complete" speech).
+ */
+private void onCarrierJumpCancelled(Instant cancelTime, EliteLogEvent event) {
+    boolean hadPendingCountdown = carrierJumpDepartureTime != null;
+    if (!hadPendingCountdown && !acceptOwnedCarrierCancel(event)) {
+        return;
+    }
+    clearCarrierJumpCountdownStateOnly();
+    Instant now = Instant.now();
+    Instant start = cancelTime != null ? cancelTime : now;
+    if (!hadPendingCountdown && !CarrierJumpCooldown.isJumpTimestampLive(start, now)) {
+        setTitleBarText(DEFAULT_TITLE_BAR_TITLE);
+        updateRightStatusDefault();
+        saveSessionState();
+        return;
+    }
+    // Cancel timestamp aligns with the schedule UI — use the full 5-minute duration.
+    startCarrierJumpCooldown(start, true, false);
+}
+
+private boolean acceptOwnedCarrierCancel(EliteLogEvent event) {
+    long carrierId = carrierIdFromEvent(event);
+    EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+    if (tabs == null) {
+        return carrierId == 0L;
+    }
+    org.dce.ed.logreader.OwnedFleetCarrierTracker tracker = tabs.getOwnedFleetCarrierTracker();
+    if (tracker == null) {
+        return carrierId == 0L;
+    }
+    if (tracker.hasOwnedCarrierId()) {
+        return tracker.isOwnedCarrierId(carrierId);
+    }
+    return carrierId == 0L;
+}
+
+private static long carrierIdFromEvent(EliteLogEvent event) {
+    if (event == null || event.getRawJson() == null) {
+        return 0L;
+    }
+    JsonObject raw = event.getRawJson();
+    if (!raw.has("CarrierID") || raw.get("CarrierID").isJsonNull()) {
+        return 0L;
+    }
+    try {
+        return raw.get("CarrierID").getAsLong();
+    } catch (Exception ex) {
+        return 0L;
+    }
 }
 
 private boolean isCommanderAboardFleetCarrier() {
@@ -1295,10 +1369,14 @@ private void updateCarrierJumpCountdown() {
 }
 
 private void startCarrierJumpCooldown() {
-    startCarrierJumpCooldown(Instant.now(), false);
+    startCarrierJumpCooldown(Instant.now(), false, true);
 }
 
 private void startCarrierJumpCooldown(Instant startTime, boolean offCarrierCompletion) {
+    startCarrierJumpCooldown(startTime, offCarrierCompletion, true);
+}
+
+private void startCarrierJumpCooldown(Instant startTime, boolean offCarrierCompletion, boolean speakJumpComplete) {
     Instant effectiveStart = startTime != null ? startTime : Instant.now();
     carrierJumpCooldownEndTime = CarrierJumpCooldown.cooldownEndFromJump(effectiveStart, offCarrierCompletion);
     if (carrierJumpCooldownTimer != null) {
@@ -1308,7 +1386,7 @@ private void startCarrierJumpCooldown(Instant startTime, boolean offCarrierCompl
     carrierJumpCooldownTimer.setRepeats(true);
     carrierJumpCooldownTimer.start();
     updateCarrierJumpCooldown();
-    if (!carrierJumpCompleteSpokenForCurrentJump) {
+    if (speakJumpComplete && !carrierJumpCompleteSpokenForCurrentJump) {
         carrierJumpCompleteSpokenForCurrentJump = true;
         CARRIER_JUMP_TTS.speakf("Jump complete");
     }

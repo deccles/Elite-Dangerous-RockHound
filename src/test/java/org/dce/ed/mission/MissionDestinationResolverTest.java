@@ -1,7 +1,6 @@
 package org.dce.ed.mission;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -38,5 +37,51 @@ class MissionDestinationResolverTest {
         MissionDestination turnIn = MissionDestinationResolver.turnInFor(r);
         assertEquals("Tenjin / Balakor's Beacon", obj.displayLine());
         assertEquals(turnIn.displayLine(), obj.displayLine());
+    }
+
+    @Test
+    void combatAssassinate_showsNamedTarget() {
+        MissionRecord r = new MissionRecord(4L);
+        r.setName("Mission_Assassinate_name");
+        r.setTarget("Jasper \"Blaze\" Venn");
+        r.setKillCount(1);
+        r.setDestinationSystem("LHS 3447");
+        r.setDestinationStation("Worlidge Terminal");
+        MissionDestination obj = MissionDestinationResolver.objectiveFor(r);
+        MissionDestination turnIn = MissionDestinationResolver.turnInFor(r);
+        assertEquals("Jasper \"Blaze\" Venn", obj.displayLine());
+        assertEquals("LHS 3447 / Worlidge Terminal", turnIn.displayLine());
+    }
+
+    @Test
+    void combatMassacre_showsKillProgress() {
+        MissionRecord r = new MissionRecord(5L);
+        r.setName("Mission_Massacre");
+        r.setKillCount(30);
+        r.setKillsCompleted(23);
+        r.setTargetTypeLocalised("Pirate");
+        r.setTargetFaction("Nuenets Corp.");
+        r.setDestinationSystem("Nuenets");
+        MissionDestination obj = MissionDestinationResolver.objectiveFor(r);
+        assertEquals("23/30 pirates", obj.displayLine());
+        assertEquals("Nuenets", MissionDestinationResolver.turnInFor(r).displayLine());
+    }
+
+    @Test
+    void combatMassacre_redirectedShowsComplete() {
+        MissionRecord r = new MissionRecord(6L);
+        r.setName("Mission_Massacre");
+        r.setKillCount(12);
+        r.setKillsCompleted(10);
+        r.setRedirected(true);
+        r.setTargetTypeLocalised("Pirate");
+        assertEquals("12/12 pirates", MissionDestinationResolver.objectiveFor(r).displayLine());
+    }
+
+    @Test
+    void pluralizeKillNoun_basic() {
+        assertEquals("pirates", MissionDestinationResolver.pluralizeKillNoun("Pirate"));
+        assertEquals("enemies", MissionDestinationResolver.pluralizeKillNoun("Enemy"));
+        assertEquals("ships", MissionDestinationResolver.pluralizeKillNoun("ships"));
     }
 }

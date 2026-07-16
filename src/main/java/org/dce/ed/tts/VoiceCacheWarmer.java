@@ -54,8 +54,11 @@ import software.amazon.awssdk.services.polly.model.VoiceId;
  * If {@code gh} is not on the JVM's {@code PATH} (common on Windows), set {@code -Dedo.ghPath=...} or
  * {@code EDO_GH_PATH} to {@code gh.exe}, or rely on the standard GitHub CLI install locations.
  *
- * <p><b>Parallelism:</b> warming runs several worker threads (default {@code min(8, availableProcessors)},
- * at least 2). Override with JVM flag {@code -Dedo.voiceWarmParallelism=N}. Polly rate limits may require lowering N.
+ * <p><b>Parallelism:</b> warming runs several worker threads (default {@code min(3, availableProcessors)},
+ * at least 1). Override with JVM flag {@code -Dedo.voiceWarmParallelism=N}. Polly rate limits may require
+ * lowering N further (e.g. {@code -Dedo.voiceWarmParallelism=1}). Rate-exceeded errors retry with backoff.
+ * When warming {@code all} voices, a short pause runs between voices ({@code -Dedo.voiceWarmInterVoicePauseMs},
+ * default 8000).
  *
  * <p><b>AWS credentials:</b> standard SDK provider chain only (not EDO preferences): environment variables
  * {@code AWS_ACCESS_KEY_ID} / {@code AWS_SECRET_ACCESS_KEY}, optional {@code AWS_PROFILE}, shared credentials file,
@@ -81,7 +84,10 @@ public final class VoiceCacheWarmer {
             "First Discovered System",
             NpcCrewTracker.FIGHTER_PILOT_REMINDER_SPEECH,
             BountyScanTracker.FIRST_BOUNTY_SPEECH,
-            BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH);
+            BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH,
+            org.dce.ed.mission.MissionSpeechTracker.TARGET_DESTROYED_SPEECH,
+            org.dce.ed.mission.MissionSpeechTracker.COMBAT_COMPLETE_SPEECH,
+            org.dce.ed.mission.MissionSpeechTracker.DELIVERED_SPEECH);
 
     @FunctionalInterface
     private interface ItemWarm<T> {
@@ -97,10 +103,16 @@ public final class VoiceCacheWarmer {
             return Math.min(32, prop);
         }
         int cores = Runtime.getRuntime().availableProcessors();
-        return Math.max(2, Math.min(8, cores));
+        // Keep default low: Polly account quotas often trip at 8 concurrent synths across a full warm.
+        return Math.max(1, Math.min(3, cores));
     }
 
     static final String VOICE_WARM_PARALLELISM_PROPERTY = "edo.voiceWarmParallelism";
+    /** Pause between voices when warming {@code all} (milliseconds). */
+    static final String VOICE_WARM_INTER_VOICE_PAUSE_MS_PROPERTY = "edo.voiceWarmInterVoicePauseMs";
+    private static final int DEFAULT_INTER_VOICE_PAUSE_MS = 8_000;
+    private static final int POLLY_RATE_LIMIT_MAX_ATTEMPTS = 8;
+    private static final long POLLY_RATE_LIMIT_BASE_DELAY_MS = 1_500L;
 
     static Set<String> requiredWarmupTemplatesForTests() {
         return REQUIRED_WARMUP_TEMPLATES;
@@ -119,10 +131,11 @@ public final class VoiceCacheWarmer {
         if (items == null || items.isEmpty()) {
             return;
         }
+        ItemWarm<T> retrying = item -> invokeWithPollyRateLimitRetry(phase, () -> work.accept(item));
         int threads = warmParallelism();
         if (threads <= 1) {
             for (T t : items) {
-                work.accept(t);
+                retrying.accept(t);
             }
             return;
         }
@@ -140,7 +153,7 @@ public final class VoiceCacheWarmer {
                 List<T> slice = items.subList(start, end);
                 futures.add(ex.submit(() -> {
                     for (T item : slice) {
-                        work.accept(item);
+                        retrying.accept(item);
                     }
                     return null;
                 }));
@@ -150,6 +163,78 @@ public final class VoiceCacheWarmer {
             }
         } finally {
             ex.shutdown();
+        }
+    }
+
+    @FunctionalInterface
+    private interface WarmAction {
+        void run() throws Exception;
+    }
+
+    static void invokeWithPollyRateLimitRetry(String phase, WarmAction action) throws Exception {
+        Exception last = null;
+        for (int attempt = 1; attempt <= POLLY_RATE_LIMIT_MAX_ATTEMPTS; attempt++) {
+            try {
+                action.run();
+                return;
+            } catch (Exception e) {
+                last = e;
+                if (!isPollyRateLimit(e) || attempt >= POLLY_RATE_LIMIT_MAX_ATTEMPTS) {
+                    throw e;
+                }
+                long delayMs = POLLY_RATE_LIMIT_BASE_DELAY_MS * (1L << (attempt - 1));
+                delayMs = Math.min(delayMs, 60_000L);
+                System.err.println("Polly rate limited during " + phase
+                        + " (attempt " + attempt + "/" + POLLY_RATE_LIMIT_MAX_ATTEMPTS
+                        + "), sleeping " + delayMs + "ms…");
+                Thread.sleep(delayMs);
+            }
+        }
+        if (last != null) {
+            throw last;
+        }
+    }
+
+    static boolean isPollyRateLimit(Throwable t) {
+        while (t != null) {
+            String msg = t.getMessage();
+            if (msg != null) {
+                String lower = msg.toLowerCase(Locale.ROOT);
+                if (lower.contains("rate exceeded")
+                        || lower.contains("throttl")
+                        || lower.contains("too many requests")) {
+                    return true;
+                }
+            }
+            String simple = t.getClass().getSimpleName();
+            if (simple != null && (simple.contains("Throttl") || simple.contains("TooManyRequests"))) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
+    }
+
+    static int interVoicePauseMs() {
+        Integer prop = Integer.getInteger(VOICE_WARM_INTER_VOICE_PAUSE_MS_PROPERTY);
+        if (prop != null && prop >= 0) {
+            return prop;
+        }
+        return DEFAULT_INTER_VOICE_PAUSE_MS;
+    }
+
+    private static void pauseBetweenVoices(String completedVoice, String nextVoice) {
+        int pauseMs = interVoicePauseMs();
+        if (pauseMs <= 0 || nextVoice == null) {
+            return;
+        }
+        System.out.println("Pausing " + pauseMs + "ms after " + completedVoice
+                + " before warming " + nextVoice
+                + " (override -D" + VOICE_WARM_INTER_VOICE_PAUSE_MS_PROPERTY + "=N)…");
+        try {
+            Thread.sleep(pauseMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -918,10 +1003,14 @@ public final class VoiceCacheWarmer {
             List<String> voices = PollyTtsCached.STANDARD_US_ENGLISH_VOICES;
             System.out.println("Warming " + voices.size() + " standard US English voices: " + voices);
             List<Path> zipsForDeploy = new ArrayList<>();
-            for (String voice : voices) {
+            for (int i = 0; i < voices.size(); i++) {
+                String voice = voices.get(i);
                 Path created = warmAndMaybeZipOneVoice(voice, createZip);
                 if (created != null) {
                     zipsForDeploy.add(created);
+                }
+                if (i + 1 < voices.size()) {
+                    pauseBetweenVoices(voice, voices.get(i + 1));
                 }
             }
             System.out.println("Finished all voices.");
@@ -1086,29 +1175,38 @@ public final class VoiceCacheWarmer {
      * @return absolute path to the zip if {@code createZip} and packaging succeeded; otherwise {@code null}
      */
     private static Path warmAndMaybeZipOneVoice(String voice, boolean createZip) {
+        boolean warmOk = false;
         try {
             warmAll(voice);
             System.out.println("Done warming cache for voice: " + voice);
+            warmOk = true;
         } catch (Exception e) {
-            System.err.println("Warm failed for " + voice + " (pack zip will still be attempted if -create): "
-                    + e.getMessage());
+            System.err.println("Warm failed for " + voice + ": " + e.getMessage());
             e.printStackTrace();
+            if (createZip) {
+                System.err.println("Skipping pack zip for " + voice
+                        + " because warming did not finish (avoids shipping an incomplete voice pack).");
+                System.err.println("Re-run for this voice alone after a pause, e.g.:");
+                System.err.println("  … VoiceCacheWarmer " + voice + " -create -Dedo.voiceWarmParallelism=1");
+            }
         }
 
-        if (createZip) {
-            Path outDir = Path.of("target");
-            try {
-                Files.createDirectories(outDir);
-                Path zip = outDir.resolve("voice-" + voice.toLowerCase(Locale.ROOT) + ".zip");
-                Path absZip = zip.toAbsolutePath().normalize();
-                System.out.println("Creating voice pack: " + absZip);
-                VoicePackManager.createVoicePackZip(voice, zip);
-                System.out.println("Created pack: " + absZip);
-                return absZip;
-            } catch (Exception e) {
-                System.err.println("Pack zip failed for " + voice + ": " + e.getMessage());
-                e.printStackTrace();
-            }
+        if (!createZip || !warmOk) {
+            return null;
+        }
+
+        Path outDir = Path.of("target");
+        try {
+            Files.createDirectories(outDir);
+            Path zip = outDir.resolve("voice-" + voice.toLowerCase(Locale.ROOT) + ".zip");
+            Path absZip = zip.toAbsolutePath().normalize();
+            System.out.println("Creating voice pack: " + absZip);
+            VoicePackManager.createVoicePackZip(voice, zip);
+            System.out.println("Created pack: " + absZip);
+            return absZip;
+        } catch (Exception e) {
+            System.err.println("Pack zip failed for " + voice + ": " + e.getMessage());
+            e.printStackTrace();
         }
         return null;
     }

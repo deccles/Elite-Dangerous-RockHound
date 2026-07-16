@@ -59,6 +59,7 @@ import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.EliteLogFileLocator;
 import org.dce.ed.logreader.OwnedFleetCarrierTracker;
+import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
@@ -283,11 +284,25 @@ public class EliteOverlayTabbedPane extends JPanel {
 			}
 		});
 		this.nearbyTab = new NearbyTabPanel(systemTab, hoverSwitchEnabled);
-		this.missionsTab = new MissionsTabPanel(
+        this.missionsTab = new MissionsTabPanel(
 				hoverSwitchEnabled,
 				this::isCurrentlyDocked,
-				() -> lastKnownSystemName,
-				() -> lastKnownStationName);
+				() -> {
+					// Prefer System tab state — lastKnownSystemName can lag if Location hasn't fired yet.
+					var state = systemTab.getState();
+					if (state != null) {
+						String n = state.getSystemName();
+						if (n != null && !n.isBlank()) {
+							return n;
+						}
+					}
+					return lastKnownSystemName;
+				},
+				() -> lastKnownStationName,
+				() -> {
+					var state = systemTab.getState();
+					return state != null ? state.getStarPos() : null;
+				});
 		miningTab.setMissionTracker(missionsTab.getTracker(), hoverSwitchEnabled);
 		this.ownedFleetCarrierTracker = new OwnedFleetCarrierTracker();
 		this.fleetCarrierTab = new FleetCarrierTabPanel(hoverSwitchEnabled, ownedFleetCarrierTracker);
@@ -546,6 +561,12 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		if (event instanceof LocationEvent le) {
 			lastKnownSystemName = le.getStarSystem();
+		} else if (event instanceof FsdJumpEvent jump) {
+			lastKnownSystemName = jump.getStarSystem();
+		} else if (event instanceof CarrierJumpEvent cj) {
+			lastKnownSystemName = cj.getStarSystem();
+		} else if (event instanceof org.dce.ed.logreader.event.SupercruiseExitEvent sc) {
+			lastKnownSystemName = sc.getStarSystem();
 		}
 		if (event.getType() == EliteEventType.DOCKED) {
 			JsonObject raw = event.getRawJson();

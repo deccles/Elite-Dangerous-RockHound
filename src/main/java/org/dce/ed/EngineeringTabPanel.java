@@ -69,7 +69,9 @@ import org.dce.ed.engineering.EngineeringMaterialKeys;
 import org.dce.ed.engineering.EngineeringPlanner;
 import org.dce.ed.engineering.GoalPriority;
 import org.dce.ed.engineering.GoalReadiness;
+import org.dce.ed.engineering.MaterialRequirement;
 import org.dce.ed.engineering.MaterialTradePlanner;
+import org.dce.ed.engineering.MaterialsGoal;
 import org.dce.ed.engineering.ShoppingListRow;
 import org.dce.ed.engineering.TradeSuggestion;
 import org.dce.ed.engineering.TradeTargetGroup;
@@ -82,6 +84,8 @@ import org.dce.ed.logreader.event.StoredShipsEvent;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.EngineeringSessionData;
 import org.dce.ed.session.EngineeringSessionData.EngineeringGoalPersisted;
+import org.dce.ed.session.EngineeringSessionData.MaterialNeedPersisted;
+import org.dce.ed.session.EngineeringSessionData.MaterialsGoalPersisted;
 import org.dce.ed.session.EngineeringSessionData.ShipPersisted;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
@@ -131,13 +135,14 @@ public class EngineeringTabPanel extends JPanel {
     private static final int COL_HAVE = 3;
     private static final int COL_SHORT = 4;
 
-    private static final int COL_GOAL_PRIORITY = 0;
-    private static final int COL_GOAL_BLUEPRINT = 1;
-    private static final int COL_GOAL_TARGET = 2;
-    private static final int COL_GOAL_EXP = 3;
-    private static final int COL_GOAL_STATUS = 4;
-    private static final int COL_GOAL_EDIT = 5;
-    private static final int COL_GOAL_DELETE = 6;
+    private static final int COL_GOAL_ENABLED = 0;
+    private static final int COL_GOAL_PRIORITY = 1;
+    private static final int COL_GOAL_BLUEPRINT = 2;
+    private static final int COL_GOAL_TARGET = 3;
+    private static final int COL_GOAL_EXP = 4;
+    private static final int COL_GOAL_STATUS = 5;
+    private static final int COL_GOAL_EDIT = 6;
+    private static final int COL_GOAL_DELETE = 7;
 
     /** Status column is capped at this width; longer values ellipsize with a tooltip. */
     private static final String GOAL_STATUS_WIDTH_CAP_TEXT = "w/ Trades";
@@ -177,6 +182,7 @@ public class EngineeringTabPanel extends JPanel {
     private final MaterialTradePlanner tradePlanner = new MaterialTradePlanner(database);
 
     private final List<EngineeringGoal> goals = new ArrayList<>();
+    private final List<MaterialsGoal> materialsGoals = new ArrayList<>();
     private final EngineeringShipCatalog shipCatalog = new EngineeringShipCatalog();
     /** null = show / plan for all ships. */
     private Long goalsShipFilterId;
@@ -222,12 +228,17 @@ public class EngineeringTabPanel extends JPanel {
         goalsTable.getColumnModel().getColumn(COL_GOAL_EXP).setCellRenderer(new EllipsisTextCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_TARGET).setCellRenderer(new GoalTargetCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_STATUS).setCellRenderer(new GoalStatusCellRenderer());
+        goalsTable.getColumnModel().getColumn(COL_GOAL_ENABLED).setCellRenderer(new GoalEnabledCellRenderer());
+        goalsTable.getColumnModel().getColumn(COL_GOAL_ENABLED).setHeaderRenderer(new GoalEnabledHeaderRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setCellRenderer(new GoalPriorityCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setHeaderRenderer(new GoalPriorityHeaderRenderer());
-        int priorityW = priorityColumnWidth();
-        goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setMinWidth(priorityW);
-        goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setMaxWidth(priorityW);
-        goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setPreferredWidth(priorityW);
+        int includeW = priorityColumnWidth();
+        goalsTable.getColumnModel().getColumn(COL_GOAL_ENABLED).setMinWidth(includeW);
+        goalsTable.getColumnModel().getColumn(COL_GOAL_ENABLED).setMaxWidth(includeW);
+        goalsTable.getColumnModel().getColumn(COL_GOAL_ENABLED).setPreferredWidth(includeW);
+        goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setMinWidth(includeW);
+        goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setMaxWidth(includeW);
+        goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setPreferredWidth(includeW);
         goalsTable.setRowSelectionAllowed(false);
         goalsTable.setColumnSelectionAllowed(false);
         goalsTable.setCellSelectionEnabled(false);
@@ -247,7 +258,7 @@ public class EngineeringTabPanel extends JPanel {
                 if (!SwingUtilities.isLeftMouseButton(e)) {
                     return;
                 }
-                // Cell editors fight overlay styling / MPT hover; open priority menu via press when not MPT.
+                // Cell editors fight overlay styling / MPT hover; handle via press when not MPT.
                 if (passThroughEnabledSupplier != null && passThroughEnabledSupplier.getAsBoolean()) {
                     return;
                 }
@@ -256,7 +267,14 @@ public class EngineeringTabPanel extends JPanel {
                     return;
                 }
                 int modelRow = goalsTable.convertRowIndexToModel(row);
-                if (isIncludeHit(goalsTable, e.getPoint(), row)) {
+                int viewCol = goalsTable.columnAtPoint(e.getPoint());
+                int modelCol = viewCol >= 0 ? goalsTable.convertColumnIndexToModel(viewCol) : -1;
+                if (modelCol == COL_GOAL_ENABLED) {
+                    toggleGoalEnabled(modelRow);
+                    e.consume();
+                    return;
+                }
+                if (modelCol == COL_GOAL_PRIORITY) {
                     showGoalPriorityChooser(modelRow);
                     e.consume();
                     return;
@@ -288,10 +306,17 @@ public class EngineeringTabPanel extends JPanel {
                 this::removeGoalAt);
         TableCellHoverToggleSupport.install(
                 goalsTable,
+                COL_GOAL_ENABLED,
+                passThroughEnabledSupplier,
+                INCLUDE_HOVER_DELAY_MS,
+                0,
+                this::toggleGoalEnabled);
+        TableCellHoverToggleSupport.install(
+                goalsTable,
                 COL_GOAL_PRIORITY,
                 passThroughEnabledSupplier,
                 INCLUDE_HOVER_DELAY_MS,
-                INCLUDE_HIT_EXPAND_PX,
+                0,
                 this::showGoalPriorityChooser);
         configureTable(shoppingTable, base, new ShoppingCellRenderer());
         configureTable(tradeTable, base, new TradeCellRenderer());
@@ -368,6 +393,13 @@ public class EngineeringTabPanel extends JPanel {
 
         JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
         south.setOpaque(false);
+        JButton addMatsBtn = new JButton("Add Materials Goal");
+        OverlayOutlineButtonStyle.applyChip(addMatsBtn, base, false);
+        addMatsBtn.setToolTipText("Reserve materials (mission requests, stockpile) beyond engineering crafts");
+        addMatsBtn.addActionListener(e -> openAddMaterialsGoalDialog());
+        HoverClickPoller.register(addMatsBtn, HOVER_CLICK_DELAY_MS, this::openAddMaterialsGoalDialog,
+                passThroughEnabledSupplier);
+        south.add(addMatsBtn);
         JButton loadoutBtn = new JButton("Add Goal via Loadout");
         OverlayOutlineButtonStyle.applyChip(loadoutBtn, base, false);
         loadoutBtn.setToolTipText("Build progress — grade / multi-module craft status and fitted engineering");
@@ -538,7 +570,8 @@ public class EngineeringTabPanel extends JPanel {
         if (avail <= 0 || goalsTable == null) {
             return;
         }
-        int wCheck = priorityColumnWidth();
+        int wEnabled = priorityColumnWidth();
+        int wPriority = priorityColumnWidth();
         int wEdit = EDIT_COL_WIDTH;
         int wDelete = DELETE_COL_WIDTH;
         int rowSample = Math.max(goalsTable.getRowCount(), 1);
@@ -553,10 +586,11 @@ public class EngineeringTabPanel extends JPanel {
         }
         int wStatus = measureGoalStatusColumnWidth();
         int minBlueprint = 40;
-        int wBlueprint = avail - wCheck - wEdit - wDelete - wTarget - wExp - wStatus;
+        int fixed = wEnabled + wPriority + wEdit + wDelete + wTarget + wExp + wStatus;
+        int wBlueprint = avail - fixed;
         if (wBlueprint < minBlueprint) {
             wBlueprint = minBlueprint;
-            int overflow = wCheck + wEdit + wDelete + wTarget + wExp + wStatus + wBlueprint - avail;
+            int overflow = fixed + wBlueprint - avail;
             if (overflow > 0) {
                 int take = Math.min(overflow, wTarget - 40);
                 wTarget -= take;
@@ -564,10 +598,11 @@ public class EngineeringTabPanel extends JPanel {
                 take = Math.min(overflow, wExp - 76);
                 wExp -= take;
                 wBlueprint = Math.max(minBlueprint,
-                        avail - wCheck - wEdit - wDelete - wTarget - wExp - wStatus);
+                        avail - wEnabled - wPriority - wEdit - wDelete - wTarget - wExp - wStatus);
             }
         }
-        setColumnPixelWidth(goalsTable, COL_GOAL_PRIORITY, wCheck);
+        setColumnPixelWidth(goalsTable, COL_GOAL_ENABLED, wEnabled);
+        setColumnPixelWidth(goalsTable, COL_GOAL_PRIORITY, wPriority);
         setColumnPixelWidth(goalsTable, COL_GOAL_BLUEPRINT, wBlueprint);
         setColumnPixelWidth(goalsTable, COL_GOAL_TARGET, wTarget);
         setColumnPixelWidth(goalsTable, COL_GOAL_EXP, wExp);
@@ -1071,6 +1106,14 @@ public class EngineeringTabPanel extends JPanel {
                 int col = columnAtPoint(p);
                 if (row >= 0 && col >= 0) {
                     int modelCol = convertColumnIndexToModel(col);
+                    if (modelCol == COL_GOAL_ENABLED) {
+                        Object value = getValueAt(row, col);
+                        if (value instanceof Boolean enabled) {
+                            return enabled
+                                    ? "Included in materials and trades"
+                                    : "Hidden from materials and trades";
+                        }
+                    }
                     if (modelCol == COL_GOAL_PRIORITY) {
                         Object value = getValueAt(row, col);
                         if (value instanceof GoalPriority priority) {
@@ -1291,7 +1334,8 @@ public class EngineeringTabPanel extends JPanel {
                 || type == EliteEventType.MATERIAL_COLLECTED
                 || type == EliteEventType.MATERIAL_DISCARDED
                 || type == EliteEventType.MATERIAL_TRADE
-                || type == EliteEventType.ENGINEER_CRAFT) {
+                || type == EliteEventType.ENGINEER_CRAFT
+                || type == EliteEventType.ENGINEER_CONTRIBUTION) {
             inventoryTracker.applyEvent(event);
             scheduleRefresh();
         }
@@ -1360,6 +1404,12 @@ public class EngineeringTabPanel extends JPanel {
                 goals.set(i, g.withShip(shipId, label));
             }
         }
+        for (int i = 0; i < materialsGoals.size(); i++) {
+            MaterialsGoal g = materialsGoals.get(i);
+            if (g != null && g.getShipId() == shipId) {
+                materialsGoals.set(i, g.withShip(shipId, label));
+            }
+        }
     }
 
     public void fillSessionState(EdoSessionState state) {
@@ -1392,6 +1442,27 @@ public class EngineeringTabPanel extends JPanel {
             persisted.add(p);
         }
         data.setGoals(persisted);
+        List<MaterialsGoalPersisted> matsPersisted = new ArrayList<>();
+        for (MaterialsGoal g : materialsGoals) {
+            if (g == null || !g.isValid()) {
+                continue;
+            }
+            MaterialsGoalPersisted p = new MaterialsGoalPersisted();
+            p.setLabel(g.getLabel());
+            p.setPriority(g.getPriority().name());
+            p.setIncludeInPlanning(Boolean.valueOf(g.isIncludeInPlanning()));
+            List<MaterialNeedPersisted> needs = new ArrayList<>();
+            for (MaterialRequirement req : g.getMaterials()) {
+                needs.add(new MaterialNeedPersisted(req.getKey(), req.getCount()));
+            }
+            p.setMaterials(needs);
+            if (g.hasShip()) {
+                p.setShipId(Long.valueOf(g.getShipId()));
+                p.setShipLabel(g.getShipLabel());
+            }
+            matsPersisted.add(p);
+        }
+        data.setMaterialGoals(matsPersisted);
         List<ShipPersisted> ships = new ArrayList<>();
         for (EngineeringShipRef ref : shipCatalog.listSorted()) {
             ShipPersisted sp = new ShipPersisted();
@@ -1408,6 +1479,7 @@ public class EngineeringTabPanel extends JPanel {
 
     public void applySessionState(EdoSessionState state) {
         goals.clear();
+        materialsGoals.clear();
         shipCatalog.clear();
         goalsShipFilterId = null;
         if (state != null && state.getEngineering() != null) {
@@ -1436,9 +1508,39 @@ public class EngineeringTabPanel extends JPanel {
                         p.getQuantity(),
                         p.getCompletedUnits(),
                         p.shipIdOrUnknown(),
-                        p.getShipLabel()));
+                        p.getShipLabel(),
+                        p.includeInPlanningOrDefault()));
                 if (!goals.isEmpty()) {
                     shipCatalog.rememberGoal(goals.get(goals.size() - 1));
+                }
+            }
+            for (MaterialsGoalPersisted p : eng.materialGoalsOrEmpty()) {
+                if (p == null) {
+                    continue;
+                }
+                List<MaterialRequirement> reqs = new ArrayList<>();
+                for (MaterialNeedPersisted need : p.materialsOrEmpty()) {
+                    if (need == null || need.getKey().isBlank() || need.getCount() <= 0) {
+                        continue;
+                    }
+                    reqs.add(new MaterialRequirement(need.getKey(), need.getCount()));
+                }
+                MaterialsGoal goal = new MaterialsGoal(
+                        p.getLabel(),
+                        reqs,
+                        p.priorityOrDefault(),
+                        p.includeInPlanningOrDefault(),
+                        p.shipIdOrUnknown(),
+                        p.getShipLabel());
+                if (goal.isValid()) {
+                    materialsGoals.add(goal);
+                    if (goal.hasShip()) {
+                        EngineeringShipRef known = shipCatalog.get(goal.getShipId());
+                        if (known == null) {
+                            shipCatalog.remember(new EngineeringShipRef(
+                                    goal.getShipId(), "", goal.getShipLabel(), ""));
+                        }
+                    }
                 }
             }
         }
@@ -1447,30 +1549,86 @@ public class EngineeringTabPanel extends JPanel {
     }
 
 
-    private List<EngineeringGoal> goalsForUi() {
-        List<EngineeringGoal> visible;
-        if (goalsShipFilterId == null) {
-            visible = new ArrayList<>(goals);
-        } else {
-            visible = new ArrayList<>();
-            for (EngineeringGoal g : goals) {
-                if (g != null && g.getShipId() == goalsShipFilterId.longValue()) {
-                    visible.add(g);
-                }
+    private List<GoalUiRow> goalsForUi() {
+        List<GoalUiRow> visible = new ArrayList<>();
+        for (int i = 0; i < goals.size(); i++) {
+            EngineeringGoal g = goals.get(i);
+            if (g == null) {
+                continue;
+            }
+            if (goalsShipFilterId == null
+                    || (g.hasShip() && g.getShipId() == goalsShipFilterId.longValue())) {
+                visible.add(GoalUiRow.blueprint(g, i));
+            }
+        }
+        for (int i = 0; i < materialsGoals.size(); i++) {
+            MaterialsGoal g = materialsGoals.get(i);
+            if (g == null) {
+                continue;
+            }
+            // Unassigned materials goals are commander-wide and always visible.
+            if (isMaterialsGoalVisibleForShipFilter(g, goalsShipFilterId)) {
+                visible.add(GoalUiRow.materials(g, goals.size() + i));
             }
         }
         visible.sort(Comparator
-                .comparingInt((EngineeringGoal g) -> g.getPriority().sortRank())
-                .thenComparingInt(goals::indexOf));
+                .comparingInt((GoalUiRow r) -> r.priority().sortRank())
+                .thenComparingInt(GoalUiRow::sortIndex));
         return visible;
     }
 
-    private EngineeringGoal goalAtUiRow(int uiRow) {
-        List<EngineeringGoal> visible = goalsForUi();
+    private GoalUiRow goalRowAtUi(int uiRow) {
+        List<GoalUiRow> visible = goalsForUi();
         if (uiRow < 0 || uiRow >= visible.size()) {
             return null;
         }
         return visible.get(uiRow);
+    }
+
+    private record GoalUiRow(EngineeringGoal blueprint, MaterialsGoal materials, int sortIndex) {
+        static GoalUiRow blueprint(EngineeringGoal goal, int sortIndex) {
+            return new GoalUiRow(goal, null, sortIndex);
+        }
+
+        static GoalUiRow materials(MaterialsGoal goal, int sortIndex) {
+            return new GoalUiRow(null, goal, sortIndex);
+        }
+
+        boolean isMaterials() {
+            return materials != null;
+        }
+
+        GoalPriority priority() {
+            if (blueprint != null) {
+                return blueprint.getPriority();
+            }
+            return materials != null ? materials.getPriority() : GoalPriority.MEDIUM;
+        }
+
+        boolean isIncludeInPlanning() {
+            if (blueprint != null) {
+                return blueprint.isIncludeInPlanning();
+            }
+            return materials != null && materials.isIncludeInPlanning();
+        }
+
+        boolean isEnabled() {
+            return isIncludeInPlanning();
+        }
+    }
+
+    /**
+     * Ship filter visibility for materials goals: unassigned (commander-wide) always show;
+     * assigned show when filter is All or matches that ship.
+     */
+    static boolean isMaterialsGoalVisibleForShipFilter(MaterialsGoal goal, Long goalsShipFilterId) {
+        if (goal == null) {
+            return false;
+        }
+        if (!goal.hasShip() || goalsShipFilterId == null) {
+            return true;
+        }
+        return goal.getShipId() == goalsShipFilterId.longValue();
     }
 
     private EngineeringShipRef currentShipRef() {
@@ -1514,6 +1672,11 @@ public class EngineeringTabPanel extends JPanel {
         Long keep = goalsShipFilterId;
         Set<Long> shipsWithGoals = new HashSet<>();
         for (EngineeringGoal g : goals) {
+            if (g != null && g.hasShip()) {
+                shipsWithGoals.add(Long.valueOf(g.getShipId()));
+            }
+        }
+        for (MaterialsGoal g : materialsGoals) {
             if (g != null && g.hasShip()) {
                 shipsWithGoals.add(Long.valueOf(g.getShipId()));
             }
@@ -1639,11 +1802,11 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     private void showGoalPriorityChooser(int modelRow) {
-        EngineeringGoal goal = goalAtUiRow(modelRow);
-        if (goal == null || goalsTable == null) {
+        GoalUiRow row = goalRowAtUi(modelRow);
+        if (row == null || goalsTable == null) {
             return;
         }
-        GoalPriority current = goal.getPriority();
+        GoalPriority current = row.priority();
         int viewRow = -1;
         for (int r = 0; r < goalsTable.getRowCount(); r++) {
             if (goalsTable.convertRowIndexToModel(r) == modelRow) {
@@ -1671,7 +1834,7 @@ public class EngineeringTabPanel extends JPanel {
         menu.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(EdoUi.ED_ORANGE_TRANS, 1),
                 new EmptyBorder(2, 2, 2, 2)));
-        for (GoalPriority option : GoalPriority.values()) {
+        for (GoalPriority option : GoalPriority.chooserValues()) {
             JMenuItem item = new JMenuItem(option.menuLabel(), iconForGoalPriority(option));
             item.setOpaque(true);
             item.setBackground(EdoUi.User.PANEL_BG);
@@ -1685,34 +1848,38 @@ public class EngineeringTabPanel extends JPanel {
         menu.show(goalsTable, cell.x, cell.y + cell.height);
     }
 
-    private static Icon iconForGoalPriority(GoalPriority priority) {
-        GoalPriority p = priority != null ? priority : GoalPriority.MEDIUM;
-        return switch (p) {
-            case HIGH -> PriorityArrowIcon.HIGH;
-            case MEDIUM -> OverlayCheckBoxStyle.selectedIcon();
-            case LOW -> PriorityArrowIcon.LOW;
-            case DISABLED -> OverlayCheckBoxStyle.unselectedIcon();
-        };
-    }
-
-    /** Priority column, or a short strip into the blueprint column (larger click/hover target). */
-    private static boolean isIncludeHit(JTable table, Point point, int viewRow) {
-        if (table == null || point == null || viewRow < 0) {
-            return false;
+    private void toggleGoalEnabled(int modelRow) {
+        GoalUiRow row = goalRowAtUi(modelRow);
+        if (row == null) {
+            return;
         }
-        int includeViewCol = -1;
-        for (int c = 0; c < table.getColumnCount(); c++) {
-            if (table.convertColumnIndexToModel(c) == COL_GOAL_PRIORITY) {
-                includeViewCol = c;
-                break;
+        boolean next = !row.isEnabled();
+        if (row.isMaterials()) {
+            MaterialsGoal goal = row.materials();
+            MaterialsGoal updated = goal.withEnabled(next);
+            int fullIdx = materialsGoals.indexOf(goal);
+            if (fullIdx >= 0) {
+                materialsGoals.set(fullIdx, updated);
+            }
+        } else {
+            EngineeringGoal goal = row.blueprint();
+            EngineeringGoal updated = goal.withEnabled(next);
+            int fullIdx = goals.indexOf(goal);
+            if (fullIdx >= 0) {
+                goals.set(fullIdx, updated);
             }
         }
-        if (includeViewCol < 0) {
-            return false;
-        }
-        Rectangle cell = table.getCellRect(viewRow, includeViewCol, true);
-        Rectangle hit = new Rectangle(cell.x, cell.y, cell.width + INCLUDE_HIT_EXPAND_PX, cell.height);
-        return hit.contains(point);
+        fireSessionChanged();
+        scheduleRefresh();
+    }
+
+    private static Icon iconForGoalPriority(GoalPriority priority) {
+        GoalPriority p = GoalPriority.normalize(priority);
+        return switch (p) {
+            case HIGH -> PriorityArrowIcon.HIGH;
+            case MEDIUM, DISABLED -> PriorityArrowIcon.MEDIUM;
+            case LOW -> PriorityArrowIcon.LOW;
+        };
     }
 
     /** Pencil column, or a short strip into the status column (larger click/hover target). */
@@ -1773,6 +1940,31 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
+    private void openAddMaterialsGoalDialog() {
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        EngineeringShipRef equipped = currentShipRef();
+        MaterialsGoal goal = EngineeringMaterialsGoalDialog.showForAdd(
+                owner,
+                database,
+                passThroughEnabledSupplier,
+                shipCatalog,
+                equipped,
+                inventoryTracker.snapshot());
+        if (goal != null && goal.isValid()) {
+            materialsGoals.add(goal);
+            if (goal.hasShip()) {
+                EngineeringShipRef known = shipCatalog.get(goal.getShipId());
+                if (known == null) {
+                    shipCatalog.remember(new EngineeringShipRef(
+                            goal.getShipId(), "", goal.getShipLabel(), ""));
+                }
+            }
+            rebuildShipFilterCombo();
+            fireSessionChanged();
+            refreshUi();
+        }
+    }
+
     /**
      * Prefer the last manually chosen Add Goal ship while still in the same equipped ship;
      * when the equipped ship changes (or first time), follow the current loadout.
@@ -1796,11 +1988,32 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     private void openEditGoalDialog(int modelRow) {
-        EngineeringGoal existing = goalAtUiRow(modelRow);
-        if (existing == null) {
+        GoalUiRow row = goalRowAtUi(modelRow);
+        if (row == null) {
             return;
         }
         Window owner = SwingUtilities.getWindowAncestor(this);
+        if (row.isMaterials()) {
+            MaterialsGoal existing = row.materials();
+            MaterialsGoal updated = EngineeringMaterialsGoalDialog.showForEdit(
+                    owner,
+                    database,
+                    passThroughEnabledSupplier,
+                    shipCatalog,
+                    existing,
+                    inventoryTracker.snapshot());
+            if (updated != null && updated.isValid() && !updated.equals(existing)) {
+                int fullIdx = materialsGoals.indexOf(existing);
+                if (fullIdx >= 0) {
+                    materialsGoals.set(fullIdx, updated);
+                }
+                rebuildShipFilterCombo();
+                fireSessionChanged();
+                refreshUi();
+            }
+            return;
+        }
+        EngineeringGoal existing = row.blueprint();
         EngineeringGoal updated = EngineeringGoalDialog.showForEdit(
                 owner, database, passThroughEnabledSupplier, existing, shipCatalog);
         if (updated != null && !updated.equals(existing)) {
@@ -1818,11 +2031,15 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     private void removeGoalAt(int modelRow) {
-        EngineeringGoal goal = goalAtUiRow(modelRow);
-        if (goal == null) {
+        GoalUiRow row = goalRowAtUi(modelRow);
+        if (row == null) {
             return;
         }
-        goals.remove(goal);
+        if (row.isMaterials()) {
+            materialsGoals.remove(row.materials());
+        } else {
+            goals.remove(row.blueprint());
+        }
         rebuildShipFilterCombo();
         fireSessionChanged();
         scheduleRefresh();
@@ -1834,40 +2051,53 @@ public class EngineeringTabPanel extends JPanel {
 
     private void refreshUi() {
         Map<String, Integer> inv = inventoryTracker.snapshot();
-        List<EngineeringGoal> visibleGoals = goalsForUi();
+        List<GoalUiRow> visibleGoals = goalsForUi();
         // Materials / trades / priority claim always use every active goal (all ships).
         // Ship filter only changes which goals appear in the Goals table.
         List<EngineeringGoal> planningGoals = activeGoalsForPlanning();
-        Map<String, Integer> shortfalls = planner.shortfalls(planningGoals, inv);
+        List<MaterialsGoal> planningMats = activeMaterialsGoalsForPlanning();
+        Map<String, Integer> shortfalls = planner.shortfalls(planningGoals, planningMats, inv);
         EngineeringPlanner.PriorityPlanResult plan =
-                planner.planByPriority(planningGoals, inv, tradePlanner);
+                planner.planByPriority(planningGoals, planningMats, inv, tradePlanner);
         List<TradeSuggestion> trades = new ArrayList<>(plan.trades());
         Map<String, Integer> invAfterTrades = plan.inventoryAfterTrades();
-        List<ShoppingListRow> shopping = planner.buildShoppingList(planningGoals, inv, invAfterTrades);
+        List<ShoppingListRow> shopping =
+                planner.buildShoppingList(planningGoals, planningMats, inv, invAfterTrades);
 
-        Map<EngineeringGoal, GoalReadiness> readinessByGoal = plan.readinessByGoal();
+        Map<EngineeringGoal, GoalReadiness> readinessByBlueprint = plan.readinessByBlueprintGoal();
+        Map<MaterialsGoal, GoalReadiness> readinessByMaterials = plan.readinessByMaterialsGoal();
         goalReadiness.clear();
         goalStatusText.clear();
-        for (EngineeringGoal goal : visibleGoals) {
-            if (!goal.isIncludeInPlanning()) {
+        for (GoalUiRow row : visibleGoals) {
+            if (!row.isIncludeInPlanning()) {
                 goalReadiness.add(GoalReadiness.READY);
                 goalStatusText.add(STATUS_HIDDEN);
                 continue;
             }
-            GoalReadiness readiness = readinessByGoal.getOrDefault(goal,
-                    planner.goalReadiness(goal, inv, invAfterTrades));
-            goalReadiness.add(readiness);
-            goalStatusText.add(formatStatusText(goal, readiness, invAfterTrades));
+            if (row.isMaterials()) {
+                MaterialsGoal goal = row.materials();
+                GoalReadiness readiness = readinessByMaterials.getOrDefault(goal,
+                        planner.goalReadiness(goal, inv, invAfterTrades));
+                goalReadiness.add(readiness);
+                goalStatusText.add(formatMaterialsGoalStatusText(readiness));
+            } else {
+                EngineeringGoal goal = row.blueprint();
+                GoalReadiness readiness = readinessByBlueprint.getOrDefault(goal,
+                        planner.goalReadiness(goal, inv, invAfterTrades));
+                goalReadiness.add(readiness);
+                goalStatusText.add(formatStatusText(goal, readiness, invAfterTrades));
+            }
         }
 
         shoppingModel.setRows(shopping);
-        Map<String, Integer> shortfallsAfterTrades = planner.shortfalls(planningGoals, invAfterTrades);
+        Map<String, Integer> shortfallsAfterTrades =
+                planner.shortfalls(planningGoals, planningMats, invAfterTrades);
         updateTradeTable(trades, shortfalls, shortfallsAfterTrades);
         goalsModel.fireTableDataChanged();
 
         boolean hasVisibleGoals = !visibleGoals.isEmpty();
-        boolean hasGoals = !goals.isEmpty();
-        boolean hasActiveGoals = !planningGoals.isEmpty();
+        boolean hasGoals = !goals.isEmpty() || !materialsGoals.isEmpty();
+        boolean hasActiveGoals = !planningGoals.isEmpty() || !planningMats.isEmpty();
         boolean showShopping = hasActiveGoals && !shopping.isEmpty();
         boolean showTrades = !trades.isEmpty();
         materialsEmptyLabel.setVisible(!showShopping);
@@ -1910,6 +2140,16 @@ public class EngineeringTabPanel extends JPanel {
         List<EngineeringGoal> out = new ArrayList<>();
         for (EngineeringGoal g : goals) {
             if (g != null && g.isIncludeInPlanning()) {
+                out.add(g);
+            }
+        }
+        return out;
+    }
+
+    private List<MaterialsGoal> activeMaterialsGoalsForPlanning() {
+        List<MaterialsGoal> out = new ArrayList<>();
+        for (MaterialsGoal g : materialsGoals) {
+            if (g != null && g.isIncludeInPlanning() && g.isValid()) {
                 out.add(g);
             }
         }
@@ -2066,6 +2306,15 @@ public class EngineeringTabPanel extends JPanel {
         };
     }
 
+    private static String formatMaterialsGoalStatusText(GoalReadiness readiness) {
+        // Materials reserves have no craft step — covered stock is "Complete" until the user deletes the row.
+        return switch (readiness) {
+            case READY -> STATUS_COMPLETE;
+            case READY_WITH_TRADES -> STATUS_TRADES;
+            case STILL_SHORT -> STATUS_SHORT;
+        };
+    }
+
     private static class EdoTableCellRenderer extends DefaultTableCellRenderer {
         EdoTableCellRenderer() {
             setOpaque(false);
@@ -2137,6 +2386,49 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
+    private static final class GoalEnabledHeaderRenderer extends DefaultTableCellRenderer {
+        GoalEnabledHeaderRenderer() {
+            setOpaque(false);
+            setHorizontalAlignment(SwingConstants.CENTER);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            Component c = super.getTableCellRendererComponent(table, "", false, false, row, column);
+            if (c instanceof JLabel label) {
+                label.setOpaque(false);
+                label.setIcon(OverlayCheckBoxStyle.selectedIcon());
+                label.setText(null);
+                label.setHorizontalAlignment(SwingConstants.CENTER);
+                label.setToolTipText("Enabled — include in materials and trades");
+                label.setBorder(new EmptyBorder(2, 2, 4, 2));
+            }
+            return c;
+        }
+    }
+
+    private final class GoalEnabledCellRenderer extends JLabel implements javax.swing.table.TableCellRenderer {
+        private static final long serialVersionUID = 1L;
+
+        GoalEnabledCellRenderer() {
+            setOpaque(false);
+            setHorizontalAlignment(SwingConstants.CENTER);
+            setVerticalAlignment(SwingConstants.CENTER);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            boolean enabled = !(value instanceof Boolean b) || b;
+            setIcon(enabled ? OverlayCheckBoxStyle.selectedIcon() : OverlayCheckBoxStyle.unselectedIcon());
+            setToolTipText(enabled
+                    ? "Included in materials and trades"
+                    : "Hidden from materials and trades");
+            return this;
+        }
+    }
+
     private static final class GoalPriorityHeaderRenderer extends DefaultTableCellRenderer {
         GoalPriorityHeaderRenderer() {
             setOpaque(false);
@@ -2172,7 +2464,7 @@ public class EngineeringTabPanel extends JPanel {
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             GoalPriority priority = value instanceof GoalPriority p
-                    ? p
+                    ? GoalPriority.normalize(p)
                     : GoalPriority.MEDIUM;
             setIcon(iconForGoalPriority(priority));
             setToolTipText(priority.tooltip());
@@ -2282,9 +2574,16 @@ public class EngineeringTabPanel extends JPanel {
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
-            if (c instanceof JLabel label && value != null) {
-                String text = value.toString();
-                label.setToolTipText(text);
+            if (c instanceof JLabel label) {
+                int modelRow = table.convertRowIndexToModel(row);
+                GoalUiRow goalRow = goalRowAtUi(modelRow);
+                if (goalRow != null && goalRow.isMaterials()) {
+                    label.setToolTipText(goalRow.materials().materialsTooltip(database));
+                } else if (value != null) {
+                    label.setToolTipText(value.toString());
+                } else {
+                    label.setToolTipText(null);
+                }
             }
             return c;
         }
@@ -2304,7 +2603,7 @@ public class EngineeringTabPanel extends JPanel {
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
-            boolean editable = goalAtUiRow(modelRow) != null;
+            boolean editable = goalRowAtUi(modelRow) != null;
             setEnabled(editable);
             setIcon(editable ? PencilIcon.DEFAULT : null);
             return this;
@@ -2325,7 +2624,7 @@ public class EngineeringTabPanel extends JPanel {
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
-            boolean removable = goalAtUiRow(modelRow) != null;
+            boolean removable = goalRowAtUi(modelRow) != null;
             setEnabled(removable);
             setIcon(removable ? TrashIcon.DEFAULT : null);
             return this;
@@ -2348,11 +2647,14 @@ public class EngineeringTabPanel extends JPanel {
 
         @Override
         public int getColumnCount() {
-            return 7;
+            return 8;
         }
 
         @Override
         public Class<?> getColumnClass(int columnIndex) {
+            if (columnIndex == COL_GOAL_ENABLED) {
+                return Boolean.class;
+            }
             if (columnIndex == COL_GOAL_PRIORITY) {
                 return GoalPriority.class;
             }
@@ -2369,11 +2671,55 @@ public class EngineeringTabPanel extends JPanel {
 
         @Override
         public void setValueAt(Object value, int rowIndex, int columnIndex) {
-            EngineeringGoal goal = goalAtUiRow(rowIndex);
-            if (columnIndex != COL_GOAL_PRIORITY || goal == null) {
+            GoalUiRow row = goalRowAtUi(rowIndex);
+            if (row == null) {
+                return;
+            }
+            if (columnIndex == COL_GOAL_ENABLED) {
+                boolean next = value instanceof Boolean b ? b : true;
+                if (row.isMaterials()) {
+                    MaterialsGoal goal = row.materials();
+                    MaterialsGoal updated = goal.withEnabled(next);
+                    if (!updated.equals(goal)) {
+                        int fullIdx = materialsGoals.indexOf(goal);
+                        if (fullIdx >= 0) {
+                            materialsGoals.set(fullIdx, updated);
+                        }
+                        fireSessionChanged();
+                        scheduleRefresh();
+                    }
+                } else {
+                    EngineeringGoal goal = row.blueprint();
+                    EngineeringGoal updated = goal.withEnabled(next);
+                    if (!updated.equals(goal)) {
+                        int fullIdx = goals.indexOf(goal);
+                        if (fullIdx >= 0) {
+                            goals.set(fullIdx, updated);
+                        }
+                        fireSessionChanged();
+                        scheduleRefresh();
+                    }
+                }
+                return;
+            }
+            if (columnIndex != COL_GOAL_PRIORITY) {
                 return;
             }
             GoalPriority next = value instanceof GoalPriority p ? p : GoalPriority.MEDIUM;
+            if (row.isMaterials()) {
+                MaterialsGoal goal = row.materials();
+                MaterialsGoal updated = goal.withPriority(next);
+                if (!updated.equals(goal)) {
+                    int fullIdx = materialsGoals.indexOf(goal);
+                    if (fullIdx >= 0) {
+                        materialsGoals.set(fullIdx, updated);
+                    }
+                    fireSessionChanged();
+                    scheduleRefresh();
+                }
+                return;
+            }
+            EngineeringGoal goal = row.blueprint();
             EngineeringGoal updated = goal.withPriority(next);
             if (!updated.equals(goal)) {
                 int fullIdx = goals.indexOf(goal);
@@ -2388,6 +2734,7 @@ public class EngineeringTabPanel extends JPanel {
         @Override
         public String getColumnName(int column) {
             return switch (column) {
+                case COL_GOAL_ENABLED -> "";
                 case COL_GOAL_PRIORITY -> "";
                 case COL_GOAL_BLUEPRINT -> "Blueprint";
                 case COL_GOAL_TARGET -> "Target";
@@ -2401,16 +2748,30 @@ public class EngineeringTabPanel extends JPanel {
 
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
-            EngineeringGoal g = goalAtUiRow(rowIndex);
-            if (g == null) {
+            GoalUiRow row = goalRowAtUi(rowIndex);
+            if (row == null) {
                 return "";
             }
+            if (columnIndex == COL_GOAL_ENABLED) {
+                return Boolean.valueOf(row.isEnabled());
+            }
             if (columnIndex == COL_GOAL_PRIORITY) {
-                return g.getPriority();
+                return row.priority();
             }
             if (columnIndex == COL_GOAL_EDIT || columnIndex == COL_GOAL_DELETE) {
                 return "";
             }
+            if (row.isMaterials()) {
+                MaterialsGoal g = row.materials();
+                return switch (columnIndex) {
+                    case COL_GOAL_BLUEPRINT -> g.getLabel();
+                    case COL_GOAL_TARGET -> g.targetSummary(database);
+                    case COL_GOAL_EXP -> "—";
+                    case COL_GOAL_STATUS -> rowIndex < goalStatusText.size() ? goalStatusText.get(rowIndex) : "";
+                    default -> "";
+                };
+            }
+            EngineeringGoal g = row.blueprint();
             return switch (columnIndex) {
                 case COL_GOAL_BLUEPRINT -> blueprintDisplayName(g);
                 case COL_GOAL_TARGET -> "G" + g.getTargetGrade();

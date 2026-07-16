@@ -31,7 +31,7 @@ class VoiceCacheWarmerParallelismTest {
         try {
             System.clearProperty(key);
             int p = VoiceCacheWarmer.warmParallelism();
-            assertTrue(p >= 2 && p <= 8, "default parallelism=" + p);
+            assertTrue(p >= 1 && p <= 3, "default parallelism=" + p);
         } finally {
             if (prior != null) {
                 System.setProperty(key, prior);
@@ -56,5 +56,23 @@ class VoiceCacheWarmerParallelismTest {
                 .contains(BountyScanTracker.FIRST_BOUNTY_SPEECH));
         assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests()
                 .contains(BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH));
+    }
+
+    @Test
+    void requiredWarmupTemplatesIncludeMissionProgressPhrases() {
+        assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests()
+                .contains(org.dce.ed.mission.MissionSpeechTracker.TARGET_DESTROYED_SPEECH));
+        assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests()
+                .contains(org.dce.ed.mission.MissionSpeechTracker.COMBAT_COMPLETE_SPEECH));
+        assertTrue(VoiceCacheWarmer.requiredWarmupTemplatesForTests()
+                .contains(org.dce.ed.mission.MissionSpeechTracker.DELIVERED_SPEECH));
+    }
+
+    @Test
+    void isPollyRateLimitDetectsMessage() {
+        assertTrue(VoiceCacheWarmer.isPollyRateLimit(
+                new RuntimeException("Rate exceeded (Service: Polly, Status Code: 400)")));
+        assertTrue(VoiceCacheWarmer.isPollyRateLimit(
+                new Exception(new RuntimeException("Throttling: Rate exceeded"))));
     }
 }

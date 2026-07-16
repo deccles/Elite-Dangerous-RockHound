@@ -11,18 +11,25 @@ import javax.swing.Icon;
 
 import org.dce.ed.OverlayPreferences;
 
-/** Up/down arrow for goal priority cells; size tracks the UI font. */
+/** Up/down/mid markers for goal priority cells; size tracks the UI font. */
 public final class PriorityArrowIcon implements Icon {
 
-    public static final PriorityArrowIcon HIGH = new PriorityArrowIcon(EdoUi.User.SUCCESS, true);
-    public static final PriorityArrowIcon LOW = new PriorityArrowIcon(EdoUi.User.ERROR, false);
+    public static final PriorityArrowIcon HIGH = new PriorityArrowIcon(Kind.HIGH, EdoUi.User.SUCCESS);
+    public static final PriorityArrowIcon MEDIUM = new PriorityArrowIcon(Kind.MEDIUM, EdoUi.User.MAIN_TEXT);
+    public static final PriorityArrowIcon LOW = new PriorityArrowIcon(Kind.LOW, EdoUi.User.ERROR);
 
+    private enum Kind { HIGH, MEDIUM, LOW }
+
+    private final Kind kind;
     private final Color color;
-    private final boolean up;
 
     public PriorityArrowIcon(Color color, boolean up) {
+        this(up ? Kind.HIGH : Kind.LOW, color != null ? color : EdoUi.User.MAIN_TEXT);
+    }
+
+    private PriorityArrowIcon(Kind kind, Color color) {
+        this.kind = kind != null ? kind : Kind.MEDIUM;
         this.color = color != null ? color : EdoUi.User.MAIN_TEXT;
-        this.up = up;
     }
 
     /** Prefer font-scaled icons; kept for callers that still pass an explicit size. */
@@ -49,18 +56,31 @@ public final class PriorityArrowIcon implements Icon {
             g2.setColor(ink);
 
             int size = iconSize();
-            // Tight inset so the glyph fills most of the icon box.
             double pad = size * 0.06;
             double left = x + pad;
             double right = x + size - pad;
             double midX = x + size / 2.0;
             double top = y + pad;
             double bottom = y + size - pad;
+
+            if (kind == Kind.MEDIUM) {
+                // Two horizontal bars — distinct from the enabled checkbox.
+                double barH = Math.max(1.5, size * 0.14);
+                double gap = size * 0.16;
+                double midY = y + size / 2.0;
+                double barLeft = x + size * 0.18;
+                double barRight = x + size * 0.82;
+                g2.fill(new java.awt.geom.Rectangle2D.Double(
+                        barLeft, midY - gap / 2.0 - barH, barRight - barLeft, barH));
+                g2.fill(new java.awt.geom.Rectangle2D.Double(
+                        barLeft, midY + gap / 2.0, barRight - barLeft, barH));
+                return;
+            }
+
             double shaftHalf = size * 0.16;
             double headDepth = size * 0.38;
-
             Path2D arrow = new Path2D.Double();
-            if (up) {
+            if (kind == Kind.HIGH) {
                 double headBaseY = top + headDepth;
                 arrow.moveTo(midX, top);
                 arrow.lineTo(right, headBaseY);

@@ -20,20 +20,20 @@ public final class EngineeringPlanner {
 
     public List<ShoppingListRow> buildShoppingList(List<EngineeringGoal> goals,
                                                    Map<String, Integer> inventory) {
-        return buildShoppingList(goals, inventory, inventory);
+        return buildShoppingList(goals, List.of(), inventory, inventory);
     }
 
     public List<ShoppingListRow> buildShoppingList(List<EngineeringGoal> goals,
                                                    Map<String, Integer> inventory,
                                                    Map<String, Integer> inventoryAfterTrades) {
-        Map<String, Integer> required = new LinkedHashMap<>();
-        for (EngineeringGoal goal : goals) {
-            if (goal == null) {
-                continue;
-            }
-            accumulateGoalMaterials(goal, required);
-        }
+        return buildShoppingList(goals, List.of(), inventory, inventoryAfterTrades);
+    }
 
+    public List<ShoppingListRow> buildShoppingList(List<EngineeringGoal> goals,
+                                                   List<MaterialsGoal> materialsGoals,
+                                                   Map<String, Integer> inventory,
+                                                   Map<String, Integer> inventoryAfterTrades) {
+        Map<String, Integer> required = requiredMaterials(goals, materialsGoals);
         Map<String, Integer> haveNow = inventory != null ? inventory : Map.of();
         Map<String, Integer> haveAfter = inventoryAfterTrades != null ? inventoryAfterTrades : haveNow;
 
@@ -62,8 +62,14 @@ public final class EngineeringPlanner {
     }
 
     public Map<String, Integer> shortfalls(List<EngineeringGoal> goals, Map<String, Integer> inventory) {
+        return shortfalls(goals, List.of(), inventory);
+    }
+
+    public Map<String, Integer> shortfalls(List<EngineeringGoal> goals,
+                                           List<MaterialsGoal> materialsGoals,
+                                           Map<String, Integer> inventory) {
         Map<String, Integer> out = new LinkedHashMap<>();
-        for (ShoppingListRow row : buildShoppingList(goals, inventory)) {
+        for (ShoppingListRow row : buildShoppingList(goals, materialsGoals, inventory, inventory)) {
             if (row.getShortfall() > 0) {
                 out.put(row.getMaterialKey(), row.getShortfall());
             }
@@ -71,16 +77,20 @@ public final class EngineeringPlanner {
         return out;
     }
 
-    /** Material keys and counts required for one goal (grades + experimental). */
+    /** Material keys and counts required for one blueprint goal (grades + experimental). */
     public Map<String, Integer> materialsForGoal(EngineeringGoal goal) {
         Map<String, Integer> required = new LinkedHashMap<>();
         if (goal != null) {
-            accumulateGoalMaterials(goal, required);
+            accumulateBlueprintGoalMaterials(goal, required);
         }
         return required;
     }
 
-    /** Per-material shortfall for a single goal vs inventory. */
+    public Map<String, Integer> materialsForGoal(MaterialsGoal goal) {
+        return goal != null ? goal.requiredMaterials() : Map.of();
+    }
+
+    /** Per-material shortfall for a single blueprint goal vs inventory. */
     public Map<String, Integer> goalMaterialShortfalls(EngineeringGoal goal, Map<String, Integer> inventory) {
         Map<String, Integer> shortfalls = new LinkedHashMap<>();
         for (Map.Entry<String, Integer> e : materialsForGoal(goal).entrySet()) {
@@ -93,15 +103,39 @@ public final class EngineeringPlanner {
         return shortfalls;
     }
 
+    public Map<String, Integer> goalMaterialShortfalls(MaterialsGoal goal, Map<String, Integer> inventory) {
+        return goal != null ? goal.shortfalls(inventory) : Map.of();
+    }
+
     public boolean isGoalReady(EngineeringGoal goal, Map<String, Integer> inventory) {
         return goal != null && (goal.isComplete() || goalMaterialShortfalls(goal, inventory).isEmpty());
+    }
+
+    public boolean isGoalReady(MaterialsGoal goal, Map<String, Integer> inventory) {
+        return goal != null && goal.isSatisfied(inventory);
     }
 
     public boolean isGoalComplete(EngineeringGoal goal) {
         return goal != null && goal.isComplete();
     }
 
+    public boolean isGoalComplete(MaterialsGoal goal, Map<String, Integer> inventory) {
+        return isGoalReady(goal, inventory);
+    }
+
     public GoalReadiness goalReadiness(EngineeringGoal goal,
+                                       Map<String, Integer> inventory,
+                                       Map<String, Integer> inventoryAfterTrades) {
+        if (isGoalReady(goal, inventory)) {
+            return GoalReadiness.READY;
+        }
+        if (isGoalReady(goal, inventoryAfterTrades)) {
+            return GoalReadiness.READY_WITH_TRADES;
+        }
+        return GoalReadiness.STILL_SHORT;
+    }
+
+    public GoalReadiness goalReadiness(MaterialsGoal goal,
                                        Map<String, Integer> inventory,
                                        Map<String, Integer> inventoryAfterTrades) {
         if (isGoalReady(goal, inventory)) {
@@ -122,42 +156,57 @@ public final class EngineeringPlanner {
     public PriorityPlanResult planByPriority(List<EngineeringGoal> goals,
                                              Map<String, Integer> inventory,
                                              MaterialTradePlanner tradePlanner) {
+        return planByPriority(goals, List.of(), inventory, tradePlanner);
+    }
+
+    public PriorityPlanResult planByPriority(List<EngineeringGoal> goals,
+                                             List<MaterialsGoal> materialsGoals,
+                                             Map<String, Integer> inventory,
+                                             MaterialTradePlanner tradePlanner) {
         List<TradeSuggestion> trades = new ArrayList<>();
-        Map<EngineeringGoal, GoalReadiness> readiness = new LinkedHashMap<>();
+        Map<EngineeringGoal, GoalReadiness> blueprintReadiness = new LinkedHashMap<>();
+        Map<MaterialsGoal, GoalReadiness> materialsReadiness = new LinkedHashMap<>();
         Map<String, Integer> planningInv = mutableCopy(inventory);
         Map<String, Integer> shoppingInv = mutableCopy(inventory);
-        if (goals == null || goals.isEmpty() || tradePlanner == null) {
-            return new PriorityPlanResult(List.of(), shoppingInv, readiness);
+        List<ClaimItem> claimOrder = buildClaimOrder(goals, materialsGoals);
+        if (claimOrder.isEmpty() || tradePlanner == null) {
+            return new PriorityPlanResult(List.of(), shoppingInv, blueprintReadiness, materialsReadiness);
         }
 
-        List<EngineeringGoal> claimOrder = new ArrayList<>();
-        for (EngineeringGoal goal : goals) {
-            if (goal != null && goal.getPriority().isActive()) {
-                claimOrder.add(goal);
+        for (ClaimItem item : claimOrder) {
+            if (item.blueprint() != null) {
+                EngineeringGoal goal = item.blueprint();
+                if (goal.isComplete()) {
+                    blueprintReadiness.put(goal, GoalReadiness.READY);
+                    continue;
+                }
+                Map<String, Integer> before = mutableCopy(planningInv);
+                Map<String, Integer> shortfalls = goalMaterialShortfalls(goal, planningInv);
+                Map<String, Integer> required = materialsForGoal(goal);
+                List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, required);
+                if (!goalTrades.isEmpty()) {
+                    trades.addAll(goalTrades);
+                    planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
+                    shoppingInv = tradePlanner.inventoryAfterTrades(shoppingInv, goalTrades);
+                }
+                blueprintReadiness.put(goal, goalReadiness(goal, before, planningInv));
+                claimMaterials(required, planningInv);
+            } else if (item.materials() != null) {
+                MaterialsGoal goal = item.materials();
+                Map<String, Integer> before = mutableCopy(planningInv);
+                Map<String, Integer> shortfalls = goalMaterialShortfalls(goal, planningInv);
+                Map<String, Integer> required = materialsForGoal(goal);
+                List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, required);
+                if (!goalTrades.isEmpty()) {
+                    trades.addAll(goalTrades);
+                    planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
+                    shoppingInv = tradePlanner.inventoryAfterTrades(shoppingInv, goalTrades);
+                }
+                materialsReadiness.put(goal, goalReadiness(goal, before, planningInv));
+                claimMaterials(required, planningInv);
             }
         }
-        claimOrder.sort(Comparator
-                .comparingInt((EngineeringGoal g) -> g.getPriority().sortRank())
-                .thenComparingInt(goals::indexOf));
-
-        for (EngineeringGoal goal : claimOrder) {
-            if (goal.isComplete()) {
-                readiness.put(goal, GoalReadiness.READY);
-                continue;
-            }
-            Map<String, Integer> before = mutableCopy(planningInv);
-            Map<String, Integer> shortfalls = goalMaterialShortfalls(goal, planningInv);
-            Map<String, Integer> required = materialsForGoal(goal);
-            List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, required);
-            if (!goalTrades.isEmpty()) {
-                trades.addAll(goalTrades);
-                planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
-                shoppingInv = tradePlanner.inventoryAfterTrades(shoppingInv, goalTrades);
-            }
-            readiness.put(goal, goalReadiness(goal, before, planningInv));
-            claimGoalMaterials(goal, planningInv);
-        }
-        return new PriorityPlanResult(List.copyOf(trades), shoppingInv, readiness);
+        return new PriorityPlanResult(List.copyOf(trades), shoppingInv, blueprintReadiness, materialsReadiness);
     }
 
     /**
@@ -172,33 +221,53 @@ public final class EngineeringPlanner {
         if (goals == null || goals.isEmpty()) {
             return out;
         }
-        List<EngineeringGoal> claimOrder = new ArrayList<>();
-        for (EngineeringGoal goal : goals) {
-            if (goal != null && goal.getPriority().isActive()) {
-                claimOrder.add(goal);
-            }
-        }
-        claimOrder.sort(Comparator
-                .comparingInt((EngineeringGoal g) -> g.getPriority().sortRank())
-                .thenComparingInt(goals::indexOf));
-
+        List<ClaimItem> claimOrder = buildClaimOrder(goals, List.of());
         Map<String, Integer> working = mutableCopy(inventory);
         Map<String, Integer> workingTrades = mutableCopy(inventoryAfterTrades);
-        for (EngineeringGoal goal : claimOrder) {
+        for (ClaimItem item : claimOrder) {
+            EngineeringGoal goal = item.blueprint();
+            if (goal == null) {
+                continue;
+            }
             out.put(goal, goalReadiness(goal, working, workingTrades));
             if (!goal.isComplete()) {
-                claimGoalMaterials(goal, working);
-                claimGoalMaterials(goal, workingTrades);
+                claimMaterials(materialsForGoal(goal), working);
+                claimMaterials(materialsForGoal(goal), workingTrades);
             }
         }
         return out;
     }
 
-    private void claimGoalMaterials(EngineeringGoal goal, Map<String, Integer> working) {
-        if (working == null || working.isEmpty() || goal == null) {
+    private List<ClaimItem> buildClaimOrder(List<EngineeringGoal> goals, List<MaterialsGoal> materialsGoals) {
+        List<ClaimItem> items = new ArrayList<>();
+        if (goals != null) {
+            for (int i = 0; i < goals.size(); i++) {
+                EngineeringGoal goal = goals.get(i);
+                if (goal != null && goal.isIncludeInPlanning()) {
+                    items.add(new ClaimItem(goal, null, goal.getPriority(), i));
+                }
+            }
+        }
+        int blueprintCount = goals != null ? goals.size() : 0;
+        if (materialsGoals != null) {
+            for (int i = 0; i < materialsGoals.size(); i++) {
+                MaterialsGoal goal = materialsGoals.get(i);
+                if (goal != null && goal.isIncludeInPlanning() && goal.isValid()) {
+                    items.add(new ClaimItem(null, goal, goal.getPriority(), blueprintCount + i));
+                }
+            }
+        }
+        items.sort(Comparator
+                .comparingInt((ClaimItem c) -> c.priority().sortRank())
+                .thenComparingInt(ClaimItem::listIndex));
+        return items;
+    }
+
+    private void claimMaterials(Map<String, Integer> required, Map<String, Integer> working) {
+        if (working == null || working.isEmpty() || required == null || required.isEmpty()) {
             return;
         }
-        for (Map.Entry<String, Integer> need : materialsForGoal(goal).entrySet()) {
+        for (Map.Entry<String, Integer> need : required.entrySet()) {
             int remaining = need.getValue() != null ? need.getValue() : 0;
             if (remaining <= 0) {
                 continue;
@@ -243,32 +312,59 @@ public final class EngineeringPlanner {
     public record PriorityPlanResult(
             List<TradeSuggestion> trades,
             Map<String, Integer> inventoryAfterTrades,
-            Map<EngineeringGoal, GoalReadiness> readinessByGoal) {
+            Map<EngineeringGoal, GoalReadiness> readinessByBlueprintGoal,
+            Map<MaterialsGoal, GoalReadiness> readinessByMaterialsGoal) {
+
         public PriorityPlanResult {
             trades = trades != null ? List.copyOf(trades) : List.of();
             inventoryAfterTrades = inventoryAfterTrades != null
                     ? Map.copyOf(inventoryAfterTrades)
                     : Map.of();
-            readinessByGoal = readinessByGoal != null
-                    ? Map.copyOf(readinessByGoal)
+            readinessByBlueprintGoal = readinessByBlueprintGoal != null
+                    ? Map.copyOf(readinessByBlueprintGoal)
                     : Map.of();
+            readinessByMaterialsGoal = readinessByMaterialsGoal != null
+                    ? Map.copyOf(readinessByMaterialsGoal)
+                    : Map.of();
+        }
+
+        /** @deprecated use {@link #readinessByBlueprintGoal()} */
+        @Deprecated
+        public Map<EngineeringGoal, GoalReadiness> readinessByGoal() {
+            return readinessByBlueprintGoal;
         }
     }
 
-    /** Total materials required across all active goals (including grades already covered). */
+    private record ClaimItem(EngineeringGoal blueprint, MaterialsGoal materials, GoalPriority priority, int listIndex) {
+    }
+
+    /** Total materials required across blueprint + materials goals. */
     public Map<String, Integer> requiredMaterials(List<EngineeringGoal> goals) {
+        return requiredMaterials(goals, List.of());
+    }
+
+    public Map<String, Integer> requiredMaterials(List<EngineeringGoal> goals, List<MaterialsGoal> materialsGoals) {
         Map<String, Integer> required = new LinkedHashMap<>();
         if (goals != null) {
             for (EngineeringGoal goal : goals) {
                 if (goal != null) {
-                    accumulateGoalMaterials(goal, required);
+                    accumulateBlueprintGoalMaterials(goal, required);
+                }
+            }
+        }
+        if (materialsGoals != null) {
+            for (MaterialsGoal goal : materialsGoals) {
+                if (goal != null && goal.isValid()) {
+                    for (Map.Entry<String, Integer> e : goal.requiredMaterials().entrySet()) {
+                        required.merge(e.getKey(), e.getValue(), Integer::sum);
+                    }
                 }
             }
         }
         return required;
     }
 
-    private void accumulateGoalMaterials(EngineeringGoal goal, Map<String, Integer> required) {
+    private void accumulateBlueprintGoalMaterials(EngineeringGoal goal, Map<String, Integer> required) {
         int remaining = goal.remainingUnits();
         if (remaining <= 0) {
             return;

@@ -21,7 +21,9 @@ public final class MissionAcceptedEvent extends EliteLogEvent {
     private final String destinationSettlement;
     private final String targetFaction;
     private final String target;
+    private final String targetLocalised;
     private final String targetType;
+    private final String targetTypeLocalised;
     private final int killCount;
     private final long donation;
     private final String expiry;
@@ -44,7 +46,9 @@ public final class MissionAcceptedEvent extends EliteLogEvent {
         destinationSettlement = stringField(rawJson, "DestinationSettlement");
         targetFaction = stringField(rawJson, "TargetFaction");
         target = stringField(rawJson, "Target");
+        targetLocalised = stringField(rawJson, "Target_Localised");
         targetType = stringField(rawJson, "TargetType");
+        targetTypeLocalised = stringField(rawJson, "TargetType_Localised");
         killCount = intField(rawJson, "KillCount");
         donation = longField(rawJson, "Donation");
         expiry = stringField(rawJson, "Expiry");
@@ -87,7 +91,9 @@ public final class MissionAcceptedEvent extends EliteLogEvent {
     public String getDestinationSettlement() { return destinationSettlement; }
     public String getTargetFaction() { return targetFaction; }
     public String getTarget() { return target; }
+    public String getTargetLocalised() { return targetLocalised; }
     public String getTargetType() { return targetType; }
+    public String getTargetTypeLocalised() { return targetTypeLocalised; }
     public int getKillCount() { return killCount; }
     public long getDonation() { return donation; }
     public String getExpiry() { return expiry; }
