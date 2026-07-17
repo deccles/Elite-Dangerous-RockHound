@@ -1,0 +1,40 @@
+{
+  "Raw": {
+    "grades": 4,
+    "rows": [
+      "Category1",
+      "Category2",
+      "Category3",
+      "Category4",
+      "Category5",
+      "Category6",
+      "Category7"
+    ]
+  },
+  "Manufactured": {
+    "grades": 5,
+    "rows": [
+      "Chemical",
+      "Thermic",
+      "Heat",
+      "Conductive",
+      "MechanicalComponents",
+      "Capacitors",
+      "Shielding",
+      "Composite",
+      "Crystals",
+      "Alloys"
+    ]
+  },
+  "Encoded": {
+    "grades": 5,
+    "rows": [
+      "EmissionData",
+      "WakeScans",
+      "ShieldData",
+      "EncryptionFiles",
+      "DataArchives",
+      "EncodedFirmware"
+    ]
+  }
+}

@@ -461,6 +461,39 @@ public final class MaterialTradeRateCalculator {
 
     }
 
+    /**
+     * Smallest whole trader batch for {@code from} → {@code to} (one Right-step on the quantity UI).
+     */
+    public static Optional<Exchange> minimumBatch(EngineeringMaterial from, EngineeringMaterial to) {
+        return planExchange(from, to, Integer.MAX_VALUE / 4, 1);
+    }
+
+    /**
+     * How many Right presses to reach {@code fromCount}/{@code toCount}.
+     * <p>
+     * The trader amount UI opens at zero. Each Right advances by one minimum batch
+     * (which may change paid/received by more than 1 unit), so one Right is required
+     * even for a single batch.
+     */
+    public static int rightPressesFor(EngineeringMaterial from,
+                                      EngineeringMaterial to,
+                                      int fromCount,
+                                      int toCount) {
+        Optional<Exchange> batch = minimumBatch(from, to);
+        if (batch.isEmpty()) {
+            return 0;
+        }
+        int inputsPerBatch = batch.get().getFromCount();
+        int outputsPerBatch = batch.get().getToCount();
+        if (inputsPerBatch <= 0 || outputsPerBatch <= 0) {
+            return 0;
+        }
+        int batchesByFrom = fromCount / inputsPerBatch;
+        int batchesByTo = toCount / outputsPerBatch;
+        int batches = Math.min(batchesByFrom, batchesByTo);
+        return Math.max(0, batches);
+    }
+
 }
 
 
