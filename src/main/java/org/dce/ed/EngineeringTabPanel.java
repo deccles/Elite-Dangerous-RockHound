@@ -163,7 +163,7 @@ public class EngineeringTabPanel extends JPanel {
     private static final int COL_TRADE_GIVE = 2;
     private static final int COL_TRADE_ACTION = 3;
     private static final int COL_TRADE_RECEIVE = 4;
-    private static final int TRADE_ACTION_COL_WIDTH = 52;
+    private static final int TRADE_ACTION_COL_WIDTH = 64;
     private static final int TRADE_GIVE_CELL_LEFT_PAD = 8;
     private static final String TRADE_GIVE_QTY_WIDTH_PROP = "edo.tradeGiveQtyWidth";
     /** Client property on {@link TableColumn}: pixel width of widest digit/string block in that column. */
@@ -2344,14 +2344,20 @@ public class EngineeringTabPanel extends JPanel {
             setTradeStatus("Trade already in progress…", false);
             return;
         }
-        TradeSuggestion suggestion = tradeModel.suggestionAt(modelRow);
-        if (suggestion == null) {
+        List<TradeSuggestion> suggestions = tradeModel.tradesForActionAt(modelRow);
+        if (suggestions.isEmpty()) {
             setTradeStatus("No trade on this row", false);
             return;
         }
+        TradeSuggestion suggestion = suggestions.get(0);
+        boolean tradeAll = suggestions.size() > 1 || tradeModel.isSectionRow(modelRow);
         Window owner = SwingUtilities.getWindowAncestor(this);
         setTradeStatus("Confirm trade…", false);
-        if (!MaterialTradeConfirmDialog.confirm(owner, suggestion)) {
+        boolean confirmed = tradeAll
+                ? MaterialTradeConfirmDialog.confirmAll(
+                        owner, suggestion.getTraderType(), suggestions)
+                : MaterialTradeConfirmDialog.confirm(owner, suggestion);
+        if (!confirmed) {
             setTradeStatus(" ", false);
             return;
         }
@@ -2362,13 +2368,13 @@ public class EngineeringTabPanel extends JPanel {
             // So the user can click the game without the overlay covering it.
             owner.setAlwaysOnTop(false);
         }
-        TradeSuggestion toRun = suggestion;
+        List<TradeSuggestion> toRun = List.copyOf(suggestions);
         Thread worker = new Thread(() -> {
             MaterialTradeExecutor.Result result =
                     new MaterialTradeExecutor.Result(
                             MaterialTradeExecutor.Outcome.KEY_ERROR, "Trade failed");
             try {
-                result = tradeExecutor.execute(toRun, msg ->
+                result = tradeExecutor.executeAll(toRun, msg ->
                         SwingUtilities.invokeLater(() -> setTradeStatus(msg, false)));
             } catch (RuntimeException ex) {
                 result = new MaterialTradeExecutor.Result(
@@ -3026,6 +3032,31 @@ public class EngineeringTabPanel extends JPanel {
             return rows.get(rowIndex).suggestion();
         }
 
+        /**
+         * A data row runs one trade. A trader-type section row runs every displayed
+         * trade below it, in display order, up to the next section/gap.
+         */
+        List<TradeSuggestion> tradesForActionAt(int rowIndex) {
+            if (rowIndex < 0 || rowIndex >= rows.size()) {
+                return List.of();
+            }
+            TradeTableRow row = rows.get(rowIndex);
+            if (!row.section()) {
+                return row.suggestion() != null ? List.of(row.suggestion()) : List.of();
+            }
+            List<TradeSuggestion> trades = new ArrayList<>();
+            for (int i = rowIndex + 1; i < rows.size(); i++) {
+                TradeTableRow candidate = rows.get(i);
+                if (candidate.section() || candidate.gapRow()) {
+                    break;
+                }
+                if (candidate.suggestion() != null) {
+                    trades.add(candidate.suggestion());
+                }
+            }
+            return List.copyOf(trades);
+        }
+
         boolean isSectionRow(int rowIndex) {
             return rowIndex >= 0 && rowIndex < rows.size() && rows.get(rowIndex).section();
         }
@@ -3083,7 +3114,11 @@ public class EngineeringTabPanel extends JPanel {
                 return null;
             }
             if (row.section()) {
-                return columnIndex == COL_TRADE_MATERIAL ? row.materialName() : null;
+                return switch (columnIndex) {
+                    case COL_TRADE_MATERIAL -> row.materialName();
+                    case COL_TRADE_ACTION -> tradesForActionAt(rowIndex).isEmpty() ? "" : "Trade All";
+                    default -> null;
+                };
             }
             return switch (columnIndex) {
                 case COL_TRADE_MATERIAL -> row.materialName();
@@ -3109,16 +3144,20 @@ public class EngineeringTabPanel extends JPanel {
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
-            boolean actionable = tradeModel.suggestionAt(modelRow) != null
-                    && !tradeModel.isGapRow(modelRow)
-                    && !tradeModel.isSectionRow(modelRow);
-            setText(actionable ? "Trade" : "");
+            boolean section = tradeModel.isSectionRow(modelRow);
+            boolean actionable = !tradeModel.tradesForActionAt(modelRow).isEmpty()
+                    && !tradeModel.isGapRow(modelRow);
+            setText(actionable ? (section ? "Trade All" : "Trade") : "");
             setEnabled(actionable && !tradeAutomationRunning);
             boolean mpt = passThroughEnabledSupplier != null && passThroughEnabledSupplier.getAsBoolean();
             setToolTipText(actionable
                     ? (mpt
-                            ? "Hover ~0.5s to run this trade (mouse pass-through is on)"
-                            : "Click to run this trade in the material trader UI")
+                            ? "Hover ~0.5s to run "
+                                    + (section ? "all trades in this section" : "this trade")
+                                    + " (mouse pass-through is on)"
+                            : "Click to run "
+                                    + (section ? "all trades in this section" : "this trade")
+                                    + " in the material trader UI")
                     : null);
             setFont(table.getFont().deriveFont(Font.BOLD));
             setForeground(EdoUi.User.MAIN_TEXT);

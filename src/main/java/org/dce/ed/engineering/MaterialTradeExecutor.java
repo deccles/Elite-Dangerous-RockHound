@@ -1,5 +1,7 @@
 package org.dce.ed.engineering;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -25,6 +27,8 @@ public final class MaterialTradeExecutor {
     private static final long AFTER_SELECT_MS = 450L;
     /** Pause after Space on give before quantity Rights (amount panel must appear). */
     private static final long PRE_QUANTITY_MS = 550L;
+    /** Let the trader return to its material grid after the journal confirms a trade. */
+    private static final long AFTER_TRADE_MS = 900L;
     private static final long FOCUS_POLL_MS = 150L;
 
     public enum Outcome {
@@ -110,33 +114,30 @@ public final class MaterialTradeExecutor {
      * @param status optional UI/status callback (may be called off the EDT)
      */
     public Result execute(TradeSuggestion suggestion, Consumer<String> status) {
-        if (suggestion == null) {
-            return new Result(Outcome.MATERIALS_MISSING, "No trade selected");
+        return executeAll(suggestion != null ? List.of(suggestion) : List.of(), status);
+    }
+
+    /**
+     * Executes a sequence of trades from one material-trader screen. The first trade
+     * resets to upper-left; every later trade starts at the previous trade's give cell.
+     * Each trade must produce its expected journal event before the next one starts.
+     */
+    public Result executeAll(List<TradeSuggestion> suggestions, Consumer<String> status) {
+        if (suggestions == null || suggestions.isEmpty()) {
+            return new Result(Outcome.MATERIALS_MISSING, "No trades selected");
         }
         if (!EliteKeySender.isWindows()) {
             return new Result(Outcome.NOT_WINDOWS, "Auto-trade requires Windows");
         }
 
-        Optional<EngineeringMaterial> fromOpt = database.material(suggestion.getFromKey());
-        Optional<EngineeringMaterial> toOpt = database.material(suggestion.getToKey());
-        if (fromOpt.isEmpty() || toOpt.isEmpty()) {
-            return new Result(Outcome.MATERIALS_MISSING, "Unknown material in trade suggestion");
+        List<PlannedTrade> plans = new ArrayList<>();
+        for (TradeSuggestion suggestion : suggestions) {
+            ResultOrPlan prepared = prepare(suggestion);
+            if (prepared.error() != null) {
+                return prepared.error();
+            }
+            plans.add(prepared.plan());
         }
-        EngineeringMaterial give = fromOpt.get();
-        EngineeringMaterial receive = toOpt.get();
-
-        Optional<MaterialTraderScreenLayout.GridPos> receivePos = layout.position(receive);
-        Optional<MaterialTraderScreenLayout.GridPos> givePos = layout.position(give);
-        if (receivePos.isEmpty() || givePos.isEmpty()) {
-            return new Result(Outcome.LAYOUT_ERROR,
-                    "No screen position for " + (receivePos.isEmpty() ? receive.getName() : give.getName()));
-        }
-
-        int rightPresses = MaterialTradeRateCalculator.rightPressesFor(
-                give, receive, suggestion.getFromCount(), suggestion.getToCount());
-
-        PendingTrade wait = new PendingTrade(suggestion);
-        pending.set(wait);
         try {
             // Do not auto-focus — wait until the user clicks Elite themselves.
             if (!EliteWindowFocus.isEliteForeground()) {
@@ -157,23 +158,49 @@ public final class MaterialTradeExecutor {
                         "Elite lost focus before keys were sent — click the game and try again");
             }
 
-            report(status, "Running trade…");
-            System.out.println("EDO auto-trade: Elite focused (" + EliteWindowFocus.foregroundProcessBaseName()
-                    + "); sending keys for " + suggestion.summary()
-                    + " rights=" + rightPresses
-                    + " recv=" + receivePos.get()
-                    + " give=" + givePos.get());
-            runKeySequence(receivePos.get(), givePos.get(), rightPresses);
+            MaterialTraderScreenLayout.GridPos currentPos = null;
+            for (int i = 0; i < plans.size(); i++) {
+                PlannedTrade plan = plans.get(i);
+                int ordinal = i + 1;
+                report(status, plans.size() == 1
+                        ? "Running trade…"
+                        : "Running trade " + ordinal + " of " + plans.size() + "…");
+                System.out.println("EDO auto-trade: trade " + ordinal + "/" + plans.size()
+                        + " " + plan.suggestion().summary()
+                        + " rights=" + plan.rightPresses()
+                        + " start=" + currentPos
+                        + " recv=" + plan.receivePos()
+                        + " give=" + plan.givePos());
 
-            MaterialTradeEvent observed = awaitMatch(wait, tradeTimeoutMs);
-            if (observed == null) {
-                return new Result(Outcome.TIMEOUT,
-                        "Keys sent, but no matching MaterialTrade in journal (check trader screen / amounts)");
+                PendingTrade wait = new PendingTrade(plan.suggestion());
+                pending.set(wait);
+                runKeySequence(currentPos, plan.receivePos(), plan.givePos(), plan.rightPresses());
+
+                MaterialTradeEvent observed = awaitMatch(wait, tradeTimeoutMs);
+                pending.compareAndSet(wait, null);
+                if (observed == null) {
+                    return new Result(Outcome.TIMEOUT,
+                            "Trade " + ordinal + " of " + plans.size()
+                                    + " sent keys, but no matching MaterialTrade appeared in the journal");
+                }
+                if (!matches(plan.suggestion(), observed)) {
+                    return new Result(Outcome.MISMATCH,
+                            "Journal trade " + ordinal + " did not match the suggestion");
+                }
+
+                // The game returns to the grid with the give material highlighted.
+                currentPos = plan.givePos();
+                if (ordinal < plans.size()) {
+                    Thread.sleep(AFTER_TRADE_MS);
+                    if (!EliteWindowFocus.isEliteForeground()) {
+                        return new Result(Outcome.FOCUS_FAILED,
+                                "Elite lost focus after trade " + ordinal + " of " + plans.size());
+                    }
+                }
             }
-            if (!matches(suggestion, observed)) {
-                return new Result(Outcome.MISMATCH, "Journal trade did not match the suggestion");
-            }
-            return new Result(Outcome.SUCCESS, suggestion.summary());
+            return new Result(Outcome.SUCCESS, plans.size() == 1
+                    ? plans.get(0).suggestion().summary()
+                    : "Completed all " + plans.size() + " trades");
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             return new Result(Outcome.INTERRUPTED, "Trade cancelled");
@@ -182,8 +209,32 @@ public final class MaterialTradeExecutor {
         } catch (RuntimeException ex) {
             return new Result(Outcome.KEY_ERROR, ex.getMessage() != null ? ex.getMessage() : "Key send failed");
         } finally {
-            pending.compareAndSet(wait, null);
+            pending.set(null);
         }
+    }
+
+    private ResultOrPlan prepare(TradeSuggestion suggestion) {
+        if (suggestion == null) {
+            return ResultOrPlan.error(new Result(Outcome.MATERIALS_MISSING, "Invalid trade suggestion"));
+        }
+        Optional<EngineeringMaterial> fromOpt = database.material(suggestion.getFromKey());
+        Optional<EngineeringMaterial> toOpt = database.material(suggestion.getToKey());
+        if (fromOpt.isEmpty() || toOpt.isEmpty()) {
+            return ResultOrPlan.error(
+                    new Result(Outcome.MATERIALS_MISSING, "Unknown material in trade suggestion"));
+        }
+        EngineeringMaterial give = fromOpt.get();
+        EngineeringMaterial receive = toOpt.get();
+        Optional<MaterialTraderScreenLayout.GridPos> receivePos = layout.position(receive);
+        Optional<MaterialTraderScreenLayout.GridPos> givePos = layout.position(give);
+        if (receivePos.isEmpty() || givePos.isEmpty()) {
+            return ResultOrPlan.error(new Result(Outcome.LAYOUT_ERROR,
+                    "No screen position for " + (receivePos.isEmpty() ? receive.getName() : give.getName())));
+        }
+        int rightPresses = MaterialTradeRateCalculator.rightPressesFor(
+                give, receive, suggestion.getFromCount(), suggestion.getToCount());
+        return ResultOrPlan.plan(new PlannedTrade(
+                suggestion, receivePos.get(), givePos.get(), rightPresses));
     }
 
     private static void report(Consumer<String> status, String message) {
@@ -192,56 +243,61 @@ public final class MaterialTradeExecutor {
         }
     }
 
-    private void runKeySequence(MaterialTraderScreenLayout.GridPos receivePos,
+    private void runKeySequence(MaterialTraderScreenLayout.GridPos startPos,
+                                MaterialTraderScreenLayout.GridPos receivePos,
                                 MaterialTraderScreenLayout.GridPos givePos,
                                 int rightPresses) throws InterruptedException {
+        MaterialTraderScreenLayout.GridPos navigationStart = startPos;
+        if (navigationStart == null) {
             // Reset highlight to upper-left.
             keys.up(RESET_PRESSES);
             keys.left(RESET_PRESSES);
-
-            // Select receive (wanted) material.
-            navigateRelative(ORIGIN, receivePos);
-            Thread.sleep(PRE_SPACE_MS);
-            keys.space();
-            Thread.sleep(AFTER_SELECT_MS);
-
-            // Highlight stays on receive; move to give (paid) material, then Space to open trade.
-            navigateRelative(receivePos, givePos);
-            Thread.sleep(PRE_SPACE_MS);
-            keys.space();
-            Thread.sleep(PRE_QUANTITY_MS);
-
-            // Quantity: Cancel is selected; Left/Right adjust the amount, then Up + Space confirms.
-            System.out.println("EDO auto-trade: quantity Right presses=" + rightPresses);
-            if (rightPresses > 0) {
-                keys.right(rightPresses);
-                Thread.sleep(PRE_SPACE_MS);
-            }
-
-            // Leave Cancel, confirm trade.
-            keys.up(1);
-            Thread.sleep(PRE_SPACE_MS);
-            keys.space();
+            navigationStart = ORIGIN;
         }
 
-        private static final MaterialTraderScreenLayout.GridPos ORIGIN =
-                new MaterialTraderScreenLayout.GridPos(0, 0);
+        // Select receive (wanted) material.
+        navigateRelative(navigationStart, receivePos);
+        Thread.sleep(PRE_SPACE_MS);
+        keys.space();
+        Thread.sleep(AFTER_SELECT_MS);
 
-        private void navigateRelative(MaterialTraderScreenLayout.GridPos from,
-                                      MaterialTraderScreenLayout.GridPos to) throws InterruptedException {
-            int dRow = to.row() - from.row();
-            int dCol = to.col() - from.col();
-            if (dRow > 0) {
-                keys.down(dRow);
-            } else if (dRow < 0) {
-                keys.up(-dRow);
-            }
-            if (dCol > 0) {
-                keys.right(dCol);
-            } else if (dCol < 0) {
-                keys.left(-dCol);
-            }
+        // Highlight stays on receive; move to give (paid) material, then Space to open trade.
+        navigateRelative(receivePos, givePos);
+        Thread.sleep(PRE_SPACE_MS);
+        keys.space();
+        Thread.sleep(PRE_QUANTITY_MS);
+
+        // Quantity: Cancel is selected; Left/Right adjust the amount, then Up + Space confirms.
+        System.out.println("EDO auto-trade: quantity Right presses=" + rightPresses);
+        if (rightPresses > 0) {
+            keys.right(rightPresses);
+            Thread.sleep(PRE_SPACE_MS);
         }
+
+        // Leave Cancel, confirm trade.
+        keys.up(1);
+        Thread.sleep(PRE_SPACE_MS);
+        keys.space();
+    }
+
+    private static final MaterialTraderScreenLayout.GridPos ORIGIN =
+            new MaterialTraderScreenLayout.GridPos(0, 0);
+
+    private void navigateRelative(MaterialTraderScreenLayout.GridPos from,
+                                  MaterialTraderScreenLayout.GridPos to) throws InterruptedException {
+        int dRow = to.row() - from.row();
+        int dCol = to.col() - from.col();
+        if (dRow > 0) {
+            keys.down(dRow);
+        } else if (dRow < 0) {
+            keys.up(-dRow);
+        }
+        if (dCol > 0) {
+            keys.right(dCol);
+        } else if (dCol < 0) {
+            keys.left(-dCol);
+        }
+    }
 
     private MaterialTradeEvent awaitMatch(PendingTrade wait, long timeoutMs) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
@@ -274,18 +330,34 @@ public final class MaterialTradeExecutor {
                 .equals(EngineeringMaterialKeys.canonicalKey(suggestion.getToKey()))) {
             return false;
         }
-            if (event.getPaidCount() != suggestion.getFromCount()) {
-                return false;
-            }
-            return event.getReceivedCount() == suggestion.getToCount();
+        if (event.getPaidCount() != suggestion.getFromCount()) {
+            return false;
+        }
+        return event.getReceivedCount() == suggestion.getToCount();
+    }
+
+    private record PlannedTrade(TradeSuggestion suggestion,
+                                MaterialTraderScreenLayout.GridPos receivePos,
+                                MaterialTraderScreenLayout.GridPos givePos,
+                                int rightPresses) {
+    }
+
+    private record ResultOrPlan(PlannedTrade plan, Result error) {
+        static ResultOrPlan plan(PlannedTrade plan) {
+            return new ResultOrPlan(plan, null);
         }
 
-        private static final class PendingTrade {
-            final TradeSuggestion suggestion;
-            volatile MaterialTradeEvent observed;
-
-            PendingTrade(TradeSuggestion suggestion) {
-                this.suggestion = suggestion;
-            }
+        static ResultOrPlan error(Result error) {
+            return new ResultOrPlan(null, error);
         }
     }
+
+    private static final class PendingTrade {
+        final TradeSuggestion suggestion;
+        volatile MaterialTradeEvent observed;
+
+        PendingTrade(TradeSuggestion suggestion) {
+            this.suggestion = suggestion;
+        }
+    }
+}

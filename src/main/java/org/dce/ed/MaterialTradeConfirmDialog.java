@@ -4,6 +4,7 @@ import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Window;
+import java.util.List;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -25,20 +26,20 @@ final class MaterialTradeConfirmDialog extends JDialog {
 
     private boolean go;
 
-    private MaterialTradeConfirmDialog(Window owner, TradeSuggestion suggestion) {
+    private MaterialTradeConfirmDialog(Window owner, String traderType, String tradeSummary) {
         super(owner, "Material trade", ModalityType.APPLICATION_MODAL);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setResizable(false);
 
-        String traderType = suggestion.getTraderType() != null && !suggestion.getTraderType().isBlank()
-                ? suggestion.getTraderType()
+        String displayTraderType = traderType != null && !traderType.isBlank()
+                ? traderType
                 : "Material";
         JLabel message = new JLabel(
                 "<html><body style='text-align:center;width:280px'>"
-                        + "Be sure the <b>" + escapeHtml(traderType) + "</b> Material Trader screen is up."
+                        + "Be sure the <b>" + escapeHtml(displayTraderType) + "</b> Material Trader screen is up."
                         + "<br><br>After <b>Go</b>, click the Elite Dangerous window to start the trade."
                         + "<br><br><span style='font-size:90%'>"
-                        + escapeHtml(suggestion.summary())
+                        + escapeHtml(tradeSummary)
                         + "</span></body></html>",
                 SwingConstants.CENTER);
         Font base = OverlayPreferences.getUiFont();
@@ -87,7 +88,23 @@ final class MaterialTradeConfirmDialog extends JDialog {
         if (suggestion == null) {
             return false;
         }
-        MaterialTradeConfirmDialog dialog = new MaterialTradeConfirmDialog(owner, suggestion);
+        return show(owner, suggestion.getTraderType(), suggestion.summary());
+    }
+
+    static boolean confirmAll(Window owner, String traderType, List<TradeSuggestion> suggestions) {
+        if (suggestions == null || suggestions.isEmpty()) {
+            return false;
+        }
+        int paid = suggestions.stream().mapToInt(TradeSuggestion::getFromCount).sum();
+        int received = suggestions.stream().mapToInt(TradeSuggestion::getToCount).sum();
+        String summary = suggestions.size() + " trades — give " + paid
+                + " total materials, receive " + received + " total materials";
+        return show(owner, traderType, summary);
+    }
+
+    private static boolean show(Window owner, String traderType, String summary) {
+        MaterialTradeConfirmDialog dialog =
+                new MaterialTradeConfirmDialog(owner, traderType, summary);
         SwingUtilities.invokeLater(() -> {
             if (dialog.isDisplayable()) {
                 dialog.toFront();
