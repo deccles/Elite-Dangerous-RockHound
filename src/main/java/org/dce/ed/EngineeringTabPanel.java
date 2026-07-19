@@ -2353,48 +2353,36 @@ public class EngineeringTabPanel extends JPanel {
         boolean tradeAll = suggestions.size() > 1 || tradeModel.isSectionRow(modelRow);
         Window owner = SwingUtilities.getWindowAncestor(this);
         setTradeStatus("Confirm trade…", false);
-        boolean confirmed = tradeAll
-                ? MaterialTradeConfirmDialog.confirmAll(
-                        owner, suggestion.getTraderType(), suggestions)
-                : MaterialTradeConfirmDialog.confirm(owner, suggestion);
-        if (!confirmed) {
-            setTradeStatus(" ", false);
-            return;
-        }
         tradeAutomationRunning = true;
-        setTradeStatus("Click Elite Dangerous to start…", false);
         final boolean restoreAlwaysOnTop = owner != null && owner.isAlwaysOnTop();
         if (restoreAlwaysOnTop) {
-            // So the user can click the game without the overlay covering it.
+            // Keep only the confirmation dialog above Elite. It shields the mouse position
+            // until every trade finishes, while allowing Elite itself to receive focus.
             owner.setAlwaysOnTop(false);
         }
         List<TradeSuggestion> toRun = List.copyOf(suggestions);
-        Thread worker = new Thread(() -> {
-            MaterialTradeExecutor.Result result =
-                    new MaterialTradeExecutor.Result(
-                            MaterialTradeExecutor.Outcome.KEY_ERROR, "Trade failed");
-            try {
-                result = tradeExecutor.executeAll(toRun, msg ->
-                        SwingUtilities.invokeLater(() -> setTradeStatus(msg, false)));
-            } catch (RuntimeException ex) {
-                result = new MaterialTradeExecutor.Result(
-                        MaterialTradeExecutor.Outcome.KEY_ERROR,
-                        ex.getMessage() != null ? ex.getMessage() : "Trade failed");
-            } finally {
-                SwingUtilities.invokeLater(() -> {
-                    if (restoreAlwaysOnTop && owner != null && owner.isDisplayable()) {
-                        owner.setAlwaysOnTop(true);
-                    }
-                });
+        MaterialTradeExecutor.Result result;
+        try {
+            MaterialTradeConfirmDialog.TradeAction action = dialogStatus ->
+                    tradeExecutor.executeAll(toRun, msg -> {
+                        dialogStatus.accept(msg);
+                        SwingUtilities.invokeLater(() -> setTradeStatus(msg, false));
+                    });
+            result = tradeAll
+                    ? MaterialTradeConfirmDialog.executeAll(
+                            owner, suggestion.getTraderType(), toRun, action)
+                    : MaterialTradeConfirmDialog.execute(owner, suggestion, action);
+        } finally {
+            tradeAutomationRunning = false;
+            if (restoreAlwaysOnTop && owner != null && owner.isDisplayable()) {
+                owner.setAlwaysOnTop(true);
             }
-            MaterialTradeExecutor.Result finalResult = result;
-            SwingUtilities.invokeLater(() -> {
-                tradeAutomationRunning = false;
-                setTradeStatus(finalResult.message(), finalResult.ok());
-            });
-        }, "edo-material-trade");
-        worker.setDaemon(true);
-        worker.start();
+        }
+        if (result == null) {
+            setTradeStatus(" ", false);
+        } else {
+            setTradeStatus(result.message(), result.ok());
+        }
     }
 
     private void setTradeStatus(String text, boolean success) {

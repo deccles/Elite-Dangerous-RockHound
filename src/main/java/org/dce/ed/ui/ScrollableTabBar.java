@@ -102,16 +102,14 @@ public final class ScrollableTabBar extends JPanel {
     /**
      * Match {@link org.dce.ed.EliteOverlayTabbedPane#applyOverlayBackground} for the old flat tab bar.
      * <p>
-     * When mouse pass-through is off, keep an opaque plate even if the body is see-through — otherwise
-     * Windows layered hit-testing drops clicks on alpha-0 gaps between tabs.
+     * See-through visuals follow the transparency preference in both mouse modes; when mouse
+     * pass-through is off, {@link #paintComponent} keeps every pixel at alpha ≥ 1 so Windows layered
+     * hit-testing still delivers clicks on tabs and the gaps between them (alpha-0 pixels are
+     * click-through to the game).
      */
     public void applyOverlayChrome(Color background, boolean treatAsTransparent) {
-        boolean mousePassThrough = passThroughEnabled != null && passThroughEnabled.getAsBoolean();
-        boolean seeThrough = treatAsTransparent && mousePassThrough;
-        boolean opaque = !seeThrough;
-        Color fill = seeThrough
-                ? background
-                : solidHitPlate(background);
+        boolean opaque = !treatAsTransparent;
+        Color fill = opaque ? solidHitPlate(background) : background;
         setOpaque(opaque);
         setBackground(fill);
         tabStrip.setOpaque(opaque);
@@ -141,16 +139,35 @@ public final class ScrollableTabBar extends JPanel {
         return new Color(dark.getRed(), dark.getGreen(), dark.getBlue());
     }
 
+    /** Background color with alpha clamped to ≥ 1: visually transparent but still a Win32 click target. */
+    static Color minAlphaHitPlate(Color background) {
+        Color base = background != null ? background : EdoUi.User.BACKGROUND;
+        return new Color(base.getRed(), base.getGreen(), base.getBlue(), Math.max(1, base.getAlpha()));
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
-        boolean mousePassThrough = passThroughEnabled != null && passThroughEnabled.getAsBoolean();
-        // Only clear for see-through while mouse pass-through is on. Clearing while interactive
-        // leaves alpha-0 tabs/gaps that never receive OS mouse events.
-        if (mousePassThrough && (!isOpaque() || OverlayPreferences.overlayChromeRequestsTransparency())) {
+        if (!isOpaque()) {
+            boolean mousePassThrough = passThroughEnabled != null && passThroughEnabled.getAsBoolean();
+            boolean chromeTransparent = OverlayPreferences.overlayChromeRequestsTransparency();
             Graphics2D g2 = (Graphics2D) g.create();
             try {
-                g2.setComposite(AlphaComposite.Clear);
-                g2.fillRect(0, 0, getWidth(), getHeight());
+                if (chromeTransparent && mousePassThrough) {
+                    // Pass-through: fully clear; clicks go to the game anyway.
+                    g2.setComposite(AlphaComposite.Clear);
+                    g2.fillRect(0, 0, getWidth(), getHeight());
+                } else if (chromeTransparent) {
+                    // Interactive overlay: keep the configured transparency but never alpha 0, so
+                    // Windows layered hit-testing still delivers clicks on tabs/gaps.
+                    g2.setComposite(AlphaComposite.Src);
+                    g2.setColor(minAlphaHitPlate(getBackground()));
+                    g2.fillRect(0, 0, getWidth(), getHeight());
+                } else {
+                    // Decorated host / opaque theme: solid plate (Clear corrupts on decorated JFrames).
+                    g2.setComposite(AlphaComposite.SrcOver);
+                    g2.setColor(solidHitPlate(getBackground()));
+                    g2.fillRect(0, 0, getWidth(), getHeight());
+                }
             } finally {
                 g2.dispose();
             }

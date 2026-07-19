@@ -1059,7 +1059,7 @@ public class SystemTabPanel extends JPanel {
         mapToolbarMain.add(orbitAnimSpeedUpButton);
         mapToolbar.add(mapToolbarMain, BorderLayout.WEST);
         mapToolbar.add(mapToolbarEast, BorderLayout.EAST);
-        mapColumn.add(mapToolbar, BorderLayout.NORTH);
+        mapColumn.add(mapToolbar, BorderLayout.SOUTH);
         mapColumn.add(systemPlanMapPanel, BorderLayout.CENTER);
 
         double tableSplitRatio = OverlayPreferences.getSystemTabPanelTableSplitRatio();

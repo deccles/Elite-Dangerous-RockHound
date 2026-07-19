@@ -1360,11 +1360,13 @@ public class EliteOverlayTabbedPane extends JPanel {
 				? TAB_WHITE
 				: (selected ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.MAIN_TEXT_ALPHA_220);
 
-		if (!passThrough) {
+		if (!passThrough && !OverlayPreferences.overlayChromeRequestsTransparency()) {
 			/*
-			 * Mouse is interactive: Windows layered/per-pixel-alpha hit-testing only delivers clicks to
-			 * non-zero-alpha pixels. With contentAreaFilled(false) only the glyph was hittable, so most
-			 * tab clicks were dropped. Paint a solid chip for the full button bounds.
+			 * Mouse is interactive on an opaque host: Windows layered/per-pixel-alpha hit-testing only
+			 * delivers clicks to non-zero-alpha pixels. With contentAreaFilled(false) only the glyph was
+			 * hittable, so most tab clicks were dropped. Paint a solid chip for the full button bounds.
+			 * (On the see-through overlay host, ScrollableTabBar paints an alpha ≥ 1 plate under the tabs
+			 * instead, so the transparency preference stays visible while clicks still land.)
 			 */
 			button.setContentAreaFilled(true);
 			button.setOpaque(true);

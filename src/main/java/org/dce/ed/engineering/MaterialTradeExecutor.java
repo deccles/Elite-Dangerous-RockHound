@@ -17,7 +17,7 @@ import org.dce.ed.util.EliteWindowFocus;
 public final class MaterialTradeExecutor {
 
     public static final long DEFAULT_TRADE_TIMEOUT_MS = 10_000L;
-    /** How long to wait for the user to click Elite after pressing Go. */
+    /** How long to wait for the user to click Elite if automatic focus fails. */
     public static final long DEFAULT_USER_FOCUS_TIMEOUT_MS = 45_000L;
     private static final int RESET_PRESSES = 16;
     private static final long FOCUS_SETTLE_MS = 350L;
@@ -139,13 +139,16 @@ public final class MaterialTradeExecutor {
             plans.add(prepared.plan());
         }
         try {
-            // Do not auto-focus — wait until the user clicks Elite themselves.
             if (!EliteWindowFocus.isEliteForeground()) {
-                report(status, "Click Elite Dangerous to start…");
-                System.out.println("EDO auto-trade: waiting for user to focus Elite "
-                        + "(currently " + EliteWindowFocus.foregroundProcessBaseName() + ")");
-                boolean focused = EliteWindowFocus.waitUntilUserFocusesElite(
-                        userFocusTimeoutMs, FOCUS_POLL_MS);
+                report(status, "Focusing Elite Dangerous…");
+                boolean focused = EliteWindowFocus.focusEliteWindow();
+                if (!focused) {
+                    report(status, "Automatic focus failed — click Elite Dangerous to start…");
+                    System.out.println("EDO auto-trade: automatic focus failed; waiting for user "
+                            + "(currently " + EliteWindowFocus.foregroundProcessBaseName() + ")");
+                    focused = EliteWindowFocus.waitUntilUserFocusesElite(
+                            userFocusTimeoutMs, FOCUS_POLL_MS);
+                }
                 if (!focused) {
                     return new Result(Outcome.FOCUS_FAILED,
                             "Timed out waiting for you to click Elite (last foreground: "

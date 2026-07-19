@@ -1,5 +1,8 @@
 package org.dce.ed.util;
 
+import java.awt.AWTException;
+import java.awt.Robot;
+import java.awt.event.KeyEvent;
 import java.util.Locale;
 
 import com.sun.jna.Native;
@@ -105,17 +108,43 @@ public final class EliteWindowFocus {
                 } finally {
                     User32.INSTANCE.AttachThreadInput(previousThreadId, eliteThreadId, false);
                 }
-                boolean ok = isEliteForeground();
-                System.out.println("EDO auto-trade: focus via AttachThreadInput -> "
-                        + ok + "; foreground=" + foregroundProcessBaseName());
-                return ok;
+                if (isEliteForeground()) {
+                    System.out.println("EDO auto-trade: focus via AttachThreadInput -> "
+                            + "true; foreground=" + foregroundProcessBaseName());
+                    return true;
+                }
             }
         }
         User32.INSTANCE.SetForegroundWindow(hwnd);
-        boolean ok = isEliteForeground();
-        System.out.println("EDO auto-trade: focus via SetForegroundWindow -> "
+        if (isEliteForeground()) {
+            System.out.println("EDO auto-trade: focus via SetForegroundWindow -> "
+                    + "true; foreground=" + foregroundProcessBaseName());
+            return true;
+        }
+        boolean ok = altKeySetForeground(hwnd);
+        System.out.println("EDO auto-trade: focus via Alt-key trick -> "
                 + ok + "; foreground=" + foregroundProcessBaseName());
         return ok;
+    }
+
+    /**
+     * Taps a real Alt key via {@link Robot} before {@code SetForegroundWindow}. Windows lifts the
+     * foreground lock for the process that generated the last input, so the call is allowed.
+     */
+    private static boolean altKeySetForeground(HWND hwnd) {
+        Robot robot;
+        try {
+            robot = new Robot();
+        } catch (AWTException e) {
+            return false;
+        }
+        robot.keyPress(KeyEvent.VK_ALT);
+        try {
+            User32.INSTANCE.SetForegroundWindow(hwnd);
+        } finally {
+            robot.keyRelease(KeyEvent.VK_ALT);
+        }
+        return isEliteForeground();
     }
 
     /**
