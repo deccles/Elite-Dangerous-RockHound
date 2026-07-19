@@ -1,17 +1,22 @@
 package org.dce.ed;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Window;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
@@ -26,6 +31,11 @@ import org.dce.ed.ui.OverlayOutlineButtonStyle;
  */
 final class MaterialTradeConfirmDialog extends JDialog {
 
+    private static final Pattern TRADE_PROGRESS =
+            Pattern.compile("Running trade\\s+(\\d+)\\s+of\\s+(\\d+)", Pattern.CASE_INSENSITIVE);
+    private static final String CARD_BUTTONS = "buttons";
+    private static final String CARD_PROGRESS = "progress";
+
     @FunctionalInterface
     interface TradeAction {
         MaterialTradeExecutor.Result execute(Consumer<String> status);
@@ -35,10 +45,12 @@ final class MaterialTradeConfirmDialog extends JDialog {
     private boolean running;
 
     private MaterialTradeConfirmDialog(Window owner, String traderType, String tradeSummary,
-                                       TradeAction action) {
+                                       int tradeCount, TradeAction action) {
         super(owner, "Material trade", ModalityType.APPLICATION_MODAL);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setResizable(false);
+
+        int totalTrades = Math.max(1, tradeCount);
 
         String displayTraderType = traderType != null && !traderType.isBlank()
                 ? traderType
@@ -67,6 +79,35 @@ final class MaterialTradeConfirmDialog extends JDialog {
         JButton cancelBtn = new JButton("Cancel");
         OverlayOutlineButtonStyle.applyPrimary(goBtn, base);
         OverlayOutlineButtonStyle.applyChip(cancelBtn, base, false);
+
+        JProgressBar progressBar = new JProgressBar(0, totalTrades);
+        progressBar.setValue(0);
+        progressBar.setStringPainted(true);
+        progressBar.setString("0 / " + totalTrades);
+        progressBar.setIndeterminate(false);
+        progressBar.setForeground(EdoUi.User.MAIN_TEXT);
+        progressBar.setBackground(EdoUi.User.BACKGROUND);
+        progressBar.setBorderPainted(true);
+        progressBar.setPreferredSize(new Dimension(260, 22));
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+        buttons.setOpaque(false);
+        buttons.add(goBtn);
+        buttons.add(cancelBtn);
+
+        JPanel progressPanel = new JPanel(new BorderLayout());
+        progressPanel.setOpaque(false);
+        progressPanel.setBorder(new EmptyBorder(4, 24, 4, 24));
+        progressPanel.add(progressBar, BorderLayout.CENTER);
+
+        CardLayout footerCards = new CardLayout();
+        JPanel footer = new JPanel(footerCards);
+        footer.setOpaque(false);
+        footer.setBorder(new EmptyBorder(8, 12, 16, 12));
+        footer.add(buttons, CARD_BUTTONS);
+        footer.add(progressPanel, CARD_PROGRESS);
+        footerCards.show(footer, CARD_BUTTONS);
+
         goBtn.addActionListener(e -> {
             if (running) {
                 return;
@@ -75,15 +116,21 @@ final class MaterialTradeConfirmDialog extends JDialog {
             setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
             goBtn.setEnabled(false);
             cancelBtn.setEnabled(false);
+            footerCards.show(footer, CARD_PROGRESS);
+            progressBar.setIndeterminate(true);
+            progressBar.setString("Focusing…");
             status.setText("Focusing Elite Dangerous…");
 
             Thread worker = new Thread(() -> {
                 MaterialTradeExecutor.Result completed;
                 try {
                     completed = action.execute(msg -> SwingUtilities.invokeLater(() -> {
-                        if (isDisplayable()) {
-                            status.setText(msg != null && !msg.isBlank() ? msg : " ");
+                        if (!isDisplayable()) {
+                            return;
                         }
+                        String text = msg != null && !msg.isBlank() ? msg : " ";
+                        status.setText(text);
+                        applyProgress(progressBar, text, totalTrades);
                     }));
                 } catch (RuntimeException ex) {
                     completed = new MaterialTradeExecutor.Result(
@@ -101,12 +148,6 @@ final class MaterialTradeConfirmDialog extends JDialog {
         });
         cancelBtn.addActionListener(e -> dispose());
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
-        buttons.setOpaque(false);
-        buttons.setBorder(new EmptyBorder(8, 12, 16, 12));
-        buttons.add(goBtn);
-        buttons.add(cancelBtn);
-
         JPanel root = new JPanel(new BorderLayout());
         root.setBackground(EdoUi.User.PANEL_BG);
         root.setBorder(BorderFactory.createLineBorder(EdoUi.User.MAIN_TEXT, 1));
@@ -114,7 +155,7 @@ final class MaterialTradeConfirmDialog extends JDialog {
         JPanel south = new JPanel(new BorderLayout());
         south.setOpaque(false);
         south.add(status, BorderLayout.NORTH);
-        south.add(buttons, BorderLayout.SOUTH);
+        south.add(footer, BorderLayout.SOUTH);
         root.add(south, BorderLayout.SOUTH);
 
         setContentPane(root);
@@ -125,12 +166,49 @@ final class MaterialTradeConfirmDialog extends JDialog {
         setLocationRelativeTo(owner);
     }
 
+    private static void applyProgress(JProgressBar progressBar, String statusText, int totalTrades) {
+        if (statusText == null) {
+            return;
+        }
+        Matcher m = TRADE_PROGRESS.matcher(statusText);
+        if (m.find()) {
+            int current = parsePositive(m.group(1), 0);
+            int total = parsePositive(m.group(2), totalTrades);
+            if (total <= 0) {
+                total = Math.max(1, totalTrades);
+            }
+            current = Math.min(Math.max(0, current), total);
+            progressBar.setIndeterminate(false);
+            progressBar.setMaximum(total);
+            progressBar.setValue(current);
+            progressBar.setString(current + " / " + total);
+            return;
+        }
+        if (statusText.toLowerCase().contains("running trade")) {
+            progressBar.setIndeterminate(false);
+            progressBar.setMaximum(totalTrades);
+            progressBar.setValue(0);
+            progressBar.setString("1 / " + totalTrades);
+            return;
+        }
+        progressBar.setIndeterminate(true);
+        progressBar.setString(statusText.length() > 28 ? "Working…" : statusText.trim());
+    }
+
+    private static int parsePositive(String raw, int fallback) {
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
     static MaterialTradeExecutor.Result execute(Window owner, TradeSuggestion suggestion,
                                                 TradeAction action) {
         if (suggestion == null) {
             return null;
         }
-        return show(owner, suggestion.getTraderType(), suggestion.summary(), action);
+        return show(owner, suggestion.getTraderType(), suggestion.summary(), 1, action);
     }
 
     static MaterialTradeExecutor.Result executeAll(Window owner, String traderType,
@@ -143,13 +221,13 @@ final class MaterialTradeConfirmDialog extends JDialog {
         int received = suggestions.stream().mapToInt(TradeSuggestion::getToCount).sum();
         String summary = suggestions.size() + " trades — give " + paid
                 + " total materials, receive " + received + " total materials";
-        return show(owner, traderType, summary, action);
+        return show(owner, traderType, summary, suggestions.size(), action);
     }
 
     private static MaterialTradeExecutor.Result show(Window owner, String traderType, String summary,
-                                                     TradeAction action) {
+                                                     int tradeCount, TradeAction action) {
         MaterialTradeConfirmDialog dialog =
-                new MaterialTradeConfirmDialog(owner, traderType, summary, action);
+                new MaterialTradeConfirmDialog(owner, traderType, summary, tradeCount, action);
         SwingUtilities.invokeLater(() -> {
             if (dialog.isDisplayable()) {
                 dialog.toFront();

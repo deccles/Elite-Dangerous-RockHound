@@ -1420,6 +1420,15 @@ public class EliteOverlayTabbedPane extends JPanel {
 			button.setOpaque(true);
 			Color base = EdoUi.User.BACKGROUND;
 			button.setBackground(new Color(base.getRed(), base.getGreen(), base.getBlue(), 255));
+		} else if (selected) {
+			/*
+			 * Transparent overlay chrome: the orange text/border alone (alpha 255 vs 220) is not
+			 * distinguishable, so paint a translucent chip behind the active tab. Non-opaque so the
+			 * overlay transparency preference still shows through around the rounded corners.
+			 */
+			button.setContentAreaFilled(true);
+			button.setOpaque(false);
+			button.setBackground(EdoUi.withAlpha(TAB_SELECTED_BG, 200));
 		} else {
 			button.setContentAreaFilled(false);
 			button.setOpaque(false);

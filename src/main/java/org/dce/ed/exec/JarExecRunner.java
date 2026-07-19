@@ -170,6 +170,7 @@ public final class JarExecRunner {
             if (context != null) {
                 env.putAll(context.toEnvironment());
             }
+            putResolvedEnvironment(env, resolved);
             env.put("EDO_EXEC_STARTED", Instant.now().toString());
 
             Process process = pb.start();
@@ -199,6 +200,23 @@ public final class JarExecRunner {
             }
             return new RunResult(-1, msg);
         }
+    }
+
+    static void putResolvedEnvironment(Map<String, String> env, Map<String, String> resolved) {
+        if (env == null || resolved == null) {
+            return;
+        }
+        putKnownEnvironmentValue(env, "EDO_SHIP_TYPE", resolved.get("SHIP_TYPE"));
+        putKnownEnvironmentValue(env, "EDO_SHIP_ID", resolved.get("SHIP_ID"));
+        putKnownEnvironmentValue(env, "EDO_SHIP_NAME", resolved.get("SHIP_NAME"));
+        putKnownEnvironmentValue(env, "EDO_SHIP_IDENT", resolved.get("SHIP_IDENT"));
+    }
+
+    private static void putKnownEnvironmentValue(Map<String, String> env, String key, String value) {
+        if (value == null || value.isBlank() || ExecPlaceholderResolver.UNKNOWN.equalsIgnoreCase(value.trim())) {
+            return;
+        }
+        env.put(key, value.trim());
     }
 
     static List<String> buildCommand(Path program, String programArgs) {

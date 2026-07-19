@@ -152,6 +152,8 @@ public final class OverlayPreferences {
     private static final String KEY_SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND = "system.planMap.orbitAnim.daysPerWallSecond";
     /** True-scale map view tilt 0…90 ({@link org.dce.ed.systemmap.MapViewProjection}). */
     private static final String KEY_SYSTEM_PLAN_MAP_VIEW_TILT_DEG = "system.planMap.viewTiltDeg";
+    /** Whether the System tab plan map canvas is collapsed (toolbar stays visible). */
+    private static final String KEY_SYSTEM_PLAN_MAP_COLLAPSED = "system.planMap.collapsed";
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_DEFAULT = 110;
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN = 1;
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MAX = 500;
@@ -820,6 +822,15 @@ public final class OverlayPreferences {
         } else {
             PREFS.putInt(KEY_SYSTEM_PLAN_MAP_VIEW_TILT_DEG, clamped);
         }
+        flushBackingStore();
+    }
+
+    public static boolean isSystemPlanMapCollapsed() {
+        return PREFS.getBoolean(KEY_SYSTEM_PLAN_MAP_COLLAPSED, false);
+    }
+
+    public static void setSystemPlanMapCollapsed(boolean collapsed) {
+        PREFS.putBoolean(KEY_SYSTEM_PLAN_MAP_COLLAPSED, collapsed);
         flushBackingStore();
     }
 

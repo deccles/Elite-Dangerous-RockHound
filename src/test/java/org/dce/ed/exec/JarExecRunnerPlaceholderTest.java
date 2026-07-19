@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -34,5 +35,30 @@ class JarExecRunnerPlaceholderTest {
         assertEquals("Col 285 Sector IX-T b3-3", command.get(3));
         assertEquals("Unknown", command.get(4));
         assertEquals(5, command.size());
+    }
+
+    @Test
+    void resolvedShipValuesAreExportedToChildEnvironment() {
+        Map<String, String> env = new HashMap<>();
+
+        JarExecRunner.putResolvedEnvironment(env, Map.of(
+                "SHIP_TYPE", "Anaconda",
+                "SHIP_ID", "42",
+                "SHIP_NAME", "Endurance",
+                "SHIP_IDENT", "EDO-42"));
+
+        assertEquals("Anaconda", env.get("EDO_SHIP_TYPE"));
+        assertEquals("42", env.get("EDO_SHIP_ID"));
+        assertEquals("Endurance", env.get("EDO_SHIP_NAME"));
+        assertEquals("EDO-42", env.get("EDO_SHIP_IDENT"));
+    }
+
+    @Test
+    void unknownShipValuesAreNotExported() {
+        Map<String, String> env = new HashMap<>();
+
+        JarExecRunner.putResolvedEnvironment(env, Map.of("SHIP_TYPE", "Unknown"));
+
+        assertTrue(env.isEmpty());
     }
 }

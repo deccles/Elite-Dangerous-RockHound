@@ -69,6 +69,7 @@ import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
+import org.dce.ed.ui.TransparentViewportUI;
 
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.CachedSystemSummary;
@@ -413,6 +414,11 @@ public class RouteTabPanel extends JPanel {
 					sp.setBorder(null);
 					sp.setViewportBorder(null);
 				}
+			}
+			@Override
+			protected void paintComponent(Graphics g) {
+				super.paintComponent(g);
+				TransparentViewportUI.clearBelowTableRowsInSelectiveMode(g, this);
 			}
 		};
 		// Belt-and-suspenders: remove editors so nothing can ever enter edit mode.

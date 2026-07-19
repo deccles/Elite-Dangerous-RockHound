@@ -886,10 +886,11 @@ public final class EngineeringGoalProgress {
                                                      BlueprintGrade experimental) {
         String normalizedName = EngineeringJournalBlueprintResolver.normalizeToken(experimental.getName());
         String normalizedId = EngineeringJournalBlueprintResolver.normalizeToken(experimental.getId());
-        for (String candidate : List.of(
+        // Journal fields may be null (e.g. Loadout modules without an experimental effect); List.of rejects nulls.
+        for (String candidate : new String[] {
                 applyExperimentalEffect,
                 experimentalEffect,
-                experimentalEffectLocalised)) {
+                experimentalEffectLocalised}) {
             if (candidate == null || candidate.isBlank()) {
                 continue;
             }

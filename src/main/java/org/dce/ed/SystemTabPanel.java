@@ -10,6 +10,8 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.AlphaComposite;
+import java.awt.Insets;
 import java.awt.MouseInfo;
 import java.awt.Point;
 import java.awt.PointerInfo;
@@ -109,6 +111,7 @@ import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
+import org.dce.ed.ui.TransparentViewportUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.FssEdsmBackfill;
@@ -1113,6 +1116,10 @@ public class SystemTabPanel extends JPanel {
                 EdoMiningSplitPaneUi.applyDividerTheme(systemTableMapSplit);
             }
         });
+        if (OverlayPreferences.isSystemPlanMapCollapsed()) {
+            systemPlanMapCollapsed = true;
+            systemPlanMapPanel.setVisible(false);
+        }
         updateSystemPlanMapCollapseButtons();
         add(systemTableMapSplit, BorderLayout.CENTER);
 
@@ -2838,6 +2845,7 @@ public class SystemTabPanel extends JPanel {
         systemPlanMapSplitRatioBeforeCollapse = computeVerticalSplitRatio(systemTableMapSplit);
         systemPlanMapCollapsed = true;
         systemPlanMapPanel.setVisible(false);
+        OverlayPreferences.setSystemPlanMapCollapsed(true);
         systemSplitProgrammaticChange = true;
         try {
             applySystemPlanMapCollapsedDivider();
@@ -2855,6 +2863,7 @@ public class SystemTabPanel extends JPanel {
         }
         systemPlanMapCollapsed = false;
         systemPlanMapPanel.setVisible(true);
+        OverlayPreferences.setSystemPlanMapCollapsed(false);
         double ratio = systemPlanMapSplitRatioBeforeCollapse;
         if (ratio < 0.05 || ratio > 0.95) {
             ratio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
@@ -2876,6 +2885,59 @@ public class SystemTabPanel extends JPanel {
         }
         systemPlanMapCollapseButton.setVisible(!systemPlanMapCollapsed);
         systemPlanMapExpandButton.setVisible(systemPlanMapCollapsed);
+    }
+
+    /**
+     * Selective mode punches the empty table/map area clear, but {@link #setBorder} insets still show
+     * chrome fill on the left/right — clear those gutters for the same vertical span.
+     */
+    @Override
+    public void paint(Graphics g) {
+        super.paint(g);
+        clearSelectiveSideInsetsBesideTransparentZone(g);
+    }
+
+    private void clearSelectiveSideInsetsBesideTransparentZone(Graphics g) {
+        if (g == null
+                || OverlayPreferences.getOverlayMouseInteractionMode() != MouseInteractionMode.SELECTIVE
+                || !OverlayPreferences.isPassThroughWindowActive()
+                || table == null || !table.isShowing()) {
+            return;
+        }
+        Insets in = getInsets();
+        if (in == null || (in.left <= 0 && in.right <= 0)) {
+            return;
+        }
+        Point tableOrigin = SwingUtilities.convertPoint(table, 0, 0, this);
+        int rowCount = table.getRowCount();
+        int rowsBottomInTable = 0;
+        if (rowCount > 0) {
+            Rectangle last = table.getCellRect(rowCount - 1, 0, true);
+            rowsBottomInTable = last.y + last.height;
+        }
+        int yStart = Math.max(0, tableOrigin.y + rowsBottomInTable);
+        int yEnd = getHeight() - (in.bottom > 0 ? in.bottom : 0);
+        if (systemPlanMapToolbar != null && systemPlanMapToolbar.isShowing()) {
+            Point tb = SwingUtilities.convertPoint(systemPlanMapToolbar, 0, 0, this);
+            yEnd = Math.min(yEnd, tb.y);
+        }
+        if (yEnd <= yStart) {
+            return;
+        }
+        int h = yEnd - yStart;
+        int w = getWidth();
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+            if (in.left > 0) {
+                g2.fillRect(0, yStart, in.left, h);
+            }
+            if (in.right > 0) {
+                g2.fillRect(w - in.right, yStart, in.right, h);
+            }
+        } finally {
+            g2.dispose();
+        }
     }
 
     private void applySystemPlanMapCollapsedDivider() {
@@ -4763,6 +4825,7 @@ static class Row {
             } finally {
                 g2.dispose();
             }
+            TransparentViewportUI.clearBelowTableRowsInSelectiveMode(g, this);
         }
         private void paintDestinationRowText(Graphics2D g2) {
             Integer parentId = SystemTabPanel.this.targetDestinationParentBodyId;

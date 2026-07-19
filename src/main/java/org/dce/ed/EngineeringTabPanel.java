@@ -2387,12 +2387,6 @@ public class EngineeringTabPanel extends JPanel {
         Window owner = SwingUtilities.getWindowAncestor(this);
         setTradeStatus("Confirm trade…", false);
         tradeAutomationRunning = true;
-        final boolean restoreAlwaysOnTop = owner != null && owner.isAlwaysOnTop();
-        if (restoreAlwaysOnTop) {
-            // Keep only the confirmation dialog above Elite. It shields the mouse position
-            // until every trade finishes, while allowing Elite itself to receive focus.
-            owner.setAlwaysOnTop(false);
-        }
         List<TradeSuggestion> toRun = List.copyOf(suggestions);
         MaterialTradeExecutor.Result result;
         try {
@@ -2407,9 +2401,6 @@ public class EngineeringTabPanel extends JPanel {
                     : MaterialTradeConfirmDialog.execute(owner, suggestion, action);
         } finally {
             tradeAutomationRunning = false;
-            if (restoreAlwaysOnTop && owner != null && owner.isDisplayable()) {
-                owner.setAlwaysOnTop(true);
-            }
         }
         if (result == null) {
             setTradeStatus(" ", false);

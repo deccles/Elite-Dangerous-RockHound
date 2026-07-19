@@ -4,11 +4,14 @@ import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 
 import javax.swing.JComponent;
+import javax.swing.JTable;
 import javax.swing.plaf.ViewportUI;
 import javax.swing.plaf.basic.BasicViewportUI;
 
+import org.dce.ed.MouseInteractionMode;
 import org.dce.ed.OverlayPreferences;
 
 /**
@@ -68,6 +71,36 @@ public final class TransparentViewportUI extends BasicViewportUI {
             g2.setComposite(AlphaComposite.Src);
             g2.setColor(fill);
             g2.fillRect(x, y, width, height);
+        }
+    }
+
+    /**
+     * Selective (hybrid) mode: tables that fill the viewport paint chrome below the last row.
+     * Punch that strip fully transparent so the game shows through. CLEAR is only safe on the
+     * undecorated pass-through host.
+     */
+    public static void clearBelowTableRowsInSelectiveMode(Graphics g, JTable table) {
+        if (g == null || table == null
+                || OverlayPreferences.getOverlayMouseInteractionMode() != MouseInteractionMode.SELECTIVE
+                || !OverlayPreferences.isPassThroughWindowActive()) {
+            return;
+        }
+        int rowCount = table.getRowCount();
+        int rowsBottom = 0;
+        if (rowCount > 0) {
+            Rectangle last = table.getCellRect(rowCount - 1, 0, true);
+            rowsBottom = last.y + last.height;
+        }
+        int h = table.getHeight();
+        if (rowsBottom >= h) {
+            return;
+        }
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+            g2.fillRect(0, rowsBottom, table.getWidth(), h - rowsBottom);
+        } finally {
+            g2.dispose();
         }
     }
 }
