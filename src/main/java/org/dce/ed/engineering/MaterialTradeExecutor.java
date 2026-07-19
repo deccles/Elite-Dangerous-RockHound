@@ -20,15 +20,15 @@ public final class MaterialTradeExecutor {
     /** How long to wait for the user to click Elite if automatic focus fails. */
     public static final long DEFAULT_USER_FOCUS_TIMEOUT_MS = 45_000L;
     private static final int RESET_PRESSES = 16;
-    private static final long FOCUS_SETTLE_MS = 350L;
+    private static final long FOCUS_SETTLE_MS = 10L;
     /** Pause after arriving on a grid cell before Space (game needs a beat to register highlight). */
-    private static final long PRE_SPACE_MS = 280L;
+    private static final long PRE_SPACE_MS = 10L;
     /** Pause after Space selects a material (UI mode change). */
-    private static final long AFTER_SELECT_MS = 450L;
+    private static final long AFTER_SELECT_MS = 10L;
     /** Pause after Space on give before quantity Rights (amount panel must appear). */
-    private static final long PRE_QUANTITY_MS = 550L;
+    private static final long PRE_QUANTITY_MS = 10L;
     /** Let the trader return to its material grid after the journal confirms a trade. */
-    private static final long AFTER_TRADE_MS = 900L;
+    private static final long AFTER_TRADE_MS = 10L;
     private static final long FOCUS_POLL_MS = 150L;
 
     public enum Outcome {

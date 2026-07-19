@@ -416,6 +416,19 @@ private Double lastFootTravelUpDeg;
         }
     }
 
+    /** Selective mouse mode: ExoBio map control hit rects (compass, bookmark, zoom ±). */
+    public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+        if (screenPoint == null || !isShowing() || mapPanel == null) {
+            return false;
+        }
+        int x = screenPoint.x;
+        int y = screenPoint.y;
+        return mapPanel.isCompassAtScreen(x, y)
+                || mapPanel.isBookmarkButtonAtScreen(x, y)
+                || mapPanel.isZoomInButtonAtScreen(x, y)
+                || mapPanel.isZoomOutButtonAtScreen(x, y);
+    }
+
     /**
      * Pass-through mode: dwell over map controls (compass / bookmark / zoom), same timing as title-bar toggle.
      *
@@ -2395,7 +2408,7 @@ private final class BioMapPanel extends JPanel {
         MouseAdapter mapMouse = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 Point p = e.getPoint();
@@ -2427,7 +2440,7 @@ private final class BioMapPanel extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 if (mapPanDragActive
@@ -2440,7 +2453,7 @@ private final class BioMapPanel extends JPanel {
 
             @Override
             public void mouseDragged(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame() || !mapPanDragActive) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough() || !mapPanDragActive) {
                     return;
                 }
                 int x = e.getX();

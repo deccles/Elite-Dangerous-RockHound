@@ -93,6 +93,7 @@ import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
+import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
 import org.dce.ed.ui.OverlayComboBoxStyle;
@@ -119,11 +120,12 @@ public class EngineeringTabPanel extends JPanel {
     private static final long serialVersionUID = 1L;
     private static final int HOVER_CLICK_DELAY_MS = 500;
     private static final int INCLUDE_HOVER_DELAY_MS = 350;
-    private static final int INCLUDE_COL_MIN_WIDTH = 36;
+    private static final int INCLUDE_COL_MIN_WIDTH = 44;
 
     private static int priorityColumnWidth() {
-        // Arrow/checkbox glyphs scale with UI font; leave a little cell padding.
-        return Math.max(INCLUDE_COL_MIN_WIDTH, OverlayPreferences.getUiFontSize() + 18);
+        // Arrow/checkbox glyphs scale with UI font; generous padding keeps the whole cell a usable
+        // click target for real clicks in Selective mouse mode.
+        return Math.max(INCLUDE_COL_MIN_WIDTH, OverlayPreferences.getUiFontSize() + 26);
     }
     private static final int INCLUDE_HIT_EXPAND_PX = 28;
     private static final int EDIT_COL_WIDTH = 30;
@@ -212,6 +214,7 @@ public class EngineeringTabPanel extends JPanel {
     private JScrollPane shoppingScroll;
     private JScrollPane tradeScroll;
     private JSplitPane mainSplit;
+    private JPanel goalsPanel;
     private JSplitPane lowerSplit;
 
     public EngineeringTabPanel(BooleanSupplier passThroughEnabledSupplier) {
@@ -269,7 +272,7 @@ public class EngineeringTabPanel extends JPanel {
                 if (passThroughEnabledSupplier != null && passThroughEnabledSupplier.getAsBoolean()) {
                     return;
                 }
-                int row = goalsTable.rowAtPoint(e.getPoint());
+                int row = rowAtPointWithSlack(goalsTable, e.getPoint());
                 if (row < 0) {
                     return;
                 }
@@ -362,6 +365,7 @@ public class EngineeringTabPanel extends JPanel {
         installSortableTable(shoppingTable, shoppingSorter);
 
         JPanel goalsPanel = buildGoalsPanel(base, fontSize);
+        this.goalsPanel = goalsPanel;
         JPanel materialsPanel = buildMaterialsPanel(base, fontSize);
         JPanel tradePanel = buildTradePanel(base, fontSize);
 
@@ -419,30 +423,31 @@ public class EngineeringTabPanel extends JPanel {
         header.add(sectionHeader("Goals", base, fontSize), BorderLayout.WEST);
         north.add(header);
 
-        p.add(north, BorderLayout.NORTH);
-        p.add(goalsScroll = wrapScroll(goalsTable, 120), BorderLayout.CENTER);
-
-        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
-        south.setOpaque(false);
+        JPanel buttonsRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        buttonsRow.setOpaque(false);
+        buttonsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         JButton addMatsBtn = new JButton("Add Materials Goal");
         OverlayOutlineButtonStyle.applyChip(addMatsBtn, base, false);
         addMatsBtn.setToolTipText("Reserve materials (mission requests, stockpile) beyond engineering crafts");
         addMatsBtn.addActionListener(e -> openAddMaterialsGoalDialog());
         HoverClickPoller.register(addMatsBtn, HOVER_CLICK_DELAY_MS, this::openAddMaterialsGoalDialog,
                 passThroughEnabledSupplier);
-        south.add(addMatsBtn);
+        buttonsRow.add(addMatsBtn);
         JButton loadoutBtn = new JButton("Add Goal via Loadout");
         OverlayOutlineButtonStyle.applyChip(loadoutBtn, base, false);
         loadoutBtn.setToolTipText("Build progress — grade / multi-module craft status and fitted engineering");
         loadoutBtn.addActionListener(e -> openBuildProgressDialog());
         HoverClickPoller.register(loadoutBtn, HOVER_CLICK_DELAY_MS, this::openBuildProgressDialog, passThroughEnabledSupplier);
-        south.add(loadoutBtn);
+        buttonsRow.add(loadoutBtn);
         JButton addBtn = new JButton("Add a goal");
         OverlayOutlineButtonStyle.applyChip(addBtn, base, false);
         addBtn.addActionListener(e -> openAddGoalDialog());
         HoverClickPoller.register(addBtn, HOVER_CLICK_DELAY_MS, this::openAddGoalDialog, passThroughEnabledSupplier);
-        south.add(addBtn);
-        p.add(south, BorderLayout.SOUTH);
+        buttonsRow.add(addBtn);
+        north.add(buttonsRow);
+
+        p.add(north, BorderLayout.NORTH);
+        p.add(goalsScroll = wrapScroll(goalsTable, 120), BorderLayout.CENTER);
 
         rebuildShipFilterCombo();
         return p;
@@ -1234,6 +1239,14 @@ public class EngineeringTabPanel extends JPanel {
         return false;
     }
 
+    /** Selective mouse mode: entire Goals section (filter, table, add buttons) plus Trade/Trade All cells. */
+    public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+        if (SelectiveHitSupport.containsScreenPoint(goalsPanel, screenPoint)) {
+            return true;
+        }
+        return SelectiveHitSupport.isOverModelColumnCell(tradeTable, screenPoint, COL_TRADE_ACTION);
+    }
+
     private JScrollPane[] scrollPanesForPassThrough() {
         List<JScrollPane> panes = new ArrayList<>(3);
         if (goalsScroll != null) {
@@ -1926,6 +1939,28 @@ public class EngineeringTabPanel extends JPanel {
         };
     }
 
+    /**
+     * Like {@link JTable#rowAtPoint} but forgiving of a slight vertical miss below the last row
+     * (small tables make the toggle cells easy to miss when clicking in Selective mouse mode).
+     */
+    private static int rowAtPointWithSlack(JTable table, Point point) {
+        int row = table.rowAtPoint(point);
+        if (row >= 0) {
+            return row;
+        }
+        int rowCount = table.getRowCount();
+        if (rowCount <= 0 || point.x < 0 || point.x >= table.getWidth()) {
+            return -1;
+        }
+        Rectangle lastRowRect = table.getCellRect(rowCount - 1, 0, true);
+        int bottom = lastRowRect.y + lastRowRect.height;
+        int slack = Math.max(6, table.getRowHeight() / 2);
+        if (point.y >= bottom && point.y < bottom + slack) {
+            return rowCount - 1;
+        }
+        return -1;
+    }
+
     /** Pencil column, or a short strip into the status column (larger click/hover target). */
     private static boolean isEditHit(JTable table, Point point, int viewRow) {
         if (table == null || point == null || viewRow < 0) {
@@ -2170,11 +2205,9 @@ public class EngineeringTabPanel extends JPanel {
         }
         if (hasGoals && trades.isEmpty() && !shortfalls.isEmpty()) {
             tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>No material-trader swaps found from current inventory.</body></html>");
-        } else if (hasGoals && trades.isEmpty() && hasActiveGoals) {
+        } else if (hasGoals && trades.isEmpty()) {
             tradeEmptyLabel.setForeground(EdoUi.User.MAIN_TEXT);
             tradeEmptyLabel.setText("No trades required");
-        } else if (hasGoals && trades.isEmpty()) {
-            tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>Set a goal priority to see materials and trades.</body></html>");
         }
         applyEngineeringTableColumnLayouts();
     }

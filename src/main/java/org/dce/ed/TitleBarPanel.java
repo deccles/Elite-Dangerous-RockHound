@@ -45,9 +45,11 @@ public class TitleBarPanel extends JPanel {
     public static final String TOOLTIP_GEAR = "Preferences — theme, overlay transparency, hotkeys…";
     public static final String TOOLTIP_CLOSE = "Close RockHound";
     public static final String TOOLTIP_PASS_THROUGH_ON =
-            "Pass-through ON — clicks go to the game; hover here to use title-bar buttons";
+            "Full pass-through — clicks go to the game; hover here to use title-bar buttons (click to cycle mode)";
+    public static final String TOOLTIP_PASS_THROUGH_SELECTIVE =
+            "Selective — chrome and listed controls take clicks; other overlay areas pass through (click to cycle mode)";
     public static final String TOOLTIP_PASS_THROUGH_OFF =
-            "Pass-through OFF — click the overlay normally (toggle to send clicks through)";
+            "Normal — click the overlay normally (click to cycle: Selective, then Full pass-through)";
     /** Normal window: click to open the undecorated pass-through overlay. */
     public static final String TOOLTIP_PASS_THROUGH_SWITCH_TO_PT =
             "Pass-through mode — switch to the transparent overlay (clicks go to the game; dwell on title controls)";
@@ -149,7 +151,7 @@ public class TitleBarPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e)) {
-                    frame.setPassThroughEnabled(!frame.isPassThroughEnabled(), true);
+                    frame.cycleMouseInteractionMode();
                 }
             }
 
@@ -271,18 +273,23 @@ public class TitleBarPanel extends JPanel {
     }
 
     /**
-     * Hide/show the title bar controls when pass-through mode changes.
-     * In pass-through we keep a close affordance visible so the strip resembles normal window chrome.
+     * Updates title-bar mouse-mode control appearance for the current {@link MouseInteractionMode}.
      */
-    public void setPassThrough(boolean passThrough) {
+    public void setMouseInteractionMode(MouseInteractionMode mode) {
         closeButton.setVisible(true);
         passThroughToggleButton.setVisible(true);
-        passThroughToggleButton.setPassThroughActive(passThrough);
-        passThroughToggleButton.refreshToolTipText();
+        passThroughToggleButton.setMouseInteractionMode(mode);
         hammerButton.setVisible(true);
         settingsButton.setVisible(true);
         revalidate();
         repaint();
+    }
+
+    /** @deprecated Prefer {@link #setMouseInteractionMode(MouseInteractionMode)} */
+    public void setPassThrough(boolean passThrough) {
+        setMouseInteractionMode(passThrough
+                ? MouseInteractionMode.FULL_PASS_THROUGH
+                : MouseInteractionMode.NORMAL);
     }
 
     /**
@@ -358,11 +365,12 @@ public class TitleBarPanel extends JPanel {
     }
 
     /**
-     * Pass-through toggle: same cursor-arrow in both states; pass-through ON adds a diagonal strike.
+     * Mouse-mode cycle control: Normal (pointer), Selective (pointer + strike + white top-half outline rect),
+     * Full pass-through (pointer + red strike).
      */
     public static class PassThroughToggleButton extends JPanel {
         private boolean hover = false;
-        private boolean passThroughActive = false;
+        private MouseInteractionMode mode = MouseInteractionMode.NORMAL;
 
         public PassThroughToggleButton() {
             setOpaque(false);
@@ -372,7 +380,11 @@ public class TitleBarPanel extends JPanel {
         }
 
         void refreshToolTipText() {
-            setToolTipText(passThroughActive ? TOOLTIP_PASS_THROUGH_ON : TOOLTIP_PASS_THROUGH_OFF);
+            setToolTipText(switch (mode) {
+                case SELECTIVE -> TOOLTIP_PASS_THROUGH_SELECTIVE;
+                case FULL_PASS_THROUGH -> TOOLTIP_PASS_THROUGH_ON;
+                case NORMAL -> TOOLTIP_PASS_THROUGH_OFF;
+            });
         }
 
         /** Tooltip when not toggling (e.g. decorated window “enter pass-through” action). */
@@ -389,10 +401,17 @@ public class TitleBarPanel extends JPanel {
             repaint();
         }
 
-        public void setPassThroughActive(boolean passThroughActive) {
-            this.passThroughActive = passThroughActive;
+        public void setMouseInteractionMode(MouseInteractionMode mode) {
+            this.mode = mode != null ? mode : MouseInteractionMode.NORMAL;
             refreshToolTipText();
             repaint();
+        }
+
+        /** @deprecated Prefer {@link #setMouseInteractionMode(MouseInteractionMode)} */
+        public void setPassThroughActive(boolean passThroughActive) {
+            setMouseInteractionMode(passThroughActive
+                    ? MouseInteractionMode.FULL_PASS_THROUGH
+                    : MouseInteractionMode.NORMAL);
         }
 
         @Override
@@ -404,12 +423,13 @@ public class TitleBarPanel extends JPanel {
                 int w = getWidth();
                 int h = getHeight();
 
-                Color base = passThroughActive ? EdoUi.Internal.TITLEBAR_BG_ACTIVE : EdoUi.Internal.TITLEBAR_BG_HOVER;
-                Color hoverColor = passThroughActive ? EdoUi.Internal.MENU_ACCENT : EdoUi.Internal.TITLEBAR_BG_ACTIVE;
+                boolean passThroughLike = mode.isPassThroughLike();
+                Color base = passThroughLike ? EdoUi.Internal.TITLEBAR_BG_ACTIVE : EdoUi.Internal.TITLEBAR_BG_HOVER;
+                Color hoverColor = passThroughLike ? EdoUi.Internal.MENU_ACCENT : EdoUi.Internal.TITLEBAR_BG_ACTIVE;
                 g2.setColor(hover ? hoverColor : base);
                 g2.fillRoundRect(0, 0, w - 1, h - 1, 6, 6);
 
-                if (passThroughActive) {
+                if (passThroughLike) {
                     // Arrow first, then red strike on top so the bar clearly crosses the pointer.
                     g2.setColor(Color.WHITE);
                     drawArrowOutline(g2, 2);
@@ -417,6 +437,12 @@ public class TitleBarPanel extends JPanel {
                             java.awt.BasicStroke.JOIN_ROUND));
                     g2.setColor(EdoUi.User.ERROR);
                     g2.drawLine(3, 19, 20, 3);
+                    if (mode == MouseInteractionMode.SELECTIVE) {
+                        // Unfilled white rectangle over the top half of the pass-through icon.
+                        g2.setStroke(new java.awt.BasicStroke(1.4f));
+                        g2.setColor(Color.WHITE);
+                        g2.drawRect(3, 2, w - 8, Math.max(4, (h / 2) - 3));
+                    }
                 } else {
                     g2.setColor(Color.WHITE);
                     drawArrowOutline(g2, 0);

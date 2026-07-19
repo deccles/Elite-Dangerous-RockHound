@@ -80,7 +80,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         this.prefs = Preferences.userNodeForPackage(EliteDangerousOverlay.class);
         this.passThroughMode = prefs.getBoolean(PREF_START_IN_PASSTHROUGH, false);
         OverlayPreferences.setPassThroughWindowActive(this.passThroughMode);
-        this.contentPanel = new OverlayContentPanel(OverlayPreferences::isOverlayMousePassThroughToGame);
+        this.contentPanel = new OverlayContentPanel(OverlayPreferences::isOverlayFullMousePassThrough);
 
         this.passThroughFrame = new OverlayFrame(contentPanel);
 
@@ -678,7 +678,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
      */
     @Override
     public void nativeMouseWheelMoved(NativeMouseWheelEvent e) {
-        if (!passThroughMode || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+        if (!passThroughMode || !OverlayPreferences.isOverlayFullMousePassThrough()) {
             return;
         }
         if (passThroughFrame == null || !passThroughFrame.isVisible()) {
@@ -692,7 +692,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         final int fallbackY = e.getY();
         try {
             SwingUtilities.invokeLater(() -> {
-                if (!passThroughMode || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (!passThroughMode || !OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 int sx = fallbackX;

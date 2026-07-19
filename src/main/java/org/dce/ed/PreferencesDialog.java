@@ -1002,7 +1002,7 @@ public class PreferencesDialog extends JDialog {
 		addLeftStackedSection(panel, themeBox);
 
 		JPanel normalPanel = createOverlayAppearanceSection(
-				"Overlay background (Normal — mouse pass-through off)",
+				"Overlay background (Normal — mouse mode: clicks on overlay)",
 				originalNormalTransparencyPct,
 				(slider, valueLabel) -> {
 					normalTransparencySlider = slider;
@@ -1013,7 +1013,7 @@ public class PreferencesDialog extends JDialog {
 		addLeftStackedSection(panel, normalPanel, 8);
 
 		JPanel ptPanel = createOverlayAppearanceSection(
-				"Overlay background (Mouse pass-through on)",
+				"Overlay background (Selective / Full pass-through)",
 				originalPassThroughTransparencyPct,
 				(slider, valueLabel) -> {
 					passThroughTransparencySlider = slider;
@@ -1025,8 +1025,9 @@ public class PreferencesDialog extends JDialog {
 
 		JLabel transparencyHint = new JLabel(
 				"<html>See-through transparency requires the undecorated overlay window "
-						+ "(not the standard titled window). Toggle mouse pass-through on the title bar "
-						+ "to switch which slider applies.</html>");
+						+ "(not the standard titled window). Cycle mouse mode on the title bar "
+						+ "(Normal → Selective → Full pass-through): Selective and Full use the "
+						+ "pass-through slider; Normal uses the other.</html>");
 		addLeftStackedSection(panel, transparencyHint, 0);
 		finishLeftSectionStack(panel);
 		return panel;

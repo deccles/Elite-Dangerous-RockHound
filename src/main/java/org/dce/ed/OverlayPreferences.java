@@ -26,10 +26,16 @@ public final class OverlayPreferences {
     private static final String KEY_IS_OVERLAY_TRANSPARENT = "overlay.transparent";
 
     /**
-     * User choice: mouse clicks pass through the undecorated overlay to the game (WS_EX_TRANSPARENT).
-     * Independent of {@code overlay.startInPassThrough} (window mode). Persisted so it survives restarts.
+     * Legacy boolean: mouse clicks pass through the undecorated overlay to the game (WS_EX_TRANSPARENT).
+     * Migrated to {@link #KEY_OVERLAY_MOUSE_INTERACTION_MODE} on first read.
      */
     private static final String KEY_OVERLAY_MOUSE_PASS_THROUGH_TO_GAME = "overlay.mousePassThroughToGame";
+
+    /**
+     * User choice: {@link MouseInteractionMode} prefs value ({@code normal} / {@code selective} / {@code full}).
+     * Independent of {@code overlay.startInPassThrough} (window mode). Persisted so it survives restarts.
+     */
+    private static final String KEY_OVERLAY_MOUSE_INTERACTION_MODE = "overlay.mouseInteractionMode";
 
     // New overlay background preferences (normal + pass-through)
     private static final String KEY_OVERLAY_BG_RGB = "overlay.bg.rgb"; // 0xRRGGBB
@@ -251,17 +257,65 @@ public final class OverlayPreferences {
     }
 
     /**
-     * Mirrors {@link org.dce.ed.OverlayFrame#isPassThroughEnabled()}: OS-level mouse pass-through to the game.
-     * Unlike {@link #isPassThroughWindowActive()}, this flips when the user toggles the pass-through hotkey.
+     * Mirrors {@link org.dce.ed.OverlayFrame#getMouseInteractionMode()}: non-{@link MouseInteractionMode#NORMAL}
+     * means OS-level mouse pass-through (Selective or Full). Unlike {@link #isPassThroughWindowActive()}, this
+     * flips when the user cycles the mouse-mode control.
      */
-    private static volatile boolean overlayMousePassThroughToGame;
+    private static volatile MouseInteractionMode overlayMouseInteractionMode = MouseInteractionMode.FULL_PASS_THROUGH;
 
-    public static void setOverlayMousePassThroughToGame(boolean enabled) {
-        overlayMousePassThroughToGame = enabled;
+    public static void setOverlayMouseInteractionMode(MouseInteractionMode mode) {
+        overlayMouseInteractionMode = mode != null ? mode : MouseInteractionMode.NORMAL;
     }
 
+    public static MouseInteractionMode getOverlayMouseInteractionMode() {
+        return overlayMouseInteractionMode != null ? overlayMouseInteractionMode : MouseInteractionMode.NORMAL;
+    }
+
+    /** @deprecated Prefer {@link #setOverlayMouseInteractionMode(MouseInteractionMode)}; kept for call-site migration. */
+    public static void setOverlayMousePassThroughToGame(boolean enabled) {
+        setOverlayMouseInteractionMode(enabled ? MouseInteractionMode.FULL_PASS_THROUGH : MouseInteractionMode.NORMAL);
+    }
+
+    /** True when mode is Selective or Full (clicks may pass through outside interactive regions). */
     public static boolean isOverlayMousePassThroughToGame() {
-        return overlayMousePassThroughToGame;
+        return getOverlayMouseInteractionMode().isPassThroughLike();
+    }
+
+    /** True only in Full MPT, where hover-dwell and global wheel controls remain active. */
+    public static boolean isOverlayFullMousePassThrough() {
+        return getOverlayMouseInteractionMode() == MouseInteractionMode.FULL_PASS_THROUGH;
+    }
+
+    /**
+     * Last saved mouse-interaction mode for overlay (undecorated) mode.
+     *
+     * @param defaultIfUnset used when neither the mode key nor the legacy boolean has been written
+     *                       (migration: use {@link MouseInteractionMode#FULL_PASS_THROUGH} to match
+     *                       legacy “overlay on ⇒ clicks pass through” behavior)
+     */
+    public static MouseInteractionMode getOverlayMouseInteractionModePersisted(MouseInteractionMode defaultIfUnset) {
+        String raw = PREFS.get(KEY_OVERLAY_MOUSE_INTERACTION_MODE, null);
+        if (raw != null && !raw.isBlank()) {
+            return MouseInteractionMode.fromPrefsValue(raw, defaultIfUnset);
+        }
+        // Migrate legacy boolean once.
+        if (PREFS.get(KEY_OVERLAY_MOUSE_PASS_THROUGH_TO_GAME, null) != null) {
+            boolean legacy = PREFS.getBoolean(KEY_OVERLAY_MOUSE_PASS_THROUGH_TO_GAME, true);
+            MouseInteractionMode migrated = legacy
+                    ? MouseInteractionMode.FULL_PASS_THROUGH
+                    : MouseInteractionMode.NORMAL;
+            putOverlayMouseInteractionModePersisted(migrated);
+            return migrated;
+        }
+        return defaultIfUnset != null ? defaultIfUnset : MouseInteractionMode.FULL_PASS_THROUGH;
+    }
+
+    public static void putOverlayMouseInteractionModePersisted(MouseInteractionMode mode) {
+        MouseInteractionMode m = mode != null ? mode : MouseInteractionMode.NORMAL;
+        PREFS.put(KEY_OVERLAY_MOUSE_INTERACTION_MODE, m.prefsValue());
+        // Keep legacy boolean in sync for older readers / tools.
+        PREFS.putBoolean(KEY_OVERLAY_MOUSE_PASS_THROUGH_TO_GAME, m.isPassThroughLike());
+        flushBackingStore();
     }
 
     /**
@@ -269,14 +323,19 @@ public final class OverlayPreferences {
      *
      * @param defaultIfUnset used when the key has never been written (migration: use {@code true} to match
      *                       legacy “overlay on ⇒ clicks pass through” behavior)
+     * @deprecated Prefer {@link #getOverlayMouseInteractionModePersisted(MouseInteractionMode)}
      */
     public static boolean getOverlayMousePassThroughToGamePersisted(boolean defaultIfUnset) {
-        return PREFS.getBoolean(KEY_OVERLAY_MOUSE_PASS_THROUGH_TO_GAME, defaultIfUnset);
+        MouseInteractionMode def = defaultIfUnset
+                ? MouseInteractionMode.FULL_PASS_THROUGH
+                : MouseInteractionMode.NORMAL;
+        return getOverlayMouseInteractionModePersisted(def).isPassThroughLike();
     }
 
+    /** @deprecated Prefer {@link #putOverlayMouseInteractionModePersisted(MouseInteractionMode)} */
     public static void putOverlayMousePassThroughToGamePersisted(boolean enabled) {
-        PREFS.putBoolean(KEY_OVERLAY_MOUSE_PASS_THROUGH_TO_GAME, enabled);
-        flushBackingStore();
+        putOverlayMouseInteractionModePersisted(
+                enabled ? MouseInteractionMode.FULL_PASS_THROUGH : MouseInteractionMode.NORMAL);
     }
 
     /**
@@ -292,6 +351,15 @@ public final class OverlayPreferences {
         return isOverlayMousePassThroughToGame()
                 ? getPassThroughTransparencyPercent()
                 : getNormalTransparencyPercent();
+    }
+
+    /**
+     * Fill for see-through chrome (scroll viewports, table headers): theme background RGB at the active
+     * transparency percent. Alpha 0 (100% transparent) means painters should CLEAR instead of fill.
+     */
+    public static Color getActiveOverlayChromeBackground() {
+        Color base = EdoUi.fromRgbInt(getUiBackgroundRgb());
+        return buildOverlayBackgroundColor(base, getActiveOverlayTransparencyPercent());
     }
 
     // ---------------------------------------------------------------------

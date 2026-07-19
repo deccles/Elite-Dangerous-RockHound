@@ -19,6 +19,7 @@ import org.dce.ed.exobiology.NebulaGuardianClassifier;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.FleetCarrierCommanderPresence;
+import org.dce.ed.logreader.FleetCarrierPresenceJournalBootstrap;
 
 import com.google.gson.JsonObject;
 import org.dce.ed.logreader.LiveJournalMonitor;
@@ -89,6 +90,8 @@ public class SystemEventProcessor {
         if (event instanceof LocationEvent) {
             LocationEvent e = (LocationEvent) event;
             state.setDocked(e.isDocked());
+            fleetCarrierPresence.onLocation(e.getRawJson());
+            syncCommanderAboardFleetCarrier();
             enterSystem(e.getStarSystem(), e.getSystemAddress(), e.getStarPos());
             if (e.isDocked()) {
                 assignCarrierParkedOrbit(e.getBodyId(), e.getSystemAddress());
@@ -239,6 +242,17 @@ public class SystemEventProcessor {
 
     private void syncCommanderAboardFleetCarrier() {
         state.setCommanderAboardFleetCarrier(fleetCarrierPresence.isAboard());
+    }
+
+    /**
+     * {@link org.dce.ed.logreader.LiveJournalMonitor} resumes from a tail cursor and does not replay
+     * history, so seed aboard-carrier presence from recent journals once at startup. Otherwise a
+     * commander already docked on their carrier is treated as off-carrier and the departure-time
+     * {@code CarrierLocation} is announced as "Jump complete".
+     */
+    public void bootstrapFleetCarrierPresenceFromJournal() {
+        FleetCarrierPresenceJournalBootstrap.replayInto(fleetCarrierPresence);
+        syncCommanderAboardFleetCarrier();
     }
 
     /** Last known carrier orbit from journal; not cleared on commander FSD. */

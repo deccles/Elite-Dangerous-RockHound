@@ -136,7 +136,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private final Preferences prefs = Preferences.userNodeForPackage(OverlayFrame.class);
 
     /** Last HWND used for native pass-through; refreshed on each apply (peer can be recreated). */
-    private boolean passThroughEnabled;
+    private MouseInteractionMode mouseInteractionMode = MouseInteractionMode.NORMAL;
+
 
     /**
      * AWT can clear {@link com.sun.jna.platform.win32.WinUser#WS_EX_TRANSPARENT} after layered repaints or
@@ -800,7 +801,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         add(this.contentPanel, BorderLayout.CENTER);
 
         // Transparency % follows mouse pass-through, not which window host is active.
-        applyOverlayBackgroundFromPreferences(passThroughEnabled);
+        applyOverlayBackgroundFromPreferences(mouseInteractionMode.isPassThroughLike());
 
         Rectangle passThroughRect = readPassThroughStoredBounds();
         setBounds(passThroughRect.x, passThroughRect.y, passThroughRect.width, passThroughRect.height);
@@ -873,7 +874,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         installSessionPersistence();
         installExecTriggers();
         if (titleBar != null) {
-            titleBar.setPassThrough(passThroughEnabled);
+            titleBar.setMouseInteractionMode(mouseInteractionMode);
         }
         reapplyNativeMousePassThroughIfEnabled();
     }
@@ -1872,7 +1873,7 @@ private void refreshPassThroughUnifiedStatus() {
         SwingUtilities.invokeLater(() -> {
             reapplyNativeMousePassThroughIfEnabled();
             if (titleBar != null) {
-                titleBar.setPassThrough(passThroughEnabled);
+                titleBar.setMouseInteractionMode(mouseInteractionMode);
             }
         });
         System.out.println(
@@ -1895,7 +1896,7 @@ private void refreshPassThroughUnifiedStatus() {
 
     private void installPassThroughPaintGuard() {
         passThroughPaintGuard = event -> {
-            if (!passThroughEnabled || !isShowing()) {
+            if (!mouseInteractionMode.isPassThroughLike() || !isShowing()) {
                 return;
             }
             if (event.getID() != PaintEvent.PAINT) {
@@ -1914,7 +1915,7 @@ private void refreshPassThroughUnifiedStatus() {
 
     private void installPassThroughHierarchyGuard() {
         addHierarchyListener(e -> {
-            if (!passThroughEnabled || !isShowing()) {
+            if (!mouseInteractionMode.isPassThroughLike() || !isShowing()) {
                 return;
             }
             if ((e.getChangeFlags() & HierarchyEvent.DISPLAYABILITY_CHANGED) != 0) {
@@ -1925,11 +1926,11 @@ private void refreshPassThroughUnifiedStatus() {
 
     private void updateMousePassThroughNativeStyleTimer() {
         stopMousePassThroughNativeStyleTimer();
-        if (!passThroughEnabled || !isShowing()) {
+        if (!mouseInteractionMode.isPassThroughLike() || !isShowing()) {
             return;
         }
         mousePassThroughNativeStyleTimer = new Timer(CROSSHAIR_POLL_MS, e -> {
-            if (!passThroughEnabled || !isShowing()) {
+            if (!mouseInteractionMode.isPassThroughLike() || !isShowing()) {
                 stopMousePassThroughNativeStyleTimer();
                 return;
             }
@@ -1951,28 +1952,48 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
     /**
-     * @param persistUserPreference when true, save {@code enabled} for the next session (title-bar toggle /
-     *                              hover dwell). When false, only apply native/UI state (mode switches, startup).
+     * Binary convenience for window-mode switches: {@code true} → Full MPT, {@code false} → Normal.
+     *
+     * @param persistUserPreference when true, save for the next session. When false, only apply native/UI state.
      */
     public void setPassThroughEnabled(boolean enabled, boolean persistUserPreference) {
-        boolean stateChanged = this.passThroughEnabled != enabled;
-        this.passThroughEnabled = enabled;
-        OverlayPreferences.setOverlayMousePassThroughToGame(enabled);
+        setMouseInteractionMode(
+                enabled ? MouseInteractionMode.FULL_PASS_THROUGH : MouseInteractionMode.NORMAL,
+                persistUserPreference);
+    }
+
+    public void setMouseInteractionMode(MouseInteractionMode mode) {
+        setMouseInteractionMode(mode, false);
+    }
+
+    /**
+     * @param persistUserPreference when true, save {@code mode} for the next session (title-bar / dwell).
+     *                              When false, only apply native/UI state (mode switches, startup).
+     */
+    public void setMouseInteractionMode(MouseInteractionMode mode, boolean persistUserPreference) {
+        MouseInteractionMode next = mode != null ? mode : MouseInteractionMode.NORMAL;
+        boolean stateChanged = this.mouseInteractionMode != next;
+        this.mouseInteractionMode = next;
+        OverlayPreferences.setOverlayMouseInteractionMode(next);
         if (persistUserPreference) {
-            OverlayPreferences.putOverlayMousePassThroughToGamePersisted(enabled);
+            OverlayPreferences.putOverlayMouseInteractionModePersisted(next);
         }
         if (stateChanged) {
             resetPassThroughCloseHoverState();
-            // Normal vs mouse-pass-through transparency prefs track click-through, not OverlayFrame vs Decorated.
-            applyOverlayBackgroundFromPreferences(this.passThroughEnabled);
-            System.out.println("Pass-through " + (this.passThroughEnabled ? "ENABLED" : "DISABLED"));
+            applyOverlayBackgroundFromPreferences(next.isPassThroughLike());
+            System.out.println("Mouse interaction mode: " + next);
         }
-        // Always push Win32 extended style (setBounds / re-show can clear WS_EX_TRANSPARENT).
-        applyPassThrough(this.passThroughEnabled);
-        titleBar.setPassThrough(this.passThroughEnabled);
+        applyPassThrough(next.isPassThroughLike());
+        if (titleBar != null) {
+            titleBar.setMouseInteractionMode(next);
+        }
         updateMousePassThroughNativeStyleTimer();
-        if (!this.passThroughEnabled) {
+        if (!next.isPassThroughLike()) {
             PassThroughTooltipSupport.clear();
+        }
+        EliteOverlayTabbedPane tabs = contentPanel != null ? contentPanel.getTabbedPane() : null;
+        if (tabs != null && tabs.getSystemTabPanel() != null) {
+            tabs.getSystemTabPanel().onMouseInteractionModeChanged();
         }
         repaint();
     }
@@ -1982,7 +2003,7 @@ private void refreshPassThroughUnifiedStatus() {
      * {@code setBounds}, mode switches, or theme rebuilds.
      */
     public void reapplyNativeMousePassThroughIfEnabled() {
-        if (passThroughEnabled) {
+        if (mouseInteractionMode.isPassThroughLike()) {
             stampNativeMousePassThrough(true);
         }
     }
@@ -1992,7 +2013,7 @@ private void refreshPassThroughUnifiedStatus() {
      * pass after the paint completes.
      */
     public void scheduleNativePassThroughReapplyAfterPaint() {
-        if (!passThroughEnabled || !isShowing()) {
+        if (!mouseInteractionMode.isPassThroughLike() || !isShowing()) {
             return;
         }
         if (nativePassThroughReapplyScheduled) {
@@ -2001,18 +2022,29 @@ private void refreshPassThroughUnifiedStatus() {
         nativePassThroughReapplyScheduled = true;
         SwingUtilities.invokeLater(() -> {
             nativePassThroughReapplyScheduled = false;
-            if (passThroughEnabled) {
+            if (mouseInteractionMode.isPassThroughLike()) {
                 stampNativeMousePassThrough(true);
             }
         });
     }
 
-    public void togglePassThrough() {
-        setPassThroughEnabled(!passThroughEnabled, true);
+    /** Advances Normal → Selective → Full → Normal and persists. */
+    public void cycleMouseInteractionMode() {
+        setMouseInteractionMode(mouseInteractionMode.next(), true);
     }
 
+    /** @deprecated Prefer {@link #cycleMouseInteractionMode()} */
+    public void togglePassThrough() {
+        cycleMouseInteractionMode();
+    }
+
+    public MouseInteractionMode getMouseInteractionMode() {
+        return mouseInteractionMode;
+    }
+
+    /** True when mode is Selective or Full (OS click-through may be active). */
     public boolean isPassThroughEnabled() {
-        return passThroughEnabled;
+        return mouseInteractionMode.isPassThroughLike();
     }
 
     public void applyUiFontPreferences() {
@@ -2047,10 +2079,10 @@ private void refreshPassThroughUnifiedStatus() {
         }
 
         // Rebuild copies getBackground(); re-push prefs so mouse-PT vs Normal % and alpha stay authoritative.
-        applyOverlayBackgroundFromPreferences(passThroughEnabled);
+        applyOverlayBackgroundFromPreferences(mouseInteractionMode.isPassThroughLike());
 
         if (titleBar != null) {
-            titleBar.setPassThrough(passThroughEnabled);
+            titleBar.setMouseInteractionMode(mouseInteractionMode);
         }
         reapplyNativeMousePassThroughIfEnabled();
         repaint();
@@ -2116,7 +2148,7 @@ private void refreshPassThroughUnifiedStatus() {
      */
     public void applyOverlayTransparency(boolean transparent) {
         OverlayPreferences.setNormalTransparencyPercent(transparent ? 100 : 0);
-        applyOverlayBackgroundFromPreferences(passThroughEnabled);
+        applyOverlayBackgroundFromPreferences(mouseInteractionMode.isPassThroughLike());
     }
 
     public void applyOverlayBackgroundFromPreferences(boolean passThroughMode) {
@@ -2170,7 +2202,7 @@ private void refreshPassThroughUnifiedStatus() {
      */
     /**
      * While mouse pass-through is on, temporarily clear {@code WS_EX_TRANSPARENT} when the cursor is over
-     * title-bar / menu chrome so toggle, close, and settings remain clickable (Win32 is per-HWND).
+     * interactive chrome (and Selective tab hit regions). Win32 style is per-HWND.
      */
     private void stampNativeMousePassThrough(boolean enable) {
         if (!tryAcquireHwnd()) {
@@ -2195,10 +2227,20 @@ private void refreshPassThroughUnifiedStatus() {
             return true;
         }
         EliteOverlayTabbedPane tabs = contentPanel != null ? contentPanel.getTabbedPane() : null;
-        if (tabs != null && tabs.isPointerOverControlPanelActionButton(mouse)) {
+        if (tabs == null) {
+            return false;
+        }
+        if (tabs.isPointerOverTabBar(mouse)) {
             return true;
         }
-        return tabs != null && tabs.isPointerOverTabScrollBar(mouse);
+        if (mouseInteractionMode == MouseInteractionMode.SELECTIVE) {
+            return tabs.isPointerOverSelectiveHit(mouse);
+        }
+        // Full MPT: preserve existing exceptions (Control Panel buttons + tab scrollbars).
+        if (tabs.isPointerOverControlPanelActionButton(mouse)) {
+            return true;
+        }
+        return tabs.isPointerOverTabScrollBar(mouse);
     }
 
     private static boolean containsScreenPoint(Component component, Point screenPoint) {
@@ -2227,14 +2269,15 @@ private void refreshPassThroughUnifiedStatus() {
     }
     public void prepareForShow(boolean passThroughAppearanceMode) {
         if (passThroughAppearanceMode) {
-            // Restore last mouse pass-through choice; apply the matching transparency % (Normal when off).
-            boolean mousePt = OverlayPreferences.getOverlayMousePassThroughToGamePersisted(true);
-            applyOverlayBackgroundFromPreferences(mousePt);
-            setPassThroughEnabled(mousePt, false);
+            // Restore last mouse-interaction mode; apply matching transparency % (Normal when off).
+            MouseInteractionMode mode = OverlayPreferences.getOverlayMouseInteractionModePersisted(
+                    MouseInteractionMode.FULL_PASS_THROUGH);
+            applyOverlayBackgroundFromPreferences(mode.isPassThroughLike());
+            setMouseInteractionMode(mode, false);
         } else {
             applyOverlayBackgroundFromPreferences(false);
             if (titleBar != null) {
-                titleBar.setPassThrough(this.passThroughEnabled);
+                titleBar.setMouseInteractionMode(this.mouseInteractionMode);
             }
         }
 
@@ -2723,6 +2766,14 @@ private void refreshPassThroughUnifiedStatus() {
             return;
         }
 
+        if (mouseInteractionMode != MouseInteractionMode.FULL_PASS_THROUGH) {
+            PassThroughTooltipSupport.clear();
+            crosshairOverlay.setCrosshairPoint(null);
+            crosshairOverlay.setVisible(false);
+            resetPassThroughCloseHoverState();
+            return;
+        }
+
         PointerInfo pi = MouseInfo.getPointerInfo();
         if (pi != null) {
             Point mouseOnScreen = pi.getLocation();
@@ -2738,13 +2789,6 @@ private void refreshPassThroughUnifiedStatus() {
             }
         } else {
             resetPassThroughCloseHoverState();
-        }
-
-        if (!passThroughEnabled) {
-            PassThroughTooltipSupport.clear();
-            crosshairOverlay.setCrosshairPoint(null);
-            crosshairOverlay.setVisible(false);
-            return;
         }
 
         if (pi == null) {
@@ -2806,9 +2850,7 @@ private void refreshPassThroughUnifiedStatus() {
 
         long now = System.currentTimeMillis();
 
-        // Pass-through off: normal Swing mouse events reach the title bar (click toggles). Do not dwell-enable
-        // while the cursor stays on the toggle — that undid a click/dwell disable after ~700 ms.
-        if (!passThroughEnabled) {
+        if (!mouseInteractionMode.isPassThroughLike()) {
             passThroughToggleHoverStartMs = -1L;
             return;
         }
@@ -2837,7 +2879,7 @@ private void refreshPassThroughUnifiedStatus() {
             if (passThroughToggleHoverStartMs < 0L) {
                 passThroughToggleHoverStartMs = now;
             } else if (now - passThroughToggleHoverStartMs >= PASS_THROUGH_TOGGLE_DWELL_MS) {
-                setPassThroughEnabled(!passThroughEnabled, true);
+                cycleMouseInteractionMode();
                 passThroughToggleHoverStartMs = -1L;
             }
             return;

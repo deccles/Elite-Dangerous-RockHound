@@ -10,6 +10,7 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.IllegalComponentStateException;
 import java.awt.Insets;
 import java.awt.MouseInfo;
 import java.awt.Point;
@@ -85,6 +86,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.ScrollableTabBar;
+import org.dce.ed.ui.TransparentViewportUI;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -237,8 +239,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 		                g2.setColor(bg);
 		                g2.fillRect(0, 0, getWidth(), getHeight());
 		            } else if (OverlayPreferences.overlayChromeRequestsTransparency()) {
-		                g2.setComposite(AlphaComposite.Clear);
-		                g2.fillRect(0, 0, getWidth(), getHeight());
+		                // Alpha-0 bg: still honor Preferences % (CLEAR only at 100% transparent).
+		                TransparentViewportUI.fillSeeThroughChrome(g2, 0, 0, getWidth(), getHeight());
 		            } else {
 		                Color b = EdoUi.User.BACKGROUND;
 		                g2.setComposite(AlphaComposite.SrcOver);
@@ -675,6 +677,40 @@ public class EliteOverlayTabbedPane extends JPanel {
 		return CARD_CONTROL_PANEL.equals(visibleCardName)
 				&& controlPanelTab != null
 				&& controlPanelTab.isPointerOverActionButton(screenPoint);
+	}
+
+	/** True when the pointer is over the tab strip or overflow chevrons. */
+	public boolean isPointerOverTabBar(Point screenPoint) {
+		if (screenPoint == null || !isShowing() || scrollableTabBar == null || !scrollableTabBar.isShowing()) {
+			return false;
+		}
+		try {
+			Point origin = scrollableTabBar.getLocationOnScreen();
+			return new Rectangle(origin.x, origin.y, scrollableTabBar.getWidth(), scrollableTabBar.getHeight())
+					.contains(screenPoint);
+		} catch (IllegalComponentStateException ex) {
+			return false;
+		}
+	}
+
+	/**
+	 * Selective mouse mode: true when the pointer is over a control that should receive real clicks
+	 * on the visible tab.
+	 */
+	public boolean isPointerOverSelectiveHit(Point screenPoint) {
+		if (screenPoint == null || !isShowing()) {
+			return false;
+		}
+		return switch (visibleCardName) {
+			case CARD_ROUTE -> routeTab != null && routeTab.isPointerOverInteractiveRegion(screenPoint);
+			case CARD_SYSTEM -> systemTab != null && systemTab.isPointerOverInteractiveRegion(screenPoint);
+			case CARD_BIOLOGY -> biologyTab != null && biologyTab.isPointerOverInteractiveRegion(screenPoint);
+			case CARD_MINING -> miningTab != null && miningTab.isPointerOverInteractiveRegion(screenPoint);
+			case CARD_MISSIONS -> missionsTab != null && missionsTab.isPointerOverInteractiveRegion(screenPoint);
+			case CARD_ENGINEERING -> engineeringTab != null && engineeringTab.isPointerOverInteractiveRegion(screenPoint);
+			case CARD_CONTROL_PANEL -> controlPanelTab != null && controlPanelTab.isPointerOverActionButton(screenPoint);
+			default -> false;
+		};
 	}
 
 	/** True when the pointer is over a scroll bar on the visible tab (pass-through thumb drag). */

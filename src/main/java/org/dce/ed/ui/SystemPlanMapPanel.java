@@ -688,7 +688,7 @@ public final class SystemPlanMapPanel extends JPanel {
         addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
@@ -718,7 +718,7 @@ public final class SystemPlanMapPanel extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 if (SwingUtilities.isRightMouseButton(e) && measureDragActive) {
@@ -743,7 +743,7 @@ public final class SystemPlanMapPanel extends JPanel {
         addMouseMotionListener(new MouseAdapter() {
             @Override
             public void mouseDragged(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 if ((e.getModifiersEx() & InputEvent.BUTTON3_DOWN_MASK) != 0 && measureDragActive) {
@@ -3217,7 +3217,7 @@ public final class SystemPlanMapPanel extends JPanel {
             return false;
         }
         Point p = new Point(screenX, screenY);
-        if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+        if (OverlayPreferences.isOverlayFullMousePassThrough()) {
             try {
                 PointerInfo pi = MouseInfo.getPointerInfo();
                 if (pi != null) {

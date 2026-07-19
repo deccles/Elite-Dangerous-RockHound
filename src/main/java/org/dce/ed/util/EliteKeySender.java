@@ -36,7 +36,7 @@ public final class EliteKeySender {
     private final Robot robot;
 
     public EliteKeySender() {
-        this(70, true);
+        this(100, true);
     }
 
     public EliteKeySender(int interKeyDelayMs, boolean requireEliteForeground) {

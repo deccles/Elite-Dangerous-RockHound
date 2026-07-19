@@ -9,6 +9,7 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -69,6 +70,7 @@ import org.dce.ed.ui.DestinationCopySupport;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
+import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.TableHeaderSortSupport;
 import org.dce.ed.ui.TransparentTableHeader;
 import org.dce.ed.ui.TransparentTableHeaderUI;
@@ -353,6 +355,24 @@ public class MissionsTabPanel extends JPanel {
 
     public void fillSessionState(EdoSessionState state) {
         tracker.fillSessionState(state);
+    }
+
+    /** Selective mouse mode: filters, Dismiss, sort headers, Objective/Turn-in cells. */
+    public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+        if (SelectiveHitSupport.containsScreenPoint(filterBar, screenPoint)) {
+            return true;
+        }
+        if (SelectiveHitSupport.containsScreenPoint(redirectDismiss, screenPoint)) {
+            return true;
+        }
+        if (SelectiveHitSupport.isOverTableHeader(missionsTable, screenPoint)) {
+            return true;
+        }
+        return SelectiveHitSupport.isOverModelColumnCell(
+                missionsTable,
+                screenPoint,
+                MissionsTableModel.COL_OBJECTIVE,
+                MissionsTableModel.COL_TURNIN);
     }
 
     public void applySessionState(EdoSessionState state) {

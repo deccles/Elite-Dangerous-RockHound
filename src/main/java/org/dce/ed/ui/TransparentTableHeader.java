@@ -15,7 +15,7 @@ import org.dce.ed.OverlayPreferences;
 
 /**
  * Table header that paints only the header renderer (no LAF background),
- * so pass-through transparency shows the backing color.
+ * so pass-through transparency shows the configured overlay background.
  */
 public final class TransparentTableHeader extends JTableHeader {
 
@@ -44,10 +44,9 @@ public final class TransparentTableHeader extends JTableHeader {
             TableCellRenderer colRenderer = tc.getHeaderRenderer();
             if (colRenderer == null) colRenderer = renderer;
             java.awt.Rectangle r = getHeaderRect(col);
-            // CLEAR composites to garbage (often lime green) on decorated JFrames; only use on pass-through overlay.
+            // See-through chrome: CLEAR only at 100% transparent; otherwise respect Preferences %.
             if (OverlayPreferences.overlayChromeRequestsTransparency()) {
-                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-                g2.fillRect(r.x, r.y, r.width, r.height);
+                TransparentViewportUI.fillSeeThroughChrome(g2, r.x, r.y, r.width, r.height);
             } else {
                 g2.setComposite(AlphaComposite.SrcOver);
                 g2.setColor(EdoUi.User.BACKGROUND);
@@ -103,8 +102,7 @@ public final class TransparentTableHeader extends JTableHeader {
             return;
         }
         if (transparent) {
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-            g2.fillRect(x, y, width, height);
+            TransparentViewportUI.fillSeeThroughChrome(g2, x, y, width, height);
         } else {
             g2.setComposite(AlphaComposite.SrcOver);
             g2.setColor(EdoUi.User.BACKGROUND);

@@ -153,9 +153,8 @@ public final class ScrollableTabBar extends JPanel {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 if (chromeTransparent && mousePassThrough) {
-                    // Pass-through: fully clear; clicks go to the game anyway.
-                    g2.setComposite(AlphaComposite.Clear);
-                    g2.fillRect(0, 0, getWidth(), getHeight());
+                    // Pass-through: respect Preferences transparency (CLEAR only at 100%).
+                    TransparentViewportUI.fillSeeThroughChrome(g2, 0, 0, getWidth(), getHeight());
                 } else if (chromeTransparent) {
                     // Interactive overlay: keep the configured transparency but never alpha 0, so
                     // Windows layered hit-testing still delivers clicks on tabs/gaps.

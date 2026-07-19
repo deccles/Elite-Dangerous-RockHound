@@ -38,10 +38,9 @@ public final class OverlayBackgroundPanel extends JPanel {
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             if (paintColor == null || paintColor.getAlpha() <= 0) {
-                // AlphaComposite.Clear corrupts to lime green on decorated JFrames; keep pass-through only.
+                // Fully transparent paint color: CLEAR only on the undecorated host; otherwise solid plate.
                 if (OverlayPreferences.overlayChromeRequestsTransparency()) {
-                    g2.setComposite(AlphaComposite.Clear);
-                    g2.fillRect(0, 0, getWidth(), getHeight());
+                    TransparentViewportUI.fillSeeThroughChrome(g2, 0, 0, getWidth(), getHeight());
                 } else {
                     Color b = EdoUi.User.BACKGROUND;
                     g2.setComposite(AlphaComposite.SrcOver);
@@ -49,6 +48,7 @@ public final class OverlayBackgroundPanel extends JPanel {
                     g2.fillRect(0, 0, getWidth(), getHeight());
                 }
             } else {
+                g2.setComposite(AlphaComposite.Src);
                 g2.setColor(paintColor);
                 g2.fillRect(0, 0, getWidth(), getHeight());
             }

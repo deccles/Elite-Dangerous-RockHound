@@ -1,6 +1,7 @@
 package org.dce.ed.ui;
 
 import java.awt.AlphaComposite;
+import java.awt.Color;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 
@@ -11,7 +12,7 @@ import javax.swing.plaf.basic.BasicViewportUI;
 import org.dce.ed.OverlayPreferences;
 
 /**
- * ViewportUI that does not paint an opaque LAF background. Clears or fills the viewport first so
+ * ViewportUI that does not paint an opaque LAF background. Fills or clears the viewport first so
  * unpainted regions (e.g. below short tables) do not read as a white frame on transparent overlays.
  */
 public final class TransparentViewportUI extends BasicViewportUI {
@@ -40,8 +41,7 @@ public final class TransparentViewportUI extends BasicViewportUI {
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             if (OverlayPreferences.overlayChromeRequestsTransparency()) {
-                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-                g2.fillRect(0, 0, w, h);
+                fillSeeThroughChrome(g2, 0, 0, w, h);
             } else if (c.isOpaque()) {
                 g2.setComposite(AlphaComposite.SrcOver);
                 g2.setColor(c.getBackground());
@@ -49,6 +49,25 @@ public final class TransparentViewportUI extends BasicViewportUI {
             }
         } finally {
             g2.dispose();
+        }
+    }
+
+    /**
+     * Paints theme background at the active transparency %, or CLEAR when fully transparent.
+     * Shared by viewport / header painters so pass-through regions respect Preferences.
+     */
+    public static void fillSeeThroughChrome(Graphics2D g2, int x, int y, int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        Color fill = OverlayPreferences.getActiveOverlayChromeBackground();
+        if (fill == null || fill.getAlpha() <= 0) {
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+            g2.fillRect(x, y, width, height);
+        } else {
+            g2.setComposite(AlphaComposite.Src);
+            g2.setColor(fill);
+            g2.fillRect(x, y, width, height);
         }
     }
 }

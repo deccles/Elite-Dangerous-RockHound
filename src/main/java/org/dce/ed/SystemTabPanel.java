@@ -107,6 +107,7 @@ import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
+import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
@@ -414,6 +415,19 @@ public class SystemTabPanel extends JPanel {
 
 	public boolean isPointerOverScrollBar(Point screenPoint) {
 		return OverlayScrollPaneSupport.isPointerOverScrollBar(systemBodyScrollPane, screenPoint);
+	}
+
+	/** Selective mouse mode: sort icons, system name field, map toolbar. */
+	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+		if (SelectiveHitSupport.containsScreenPoint(headerLabel, screenPoint)) {
+			return true;
+		}
+		if (SelectiveHitSupport.containsScreenPoint(distFromShipButton, screenPoint)
+				|| SelectiveHitSupport.containsScreenPoint(distFromStarButton, screenPoint)
+				|| SelectiveHitSupport.containsScreenPoint(distByValueButton, screenPoint)) {
+			return true;
+		}
+		return SelectiveHitSupport.containsScreenPoint(systemPlanMapToolbar, screenPoint);
 	}
 
 	/** Apply persisted system tab state (for restore on startup). */
@@ -755,7 +769,7 @@ public class SystemTabPanel extends JPanel {
                 if (!SwingUtilities.isLeftMouseButton(e)) {
                     return;
                 }
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 tryToggleBioExpandAt(e.getPoint());
@@ -869,7 +883,7 @@ public class SystemTabPanel extends JPanel {
         headerPanel.add(distToggleEast, BorderLayout.EAST);
         headerPanel.setBorder(null);
 
-        BooleanSupplier tableSortPassThrough = OverlayPreferences::isOverlayMousePassThroughToGame;
+        BooleanSupplier tableSortPassThrough = OverlayPreferences::isOverlayFullMousePassThrough;
         HoverClickPoller.register(distFromShipButton, MAP_TOOLBAR_HOVER_CLICK_DELAY_MS,
                 () -> applySystemTabTableSortMode(SystemTabTableSortMode.FROM_SHIP), tableSortPassThrough);
         HoverClickPoller.register(distFromStarButton, MAP_TOOLBAR_HOVER_CLICK_DELAY_MS,
@@ -896,7 +910,7 @@ public class SystemTabPanel extends JPanel {
         systemPlanMapExpandButton = new JButton();
         systemPlanMapExpandButton.setToolTipText("Restore the plan map to its previous height.");
         systemPlanMapExpandButton.addActionListener(e -> expandSystemPlanMap());
-        BooleanSupplier mapToolbarPassThrough = OverlayPreferences::isOverlayMousePassThroughToGame;
+        BooleanSupplier mapToolbarPassThrough = OverlayPreferences::isOverlayFullMousePassThrough;
         HoverClickPoller.register(systemPlanMapCollapseButton, MAP_TOOLBAR_HOVER_CLICK_DELAY_MS,
                 this::collapseSystemPlanMap, mapToolbarPassThrough);
         HoverClickPoller.register(systemPlanMapExpandButton, MAP_TOOLBAR_HOVER_CLICK_DELAY_MS,
@@ -937,7 +951,7 @@ public class SystemTabPanel extends JPanel {
         mapViewTiltCluster.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 mapViewTiltHovered = true;
@@ -946,7 +960,7 @@ public class SystemTabPanel extends JPanel {
 
             @Override
             public void mouseExited(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 mapViewTiltHovered = false;
@@ -1103,6 +1117,9 @@ public class SystemTabPanel extends JPanel {
         add(systemTableMapSplit, BorderLayout.CENTER);
 
         refreshFromCache();
+        // Live monitor tails from a cursor (no history replay); learn aboard-carrier state from recent journals
+        // so a carrier jump right after startup waits for the CarrierJump arrival before speaking "Jump complete".
+        processor.bootstrapFleetCarrierPresenceFromJournal();
 
         configureSystemBodiesTableColumnResize();
         SwingUtilities.invokeLater(this::applySystemBodiesTableColumnLayout);
@@ -2647,13 +2664,20 @@ public class SystemTabPanel extends JPanel {
         if (orbitAnimSpeedValueField == null) {
             return;
         }
-        boolean passThrough = OverlayPreferences.isOverlayMousePassThroughToGame();
-        orbitAnimSpeedValueField.setEditable(!passThrough);
-        orbitAnimSpeedValueField.setFocusable(!passThrough);
-        if (passThrough && orbitAnimSpeedValueField.isFocusOwner()) {
+        // Full MPT cannot focus the field; Selective clears pass-through over the toolbar so typing works.
+        boolean lock = OverlayPreferences.getOverlayMouseInteractionMode()
+                == MouseInteractionMode.FULL_PASS_THROUGH;
+        orbitAnimSpeedValueField.setEditable(!lock);
+        orbitAnimSpeedValueField.setFocusable(!lock);
+        if (lock && orbitAnimSpeedValueField.isFocusOwner()) {
             orbitAnimSpeedValueField.transferFocus();
         }
         applyOrbitAnimSpeedFieldChrome(orbitAnimSpeedValueField.isFocusOwner());
+    }
+
+    /** Called when the overlay mouse-interaction mode cycles so toolbar fields stay editable in Selective. */
+    public void onMouseInteractionModeChanged() {
+        applyOrbitAnimSpeedFieldEditability();
     }
 
     private void applyOrbitAnimSpeedFieldChrome(boolean focused) {
@@ -3265,7 +3289,7 @@ public class SystemTabPanel extends JPanel {
         boolean closing = bioExpandCueDelayedPendingClose;
         bioExpandCueDelayedOpenPendingBodyId = null;
         bioExpandCueDelayedPendingClose = false;
-        if (pending == null || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+        if (pending == null || !OverlayPreferences.isOverlayFullMousePassThrough()) {
             return;
         }
         bioExpandCueDwellArmBodyUntilCueExit = pending;
@@ -3353,7 +3377,7 @@ public class SystemTabPanel extends JPanel {
     private void commitBioHeaderAllDwellAction() {
         boolean closing = bioHeaderAllDwellPendingCollapse;
         bioHeaderAllDwellPendingCollapse = false;
-        if (!OverlayPreferences.isOverlayMousePassThroughToGame()) {
+        if (!OverlayPreferences.isOverlayFullMousePassThrough()) {
             return;
         }
         Set<Integer> ex = collectExpandableBioBodyIds();
@@ -3418,7 +3442,7 @@ public class SystemTabPanel extends JPanel {
             return;
         }
         Point screen = pi.getLocation();
-        if (!OverlayPreferences.isOverlayMousePassThroughToGame()) {
+        if (!OverlayPreferences.isOverlayFullMousePassThrough()) {
             syncBioColumnHeaderExpandHoverFromScreen(null, false);
             syncDistModeToggleHoverFromScreen(null);
             syncMapToolbarHoverFromScreen(null);
@@ -3501,7 +3525,7 @@ public class SystemTabPanel extends JPanel {
         if (distFromShipButton == null || distFromStarButton == null || distByValueButton == null) {
             return;
         }
-        if (screen == null || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+        if (screen == null || !OverlayPreferences.isOverlayFullMousePassThrough()) {
             clearDistModeToggleProgrammaticHover();
             return;
         }
@@ -3535,7 +3559,7 @@ public class SystemTabPanel extends JPanel {
      * Pass-through: map toolbar collapse/expand and view-tilt cluster hover from {@link MouseInfo}.
      */
     private void syncMapToolbarHoverFromScreen(Point screen) {
-        if (screen == null || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
+        if (screen == null || !OverlayPreferences.isOverlayFullMousePassThrough()) {
             clearMapToolbarProgrammaticHover();
             endMapViewTiltPassThroughAdjusting();
             return;
@@ -3570,7 +3594,7 @@ public class SystemTabPanel extends JPanel {
      * Pass-through: horizontal pointer position on the tilt slider sets view tilt (clicks do not reach Swing).
      */
     private void syncMapViewTiltPassThroughFromScreen(Point screen) {
-        if (!OverlayPreferences.isOverlayMousePassThroughToGame() || mapViewTiltSlider == null) {
+        if (!OverlayPreferences.isOverlayFullMousePassThrough() || mapViewTiltSlider == null) {
             endMapViewTiltPassThroughAdjusting();
             return;
         }
@@ -3626,7 +3650,7 @@ public class SystemTabPanel extends JPanel {
      * Pass-through wheel over the view-tilt cluster nudges tilt before map zoom / table scroll.
      */
     private boolean applyPassThroughMapViewTiltWheelIfHit(int screenX, int screenY, int wheelRotation) {
-        if (wheelRotation == 0 || !OverlayPreferences.isOverlayMousePassThroughToGame()
+        if (wheelRotation == 0 || !OverlayPreferences.isOverlayFullMousePassThrough()
                 || mapViewTiltSlider == null || mapViewTiltCluster == null || !mapViewTiltCluster.isShowing()) {
             return false;
         }
@@ -3654,7 +3678,7 @@ public class SystemTabPanel extends JPanel {
         button.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 hoveredSetter.accept(true);
@@ -3663,7 +3687,7 @@ public class SystemTabPanel extends JPanel {
 
             @Override
             public void mouseExited(MouseEvent e) {
-                if (OverlayPreferences.isOverlayMousePassThroughToGame()) {
+                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
                     return;
                 }
                 hoveredSetter.accept(false);

@@ -11,6 +11,7 @@ import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
+import org.dce.ed.logreader.event.LocationEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -110,6 +111,102 @@ class SystemEventProcessorCarrierLocationTest {
 
         assertEquals("Ploea Eurl TH-N c22-2", state.getSystemName());
         assertEquals(638709240514L, state.getSystemAddress());
+        assertTrue(state.isCommanderAboardFleetCarrier());
+    }
+
+    /**
+     * Regression: EDO restarted while the commander was already docked on the carrier. The live monitor
+     * does not replay the old Docked event; the login {@code Location} snapshot must set aboard so the
+     * departure-time {@code CarrierLocation} is not treated as jump completion ("Jump complete" spoken
+     * the second the carrier jumps).
+     */
+    @Test
+    void loginLocationDockedAtFleetCarrier_marksCommanderAboard() {
+        JsonObject raw = new JsonObject();
+        raw.addProperty("event", "Location");
+        raw.addProperty("Docked", true);
+        raw.addProperty("StationName", "JFZ-93T");
+        raw.addProperty("StationType", "FleetCarrier");
+        LocationEvent login = new LocationEvent(
+                Instant.parse("2025-12-02T03:52:28Z"),
+                raw,
+                true,
+                false,
+                false,
+                "Sifeae EX-Z c1-3",
+                913117352722L,
+                new double[] { 0, 0, 0 },
+                "Sifeae EX-Z c1-3 A",
+                1,
+                "Star");
+        processor.handleEvent(login);
+
+        assertTrue(state.isCommanderAboardFleetCarrier());
+    }
+
+    @Test
+    void loginLocationNotOnCarrier_clearsAboardState() {
+        dockOnFleetCarrier();
+        assertTrue(state.isCommanderAboardFleetCarrier());
+
+        JsonObject raw = new JsonObject();
+        raw.addProperty("event", "Location");
+        raw.addProperty("Docked", false);
+        LocationEvent login = new LocationEvent(
+                Instant.parse("2025-12-02T03:52:28Z"),
+                raw,
+                false,
+                false,
+                false,
+                "Sifeae KP-Z b3-0",
+                707732383265L,
+                new double[] { 0, 0, 0 },
+                "Sifeae KP-Z b3-0",
+                0,
+                "Star");
+        processor.handleEvent(login);
+
+        assertFalse(state.isCommanderAboardFleetCarrier());
+    }
+
+    /** CarrierJump with Docked=true (riding in ship) must mark aboard, not just OnFoot arrivals. */
+    @Test
+    void carrierJumpDockedInShip_marksCommanderAboard() {
+        CarrierJumpEvent jump = new CarrierJumpEvent(
+                Instant.parse("2025-12-02T04:26:01Z"),
+                new JsonObject(),
+                true,
+                false,
+                null,
+                null,
+                0L,
+                null,
+                null,
+                null,
+                java.util.Collections.emptyList(),
+                null,
+                null,
+                java.util.Collections.emptyList(),
+                false,
+                false,
+                "Ploea Eurl TH-N c22-2",
+                638709240514L,
+                new double[] { 3041.625, 754.125, -67.15625 },
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0L,
+                "Ploea Eurl TH-N c22-2",
+                0,
+                "Star");
+        processor.handleEvent(jump);
+
         assertTrue(state.isCommanderAboardFleetCarrier());
     }
 

@@ -67,6 +67,7 @@ import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.exec.FleetCooldownClipboardPrep;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
+import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 
 import org.dce.ed.cache.CachedSystem;
@@ -302,6 +303,17 @@ public class RouteTabPanel extends JPanel {
 
 	public boolean isPointerOverScrollBar(Point screenPoint) {
 		return OverlayScrollPaneSupport.isPointerOverScrollBar(routeScrollPane, screenPoint);
+	}
+
+	/** Selective mouse mode: distance toggles and Copy next destination. */
+	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+		if (SelectiveHitSupport.containsScreenPoint(lyModeFromCurrentButton, screenPoint)) {
+			return true;
+		}
+		if (SelectiveHitSupport.containsScreenPoint(lyModePerLegButton, screenPoint)) {
+			return true;
+		}
+		return SelectiveHitSupport.containsScreenPoint(copyNextDestinationButton, screenPoint);
 	}
 
 	public void applySessionState(EdoSessionState state) {

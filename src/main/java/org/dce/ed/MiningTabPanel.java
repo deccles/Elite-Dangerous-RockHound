@@ -125,6 +125,7 @@ import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.ui.TableHeaderSortSupport;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
@@ -970,7 +971,12 @@ private final JLayer<JTable> cargoLayer;
 		configureOverlayScroller(spreadsheetScroller);
 		installSubtleOverlayScrollBars(spreadsheetScroller);
 		// Install system-name copy behavior on the System column (model index 11).
-		miningSystemCopyManager = new SystemTableHoverCopyManager(spreadsheetTable, 11, isDockedSupplier);
+		miningSystemCopyManager = new SystemTableHoverCopyManager(
+				spreadsheetTable,
+				11,
+				() -> OverlayPreferences.isOverlayFullMousePassThrough()
+						&& isDockedSupplier != null
+						&& isDockedSupplier.getAsBoolean());
 		miningSystemCopyManager.start();
 		spreadsheetTable.addMouseListener(new java.awt.event.MouseAdapter() {
 			@Override
@@ -1639,6 +1645,26 @@ return EdoUi.User.MAIN_TEXT;
 				row -> missionsModel.turnInCopyText(row),
 				passThroughEnabledSupplier != null ? passThroughEnabledSupplier : () -> false);
 		refreshMiningMissionsTable();
+	}
+
+	/** Selective mouse mode: log/source controls, missions sort/turn-in, scatter controls. */
+	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+		if (SelectiveHitSupport.containsScreenPoint(prospectorLogTableViewBtn, screenPoint)
+				|| SelectiveHitSupport.containsScreenPoint(prospectorLogScatterViewBtn, screenPoint)) {
+			return true;
+		}
+		if (SelectiveHitSupport.containsScreenPoint(prospectorLogSourceCombo, screenPoint)
+				|| SelectiveHitSupport.containsScreenPoint(prospectorLogSourceSyncNowButton, screenPoint)) {
+			return true;
+		}
+		if (SelectiveHitSupport.isOverTableHeader(missionsTable, screenPoint)) {
+			return true;
+		}
+		if (SelectiveHitSupport.isOverModelColumnCell(
+				missionsTable, screenPoint, MiningMissionsTableModel.COL_TURNIN)) {
+			return true;
+		}
+		return spreadsheetScatterWrapper != null && spreadsheetScatterWrapper.isPointerOverControls(screenPoint);
 	}
 
 	public void refreshMiningMissionsTable() {
@@ -4190,8 +4216,13 @@ String getName() {
 					colRenderer = renderer;
 				}
 				java.awt.Rectangle r = getHeaderRect(col);
-				g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-				g2.fillRect(r.x, r.y, r.width, r.height);
+				if (OverlayPreferences.overlayChromeRequestsTransparency()) {
+					org.dce.ed.ui.TransparentViewportUI.fillSeeThroughChrome(g2, r.x, r.y, r.width, r.height);
+				} else {
+					g2.setComposite(AlphaComposite.SrcOver);
+					g2.setColor(EdoUi.User.BACKGROUND);
+					g2.fillRect(r.x, r.y, r.width, r.height);
+				}
 				g2.setComposite(AlphaComposite.SrcOver);
 				Component cell = colRenderer.getTableCellRendererComponent(tbl, tc.getHeaderValue(), false, false, -1, col);
 				cell.setBounds(0, 0, r.width, r.height);
@@ -4344,6 +4375,12 @@ String getName() {
 				testGatherButton.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.Internal.DARK_ALPHA_220);
 				testGatherButton.setForeground(EdoUi.User.MAIN_TEXT);
 			}
+		}
+
+		boolean isPointerOverControls(Point screenPoint) {
+			return SelectiveHitSupport.containsScreenPoint(modeCombo, screenPoint)
+					|| SelectiveHitSupport.containsScreenPoint(secondaryCombo, screenPoint)
+					|| SelectiveHitSupport.containsScreenPoint(testGatherButton, screenPoint);
 		}
 
 		void setRows(List<ProspectorLogRow> rows) {
@@ -6337,7 +6374,8 @@ String getName() {
 
 		@Override
 		public void actionPerformed(ActionEvent e) {
-			if (entries.isEmpty()) {
+			if (entries.isEmpty() || !OverlayPreferences.isOverlayFullMousePassThrough()) {
+				resetAll();
 				return;
 			}
 
