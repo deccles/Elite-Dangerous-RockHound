@@ -7,6 +7,7 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.event.MouseEvent;
 
+import javax.swing.JComponent;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.ToolTipManager;
@@ -18,7 +19,7 @@ import javax.swing.ToolTipManager;
  */
 public final class PassThroughTooltipSupport {
 
-    private static Component lastTipComponent;
+    private static JComponent lastTipComponent;
 
     private PassThroughTooltipSupport() {
     }
@@ -55,7 +56,7 @@ public final class PassThroughTooltipSupport {
 
         Point local = new Point(screen);
         SwingUtilities.convertPointFromScreen(local, root);
-        Component target = resolveTooltipComponent(root, local);
+        JComponent target = resolveTooltipComponent(root, local);
         if (target == null || !target.isShowing()) {
             clear();
             return;
@@ -79,8 +80,16 @@ public final class PassThroughTooltipSupport {
         lastTipComponent = target;
     }
 
-    private static Component resolveTooltipComponent(Component root, Point localOnRoot) {
+    /**
+     * {@link ToolTipManager} casts the event source to {@link JComponent}. Deep hits can be plain AWT
+     * containers (e.g. {@link javax.swing.plaf.basic.BasicSplitPaneDivider}), so walk up to a Swing
+     * component — preferring tables for cell tip text.
+     */
+    private static JComponent resolveTooltipComponent(Component root, Point localOnRoot) {
         Component hit = SwingUtilities.getDeepestComponentAt(root, localOnRoot.x, localOnRoot.y);
+        if (hit == null) {
+            return null;
+        }
         if (hit instanceof JTable table) {
             return table;
         }
@@ -89,7 +98,12 @@ public final class PassThroughTooltipSupport {
                 return table;
             }
         }
-        return hit;
+        for (Component c = hit; c != null; c = c.getParent()) {
+            if (c instanceof JComponent jc) {
+                return jc;
+            }
+        }
+        return null;
     }
 
     /** Hide any tooltip shown by {@link #poll(Component, boolean)}. */
