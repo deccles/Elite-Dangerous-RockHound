@@ -1,12 +1,16 @@
 package org.dce.ed;
 
+import java.awt.AlphaComposite;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.IllegalComponentStateException;
+import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.event.ActionListener;
@@ -46,7 +50,8 @@ public final class ControlPanelTabPanel extends JPanel {
     private ExecTriggerService triggerService;
     private final List<JButton> actionButtons = new ArrayList<>();
     private JButton killButton;
-    private JPanel killFooter;
+    private JPanel killButtonRow;
+    private JScrollPane buttonScroll;
 
     public ControlPanelTabPanel(BooleanSupplier passThroughEnabledSupplier) {
         super(new BorderLayout(8, 8));
@@ -65,18 +70,15 @@ public final class ControlPanelTabPanel extends JPanel {
         emptyLabel.setOpaque(false);
         emptyLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         buttonPanel.add(emptyLabel);
+        buttonPanel.add(Box.createVerticalStrut(6));
+        buttonPanel.add(wrapKillButtonRow());
 
         JScrollPane scroll = new JScrollPane(buttonPanel);
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
         scroll.setBorder(BorderFactory.createEmptyBorder());
+        this.buttonScroll = scroll;
         add(scroll, BorderLayout.CENTER);
-
-        JPanel killFooter = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        killFooter.setOpaque(false);
-        killFooter.add(killButton);
-        this.killFooter = killFooter;
-        add(killFooter, BorderLayout.SOUTH);
 
         styleKillButton(OverlayPreferences.getUiFont(), false);
         registerKillButtonHover();
@@ -113,15 +115,84 @@ public final class ControlPanelTabPanel extends JPanel {
         if (killButton != null && killButton.isShowing() && containsScreenPoint(killButton, screenPoint)) {
             return true;
         }
-        if (killFooter != null && killFooter.isShowing() && containsScreenPoint(killFooter, screenPoint)) {
-            return true;
-        }
         for (JButton button : actionButtons) {
             if (button != null && button.isShowing() && containsScreenPoint(button, screenPoint)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Selective (hybrid) mode: punch chrome below the button stack (including Kill scripts)
+     * fully transparent so the game shows through. CLEAR is only safe on the undecorated host.
+     */
+    @Override
+    public void paint(Graphics g) {
+        super.paint(g);
+        clearNonInteractiveRegionInSelectiveMode(g);
+    }
+
+    private void clearNonInteractiveRegionInSelectiveMode(Graphics g) {
+        if (g == null
+                || OverlayPreferences.getOverlayMouseInteractionMode() != MouseInteractionMode.SELECTIVE
+                || !OverlayPreferences.isPassThroughWindowActive()) {
+            return;
+        }
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+            // Empty strip to the left of Kill scripts only (command buttons stay tinted).
+            if (killButton != null && killButton.isShowing()) {
+                Component row = killButtonRow != null && killButtonRow.isShowing() ? killButtonRow : killButton;
+                Point rowOrigin = SwingUtilities.convertPoint(row, 0, 0, this);
+                Point killOrigin = SwingUtilities.convertPoint(killButton, 0, 0, this);
+                int leftW = Math.max(0, killOrigin.x);
+                int h = Math.max(killButton.getHeight(), row.getHeight());
+                if (leftW > 0 && h > 0) {
+                    g2.fillRect(0, rowOrigin.y, leftW, h);
+                }
+            }
+            int yStart = buttonStackContentBottomY();
+            int yEnd = getHeight();
+            if (yEnd > yStart) {
+                g2.fillRect(0, yStart, getWidth(), yEnd - yStart);
+            }
+        } finally {
+            g2.dispose();
+        }
+    }
+
+    /** Bottom edge (in this panel's coords) of Kill scripts, else the last action / empty label. */
+    private int buttonStackContentBottomY() {
+        Component last = null;
+        if (killButton != null && killButton.isShowing()) {
+            last = killButton;
+        } else if (!actionButtons.isEmpty()) {
+            for (int i = actionButtons.size() - 1; i >= 0; i--) {
+                JButton b = actionButtons.get(i);
+                if (b != null && b.isShowing()) {
+                    last = b;
+                    break;
+                }
+            }
+        }
+        if (last == null && emptyLabel != null && emptyLabel.isShowing() && emptyLabel.isVisible()) {
+            last = emptyLabel;
+        }
+        int bottom;
+        if (last != null) {
+            Point bottomLeft = SwingUtilities.convertPoint(last, 0, last.getHeight(), this);
+            bottom = Math.max(0, bottomLeft.y);
+        } else {
+            Insets in = getInsets();
+            bottom = in != null ? Math.max(0, in.top) : 0;
+        }
+        if (buttonScroll != null && buttonScroll.isShowing()) {
+            Point scrollBottom = SwingUtilities.convertPoint(buttonScroll, 0, buttonScroll.getHeight(), this);
+            bottom = Math.min(bottom, Math.max(0, scrollBottom.y));
+        }
+        return bottom;
     }
 
     public void refreshButtons() {
@@ -166,11 +237,28 @@ public final class ControlPanelTabPanel extends JPanel {
             buttonPanel.add(Box.createVerticalStrut(6));
         }
 
+        if (bindings.isEmpty()) {
+            buttonPanel.add(Box.createVerticalStrut(6));
+        }
+        buttonPanel.add(wrapKillButtonRow());
+
         buttonPanel.revalidate();
         buttonPanel.repaint();
         refreshKillButtonState();
         revalidate();
         repaint();
+    }
+
+    /** Right-aligned row so Kill scripts keeps its natural width (not stretched by BoxLayout). */
+    private JPanel wrapKillButtonRow() {
+        if (killButtonRow == null) {
+            killButtonRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+            killButtonRow.setOpaque(false);
+            killButtonRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+            killButtonRow.add(killButton);
+        }
+        killButtonRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, killButtonRow.getPreferredSize().height));
+        return killButtonRow;
     }
 
     private List<ExecBinding> loadControlPanelBindings() {
@@ -207,6 +295,9 @@ public final class ControlPanelTabPanel extends JPanel {
         Dimension pref = killButton.getPreferredSize();
         int height = Math.max(28, pref.height);
         killButton.setPreferredSize(new Dimension(pref.width, height));
+        if (killButtonRow != null) {
+            killButtonRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, killButtonRow.getPreferredSize().height));
+        }
     }
 
     private void runBindingById(String bindingId) {

@@ -1,5 +1,6 @@
 package org.dce.ed;
 
+import java.awt.AlphaComposite;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -10,6 +11,7 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -373,6 +375,49 @@ public class MissionsTabPanel extends JPanel {
                 screenPoint,
                 MissionsTableModel.COL_OBJECTIVE,
                 MissionsTableModel.COL_TURNIN);
+    }
+
+    /**
+     * Selective (hybrid) mode: the missions table does not fill the viewport, so chrome below the
+     * last row (and the scroll padding under it) stays tinted. Punch that strip fully transparent.
+     */
+    @Override
+    public void paint(Graphics g) {
+        super.paint(g);
+        clearBelowMissionsTableInSelectiveMode(g);
+    }
+
+    private void clearBelowMissionsTableInSelectiveMode(Graphics g) {
+        if (g == null
+                || OverlayPreferences.getOverlayMouseInteractionMode() != MouseInteractionMode.SELECTIVE
+                || !OverlayPreferences.isPassThroughWindowActive()
+                || missionsTable == null || !missionsTable.isShowing()) {
+            return;
+        }
+        int rowCount = missionsTable.getRowCount();
+        int rowsBottomInTable = 0;
+        if (rowCount > 0) {
+            Rectangle last = missionsTable.getCellRect(rowCount - 1, 0, true);
+            rowsBottomInTable = last.y + last.height;
+        }
+        Point tableBottom = SwingUtilities.convertPoint(missionsTable, 0, rowsBottomInTable, this);
+        int yStart = Math.max(0, tableBottom.y);
+        // Tall lists: do not start clearing past the visible scroll bottom.
+        if (tableScroll != null && tableScroll.isShowing()) {
+            Point scrollBottom = SwingUtilities.convertPoint(tableScroll, 0, tableScroll.getHeight(), this);
+            yStart = Math.min(yStart, Math.max(0, scrollBottom.y));
+        }
+        int yEnd = getHeight();
+        if (yEnd <= yStart) {
+            return;
+        }
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+            g2.fillRect(0, yStart, getWidth(), yEnd - yStart);
+        } finally {
+            g2.dispose();
+        }
     }
 
     public void applySessionState(EdoSessionState state) {
