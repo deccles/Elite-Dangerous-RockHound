@@ -1239,10 +1239,15 @@ public class EngineeringTabPanel extends JPanel {
         return false;
     }
 
-    /** Selective mouse mode: entire Goals section (filter, table, add buttons) plus Trade/Trade All cells. */
+    /** Selective mouse mode: goals section, all table scrollers, and Trade action cells. */
     public boolean isPointerOverInteractiveRegion(Point screenPoint) {
         if (SelectiveHitSupport.containsScreenPoint(goalsPanel, screenPoint)) {
             return true;
+        }
+        for (JScrollPane sp : scrollPanesForPassThrough()) {
+            if (SelectiveHitSupport.containsScreenPoint(sp, screenPoint)) {
+                return true;
+            }
         }
         return SelectiveHitSupport.isOverModelColumnCell(tradeTable, screenPoint, COL_TRADE_ACTION);
     }
@@ -1284,9 +1289,9 @@ public class EngineeringTabPanel extends JPanel {
         JTableHeader th = table.getTableHeader();
         if (th != null) {
             th.setUI(TransparentTableHeaderUI.createUI(th));
-            th.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
+            th.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency(this));
             th.setForeground(EdoUi.User.MAIN_TEXT);
-            th.setBackground(OverlayPreferences.overlayChromeRequestsTransparency()
+            th.setBackground(OverlayPreferences.overlayChromeRequestsTransparency(this)
                     ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
             th.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize()));
             th.setBorder(null);

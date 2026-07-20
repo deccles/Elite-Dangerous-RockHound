@@ -278,4 +278,18 @@ public final class SystemNameAutocomplete {
             popup.setVisible(false);
         }
     }
+
+    /** Selective / hybrid mouse mode: keep click-through off while the suggestion list is open. */
+    public boolean isPointerOverPopup(java.awt.Point screenPoint) {
+        if (popup == null || !popup.isShowing() || screenPoint == null) {
+            return false;
+        }
+        try {
+            java.awt.Point origin = popup.getLocationOnScreen();
+            return new java.awt.Rectangle(origin.x, origin.y, popup.getWidth(), popup.getHeight())
+                    .contains(screenPoint);
+        } catch (java.awt.IllegalComponentStateException ex) {
+            return false;
+        }
+    }
 }

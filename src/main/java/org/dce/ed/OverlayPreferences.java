@@ -341,15 +341,57 @@ public final class OverlayPreferences {
     }
 
     /**
+     * Root-pane client property ({@link Boolean}): when set on a floating tab window (or any host),
+     * chrome painters use that window's transparency instead of the main overlay's global mode.
+     */
+    public static final String WINDOW_CHROME_TRANSPARENT_KEY = "edo.windowChromeTransparent";
+
+    /**
+     * Root-pane client property ({@link Integer} 0–100): transparency percent for that window's chrome.
+     */
+    public static final String WINDOW_CHROME_TRANSPARENCY_PCT_KEY = "edo.windowChromeTransparencyPct";
+
+    /**
+     * Root-pane client property ({@link MouseInteractionMode}): mouse mode for that window
+     * (floating tabs), so selective chrome punches follow the float rather than the main overlay.
+     */
+    public static final String WINDOW_MOUSE_MODE_KEY = "edo.windowMouseMode";
+
+    /**
      * True when table headers, tab row, etc. should use transparent fills so the desktop shows through.
      * Only the undecorated overlay host supports see-through; percent follows mouse pass-through on/off.
      */
     public static boolean overlayChromeRequestsTransparency() {
+        return overlayChromeRequestsTransparency(null);
+    }
+
+    /**
+     * Same as {@link #overlayChromeRequestsTransparency()}, but prefers the hosting window's chrome
+     * flags when {@code under} is inside a floating tab frame (or any root pane that set
+     * {@link #WINDOW_CHROME_TRANSPARENT_KEY}).
+     */
+    public static boolean overlayChromeRequestsTransparency(java.awt.Component under) {
+        Boolean local = windowChromeTransparent(under);
+        if (local != null) {
+            return local;
+        }
         return passThroughWindowActive && getActiveOverlayTransparencyPercent() > 0;
     }
 
     /** Active background transparency % for the current mouse pass-through state on the overlay host. */
     public static int getActiveOverlayTransparencyPercent() {
+        return getActiveOverlayTransparencyPercent(null);
+    }
+
+    /**
+     * Transparency % for chrome under {@code under}'s window when that window published
+     * {@link #WINDOW_CHROME_TRANSPARENCY_PCT_KEY}; otherwise the main overlay's active %.
+     */
+    public static int getActiveOverlayTransparencyPercent(java.awt.Component under) {
+        Integer localPct = windowChromeTransparencyPercent(under);
+        if (localPct != null) {
+            return Math.max(0, Math.min(100, localPct));
+        }
         return isOverlayMousePassThroughToGame()
                 ? getPassThroughTransparencyPercent()
                 : getNormalTransparencyPercent();
@@ -360,8 +402,57 @@ public final class OverlayPreferences {
      * transparency percent. Alpha 0 (100% transparent) means painters should CLEAR instead of fill.
      */
     public static Color getActiveOverlayChromeBackground() {
+        return getActiveOverlayChromeBackground(null);
+    }
+
+    public static Color getActiveOverlayChromeBackground(java.awt.Component under) {
         Color base = EdoUi.fromRgbInt(getUiBackgroundRgb());
-        return buildOverlayBackgroundColor(base, getActiveOverlayTransparencyPercent());
+        return buildOverlayBackgroundColor(base, getActiveOverlayTransparencyPercent(under));
+    }
+
+    /**
+     * Publishes window-local chrome transparency for floating tab hosts (and optionally the main
+     * overlay) so painters under that tree do not follow a different window's mouse mode.
+     */
+    public static void publishWindowChromeTransparency(javax.swing.JRootPane rootPane,
+            boolean treatAsTransparent, int transparencyPercent) {
+        if (rootPane == null) {
+            return;
+        }
+        rootPane.putClientProperty(WINDOW_CHROME_TRANSPARENT_KEY, treatAsTransparent);
+        rootPane.putClientProperty(WINDOW_CHROME_TRANSPARENCY_PCT_KEY,
+                Math.max(0, Math.min(100, transparencyPercent)));
+    }
+
+    private static Boolean windowChromeTransparent(java.awt.Component under) {
+        javax.swing.JRootPane rp = rootPaneOf(under);
+        if (rp == null) {
+            return null;
+        }
+        Object v = rp.getClientProperty(WINDOW_CHROME_TRANSPARENT_KEY);
+        return v instanceof Boolean b ? b : null;
+    }
+
+    private static Integer windowChromeTransparencyPercent(java.awt.Component under) {
+        javax.swing.JRootPane rp = rootPaneOf(under);
+        if (rp == null) {
+            return null;
+        }
+        Object v = rp.getClientProperty(WINDOW_CHROME_TRANSPARENCY_PCT_KEY);
+        return v instanceof Integer i ? i : null;
+    }
+
+    private static javax.swing.JRootPane rootPaneOf(java.awt.Component under) {
+        if (under == null) {
+            return null;
+        }
+        if (under instanceof javax.swing.JRootPane rp) {
+            return rp;
+        }
+        if (under instanceof javax.swing.RootPaneContainer rpc) {
+            return rpc.getRootPane();
+        }
+        return javax.swing.SwingUtilities.getRootPane(under);
     }
 
     // ---------------------------------------------------------------------

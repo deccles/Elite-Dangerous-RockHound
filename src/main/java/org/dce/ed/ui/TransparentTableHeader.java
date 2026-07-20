@@ -45,8 +45,8 @@ public final class TransparentTableHeader extends JTableHeader {
             if (colRenderer == null) colRenderer = renderer;
             java.awt.Rectangle r = getHeaderRect(col);
             // See-through chrome: CLEAR only at 100% transparent; otherwise respect Preferences %.
-            if (OverlayPreferences.overlayChromeRequestsTransparency()) {
-                TransparentViewportUI.fillSeeThroughChrome(g2, r.x, r.y, r.width, r.height);
+            if (OverlayPreferences.overlayChromeRequestsTransparency(this)) {
+                TransparentViewportUI.fillSeeThroughChrome(g2, r.x, r.y, r.width, r.height, this);
             } else {
                 g2.setComposite(AlphaComposite.SrcOver);
                 g2.setColor(EdoUi.User.BACKGROUND);
@@ -84,7 +84,7 @@ public final class TransparentTableHeader extends JTableHeader {
         Rectangle first = getHeaderRect(ltr ? 0 : n - 1);
         Rectangle last = getHeaderRect(ltr ? n - 1 : 0);
 
-        boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
+        boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency(this);
 
         // Leading gap (e.g. RTL or odd layout)
         if (first.x > 0) {

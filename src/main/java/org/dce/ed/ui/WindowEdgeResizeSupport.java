@@ -9,15 +9,18 @@ import java.awt.Window;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
+import javax.swing.JComponent;
 import javax.swing.RootPaneContainer;
 import javax.swing.SwingUtilities;
 
 /**
- * Edge/corner drag resize for undecorated windows (Preferences and similar).
+ * Edge/corner drag resize for undecorated windows (Preferences, floating tab docks, and similar).
+ * Safe to call {@link #install(Window)} again after content is reparented — listeners are not duplicated.
  */
 public final class WindowEdgeResizeSupport {
 
     private static final int DEFAULT_BORDER = 6;
+    private static final String HANDLER_KEY = "edo.windowEdgeResizeHandler";
 
     private WindowEdgeResizeSupport() {
     }
@@ -35,12 +38,35 @@ public final class WindowEdgeResizeSupport {
         } else if (window instanceof java.awt.Dialog dialog) {
             dialog.setResizable(true);
         }
-        Handler handler = new Handler(window, Math.max(4, borderDragThickness));
+        Handler handler = existingHandler(window);
+        if (handler == null) {
+            handler = new Handler(window, Math.max(4, borderDragThickness));
+            storeHandler(window, handler);
+        } else {
+            handler.border = Math.max(4, borderDragThickness);
+        }
         Component root = rootComponent(window);
         installRecursive(root, handler);
         if (root != window) {
-            window.addMouseListener(handler);
-            window.addMouseMotionListener(handler);
+            installOn(window, handler);
+        }
+    }
+
+    private static Handler existingHandler(Window window) {
+        Component root = rootComponent(window);
+        if (root instanceof JComponent jc) {
+            Object v = jc.getClientProperty(HANDLER_KEY);
+            if (v instanceof Handler h && h.window == window) {
+                return h;
+            }
+        }
+        return null;
+    }
+
+    private static void storeHandler(Window window, Handler handler) {
+        Component root = rootComponent(window);
+        if (root instanceof JComponent jc) {
+            jc.putClientProperty(HANDLER_KEY, handler);
         }
     }
 
@@ -55,8 +81,7 @@ public final class WindowEdgeResizeSupport {
         if (c == null) {
             return;
         }
-        c.addMouseListener(handler);
-        c.addMouseMotionListener(handler);
+        installOn(c, handler);
         if (c instanceof Container container) {
             for (Component child : container.getComponents()) {
                 installRecursive(child, handler);
@@ -64,9 +89,31 @@ public final class WindowEdgeResizeSupport {
         }
     }
 
+    private static void installOn(Component c, Handler handler) {
+        if (c instanceof JComponent jc) {
+            Object prev = jc.getClientProperty(HANDLER_KEY);
+            if (prev == handler) {
+                return;
+            }
+            if (prev instanceof Handler old) {
+                c.removeMouseListener(old);
+                c.removeMouseMotionListener(old);
+            }
+            c.addMouseListener(handler);
+            c.addMouseMotionListener(handler);
+            jc.putClientProperty(HANDLER_KEY, handler);
+            return;
+        }
+        // Non-JComponent (e.g. Window): avoid stacking duplicates by removing first.
+        c.removeMouseListener(handler);
+        c.removeMouseMotionListener(handler);
+        c.addMouseListener(handler);
+        c.addMouseMotionListener(handler);
+    }
+
     private static final class Handler extends MouseAdapter {
         private final Window window;
-        private final int border;
+        private int border;
         private int dragCursor = Cursor.DEFAULT_CURSOR;
         private boolean dragging;
         private int pressScreenX;

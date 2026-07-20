@@ -54,8 +54,8 @@ public final class OverlayTransparentChrome {
             table.setBackground(EdoUi.Internal.TRANSPARENT);
             JTableHeader header = table.getTableHeader();
             if (header != null) {
-                header.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
-                header.setBackground(OverlayPreferences.overlayChromeRequestsTransparency()
+                header.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency(header));
+                header.setBackground(OverlayPreferences.overlayChromeRequestsTransparency(header)
                         ? EdoUi.Internal.TRANSPARENT
                         : EdoUi.User.BACKGROUND);
             }

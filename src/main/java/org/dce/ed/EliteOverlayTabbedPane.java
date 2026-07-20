@@ -87,6 +87,9 @@ import com.google.gson.JsonParser;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.ScrollableTabBar;
 import org.dce.ed.ui.TransparentViewportUI;
+import org.dce.ed.ui.tabdock.OverlayTabId;
+import org.dce.ed.ui.tabdock.TabDockHost;
+import org.dce.ed.ui.tabdock.TabDockingController;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -96,8 +99,9 @@ import java.util.function.Consumer;
  * Does not extend JTabbedPane to avoid opaque background painting.
  *
  * Main tabs: Route, System, ExoBio, Mining, Fleet Carrier, Control Panel (visibility from preferences). Nearby panel is kept in the card stack but has no tab button.
+ * Tabs can be dragged into floating windows via {@link TabDockingController}.
  */
-public class EliteOverlayTabbedPane extends JPanel {
+public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 	private static final EliteLogParser STATUS_SNAPSHOT_PARSER = new EliteLogParser();
 
@@ -175,6 +179,8 @@ public class EliteOverlayTabbedPane extends JPanel {
 	private ExecTriggerService execTriggerService;
 	private ExecPlaceholderContext execPlaceholderContext;
 
+	private TabDockingController tabDockingController;
+
 	public EliteOverlayTabbedPane() {
 		this(() -> true);
 	}
@@ -183,7 +189,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 
 		this.hoverSwitchEnabled = hoverSwitchEnabled;
 		
-		boolean opaque = !OverlayPreferences.overlayChromeRequestsTransparency();
+		boolean opaque = !OverlayPreferences.overlayChromeRequestsTransparency(this);
 
 		setOpaque(opaque);
 
@@ -238,7 +244,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		                g2.setComposite(AlphaComposite.Src);
 		                g2.setColor(bg);
 		                g2.fillRect(0, 0, getWidth(), getHeight());
-		            } else if (OverlayPreferences.overlayChromeRequestsTransparency()) {
+		            } else if (OverlayPreferences.overlayChromeRequestsTransparency(this)) {
 		                // Alpha-0 bg: still honor Preferences % (CLEAR only at 100% transparent).
 		                TransparentViewportUI.fillSeeThroughChrome(g2, 0, 0, getWidth(), getHeight());
 		            } else {
@@ -698,11 +704,17 @@ public class EliteOverlayTabbedPane extends JPanel {
 	 * on the visible tab.
 	 */
 	public boolean isPointerOverSelectiveHit(Point screenPoint) {
-		if (screenPoint == null || !isShowing()) {
+		return isPointerOverSelectiveHitForCard(visibleCardName, screenPoint);
+	}
+
+	/** Selective hit-test for a specific card (used by floating docks that host that card). */
+	public boolean isPointerOverSelectiveHitForCard(String cardName, Point screenPoint) {
+		if (screenPoint == null || cardName == null) {
 			return false;
 		}
-		return switch (visibleCardName) {
+		return switch (cardName) {
 			case CARD_ROUTE -> routeTab != null && routeTab.isPointerOverInteractiveRegion(screenPoint);
+			case CARD_FLEET_CARRIER -> fleetCarrierTab != null && fleetCarrierTab.isPointerOverInteractiveRegion(screenPoint);
 			case CARD_SYSTEM -> systemTab != null && systemTab.isPointerOverInteractiveRegion(screenPoint);
 			case CARD_BIOLOGY -> biologyTab != null && biologyTab.isPointerOverInteractiveRegion(screenPoint);
 			case CARD_MINING -> miningTab != null && miningTab.isPointerOverInteractiveRegion(screenPoint);
@@ -720,6 +732,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		}
 		return switch (visibleCardName) {
 			case CARD_ROUTE -> routeTab.isPointerOverScrollBar(screenPoint);
+			case CARD_FLEET_CARRIER -> fleetCarrierTab != null && fleetCarrierTab.isPointerOverScrollBar(screenPoint);
 			case CARD_SYSTEM -> systemTab.isPointerOverScrollBar(screenPoint);
 			case CARD_ENGINEERING -> engineeringTab.isPointerOverScrollBar(screenPoint);
 			default -> false;
@@ -1095,13 +1108,14 @@ public class EliteOverlayTabbedPane extends JPanel {
 		button.setFocusPainted(false);
 		button.setFont(button.getFont().deriveFont(Font.BOLD, 10f));
 		button.setContentAreaFilled(false);
+		button.setToolTipText("Drag off the strip to open in a separate window; drop on another window's tabs to move");
 
 		// Default: slightly translucent dark background when overlay is transparent.
 		// Selected tab gets an opaque background in applyTabButtonStyle to prevent
 		// adjacent tab text from peeking through (z-order/alpha bleed).
 		// When mouse pass-through is off, applyTabButtonStyle forces a solid fill so the
 		// entire chip is a hit target (Windows layered windows ignore alpha-0 pixels).
-		button.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
+		button.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency(this));
 		button.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 
 		applyTabButtonStyle(button);
@@ -1264,7 +1278,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	}
 
 	/**
-	 * Selects the first tab that is visible in the bar (order: Route … Control Panel).
+	 * Selects the first tab that is visible in the main bar (order: Route … Control Panel).
 	 */
 	private void selectFirstVisibleTab() {
 		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton,
@@ -1273,20 +1287,52 @@ public class EliteOverlayTabbedPane extends JPanel {
 				CARD_FLEET_CARRIER, CARD_ENGINEERING, CARD_CONTROL_PANEL };
 		for (int i = 0; i < buttons.length; i++) {
 			JButton b = buttons[i];
-			if (b != null && b.isVisible()) {
-				selectTab(cards[i], b);
+			if (b != null && b.isVisible() && b.getParent() == getTabStrip()) {
+				selectTabInMain(cards[i], b);
 				return;
 			}
 		}
 		visibleCardName = CARD_SYSTEM;
-		cardLayout.show(cardPanel, CARD_SYSTEM);
+		if (systemTab.getParent() == cardPanel) {
+			cardLayout.show(cardPanel, CARD_SYSTEM);
+		}
 	}
 
 	private void selectTab(String cardName, JButton selectedButton) {
+		if (tabDockingController != null && cardName != null && !tabDockingController.isOnMain(cardName)) {
+			tabDockingController.selectTabWherever(cardName);
+			applyTabSelectionStyles(cardName);
+			visibleCardName = cardName;
+			if (CARD_MINING.equals(cardName)) {
+				miningTab.onMiningTabBecameVisible();
+			}
+			if (CARD_CONTROL_PANEL.equals(cardName) && controlPanelTab != null) {
+				controlPanelTab.refreshButtons();
+			}
+			return;
+		}
+		selectTabInMain(cardName, selectedButton);
+	}
+
+	/** Selects a tab that is currently hosted in the main overlay dock. */
+	public void selectTabInMain(String cardName, JButton selectedButton) {
 		if (selectedButton != null && !selectedButton.isVisible()) {
 			selectFirstVisibleTab();
 			return;
 		}
+		applyTabSelectionStyles(cardName);
+		cardLayout.show(cardPanel, cardName);
+		visibleCardName = cardName;
+		if (CARD_MINING.equals(cardName)) {
+			miningTab.onMiningTabBecameVisible();
+		}
+		if (CARD_CONTROL_PANEL.equals(cardName) && controlPanelTab != null) {
+			controlPanelTab.refreshButtons();
+		}
+	}
+
+	public void applyTabSelectionStyles(String cardName) {
+		JButton selectedButton = tabButtonForCard(cardName);
 		if (routeButton != null) {
 			routeButton.setSelected(selectedButton == routeButton);
 		}
@@ -1323,23 +1369,128 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(fleetCarrierButton);
 		applyTabButtonStyle(engineeringButton);
 		applyTabButtonStyle(controlPanelButton);
+	}
 
-		cardLayout.show(cardPanel, cardName);
-		visibleCardName = cardName;
-		if (CARD_MINING.equals(cardName)) {
-			miningTab.onMiningTabBecameVisible();
+	public void selectFirstVisibleTabInMain() {
+		selectFirstVisibleTab();
+	}
+
+	public String getVisibleCardName() {
+		return visibleCardName;
+	}
+
+	public void setTabDockingController(TabDockingController tabDockingController) {
+		this.tabDockingController = tabDockingController;
+	}
+
+	public TabDockingController getTabDockingController() {
+		return tabDockingController;
+	}
+
+	public JButton getTabButton(String cardName) {
+		return tabButtonForCard(cardName);
+	}
+
+	public JComponent getTabContent(String cardName) {
+		if (cardName == null) {
+			return null;
 		}
-		if (CARD_CONTROL_PANEL.equals(cardName) && controlPanelTab != null) {
-			controlPanelTab.refreshButtons();
+		return switch (cardName) {
+			case CARD_ROUTE -> routeTab;
+			case CARD_SYSTEM -> systemTab;
+			case CARD_BIOLOGY -> biologyTab;
+			case CARD_MINING -> miningTab;
+			case CARD_MISSIONS -> missionsTab;
+			case CARD_NEARBY -> nearbyTab;
+			case CARD_FLEET_CARRIER -> fleetCarrierTab;
+			case CARD_ENGINEERING -> engineeringTab;
+			case CARD_CONTROL_PANEL -> controlPanelTab;
+			default -> null;
+		};
+	}
+
+	public String cardNameForTabButton(JButton button) {
+		if (button == null) {
+			return null;
+		}
+		if (button == routeButton) {
+			return CARD_ROUTE;
+		}
+		if (button == systemButton) {
+			return CARD_SYSTEM;
+		}
+		if (button == biologyButton) {
+			return CARD_BIOLOGY;
+		}
+		if (button == miningButton) {
+			return CARD_MINING;
+		}
+		if (button == missionsButton) {
+			return CARD_MISSIONS;
+		}
+		if (button == fleetCarrierButton) {
+			return CARD_FLEET_CARRIER;
+		}
+		if (button == engineeringButton) {
+			return CARD_ENGINEERING;
+		}
+		if (button == controlPanelButton) {
+			return CARD_CONTROL_PANEL;
+		}
+		Object prop = button.getClientProperty("edo.cardName");
+		return prop instanceof String s ? s : null;
+	}
+
+	@Override
+	public String getDockId() {
+		return OverlayTabId.MAIN_DOCK_ID;
+	}
+
+	@Override
+	public java.awt.Window getWindow() {
+		return javax.swing.SwingUtilities.getWindowAncestor(this);
+	}
+
+	@Override
+	public JPanel getTabStrip() {
+		return scrollableTabBar.getTabStrip();
+	}
+
+	@Override
+	public JPanel getCardPanel() {
+		return cardPanel;
+	}
+
+	@Override
+	public CardLayout getCardLayout() {
+		return cardLayout;
+	}
+
+	@Override
+	public void onDockTabsChanged() {
+		if (scrollableTabBar != null) {
+			scrollableTabBar.refreshLayout();
+		}
+		revalidate();
+		repaint();
+	}
+
+	@Override
+	public Rectangle getBoundsOnScreen() {
+		try {
+			Point p = getLocationOnScreen();
+			return new Rectangle(p.x, p.y, getWidth(), getHeight());
+		} catch (IllegalComponentStateException ex) {
+			return getBounds();
 		}
 	}
 
 	/**
-	 * Forward a global mouse wheel (pass-through mode): Route, System, and Fleet Carrier tabs only. On the System tab,
-	 * zooms the orbital map when the pointer is over the map; otherwise applies to the main vertical scroller when the
-	 * pointer is over that scroller and its vertical scroll bar is visible (same pattern on Route and Fleet Carrier).
+	 * Forward a global mouse wheel (Selective / Full pass-through): Route, System, Fleet Carrier,
+	 * Biology, and Engineering. Applies when the pointer is over the scroll pane viewport (not only
+	 * the scrollbar thumb). On System, zooms the orbital map when over the map.
 	 *
-	 * @return {@code true} if the wheel was consumed (map zoom, or scroll bar adjusted)
+	 * @return {@code true} if the wheel was consumed (map zoom, or scroll adjusted)
 	 */
 	public boolean handlePassThroughMouseWheelAtScreen(int screenX, int screenY, int wheelRotation) {
 		if (!isShowing() || wheelRotation == 0) {
@@ -1396,7 +1547,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 				? TAB_WHITE
 				: (selected ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.MAIN_TEXT_ALPHA_220);
 
-		if (!passThrough && !OverlayPreferences.overlayChromeRequestsTransparency()) {
+		if (!passThrough && !OverlayPreferences.overlayChromeRequestsTransparency(this)) {
 			/*
 			 * Mouse is interactive on an opaque host: Windows layered/per-pixel-alpha hit-testing only
 			 * delivers clicks to non-zero-alpha pixels. With contentAreaFilled(false) only the glyph was
@@ -1627,7 +1778,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	}
 
 	/**
-	 * Cycles to the next visible tab (skips tabs hidden in Preferences → Overlay → Visible tabs).
+	 * Cycles to the next visible tab on the main overlay strip (skips preference-hidden and floated tabs).
 	 * Order: Route → System → ExoBio → Mining → Missions → Fleet Carrier → Control Panel.
 	 */
 	public void selectNextVisibleTab() {
@@ -1639,7 +1790,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		int selected = -1;
 		for (int i = 0; i < buttons.length; i++) {
 			JButton b = buttons[i];
-			if (b != null && b.isSelected()) {
+			if (b != null && b.isSelected() && b.getParent() == getTabStrip()) {
 				selected = i;
 				break;
 			}
@@ -1648,7 +1799,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 		for (int step = 1; step <= buttons.length; step++) {
 			int idx = (selected + step) % buttons.length;
 			JButton b = buttons[idx];
-			if (b != null && b.isVisible()) {
+			if (b != null && b.isVisible() && b.getParent() == getTabStrip()) {
 				final int fIdx = idx;
 				SwingUtilities.invokeLater(() -> selectTab(cards[fIdx], buttons[fIdx]));
 				return;
@@ -1696,7 +1847,7 @@ public class EliteOverlayTabbedPane extends JPanel {
 	@Override
 	protected void paintComponent(Graphics g) {
 		// FlowLayout tab gaps and non-opaque children leave holes; decorated JFrames + CLEAR show lime artifacts.
-		if (!isOpaque() && !OverlayPreferences.overlayChromeRequestsTransparency()) {
+		if (!isOpaque() && !OverlayPreferences.overlayChromeRequestsTransparency(this)) {
 			Graphics2D g2 = (Graphics2D) g.create();
 			try {
 				Color b = EdoUi.User.BACKGROUND;
@@ -1734,24 +1885,65 @@ public class EliteOverlayTabbedPane extends JPanel {
 		applyTabButtonStyle(engineeringButton);
 		applyTabButtonStyle(controlPanelButton);
 
-		if (routeTab != null) {
-			routeTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
-		}
-		if (nearbyTab != null) {
-			nearbyTab.applyOverlayBackground(bgWithAlpha);
-		}
-		if (fleetCarrierTab != null) {
-			fleetCarrierTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
-		}
-		if (controlPanelTab != null) {
-			controlPanelTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
-		}
-		if (engineeringTab != null) {
-			engineeringTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
-		}
+		applyOverlayBackgroundToCard(CARD_ROUTE, bgWithAlpha, treatAsTransparent);
+		applyOverlayBackgroundToCard(CARD_NEARBY, bgWithAlpha, treatAsTransparent);
+		applyOverlayBackgroundToCard(CARD_FLEET_CARRIER, bgWithAlpha, treatAsTransparent);
+		applyOverlayBackgroundToCard(CARD_CONTROL_PANEL, bgWithAlpha, treatAsTransparent);
+		applyOverlayBackgroundToCard(CARD_ENGINEERING, bgWithAlpha, treatAsTransparent);
+		applyOverlayBackgroundToCard(CARD_MINING, bgWithAlpha, treatAsTransparent);
 
 		revalidate();
 		repaint();
+	}
+
+	/**
+	 * Apply overlay chrome to a single tab card (used when a tab lives in a floating window
+	 * whose mouse mode / transparency differs from the main overlay).
+	 */
+	public void applyOverlayBackgroundToCard(String cardName, Color bgWithAlpha, boolean treatAsTransparent) {
+		if (cardName == null) {
+			return;
+		}
+		switch (cardName) {
+			case CARD_ROUTE -> {
+				if (routeTab != null) {
+					routeTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
+				}
+			}
+			case CARD_NEARBY -> {
+				if (nearbyTab != null) {
+					nearbyTab.applyOverlayBackground(bgWithAlpha);
+				}
+			}
+			case CARD_FLEET_CARRIER -> {
+				if (fleetCarrierTab != null) {
+					fleetCarrierTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
+				}
+			}
+			case CARD_CONTROL_PANEL -> {
+				if (controlPanelTab != null) {
+					controlPanelTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
+				}
+			}
+			case CARD_ENGINEERING -> {
+				if (engineeringTab != null) {
+					engineeringTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
+				}
+			}
+			case CARD_MINING -> {
+				if (miningTab != null) {
+					miningTab.applyOverlayBackground(bgWithAlpha);
+				}
+			}
+			default -> {
+				// System / Biology / Missions rely on window-local chrome prefs + non-opaque roots.
+			}
+		}
+		JComponent content = getTabContent(cardName);
+		if (content != null) {
+			content.revalidate();
+			content.repaint();
+		}
 	}
 	public static boolean shouldShowNoFighterPilotWarning(boolean docked) {
 		return NpcCrewTracker.shouldShowNoFighterPilotWarning(docked, getLatestLoadout());

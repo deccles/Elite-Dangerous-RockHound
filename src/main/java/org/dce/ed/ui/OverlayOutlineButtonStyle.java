@@ -45,6 +45,131 @@ public final class OverlayOutlineButtonStyle {
     }
 
     /**
+     * Primary outline button for translucent / layered overlay hosts (Control Panel, etc.).
+     * Uses a dedicated UI that paints an opaque plate so Windows hit-testing delivers clicks
+     * (alpha-0 pixels remain click-through even after Selective mode clears {@code WS_EX_TRANSPARENT}).
+     */
+    public static void applyPrimaryHitSafe(JButton b, Font uiFont) {
+        if (b == null || uiFont == null) {
+            return;
+        }
+        int size = OverlayPreferences.getUiFontSize();
+        b.setFocusable(false);
+        b.setFocusPainted(false);
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        b.setFont(uiFont.deriveFont(Font.BOLD, size));
+        b.setForeground(EdoUi.User.MAIN_TEXT);
+        b.setMargin(new Insets(0, 0, 0, 0));
+        b.setBorderPainted(true);
+        b.putClientProperty(THEME_INK_KEY, Boolean.TRUE);
+        b.putClientProperty(DANGER_DISABLED_TEXT_KEY, null);
+        b.setBorder(BorderFactory.createCompoundBorder(
+                new ThemeRoundedLineBorder(true, 2, DEFAULT_ARC),
+                new EmptyBorder(8, 18, 8, 18)));
+        applyOverlayHitPlate(b);
+        b.setUI(HitSafeButtonUI.INSTANCE);
+    }
+
+    /**
+     * Destructive outline button that stays clickable on translucent overlay hosts.
+     *
+     * @param active {@code true} when something is running (red); {@code false} when idle (gray)
+     */
+    public static void applyDangerHitSafe(JButton b, Font uiFont, boolean active) {
+        if (b == null || uiFont == null) {
+            return;
+        }
+        Color ink = active ? DANGER_ACTIVE : DANGER_IDLE;
+        int size = OverlayPreferences.getUiFontSize();
+        b.setFocusable(false);
+        b.setFocusPainted(false);
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        b.setFont(uiFont.deriveFont(Font.BOLD, size));
+        b.setForeground(ink);
+        b.setMargin(new Insets(0, 0, 0, 0));
+        b.setBorderPainted(true);
+        b.putClientProperty(THEME_INK_KEY, Boolean.FALSE);
+        b.putClientProperty(DANGER_DISABLED_TEXT_KEY, DANGER_IDLE);
+        b.setBorder(BorderFactory.createCompoundBorder(
+                new RoundedLineBorder(ink, 2, DEFAULT_ARC),
+                new EmptyBorder(8, 18, 8, 18)));
+        applyOverlayHitPlate(b);
+        b.setUI(HitSafeButtonUI.INSTANCE);
+    }
+
+    /**
+     * Opaque fill so layered windows deliver clicks. Uses fully-opaque RGB (alpha 255) —
+     * translucent plates still lose hits on Win32 per-pixel layered windows.
+     */
+    public static void applyOverlayHitPlate(JButton b) {
+        if (b == null) {
+            return;
+        }
+        b.setOpaque(true);
+        b.setContentAreaFilled(true);
+        if (OverlayPreferences.overlayChromeRequestsTransparency(b)) {
+            // Dark plate, fully opaque for hit-testing; still reads as a dim control over the game.
+            b.setBackground(new Color(28, 30, 36));
+        } else {
+            Color bg = EdoUi.User.BACKGROUND;
+            b.setBackground(new Color(bg.getRed(), bg.getGreen(), bg.getBlue()));
+        }
+    }
+
+    /**
+     * Always paints an opaque rounded plate before border/text so clicks land on Control Panel
+     * buttons in hybrid / transparent overlay modes.
+     */
+    private static final class HitSafeButtonUI extends BasicButtonUI {
+        static final HitSafeButtonUI INSTANCE = new HitSafeButtonUI();
+
+        @Override
+        public void update(Graphics g, JComponent c) {
+            if (c instanceof AbstractButton b && b.isOpaque()) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(b.getBackground());
+                    g2.fillRoundRect(0, 0, b.getWidth(), b.getHeight(), DEFAULT_ARC, DEFAULT_ARC);
+                } finally {
+                    g2.dispose();
+                }
+            }
+            paint(g, c);
+        }
+
+        @Override
+        protected void paintText(Graphics g, AbstractButton b, java.awt.Rectangle textRect, String text) {
+            if (Boolean.TRUE.equals(b.getClientProperty(THEME_INK_KEY))) {
+                Color previous = b.getForeground();
+                try {
+                    b.setForeground(EdoUi.User.MAIN_TEXT);
+                    super.paintText(g, b, textRect, text);
+                } finally {
+                    b.setForeground(previous);
+                }
+                return;
+            }
+            if (!b.getModel().isEnabled()) {
+                Object disabled = b.getClientProperty(DANGER_DISABLED_TEXT_KEY);
+                if (disabled instanceof Color disabledColor) {
+                    Color previous = b.getForeground();
+                    try {
+                        b.setForeground(disabledColor);
+                        b.getModel().setEnabled(true);
+                        super.paintText(g, b, textRect, text);
+                    } finally {
+                        b.getModel().setEnabled(false);
+                        b.setForeground(previous);
+                    }
+                    return;
+                }
+            }
+            super.paintText(g, b, textRect, text);
+        }
+    }
+
+    /**
      * Destructive action (e.g. kill rogue scripts).
      *
      * @param active {@code true} when something is running (red); {@code false} when idle (gray)

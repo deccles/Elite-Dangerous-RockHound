@@ -43,6 +43,7 @@ public final class JarExecRunner {
 
     /** Number of child processes currently running (started by {@link #run} / {@link #runAsync}). */
     public static int runningProcessCount() {
+        pruneDeadProcesses();
         return RUNNING.size();
     }
 
@@ -53,9 +54,10 @@ public final class JarExecRunner {
      */
     public static int killRunningProcesses() {
         int killed = 0;
-        for (TrackedProcess tracked : RUNNING) {
+        for (TrackedProcess tracked : List.copyOf(RUNNING)) {
             Process process = tracked.process();
             if (process == null || !process.isAlive()) {
+                RUNNING.remove(tracked);
                 continue;
             }
             try {
@@ -65,7 +67,14 @@ public final class JarExecRunner {
             process.destroyForcibly();
             killed++;
         }
+        pruneDeadProcesses();
         return killed;
+    }
+
+    private static void pruneDeadProcesses() {
+        RUNNING.removeIf(tracked -> tracked == null
+                || tracked.process() == null
+                || !tracked.process().isAlive());
     }
 
     /** User dismissed the in-game banner (×) or otherwise cancelled — not an Exec failure. */
@@ -137,8 +146,17 @@ public final class JarExecRunner {
 
     public static void runAsync(ExecBinding binding, ExecLaunchContext context,
             ExecPlaceholderContext placeholderContext, Consumer<RunResult> onComplete) {
+        runAsync(binding, context, placeholderContext, null, onComplete);
+    }
+
+    /**
+     * @param onStarted invoked on the worker thread after the child process is tracked (so UI can
+     *                  enable Kill scripts while the program is running)
+     */
+    public static void runAsync(ExecBinding binding, ExecLaunchContext context,
+            ExecPlaceholderContext placeholderContext, Runnable onStarted, Consumer<RunResult> onComplete) {
         Thread t = new Thread(() -> {
-            RunResult result = run(binding, context, placeholderContext);
+            RunResult result = run(binding, context, placeholderContext, onStarted);
             if (onComplete != null) {
                 onComplete.accept(result);
             }
@@ -149,6 +167,11 @@ public final class JarExecRunner {
 
     public static RunResult run(ExecBinding binding, ExecLaunchContext context,
             ExecPlaceholderContext placeholderContext) {
+        return run(binding, context, placeholderContext, null);
+    }
+
+    public static RunResult run(ExecBinding binding, ExecLaunchContext context,
+            ExecPlaceholderContext placeholderContext, Runnable onStarted) {
         if (binding == null) {
             return new RunResult(-1, "No binding.");
         }
@@ -176,6 +199,12 @@ public final class JarExecRunner {
             Process process = pb.start();
             TrackedProcess tracked = new TrackedProcess(process, program.getFileName().toString());
             RUNNING.add(tracked);
+            if (onStarted != null) {
+                try {
+                    onStarted.run();
+                } catch (RuntimeException ignored) {
+                }
+            }
             try {
                 int code = process.waitFor();
                 String stderr = drain(process.getErrorStream(), 4000);

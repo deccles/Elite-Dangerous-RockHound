@@ -1,5 +1,6 @@
 package org.dce.ed;
 
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -92,6 +93,7 @@ import org.dce.ed.state.SystemState;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.DistanceToggleIcons;
 import org.dce.ed.ui.HoverCopyButtonSupport;
+import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.StatusCircleIcon;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
 import org.dce.ed.ui.EdoUi.User;
@@ -161,8 +163,8 @@ public class RouteTabPanel extends JPanel {
 	private static final int ROUTE_COL_CLASS_ICON_TEXT_GAP = 4;
 	/** Keep current system row at this offset from top when auto-scrolling (e.g. one jump = one row scroll). */
 	private static final int TARGET_CURRENT_ROW_OFFSET = 4;
-	/** Padding above/beside “Copy next destination” under the route table. */
-	private static final int ROUTE_COPY_STRIP_GAP_PX = 12;
+	/** Padding above “Copy next destination” under the route table. */
+	private static final int ROUTE_COPY_STRIP_GAP_PX = 6;
 	private final JLabel headerLabel;
 	/** Title strip: route summary (west) + Ly column mode toggles (east). */
 	private final JPanel routeTitleRow;
@@ -606,18 +608,43 @@ public class RouteTabPanel extends JPanel {
 		}
 		routeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
-		routeCenterWrapper = new JPanel(new BorderLayout());
+		routeCenterWrapper = new JPanel(null) {
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public boolean isOptimizedDrawingEnabled() {
+				return true;
+			}
+
+			@Override
+			public Dimension getPreferredSize() {
+				Dimension tablePref = preferredRouteTableSize();
+				Dimension stripPref = routeCopyStrip.getPreferredSize();
+				int w = Math.max(tablePref.width, stripPref.width);
+				return new Dimension(w, tablePref.height + stripPref.height);
+			}
+
+			@Override
+			public Dimension getMinimumSize() {
+				Dimension stripPref = routeCopyStrip.getPreferredSize();
+				return new Dimension(120, stripPref.height + 40);
+			}
+
+			@Override
+			public void doLayout() {
+				layoutRouteTableAndCopyStrip();
+			}
+		};
 		routeCenterWrapper.setOpaque(false);
 		routeCenterWrapper.setBackground(EdoUi.Internal.TRANSPARENT);
 
-		routeCopyStrip = new JPanel(new BorderLayout());
+		// Right-justified directly under the last table row; docks to the panel bottom only when the table scrolls.
+		routeCopyStrip = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
 		routeCopyStrip.setOpaque(false);
-		routeCopyStrip.setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createMatteBorder(1, 0, 0, 0, EdoUi.ED_ORANGE_TRANS),
-				new EmptyBorder(ROUTE_COPY_STRIP_GAP_PX, 4, 8, 4)));
+		routeCopyStrip.setBorder(new EmptyBorder(ROUTE_COPY_STRIP_GAP_PX, 4, 4, 4));
 
 		copyNextDestinationButton = new JButton("Copy next destination");
-		styleRoutePrimaryCopyButton(copyNextDestinationButton, uiFont);
+		styleCopyNextDestinationButton(copyNextDestinationButton, uiFont);
 		copyNextDestinationButton.setToolTipText("Copy the next route system name to the clipboard (same as Route/Nearby copy)");
 		copyNextDestinationButton.addActionListener(e -> copyNextRouteDestinationToClipboard());
 
@@ -625,9 +652,9 @@ public class RouteTabPanel extends JPanel {
 				() -> nextRouteDestinationSystemName(routeSession),
 				passThroughEnabledSupplier);
 
-		routeCenterWrapper.add(routeScrollPane, BorderLayout.CENTER);
-		routeCopyStrip.add(copyNextDestinationButton, BorderLayout.CENTER);
-		routeCenterWrapper.add(routeCopyStrip, BorderLayout.SOUTH);
+		routeCenterWrapper.add(routeScrollPane);
+		routeCopyStrip.add(copyNextDestinationButton);
+		routeCenterWrapper.add(routeCopyStrip);
 
 		add(routeTitleRow, BorderLayout.NORTH);
 		add(routeCenterWrapper, BorderLayout.CENTER);
@@ -675,6 +702,110 @@ public class RouteTabPanel extends JPanel {
 		});
 
 		reloadFromNavRouteFile();
+	}
+
+	/** Natural pixel height of the route table contents (all rows), not the scroll viewport. */
+	private Dimension preferredRouteTableSize() {
+		if (table == null) {
+			return new Dimension(200, 80);
+		}
+		int rows = Math.max(0, table.getRowCount());
+		int rowH = Math.max(1, table.getRowHeight());
+		int tableH = rows * rowH;
+		// Prefer the table's own preferred width so columns aren't clipped early.
+		Dimension tablePref = table.getPreferredSize();
+		int w = tablePref != null ? Math.max(120, tablePref.width) : 200;
+		return new Dimension(w, tableH);
+	}
+
+	/**
+	 * Place the copy button snug under the last table row when the table is short; when the table
+	 * needs a scrollbar, keep the button pinned to the bottom of the visible panel.
+	 */
+	private void layoutRouteTableAndCopyStrip() {
+		if (routeCenterWrapper == null || routeScrollPane == null || routeCopyStrip == null) {
+			return;
+		}
+		int w = routeCenterWrapper.getWidth();
+		int h = routeCenterWrapper.getHeight();
+		if (w <= 0 || h <= 0) {
+			return;
+		}
+		Dimension stripPref = routeCopyStrip.getPreferredSize();
+		int stripH = Math.max(stripPref.height, copyNextDestinationButton != null
+				? copyNextDestinationButton.getPreferredSize().height + 10
+				: 36);
+		int maxTableH = Math.max(0, h - stripH);
+		int contentH = preferredRouteTableSize().height;
+		int tableH = Math.min(contentH, maxTableH);
+		routeScrollPane.setBounds(0, 0, w, tableH);
+		routeCopyStrip.setBounds(0, tableH, w, stripH);
+	}
+
+	/**
+	 * Selective (hybrid) mode: punch chrome left of “Copy next destination” and everything below
+	 * that row fully transparent (same idea as Control Panel’s Kill scripts strip).
+	 */
+	@Override
+	public void paint(Graphics g) {
+		super.paint(g);
+		clearAroundCopyNextDestinationInSelectiveMode(g);
+	}
+
+	private void clearAroundCopyNextDestinationInSelectiveMode(Graphics g) {
+		if (g == null || !TransparentViewportUI.isSelectivePassThroughContext(this)) {
+			return;
+		}
+		if (copyNextDestinationButton == null || !copyNextDestinationButton.isShowing()) {
+			return;
+		}
+		Graphics2D g2 = (Graphics2D) g.create();
+		try {
+			g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+
+			Component row = routeCopyStrip != null && routeCopyStrip.isShowing()
+					? routeCopyStrip
+					: copyNextDestinationButton;
+			Point rowOrigin = SwingUtilities.convertPoint(row, 0, 0, this);
+			Point btnOrigin = SwingUtilities.convertPoint(copyNextDestinationButton, 0, 0, this);
+			int rowH = Math.max(row.getHeight(), copyNextDestinationButton.getHeight());
+			int leftW = Math.max(0, btnOrigin.x);
+			if (leftW > 0 && rowH > 0) {
+				g2.fillRect(0, rowOrigin.y, leftW, rowH);
+			}
+
+			Point rowBottom = SwingUtilities.convertPoint(row, 0, row.getHeight(), this);
+			int yStart = Math.max(0, rowBottom.y);
+			int yEnd = getHeight();
+			if (yEnd > yStart) {
+				g2.fillRect(0, yStart, getWidth(), yEnd - yStart);
+			}
+		} finally {
+			g2.dispose();
+		}
+	}
+
+	private static void styleCopyNextDestinationButton(JButton b, Font uiFont) {
+		if (b == null || uiFont == null) {
+			return;
+		}
+		// Outline button like Kill scripts, but avoid ThemeInkButtonUI — on translucent overlay
+		// hosts that UI path paints a solid black plate (especially when disabled).
+		int size = OverlayPreferences.getUiFontSize();
+		b.setFocusable(false);
+		b.setFocusPainted(false);
+		b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		b.setFont(uiFont.deriveFont(Font.BOLD, size));
+		b.setForeground(EdoUi.User.MAIN_TEXT);
+		b.setMargin(new Insets(0, 0, 0, 0));
+		b.setContentAreaFilled(false);
+		b.setOpaque(false);
+		b.setBorderPainted(true);
+		b.setBackground(EdoUi.Internal.TRANSPARENT);
+		b.setUI(new javax.swing.plaf.basic.BasicButtonUI());
+		b.setBorder(BorderFactory.createCompoundBorder(
+				new OverlayOutlineButtonStyle.ThemeRoundedLineBorder(true, 2, 12),
+				new EmptyBorder(8, 18, 8, 18)));
 	}
 	/**
 	 * Entry point from LiveJournalMonitor.
@@ -2746,14 +2877,15 @@ public class RouteTabPanel extends JPanel {
 			applyRouteTableColumnLayout();
 		}
 		if (copyNextDestinationButton != null) {
-			styleRoutePrimaryCopyButton(copyNextDestinationButton, uiFont);
+			styleCopyNextDestinationButton(copyNextDestinationButton, uiFont);
 		}
 		repaint();
 	}
 
 	public void applyOverlayBackground(Color bgWithAlpha, boolean treatAsTransparent) {
 		if (copyNextDestinationButton != null) {
-			copyNextDestinationButton.setForeground(EdoUi.User.MAIN_TEXT);
+			styleCopyNextDestinationButton(copyNextDestinationButton, uiFont);
+			updateCopyNextDestinationButton();
 		}
 		revalidate();
 		repaint();
@@ -2764,7 +2896,17 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		String next = nextRouteDestinationSystemName(routeSession);
-		copyNextDestinationButton.setEnabled(next != null && !next.isBlank());
+		boolean hasNext = next != null && !next.isBlank();
+		// Keep enabled so BasicButtonUI keeps painting label text on translucent hosts;
+		// mute the ink when there is nothing to copy.
+		copyNextDestinationButton.setEnabled(true);
+		copyNextDestinationButton.setForeground(hasNext
+				? EdoUi.User.MAIN_TEXT
+				: EdoUi.Internal.MAIN_TEXT_ALPHA_180);
+		if (routeCenterWrapper != null) {
+			routeCenterWrapper.revalidate();
+			routeCenterWrapper.repaint();
+		}
 	}
 
 	private void copyNextRouteDestinationToClipboard() {
@@ -2814,52 +2956,6 @@ public class RouteTabPanel extends JPanel {
 			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(""), null);
 		} catch (IllegalStateException ignored) {
 			// Clipboard busy (another app owns it); best-effort only.
-		}
-	}
-
-	private static void styleRoutePrimaryCopyButton(JButton b, Font uiFont) {
-		b.setFocusable(false);
-		b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		b.setFont(uiFont.deriveFont(Font.BOLD));
-		b.setMargin(new Insets(0, 0, 0, 0));
-		b.setContentAreaFilled(false);
-		b.setOpaque(false);
-		b.setBorderPainted(true);
-		b.setBackground(EdoUi.Internal.TRANSPARENT);
-		b.setBorder(BorderFactory.createCompoundBorder(
-				new RoundedLineBorder(EdoUi.User.MAIN_TEXT, 2, 12),
-				new EmptyBorder(8, 18, 8, 18)));
-	}
-
-	private static final class RoundedLineBorder extends AbstractBorder {
-		private static final long serialVersionUID = 1L;
-		private final Color color;
-		private final int thickness;
-		private final int arc;
-
-		RoundedLineBorder(Color color, int thickness, int arc) {
-			this.color = color;
-			this.thickness = Math.max(1, thickness);
-			this.arc = Math.max(2, arc);
-		}
-
-		@Override
-		public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
-			Graphics2D g2 = (Graphics2D) g.create();
-			try {
-				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-				g2.setColor(color);
-				g2.setStroke(new BasicStroke(thickness));
-				int inset = thickness / 2;
-				g2.drawRoundRect(x + inset, y + inset, width - thickness - 1, height - thickness - 1, arc, arc);
-			} finally {
-				g2.dispose();
-			}
-		}
-
-		@Override
-		public Insets getBorderInsets(Component c) {
-			return new Insets(thickness, thickness, thickness, thickness);
 		}
 	}
 

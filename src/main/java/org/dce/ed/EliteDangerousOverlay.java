@@ -238,6 +238,9 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
             @Override
             public void windowClosing(WindowEvent e) {
                 try {
+                    if (contentPanel != null) {
+                        contentPanel.disposeTabDocking();
+                    }
                     GlobalScreen.removeNativeMouseWheelListener(EliteDangerousOverlay.this);
                     GlobalScreen.unregisterNativeHook();
                 } catch (NativeHookException ex) {
@@ -670,15 +673,17 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     }
 
     /**
-     * While mouse pass-through is active, forward wheel events to the System / Route / Fleet Carrier table scrollers
-     * when the pointer is over the overlay and that tab's vertical scroll bar is visible.
+     * While mouse pass-through is active (Selective or Full), forward wheel events to tab scrollers /
+     * maps when the pointer is over the overlay. Swing does not receive wheel while
+     * {@code WS_EX_TRANSPARENT} is set, so this global hook covers the viewport — not only the
+     * scrollbar thumb.
      * <p>
      * Uses {@link MouseInfo#getPointerInfo()} on the EDT for screen coordinates: JNativeHook wheel payloads can lag
      * or disagree with the actual cursor, which breaks zoom-to-cursor on the orbital map.
      */
     @Override
     public void nativeMouseWheelMoved(NativeMouseWheelEvent e) {
-        if (!passThroughMode || !OverlayPreferences.isOverlayFullMousePassThrough()) {
+        if (!passThroughMode || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
             return;
         }
         if (passThroughFrame == null || !passThroughFrame.isVisible()) {
@@ -692,7 +697,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         final int fallbackY = e.getY();
         try {
             SwingUtilities.invokeLater(() -> {
-                if (!passThroughMode || !OverlayPreferences.isOverlayFullMousePassThrough()) {
+                if (!passThroughMode || !OverlayPreferences.isOverlayMousePassThroughToGame()) {
                     return;
                 }
                 int sx = fallbackX;

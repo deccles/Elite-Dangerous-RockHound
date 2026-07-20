@@ -2182,6 +2182,8 @@ private void refreshPassThroughUnifiedStatus() {
         }
 
         boolean treatAsTransparent = pct > 0;
+        OverlayPreferences.publishWindowChromeTransparency(getRootPane(), treatAsTransparent, pct);
+        getRootPane().putClientProperty(OverlayPreferences.WINDOW_MOUSE_MODE_KEY, mouseInteractionMode);
         if (contentPanel != null) {
             contentPanel.applyOverlayBackground(bg, treatAsTransparent);
         }
@@ -2766,7 +2768,7 @@ private void refreshPassThroughUnifiedStatus() {
             return;
         }
 
-        if (mouseInteractionMode != MouseInteractionMode.FULL_PASS_THROUGH) {
+        if (!mouseInteractionMode.isPassThroughLike()) {
             PassThroughTooltipSupport.clear();
             crosshairOverlay.setCrosshairPoint(null);
             crosshairOverlay.setVisible(false);

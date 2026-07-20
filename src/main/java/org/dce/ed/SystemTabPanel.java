@@ -587,7 +587,7 @@ public class SystemTabPanel extends JPanel {
                                                            int column) {
                 JLabel label = (JLabel) super.getTableCellRendererComponent(
                         table, value, false, false, row, column);
-                boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
+                boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency(this);
                 label.setOpaque(!transparent);
                 label.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
                 label.setForeground(EdoUi.User.MAIN_TEXT);
@@ -3251,7 +3251,7 @@ public class SystemTabPanel extends JPanel {
             public Component getTableCellRendererComponent(JTable tbl, Object value, boolean isSelected,
                     boolean hasFocus, int row, int column) {
                 JLabel lab = (JLabel) super.getTableCellRendererComponent(tbl, value, false, false, row, column);
-                boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
+                boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency(this);
                 lab.setOpaque(!transparent);
                 lab.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
                 lab.setForeground(EdoUi.User.MAIN_TEXT);

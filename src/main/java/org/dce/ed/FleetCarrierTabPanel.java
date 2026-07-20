@@ -6,6 +6,7 @@ import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Font;
 import java.awt.Insets;
+import java.awt.Point;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.function.BooleanSupplier;
@@ -14,16 +15,16 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
-import javax.swing.UIManager;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.Timer;
 
 import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.logreader.EliteEventType;
@@ -40,6 +41,7 @@ import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.FleetCarrierSessionData;
 import org.dce.ed.session.FleetCarrierSessionMapper;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.SystemNameAutocomplete;
 import org.dce.ed.util.SpanshClient;
 
@@ -63,7 +65,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		return ExecTriggerId.FLEET_CARRIER_COPY_NEXT_DESTINATION;
 	}
 
-	private final String defaultStatusText = "Drag a Spansh route file onto RockHound to import";
+	private final String defaultStatusText = " ";
 
 	private volatile boolean spanshRouteLoaded = false;
 
@@ -76,11 +78,12 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	private final OwnedFleetCarrierTracker ownedFleetCarrierTracker;
 
 	private final SpanshClient spanshClient = new SpanshClient();
-	private final JPanel bottomBar;
+	private final JPanel topBar;
 	private final JLabel statusLabel;
 	private final JLabel destinationLabel;
 	private final JTextField destinationField;
 	private final JButton calculateButton;
+	private final SystemNameAutocomplete destinationAutocomplete;
 
 	public FleetCarrierTabPanel(BooleanSupplier passThroughEnabledSupplier) {
 		this(passThroughEnabledSupplier, new OwnedFleetCarrierTracker());
@@ -97,17 +100,6 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		setOpaque(false);
 		setBackground(EdoUi.Internal.TRANSPARENT);
 
-		bottomBar = new JPanel();
-		bottomBar.setLayout(new BoxLayout(bottomBar, BoxLayout.Y_AXIS));
-		bottomBar.setOpaque(false);
-		bottomBar.setBackground(EdoUi.Internal.TRANSPARENT);
-		bottomBar.setBorder(new EmptyBorder(0, 4, 4, 4));
-
-		statusLabel = new JLabel(defaultStatusText, SwingConstants.LEFT);
-		statusLabel.setOpaque(false);
-		statusLabel.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_180);
-		statusLabel.setFont(spanshDropHintFont());
-
 		Font base = OverlayPreferences.getUiFont();
 
 		destinationLabel = new JLabel("Destination:");
@@ -117,12 +109,14 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 
 		destinationField = new JTextField();
 		destinationField.setFocusable(true);
+		destinationField.setOpaque(true);
 		destinationField.setForeground(EdoUi.User.MAIN_TEXT);
 		destinationField.setCaretColor(EdoUi.User.MAIN_TEXT);
+		destinationField.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 		destinationField.setFont(base);
-		destinationField.setToolTipText("Destination system name (EDSM autocomplete, resolved via Spansh for fetch)");
+		destinationField.setToolTipText("Destination system name (EDSM autocomplete)");
 
-		new SystemNameAutocomplete(destinationField, edsmClient());
+		destinationAutocomplete = new SystemNameAutocomplete(destinationField, edsmClient());
 
 		Timer destinationPersistDebounce = new Timer(750, e -> fireSessionStateChanged());
 		destinationPersistDebounce.setRepeats(false);
@@ -150,23 +144,60 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		JPanel fetchRow = new JPanel(new BorderLayout(10, 0));
 		fetchRow.setOpaque(false);
 		fetchRow.setBackground(EdoUi.Internal.TRANSPARENT);
+		fetchRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 		fetchRow.add(destinationLabel, BorderLayout.WEST);
 		fetchRow.add(destinationField, BorderLayout.CENTER);
 		fetchRow.add(calculateButton, BorderLayout.EAST);
 
-		bottomBar.add(fetchRow);
-		bottomBar.add(Box.createVerticalStrut(6));
+		statusLabel = new JLabel(" ", SwingConstants.LEFT);
+		statusLabel.setOpaque(false);
+		statusLabel.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_180);
+		statusLabel.setFont(base);
 		statusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		bottomBar.add(statusLabel);
 
-		JPanel southOuter = new JPanel(new BorderLayout());
-		southOuter.setOpaque(false);
-		southOuter.setBackground(EdoUi.Internal.TRANSPARENT);
-		southOuter.setBorder(new EmptyBorder(8, 0, 0, 0));
-		southOuter.add(bottomBar, BorderLayout.CENTER);
+		topBar = new JPanel();
+		topBar.setLayout(new BoxLayout(topBar, BoxLayout.Y_AXIS));
+		topBar.setOpaque(false);
+		topBar.setBackground(EdoUi.Internal.TRANSPARENT);
+		topBar.setBorder(new EmptyBorder(0, 4, 4, 4));
+		topBar.add(fetchRow);
+		topBar.add(Box.createVerticalStrut(4));
+		topBar.add(statusLabel);
 
-		add(southOuter, BorderLayout.SOUTH);
-		applyOverlayBackground(EdoUi.Internal.TRANSPARENT, OverlayPreferences.overlayChromeRequestsTransparency());
+		// Destination above "Route: n systems"; keep the parent's title row under this stack.
+		Component oldNorth = null;
+		if (getLayout() instanceof BorderLayout bl) {
+			oldNorth = bl.getLayoutComponent(BorderLayout.NORTH);
+		}
+		if (oldNorth != null) {
+			remove(oldNorth);
+			if (oldNorth instanceof JComponent jc) {
+				jc.setAlignmentX(Component.LEFT_ALIGNMENT);
+			}
+			topBar.add(Box.createVerticalStrut(6));
+			topBar.add(oldNorth);
+		}
+		add(topBar, BorderLayout.NORTH);
+
+		applyOverlayBackground(EdoUi.Internal.TRANSPARENT, OverlayPreferences.overlayChromeRequestsTransparency(this));
+	}
+
+	/** Selective mode: destination field, Calculate, and route controls stay clickable. */
+	@Override
+	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+		if (destinationField != null && destinationField.isFocusOwner()) {
+			return true;
+		}
+		// Hit the field/button directly (not only topBar) so layout struts cannot shrink the target.
+		if (SelectiveHitSupport.containsScreenPoint(destinationField, screenPoint)
+				|| SelectiveHitSupport.containsScreenPoint(calculateButton, screenPoint)
+				|| SelectiveHitSupport.containsScreenPoint(topBar, screenPoint)) {
+			return true;
+		}
+		if (destinationAutocomplete != null && destinationAutocomplete.isPointerOverPopup(screenPoint)) {
+			return true;
+		}
+		return super.isPointerOverInteractiveRegion(screenPoint);
 	}
 
 	private static void styleFleetSecondaryButton(JButton b) {
@@ -257,11 +288,10 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	@Override
 	public void applyUiFont(Font font) {
 		super.applyUiFont(font);
-		// Hint line uses the platform / LAF label font, not the overlay UI font (super applies font recursively).
-		if (statusLabel != null) {
-			statusLabel.setFont(spanshDropHintFont());
-		}
 		if (font != null) {
+			if (statusLabel != null) {
+				statusLabel.setFont(font);
+			}
 			if (destinationLabel != null) {
 				destinationLabel.setFont(font);
 			}
@@ -269,15 +299,6 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 				destinationField.setFont(font);
 			}
 		}
-	}
-
-	/** Slightly smaller than the default JLabel font so it reads as secondary hint text. */
-	private static Font spanshDropHintFont() {
-		Font lf = UIManager.getFont("Label.font");
-		if (lf == null) {
-			return new Font(Font.DIALOG, Font.PLAIN, 12);
-		}
-		return lf.deriveFont(Math.max(10f, lf.getSize2D() - 1f));
 	}
 
 	@Override
@@ -583,13 +604,15 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		super.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
 		boolean opaque = !treatAsTransparent;
 
-		bottomBar.setOpaque(false);
+		topBar.setOpaque(false);
 		statusLabel.setOpaque(false);
 		destinationLabel.setOpaque(false);
 
 		calculateButton.setForeground(EdoUi.User.MAIN_TEXT);
 
-		destinationField.setOpaque(opaque);
+		// Always paint a real background. Opaque=false + alpha chrome leaves layered pixels at
+		// alpha 0, and Windows ignores clicks there even after selective mode clears WS_EX_TRANSPARENT.
+		destinationField.setOpaque(true);
 		if (opaque) {
 			destinationField.setBackground(EdoUi.Internal.GRAY_180);
 		} else {

@@ -43,8 +43,8 @@ public final class TransparentViewportUI extends BasicViewportUI {
         }
         Graphics2D g2 = (Graphics2D) g.create();
         try {
-            if (OverlayPreferences.overlayChromeRequestsTransparency()) {
-                fillSeeThroughChrome(g2, 0, 0, w, h);
+            if (OverlayPreferences.overlayChromeRequestsTransparency(c)) {
+                fillSeeThroughChrome(g2, 0, 0, w, h, c);
             } else if (c.isOpaque()) {
                 g2.setComposite(AlphaComposite.SrcOver);
                 g2.setColor(c.getBackground());
@@ -60,10 +60,15 @@ public final class TransparentViewportUI extends BasicViewportUI {
      * Shared by viewport / header painters so pass-through regions respect Preferences.
      */
     public static void fillSeeThroughChrome(Graphics2D g2, int x, int y, int width, int height) {
+        fillSeeThroughChrome(g2, x, y, width, height, null);
+    }
+
+    public static void fillSeeThroughChrome(Graphics2D g2, int x, int y, int width, int height,
+            JComponent under) {
         if (width <= 0 || height <= 0) {
             return;
         }
-        Color fill = OverlayPreferences.getActiveOverlayChromeBackground();
+        Color fill = OverlayPreferences.getActiveOverlayChromeBackground(under);
         if (fill == null || fill.getAlpha() <= 0) {
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
             g2.fillRect(x, y, width, height);
@@ -80,9 +85,7 @@ public final class TransparentViewportUI extends BasicViewportUI {
      * undecorated pass-through host.
      */
     public static void clearBelowTableRowsInSelectiveMode(Graphics g, JTable table) {
-        if (g == null || table == null
-                || OverlayPreferences.getOverlayMouseInteractionMode() != MouseInteractionMode.SELECTIVE
-                || !OverlayPreferences.isPassThroughWindowActive()) {
+        if (g == null || table == null || !isSelectivePassThroughContext(table)) {
             return;
         }
         int rowCount = table.getRowCount();
@@ -102,5 +105,18 @@ public final class TransparentViewportUI extends BasicViewportUI {
         } finally {
             g2.dispose();
         }
+    }
+
+    public static boolean isSelectivePassThroughContext(JComponent under) {
+        javax.swing.JRootPane rp = javax.swing.SwingUtilities.getRootPane(under);
+        if (rp != null) {
+            Object mode = rp.getClientProperty(OverlayPreferences.WINDOW_MOUSE_MODE_KEY);
+            if (mode instanceof MouseInteractionMode m) {
+                return m == MouseInteractionMode.SELECTIVE
+                        && OverlayPreferences.overlayChromeRequestsTransparency(under);
+            }
+        }
+        return OverlayPreferences.getOverlayMouseInteractionMode() == MouseInteractionMode.SELECTIVE
+                && OverlayPreferences.isPassThroughWindowActive();
     }
 }

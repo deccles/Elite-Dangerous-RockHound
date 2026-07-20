@@ -44,10 +44,13 @@ public final class ScrollableTabBar extends JPanel {
     private final BooleanSupplier passThroughEnabled;
 
     private final Timer chevronRepeatTimer;
+    /** From {@link #applyOverlayChrome}; used so floating windows are not tied to the main overlay mode. */
+    private boolean chromeTreatAsTransparent;
 
     public ScrollableTabBar(BooleanSupplier passThroughEnabled, boolean opaque) {
         super(new BorderLayout(0, 0));
         this.passThroughEnabled = passThroughEnabled;
+        this.chromeTreatAsTransparent = !opaque;
 
         scrollLeftBtn = createChevronButton("<");
         scrollRightBtn = createChevronButton(">");
@@ -108,6 +111,7 @@ public final class ScrollableTabBar extends JPanel {
      * click-through to the game).
      */
     public void applyOverlayChrome(Color background, boolean treatAsTransparent) {
+        this.chromeTreatAsTransparent = treatAsTransparent;
         boolean opaque = !treatAsTransparent;
         Color fill = opaque ? solidHitPlate(background) : background;
         setOpaque(opaque);
@@ -149,12 +153,14 @@ public final class ScrollableTabBar extends JPanel {
     protected void paintComponent(Graphics g) {
         if (!isOpaque()) {
             boolean mousePassThrough = passThroughEnabled != null && passThroughEnabled.getAsBoolean();
-            boolean chromeTransparent = OverlayPreferences.overlayChromeRequestsTransparency();
+            // Prefer this bar's applied chrome; fall back to the hosting window / main overlay.
+            boolean chromeTransparent = chromeTreatAsTransparent
+                    || OverlayPreferences.overlayChromeRequestsTransparency(this);
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 if (chromeTransparent && mousePassThrough) {
                     // Pass-through: respect Preferences transparency (CLEAR only at 100%).
-                    TransparentViewportUI.fillSeeThroughChrome(g2, 0, 0, getWidth(), getHeight());
+                    TransparentViewportUI.fillSeeThroughChrome(g2, 0, 0, getWidth(), getHeight(), this);
                 } else if (chromeTransparent) {
                     // Interactive overlay: keep the configured transparency but never alpha 0, so
                     // Windows layered hit-testing still delivers clicks on tabs/gaps.
@@ -188,7 +194,7 @@ public final class ScrollableTabBar extends JPanel {
         b.setMargin(new java.awt.Insets(2, 4, 2, 4));
         b.setPreferredSize(new Dimension(CHEVRON_WIDTH, 24));
         b.setMinimumSize(new Dimension(CHEVRON_WIDTH, 24));
-        b.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
+        b.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency(this));
         b.setBackground(EdoUi.Internal.DARK_ALPHA_220);
         b.setForeground(EdoUi.User.MAIN_TEXT);
         b.setVisible(false);

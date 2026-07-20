@@ -478,21 +478,20 @@ public class TitleBarPanel extends JPanel {
     }
 
     /**
-     * Simple custom close button: red box with a white X.
-     * Drawn with vector shapes.
+     * Simple custom close button: rounded plate with a white X (same look as the main overlay).
      */
-    private static class CloseButton extends JPanel {
+    public static class CloseButton extends JPanel {
 
         private boolean hover = false;
 
-        CloseButton() {
+        public CloseButton() {
             setOpaque(false);
             setPreferredSize(new Dimension(24, 24));
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             setToolTipText(TOOLTIP_CLOSE);
         }
 
-        void setHover(boolean hover) {
+        public void setHover(boolean hover) {
             this.hover = hover;
             repaint();
         }

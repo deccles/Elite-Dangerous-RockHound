@@ -62,7 +62,7 @@ public final class ControlPanelTabPanel extends JPanel {
         killButton = new JButton("Kill scripts");
         killButton.setToolTipText("Stop running exec programs and cancel scheduled launches");
         killButton.addActionListener(e -> killRunningScripts());
-        killButton.setEnabled(false);
+        killButton.setEnabled(true);
 
         buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.Y_AXIS));
         buttonPanel.setOpaque(false);
@@ -92,8 +92,7 @@ public final class ControlPanelTabPanel extends JPanel {
                 passThroughEnabledSupplier,
                 () -> killButton != null
                         && killButton.isShowing()
-                        && triggerService != null
-                        && triggerService.hasActiveScripts());
+                        && triggerService != null);
     }
 
     public void setExecTriggerService(ExecTriggerService service) {
@@ -120,7 +119,9 @@ public final class ControlPanelTabPanel extends JPanel {
                 return true;
             }
         }
-        return false;
+        // Also treat the kill-button row plate as interactive (FlowLayout padding around Kill).
+        return killButtonRow != null && killButtonRow.isShowing()
+                && containsScreenPoint(killButtonRow, screenPoint);
     }
 
     /**
@@ -134,9 +135,7 @@ public final class ControlPanelTabPanel extends JPanel {
     }
 
     private void clearNonInteractiveRegionInSelectiveMode(Graphics g) {
-        if (g == null
-                || OverlayPreferences.getOverlayMouseInteractionMode() != MouseInteractionMode.SELECTIVE
-                || !OverlayPreferences.isPassThroughWindowActive()) {
+        if (g == null || !isSelectiveMouseMode() || !OverlayPreferences.isPassThroughWindowActive()) {
             return;
         }
         Graphics2D g2 = (Graphics2D) g.create();
@@ -161,6 +160,18 @@ public final class ControlPanelTabPanel extends JPanel {
         } finally {
             g2.dispose();
         }
+    }
+
+    /** Prefer this window's mouse mode (floating docks) over the main-overlay global. */
+    private boolean isSelectiveMouseMode() {
+        javax.swing.JRootPane rp = getRootPane();
+        if (rp != null) {
+            Object mode = rp.getClientProperty(OverlayPreferences.WINDOW_MOUSE_MODE_KEY);
+            if (mode instanceof MouseInteractionMode m) {
+                return m == MouseInteractionMode.SELECTIVE;
+            }
+        }
+        return OverlayPreferences.getOverlayMouseInteractionMode() == MouseInteractionMode.SELECTIVE;
     }
 
     /** Bottom edge (in this panel's coords) of Kill scripts, else the last action / empty label. */
@@ -204,7 +215,8 @@ public final class ControlPanelTabPanel extends JPanel {
             return;
         }
         boolean active = triggerService != null && triggerService.hasActiveScripts();
-        killButton.setEnabled(active);
+        // Always leave the control clickable; red ink only when something is actually running.
+        killButton.setEnabled(true);
         styleKillButton(OverlayPreferences.getUiFont(), active);
     }
 
@@ -221,7 +233,7 @@ public final class ControlPanelTabPanel extends JPanel {
             String bindingId = binding.getId();
             JButton button = new JButton(binding.controlPanelLabel());
             button.setAlignmentX(Component.LEFT_ALIGNMENT);
-            OverlayOutlineButtonStyle.applyPrimary(button, uiFont);
+            OverlayOutlineButtonStyle.applyPrimaryHitSafe(button, uiFont);
             Dimension pref = button.getPreferredSize();
             int height = Math.max(28, pref.height);
             button.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
@@ -291,7 +303,7 @@ public final class ControlPanelTabPanel extends JPanel {
         if (killButton == null) {
             return;
         }
-        OverlayOutlineButtonStyle.applyDanger(killButton, uiFont, active);
+        OverlayOutlineButtonStyle.applyDangerHitSafe(killButton, uiFont, active);
         Dimension pref = killButton.getPreferredSize();
         int height = Math.max(28, pref.height);
         killButton.setPreferredSize(new Dimension(pref.width, height));
@@ -335,6 +347,11 @@ public final class ControlPanelTabPanel extends JPanel {
         if (opaque && bgWithAlpha != null) {
             setBackground(bgWithAlpha);
         }
+        Font uiFont = OverlayPreferences.getUiFont();
+        for (JButton button : actionButtons) {
+            OverlayOutlineButtonStyle.applyPrimaryHitSafe(button, uiFont);
+        }
+        refreshKillButtonState();
         revalidate();
         repaint();
     }
@@ -346,7 +363,7 @@ public final class ControlPanelTabPanel extends JPanel {
         setFont(font);
         emptyLabel.setFont(font);
         for (JButton button : actionButtons) {
-            OverlayOutlineButtonStyle.applyPrimary(button, font);
+            OverlayOutlineButtonStyle.applyPrimaryHitSafe(button, font);
         }
         refreshKillButtonState();
         revalidate();

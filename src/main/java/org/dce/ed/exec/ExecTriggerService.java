@@ -404,16 +404,18 @@ public final class ExecTriggerService {
     private void launch(ExecBinding binding, ExecLaunchContext context) {
         notifyActivityChanged();
         publishStatus("Running " + shortProgramName(binding.getJarPath()) + "…");
-        JarExecRunner.runAsync(binding, context, placeholderContext, result -> SwingUtilities.invokeLater(() -> {
-            if (result.exitCode() == 0) {
-                publishStatus("OK");
-            } else if (JarExecRunner.isUserCancelled(result)) {
-                publishStatus("");
-            } else {
-                publishStatus("Failed: " + JarExecRunner.formatConciseStatus(result));
-            }
-            notifyActivityChanged();
-        }));
+        JarExecRunner.runAsync(binding, context, placeholderContext,
+                this::notifyActivityChanged,
+                result -> SwingUtilities.invokeLater(() -> {
+                    if (result.exitCode() == 0) {
+                        publishStatus("OK");
+                    } else if (JarExecRunner.isUserCancelled(result)) {
+                        publishStatus("");
+                    } else {
+                        publishStatus("Failed: " + JarExecRunner.formatConciseStatus(result));
+                    }
+                    notifyActivityChanged();
+                }));
     }
 
     private ExecBindingsConfig currentConfig() {

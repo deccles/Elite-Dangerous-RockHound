@@ -25,18 +25,28 @@ public final class PassThroughScrollSupport {
         }
         Point p = new Point(screenX, screenY);
         SwingUtilities.convertPointFromScreen(p, scrollPane);
+        // Whole pane (viewport + bars) — do not require the pointer to be on the scrollbar thumb.
         if (!scrollPane.contains(p)) {
             return false;
         }
         JScrollBar vsb = scrollPane.getVerticalScrollBar();
-        if (vsb == null || !vsb.isVisible()) {
+        if (vsb == null || !vsb.isEnabled()) {
             return false;
         }
-        int unit = Math.max(1, vsb.getUnitIncrement());
+        int max = Math.max(vsb.getMinimum(), vsb.getMaximum() - vsb.getVisibleAmount());
+        if (max <= vsb.getMinimum()) {
+            return false; // nothing to scroll
+        }
+        int unit = Math.max(1, vsb.getUnitIncrement(wheelRotation > 0 ? 1 : -1));
+        if (unit <= 1) {
+            unit = Math.max(16, vsb.getUnitIncrement());
+        }
         int delta = wheelRotation * unit * 3;
         int v = vsb.getValue();
-        int max = Math.max(vsb.getMinimum(), vsb.getMaximum() - vsb.getVisibleAmount());
         int newV = Math.max(vsb.getMinimum(), Math.min(max, v + delta));
+        if (newV == v) {
+            return false;
+        }
         vsb.setValue(newV);
         return true;
     }

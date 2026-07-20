@@ -3,16 +3,23 @@ package org.dce.ed;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.Graphics;
+import java.awt.Window;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
+
+import org.dce.ed.ui.tabdock.TabDockingController;
 
 public class OverlayContentPanel extends JPanel {
 
     private final BooleanSupplier passThroughEnabledSupplier;
     private Runnable onTabbedPaneRebuilt;
     private EliteOverlayTabbedPane tabbedPane;
+    private TabDockingController tabDockingController;
+    private Supplier<Window> mainWindowSupplier = () -> SwingUtilities.getWindowAncestor(this);
 
     public OverlayContentPanel(BooleanSupplier passThroughEnabledSupplier) {
         this.passThroughEnabledSupplier = Objects.requireNonNull(passThroughEnabledSupplier, "passThroughEnabledSupplier");
@@ -22,9 +29,32 @@ public class OverlayContentPanel extends JPanel {
 
         tabbedPane = new EliteOverlayTabbedPane(() -> this.passThroughEnabledSupplier.getAsBoolean());
         add(tabbedPane, BorderLayout.CENTER);
+        installTabDocking(tabbedPane);
     }
+
+    public void setMainWindowSupplier(Supplier<Window> mainWindowSupplier) {
+        this.mainWindowSupplier = Objects.requireNonNull(mainWindowSupplier, "mainWindowSupplier");
+    }
+
+    private void installTabDocking(EliteOverlayTabbedPane pane) {
+        if (tabDockingController != null) {
+            tabDockingController.disposeAll();
+        }
+        tabDockingController = new TabDockingController(pane, mainWindowSupplier);
+        // Restore after the host window is showing so float bounds land on-screen.
+        SwingUtilities.invokeLater(() -> {
+            if (tabDockingController != null && pane == tabbedPane) {
+                tabDockingController.restoreSavedLayout();
+            }
+        });
+    }
+
     public void rebuildTabbedPane() {
         EliteOverlayTabbedPane old = tabbedPane;
+        if (tabDockingController != null) {
+            tabDockingController.disposeAll();
+            tabDockingController = null;
+        }
 
         EliteOverlayTabbedPane next = new EliteOverlayTabbedPane(() -> this.passThroughEnabledSupplier.getAsBoolean());
         tabbedPane = next;
@@ -33,6 +63,7 @@ public class OverlayContentPanel extends JPanel {
             remove(old);
         }
         add(next, BorderLayout.CENTER);
+        installTabDocking(next);
 
         // Reapply current overlay background + font prefs to the new pane
         java.awt.Color bg = getBackground();
@@ -49,10 +80,19 @@ public class OverlayContentPanel extends JPanel {
         }
     }
 
-
-
     public EliteOverlayTabbedPane getTabbedPane() {
         return tabbedPane;
+    }
+
+    public TabDockingController getTabDockingController() {
+        return tabDockingController;
+    }
+
+    public void disposeTabDocking() {
+        if (tabDockingController != null) {
+            tabDockingController.disposeAll();
+            tabDockingController = null;
+        }
     }
 
     public void setOnTabbedPaneRebuilt(Runnable onTabbedPaneRebuilt) {

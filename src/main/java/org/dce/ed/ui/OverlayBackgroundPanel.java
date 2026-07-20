@@ -39,8 +39,8 @@ public final class OverlayBackgroundPanel extends JPanel {
         try {
             if (paintColor == null || paintColor.getAlpha() <= 0) {
                 // Fully transparent paint color: CLEAR only on the undecorated host; otherwise solid plate.
-                if (OverlayPreferences.overlayChromeRequestsTransparency()) {
-                    TransparentViewportUI.fillSeeThroughChrome(g2, 0, 0, getWidth(), getHeight());
+                if (OverlayPreferences.overlayChromeRequestsTransparency(this)) {
+                    TransparentViewportUI.fillSeeThroughChrome(g2, 0, 0, getWidth(), getHeight(), this);
                 } else {
                     Color b = EdoUi.User.BACKGROUND;
                     g2.setComposite(AlphaComposite.SrcOver);

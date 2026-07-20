@@ -269,9 +269,9 @@ public class MissionsTabPanel extends JPanel {
         JTableHeader th = missionsTable.getTableHeader();
         if (th != null) {
             th.setUI(TransparentTableHeaderUI.createUI(th));
-            th.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency());
+            th.setOpaque(!OverlayPreferences.overlayChromeRequestsTransparency(this));
             th.setForeground(EdoUi.User.MAIN_TEXT);
-            th.setBackground(OverlayPreferences.overlayChromeRequestsTransparency()
+            th.setBackground(OverlayPreferences.overlayChromeRequestsTransparency(this)
                     ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
             th.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize()));
             th.setBorder(null);
@@ -309,7 +309,7 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void buildRedirectBanner(Font base) {
-        boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
+        boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency(this);
         redirectBanner.setOpaque(!transparent);
         redirectBanner.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.ED_ORANGE_LESS_TRANS);
         redirectBanner.setVisible(false);
@@ -625,7 +625,7 @@ public class MissionsTabPanel extends JPanel {
     private JPanel buildGroupCard(CommodityMissionGroup g, Font base) {
         JPanel card = new JPanel();
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
+        boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency(this);
         card.setOpaque(!transparent);
         card.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.Internal.BLACK_ALPHA_140);
         card.setBorder(new EmptyBorder(6, 8, 6, 8));
@@ -1083,7 +1083,7 @@ public class MissionsTabPanel extends JPanel {
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, false, false, row, column);
-            boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
+            boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency(this);
             label.setOpaque(!transparent);
             label.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
             label.setForeground(EdoUi.Internal.tableHeaderForeground());
@@ -1103,7 +1103,7 @@ public class MissionsTabPanel extends JPanel {
 
         @Override
         protected void paintComponent(Graphics g) {
-            boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency();
+            boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency(this);
             setOpaque(!transparent);
             setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
             Graphics2D g2 = (Graphics2D) g.create();
