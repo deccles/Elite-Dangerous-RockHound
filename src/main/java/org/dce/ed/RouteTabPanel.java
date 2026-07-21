@@ -308,12 +308,15 @@ public class RouteTabPanel extends JPanel {
 		return OverlayScrollPaneSupport.isPointerOverScrollBar(routeScrollPane, screenPoint);
 	}
 
-	/** Selective mouse mode: distance toggles and Copy next destination. */
+	/** Selective mouse mode: distance toggles, Copy next destination, and system-name cells (double-click copy). */
 	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
 		if (SelectiveHitSupport.containsScreenPoint(lyModeFromCurrentButton, screenPoint)) {
 			return true;
 		}
 		if (SelectiveHitSupport.containsScreenPoint(lyModePerLegButton, screenPoint)) {
+			return true;
+		}
+		if (SelectiveHitSupport.isOverModelColumnCell(table, screenPoint, COL_SYSTEM)) {
 			return true;
 		}
 		return SelectiveHitSupport.containsScreenPoint(copyNextDestinationButton, screenPoint);

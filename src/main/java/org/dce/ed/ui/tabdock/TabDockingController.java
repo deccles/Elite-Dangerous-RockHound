@@ -459,9 +459,22 @@ public final class TabDockingController {
         }
 
         if (select) {
+            boolean wasMainVisible = OverlayTabId.MAIN_DOCK_ID.equals(fromDock)
+                    && cardName.equals(tabbedPane.getVisibleCardName());
             selectInDock(targetDockId, cardName);
-        } else if (OverlayTabId.MAIN_DOCK_ID.equals(fromDock)) {
-            tabbedPane.selectFirstVisibleTabInMain();
+            // Selection is per dock — give main a new highlighted tab if its selected one left.
+            if (wasMainVisible && !OverlayTabId.MAIN_DOCK_ID.equals(targetDockId)) {
+                tabbedPane.selectFirstVisibleTabInMain();
+            }
+        } else {
+            // Arriving unselected: drop any stale highlight carried over from the source dock.
+            if (!OverlayTabId.MAIN_DOCK_ID.equals(targetDockId)
+                    || !cardName.equals(tabbedPane.getVisibleCardName())) {
+                button.setSelected(false);
+            }
+            if (OverlayTabId.MAIN_DOCK_ID.equals(fromDock)) {
+                tabbedPane.selectFirstVisibleTabInMain();
+            }
         }
         if (OverlayTabId.MAIN_DOCK_ID.equals(targetDockId)) {
             reapplyMainOverlayChrome();

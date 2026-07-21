@@ -90,6 +90,8 @@ final class EngineeringBuildProgressDialog extends JDialog {
 	private Map<Long, List<FittedModuleRow>> fittedByShip = Map.of();
 	/** Ship id → unengineered but engineerable modules from the latest stored loadout. */
 	private Map<Long, List<UnengineeredModuleRow>> unengineeredByShip = Map.of();
+	/** Ship id → latest stored loadout, kept for the text/Coriolis report. */
+	private Map<Long, LoadoutEvent> loadoutsByShip = Map.of();
 	private Long lastSelectedShipFilterId;
 	private SwingWorker<?, ?> loadWorker;
 	private final Function<AddGoalRequest, EngineeringGoal> addGoalHandler;
@@ -202,6 +204,15 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 		JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
 		south.setOpaque(false);
+		JButton reportBtn = new JButton("Report");
+		OverlayOutlineButtonStyle.applyChip(reportBtn, baseFont, false);
+		reportBtn.setToolTipText(
+				"Plain-text summary of this ship's engineered, unengineered and fitted modules"
+						+ " — suitable for pasting into an AI chat");
+		Runnable reportAction = this::openReport;
+		reportBtn.addActionListener(e -> reportAction.run());
+		HoverClickPoller.register(reportBtn, HOVER_CLICK_DELAY_MS, reportAction, passThroughEnabledSupplier);
+		south.add(reportBtn);
 		JButton closeBtn = new JButton("Close");
 		OverlayOutlineButtonStyle.applyChip(closeBtn, baseFont, false);
 		closeBtn.addActionListener(e -> dispose());
@@ -288,7 +299,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 						}
 					}
 				}
-				return new DialogLoadResult(units, fitted, unengineered);
+				return new DialogLoadResult(units, fitted, unengineered, loadouts);
 			}
 
 			@Override
@@ -301,15 +312,18 @@ final class EngineeringBuildProgressDialog extends JDialog {
 					allUnits = result.units();
 					fittedByShip = result.fittedByShip();
 					unengineeredByShip = result.unengineeredByShip();
+					loadoutsByShip = result.loadoutsByShip();
 				} catch (InterruptedException ex) {
 					Thread.currentThread().interrupt();
 					allUnits = List.of();
 					fittedByShip = Map.of();
 					unengineeredByShip = Map.of();
+					loadoutsByShip = Map.of();
 				} catch (ExecutionException ex) {
 					allUnits = List.of();
 					fittedByShip = Map.of();
 					unengineeredByShip = Map.of();
+					loadoutsByShip = Map.of();
 				}
 				// Keep current ship filter on refresh; use initial only for the first open.
 				populateShipCombo(keepScroll ? null : initialShipFilterId);
@@ -1453,6 +1467,167 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		return label;
 	}
 
+	private void openReport() {
+		ShipFilterItem filter = (ShipFilterItem) shipCombo.getSelectedItem();
+		Long shipId = filter != null && !filter.isSeparator() ? filter.shipId() : null;
+		if (shipId == null) {
+			return;
+		}
+		LoadoutEvent loadout = loadoutsByShip.get(shipId);
+		String shipTitle = resolveShipTitle(shipId.longValue(), List.of());
+		String report = buildReportText(shipId.longValue(), shipTitle, loadout);
+		String loadoutJson = loadout != null && loadout.getRawJson() != null
+				? loadout.getRawJson().toString()
+				: null;
+		EngineeringShipReportDialog.show(
+				this, shipTitle, report, loadoutJson, baseFont, fontSize, passThroughEnabledSupplier);
+	}
+
+	/** Plain-text ship report: engineered modules with details, unengineered, then every fitted module. */
+	private String buildReportText(long shipId, String shipTitle, LoadoutEvent loadout) {
+		StringBuilder sb = new StringBuilder(4096);
+		sb.append("SHIP ENGINEERING REPORT (Elite Dangerous Overlay)\n");
+		sb.append("Ship: ").append(shipTitle).append('\n');
+		if (loadout != null) {
+			appendHeaderLine(sb, "Hull", loadout.getShip());
+			appendHeaderLine(sb, "Name", loadout.getShipName());
+			appendHeaderLine(sb, "Ident", loadout.getShipIdent());
+			if (loadout.getTimestamp() != null) {
+				sb.append("Loadout as of: ").append(loadout.getTimestamp()).append('\n');
+			}
+		}
+		sb.append("Ship ID: ").append(shipId).append('\n');
+		if (loadout == null) {
+			sb.append("\nNo stored loadout for this ship yet. ")
+					.append("Board the ship in-game (or change any module) to record a Loadout event.\n");
+			return sb.toString();
+		}
+
+		List<LoadoutEvent.Module> engineered = new ArrayList<>();
+		List<LoadoutEvent.Module> unengineered = new ArrayList<>();
+		List<LoadoutEvent.Module> allFitted = new ArrayList<>();
+		for (LoadoutEvent.Module module : loadout.getModules()) {
+			if (module == null || module.getItem() == null || module.getItem().isBlank()
+					|| isCosmeticItem(module.getItem())) {
+				continue;
+			}
+			allFitted.add(module);
+			LoadoutEvent.Engineering engineering = module.getEngineering();
+			if (engineering != null && engineering.getLevel() > 0) {
+				engineered.add(module);
+			} else {
+				String moduleType = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
+				if (moduleType != null && !moduleType.isBlank()) {
+					unengineered.add(module);
+				}
+			}
+		}
+
+		sb.append("\nENGINEERED MODULES (").append(engineered.size()).append(")\n");
+		if (engineered.isEmpty()) {
+			sb.append("  (none)\n");
+		}
+		for (LoadoutEvent.Module module : engineered) {
+			LoadoutEvent.Engineering engineering = module.getEngineering();
+			sb.append("- ").append(reportModuleLine(module)).append('\n');
+			String moduleType = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
+			String blueprint = friendlyBlueprint(module, engineering, database);
+			int maxGrade = maxBlueprintGrade(database, moduleType, blueprint);
+			sb.append("    Blueprint: ").append(blueprint.isBlank() ? "(unknown)" : blueprint)
+					.append("  G").append(engineering.getLevel());
+			if (maxGrade > 0) {
+				sb.append(" of G").append(maxGrade);
+			}
+			if (engineering.getQuality() > 0) {
+				sb.append(" (").append(Math.round(engineering.getQuality() * 100.0d)).append("% quality)");
+			}
+			sb.append('\n');
+			if (engineering.getEngineer() != null && !engineering.getEngineer().isBlank()) {
+				sb.append("    Engineer: ").append(engineering.getEngineer()).append('\n');
+			}
+			String experimental = friendlyExperimental(engineering, database);
+			if (experimental != null && !experimental.isBlank()) {
+				sb.append("    Experimental: ").append(experimental).append('\n');
+			}
+			if (!engineering.getModifiers().isEmpty()) {
+				sb.append("    Modifiers:\n");
+				for (LoadoutEvent.Modifier modifier : engineering.getModifiers()) {
+					sb.append("      ").append(friendlifySlot(modifier.getLabel()))
+							.append(": ").append(formatModifierValue(modifier.getValue()))
+							.append(" (base ").append(formatModifierValue(modifier.getOriginalValue()))
+							.append(")\n");
+				}
+			}
+		}
+
+		sb.append("\nUNENGINEERED MODULES (engineerable) (").append(unengineered.size()).append(")\n");
+		if (unengineered.isEmpty()) {
+			sb.append("  (none)\n");
+		}
+		for (LoadoutEvent.Module module : unengineered) {
+			sb.append("- ").append(reportModuleLine(module)).append('\n');
+		}
+
+		sb.append("\nALL FITTED MODULES (").append(allFitted.size()).append(")\n");
+		for (LoadoutEvent.Module module : allFitted) {
+			sb.append("- ").append(reportModuleLine(module));
+			LoadoutEvent.Engineering engineering = module.getEngineering();
+			if (engineering != null && engineering.getLevel() > 0) {
+				sb.append("  [G").append(engineering.getLevel())
+						.append(' ').append(friendlyBlueprint(module, engineering, database));
+				String experimental = friendlyExperimental(engineering, database);
+				if (experimental != null && !experimental.isBlank()) {
+					sb.append(" + ").append(experimental);
+				}
+				sb.append(']');
+			}
+			sb.append('\n');
+		}
+
+		sb.append("\nNote: covers modules currently fitted to this ship (from the latest Loadout journal event);")
+				.append("\nmodules in station storage are not included.\n");
+		return sb.toString();
+	}
+
+	private static void appendHeaderLine(StringBuilder sb, String label, String value) {
+		if (value != null && !value.isBlank()) {
+			sb.append(label).append(": ").append(value.trim()).append('\n');
+		}
+	}
+
+	/** "Medium Hardpoint 1: Multi-cannon Turreted (hpt_multicannon_turret_medium)". */
+	private static String reportModuleLine(LoadoutEvent.Module module) {
+		String slot = friendlifySlot(module.getSlot());
+		String label = EngineeringJournalBlueprintResolver.displayModuleName(module.getItem());
+		StringBuilder sb = new StringBuilder(64);
+		if (!slot.isBlank()) {
+			sb.append(slot).append(": ");
+		}
+		sb.append(label.isBlank() ? module.getItem() : label);
+		sb.append(" (").append(module.getItem().toLowerCase(Locale.ROOT)).append(')');
+		return sb.toString();
+	}
+
+	/** Paint jobs, decals, ship kits, etc. — noise for an engineering report. */
+	private static boolean isCosmeticItem(String item) {
+		String m = item.toLowerCase(Locale.ROOT);
+		return m.startsWith("paintjob") || m.startsWith("decal") || m.startsWith("nameplate")
+				|| m.startsWith("voicepack") || m.startsWith("bobble") || m.contains("shipkit")
+				|| m.contains("weaponcustomisation") || m.contains("enginecustomisation");
+	}
+
+	private static String formatModifierValue(double value) {
+		if (value == Math.rint(value) && Math.abs(value) < 1e9) {
+			return Long.toString((long) value);
+		}
+		String s = String.format(Locale.ROOT, "%.4f", value);
+		s = s.replaceAll("0+$", "");
+		if (s.endsWith(".")) {
+			s = s.substring(0, s.length() - 1);
+		}
+		return s;
+	}
+
 	private static Map<Long, List<FittedModuleRow>> collectFittedModules(
 			Map<Long, LoadoutEvent> loadouts,
 			EngineeringDatabase db,
@@ -1748,7 +1923,8 @@ final class EngineeringBuildProgressDialog extends JDialog {
 	private record DialogLoadResult(
 			List<ModuleUnitProgress> units,
 			Map<Long, List<FittedModuleRow>> fittedByShip,
-			Map<Long, List<UnengineeredModuleRow>> unengineeredByShip) {
+			Map<Long, List<UnengineeredModuleRow>> unengineeredByShip,
+			Map<Long, LoadoutEvent> loadoutsByShip) {
 	}
 
 	static record AddGoalRequest(

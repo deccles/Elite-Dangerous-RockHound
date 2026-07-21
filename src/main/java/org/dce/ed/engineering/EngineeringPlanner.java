@@ -149,7 +149,9 @@ public final class EngineeringPlanner {
 
     /**
      * Trades and readiness planned High → Medium → Low so higher-priority goals claim inventory
-     * and trade stock first. Disabled goals are omitted from readiness.
+     * and trade stock first. Disabled goals are omitted from readiness. Trade suggestions never
+     * spend stock any remaining goal requires, so a plan cannot trade away one goal's materials
+     * and then buy the same material back for another goal.
      *
      * <p>{@code inventoryAfterTrades} applies suggested trades only (no craft claims), for shopping.
      */
@@ -173,6 +175,14 @@ public final class EngineeringPlanner {
             return new PriorityPlanResult(List.of(), shoppingInv, blueprintReadiness, materialsReadiness);
         }
 
+        // Reserve materials for ALL remaining goals, not just the one being planned, so a
+        // higher-priority goal never trades away stock a later goal is counting on (which
+        // would force a wasteful buy-back trade for a material with Need 0).
+        Map<String, Integer> remainingReserved = new LinkedHashMap<>();
+        for (ClaimItem item : claimOrder) {
+            adjustReservation(remainingReserved, requiredForClaimItem(item), 1);
+        }
+
         for (ClaimItem item : claimOrder) {
             if (item.blueprint() != null) {
                 EngineeringGoal goal = item.blueprint();
@@ -183,7 +193,7 @@ public final class EngineeringPlanner {
                 Map<String, Integer> before = mutableCopy(planningInv);
                 Map<String, Integer> shortfalls = goalMaterialShortfalls(goal, planningInv);
                 Map<String, Integer> required = materialsForGoal(goal);
-                List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, required);
+                List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, remainingReserved);
                 if (!goalTrades.isEmpty()) {
                     trades.addAll(goalTrades);
                     planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
@@ -191,12 +201,13 @@ public final class EngineeringPlanner {
                 }
                 blueprintReadiness.put(goal, goalReadiness(goal, before, planningInv));
                 claimMaterials(required, planningInv);
+                adjustReservation(remainingReserved, required, -1);
             } else if (item.materials() != null) {
                 MaterialsGoal goal = item.materials();
                 Map<String, Integer> before = mutableCopy(planningInv);
                 Map<String, Integer> shortfalls = goalMaterialShortfalls(goal, planningInv);
                 Map<String, Integer> required = materialsForGoal(goal);
-                List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, required);
+                List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, remainingReserved);
                 if (!goalTrades.isEmpty()) {
                     trades.addAll(goalTrades);
                     planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
@@ -204,9 +215,43 @@ public final class EngineeringPlanner {
                 }
                 materialsReadiness.put(goal, goalReadiness(goal, before, planningInv));
                 claimMaterials(required, planningInv);
+                adjustReservation(remainingReserved, required, -1);
             }
         }
         return new PriorityPlanResult(List.copyOf(trades), shoppingInv, blueprintReadiness, materialsReadiness);
+    }
+
+    private Map<String, Integer> requiredForClaimItem(ClaimItem item) {
+        if (item.blueprint() != null) {
+            return item.blueprint().isComplete() ? Map.of() : materialsForGoal(item.blueprint());
+        }
+        if (item.materials() != null) {
+            return materialsForGoal(item.materials());
+        }
+        return Map.of();
+    }
+
+    /** Adds ({@code sign} = 1) or releases ({@code sign} = -1) a goal's requirements, canonical keys. */
+    private static void adjustReservation(Map<String, Integer> totals, Map<String, Integer> required, int sign) {
+        if (totals == null || required == null || required.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Integer> e : required.entrySet()) {
+            int count = e.getValue() != null ? e.getValue() : 0;
+            if (count <= 0) {
+                continue;
+            }
+            String key = EngineeringMaterialKeys.canonicalKey(e.getKey());
+            if (key.isBlank()) {
+                continue;
+            }
+            int next = totals.getOrDefault(key, 0) + sign * count;
+            if (next <= 0) {
+                totals.remove(key);
+            } else {
+                totals.put(key, next);
+            }
+        }
     }
 
     /**

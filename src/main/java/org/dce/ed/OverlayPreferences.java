@@ -100,6 +100,12 @@ public final class OverlayPreferences {
     private static final String KEY_OVERLAY_TAB_ENGINEERING_VISIBLE = "overlay.tab.engineering.visible";
     private static final String KEY_ENGINEERING_MATERIALS_SORT_COLUMN = "overlay.engineering.materials.sortColumn";
     private static final String KEY_ENGINEERING_MATERIALS_SORT_DESC = "overlay.engineering.materials.sortDescending";
+    /** Engineering tab: Materials Required section expanded (true) or collapsed to its Show button. */
+    private static final String KEY_ENGINEERING_MATERIALS_SECTION_VISIBLE =
+            "overlay.engineering.materials.sectionVisible";
+    /** Engineering tab: trade/materials divider position while Materials Required is expanded. */
+    private static final String KEY_ENGINEERING_LOWER_SPLIT_DIVIDER =
+            "overlay.engineering.lowerSplit.dividerLocation";
     private static final String KEY_ENGINEERING_TRADE_SORT_COLUMN = "overlay.engineering.trade.sortColumn";
     private static final String KEY_ENGINEERING_TRADE_SORT_DESC = "overlay.engineering.trade.sortDescending";
     private static final String KEY_ENGINEERING_BLUEPRINT_SORT_COLUMN = "overlay.engineering.blueprintPicker.sortColumn";
@@ -608,6 +614,23 @@ public final class OverlayPreferences {
 
     public static void setEngineeringBlueprintPickerInstalledOnly(boolean installedOnly) {
         PREFS.putBoolean(KEY_ENGINEERING_BLUEPRINT_INSTALLED_ONLY, installedOnly);
+    }
+
+    public static boolean isEngineeringMaterialsSectionVisible() {
+        return PREFS.getBoolean(KEY_ENGINEERING_MATERIALS_SECTION_VISIBLE, true);
+    }
+
+    public static void setEngineeringMaterialsSectionVisible(boolean visible) {
+        PREFS.putBoolean(KEY_ENGINEERING_MATERIALS_SECTION_VISIBLE, visible);
+    }
+
+    /** @return saved divider location in pixels, or {@code -1} if never saved */
+    public static int getEngineeringLowerSplitDividerLocation() {
+        return PREFS.getInt(KEY_ENGINEERING_LOWER_SPLIT_DIVIDER, -1);
+    }
+
+    public static void setEngineeringLowerSplitDividerLocation(int location) {
+        PREFS.putInt(KEY_ENGINEERING_LOWER_SPLIT_DIVIDER, location);
     }
 
     public static boolean isEngineeringBuildProgressHideModulesWithGoals() {

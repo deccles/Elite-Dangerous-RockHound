@@ -101,6 +101,14 @@ public class BiologyTabPanel extends JPanel {
                 sp.setViewportBorder(null);
             }
         }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            // Hybrid mode: the strip between the last bio row and the map divider goes fully
+            // transparent (fillsViewportHeight means the table paints that leftover area).
+            org.dce.ed.ui.TransparentViewportUI.clearBelowTableRowsInSelectiveMode(g, this);
+        }
     };
     private final JScrollPane scroll = new JScrollPane(table);
 

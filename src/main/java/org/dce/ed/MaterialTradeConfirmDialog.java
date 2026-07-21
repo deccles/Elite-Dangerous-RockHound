@@ -75,6 +75,15 @@ final class MaterialTradeConfirmDialog extends JDialog {
         status.setForeground(EdoUi.User.MAIN_TEXT);
         status.setBorder(new EmptyBorder(2, 12, 2, 12));
 
+        JLabel mouseWarning = new JLabel(
+                "<html><body style='text-align:center'>"
+                        + "After hitting OK, DO NOT MOVE THE MOUSE OVER THE GAME"
+                        + "</body></html>",
+                SwingConstants.CENTER);
+        mouseWarning.setFont(base.deriveFont(Font.BOLD, fontSize));
+        mouseWarning.setForeground(EdoUi.User.ERROR);
+        mouseWarning.setBorder(new EmptyBorder(4, 12, 4, 12));
+
         JButton goBtn = new JButton("OK");
         JButton cancelBtn = new JButton("Cancel");
         OverlayOutlineButtonStyle.applyPrimary(goBtn, base);
@@ -155,6 +164,7 @@ final class MaterialTradeConfirmDialog extends JDialog {
         JPanel south = new JPanel(new BorderLayout());
         south.setOpaque(false);
         south.add(status, BorderLayout.NORTH);
+        south.add(mouseWarning, BorderLayout.CENTER);
         south.add(footer, BorderLayout.SOUTH);
         root.add(south, BorderLayout.SOUTH);
 

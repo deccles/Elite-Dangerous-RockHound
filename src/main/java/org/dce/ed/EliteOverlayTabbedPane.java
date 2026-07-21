@@ -38,7 +38,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 import javax.swing.AbstractButton;
-import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
@@ -196,7 +195,8 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		// ----- Tab bar (row of buttons, horizontal scroll when overflow) -----
 		scrollableTabBar = new ScrollableTabBar(hoverSwitchEnabled, opaque);
 		JPanel tabBar = scrollableTabBar.getTabStrip();
-		ButtonGroup group = new ButtonGroup();
+		// No ButtonGroup: selection is per dock (main strip + each floating window keeps its own
+		// highlighted tab); a group would force a single selected tab across all windows.
 
 		routeButton = createTabButton("Route");
 		systemButton = createTabButton("System");
@@ -207,15 +207,6 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		fleetCarrierButton = createTabButton("Fleet Carrier");
 		engineeringButton = createTabButton("Engineering");
 		controlPanelButton = createTabButton("Control Panel");
-
-		group.add(routeButton);
-		group.add(systemButton);
-		group.add(biologyButton);
-		group.add(miningButton);
-		group.add(missionsButton);
-		group.add(fleetCarrierButton);
-		group.add(engineeringButton);
-		group.add(controlPanelButton);
 
 		tabBar.add(routeButton);
 		tabBar.add(systemButton);
@@ -1302,7 +1293,9 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		if (tabDockingController != null && cardName != null && !tabDockingController.isOnMain(cardName)) {
 			tabDockingController.selectTabWherever(cardName);
 			applyTabSelectionStyles(cardName);
-			visibleCardName = cardName;
+			// Do NOT touch visibleCardName here: it tracks the MAIN dock's visible card and drives
+			// the main overlay's Selective hit testing / wheel routing. Overwriting it with a
+			// float-hosted card killed hybrid clicks on the tab main was actually showing.
 			if (CARD_MINING.equals(cardName)) {
 				miningTab.onMiningTabBecameVisible();
 			}
@@ -1331,34 +1324,24 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		}
 	}
 
+	/**
+	 * Selection is per dock: selecting a tab only deselects its siblings in the same tab strip,
+	 * so the main overlay and each floating window keep their own highlighted tab.
+	 */
 	public void applyTabSelectionStyles(String cardName) {
 		JButton selectedButton = tabButtonForCard(cardName);
-		if (routeButton != null) {
-			routeButton.setSelected(selectedButton == routeButton);
-		}
-		if (systemButton != null) {
-			systemButton.setSelected(selectedButton == systemButton);
-		}
-		if (biologyButton != null) {
-			biologyButton.setSelected(selectedButton == biologyButton);
-		}
-		if (miningButton != null) {
-			miningButton.setSelected(selectedButton == miningButton);
-		}
-		if (missionsButton != null) {
-			missionsButton.setSelected(selectedButton == missionsButton);
-		}
-		if (nearbyButton != null) {
-			nearbyButton.setSelected(selectedButton == nearbyButton);
-		}
-		if (fleetCarrierButton != null) {
-			fleetCarrierButton.setSelected(selectedButton == fleetCarrierButton);
-		}
-		if (engineeringButton != null) {
-			engineeringButton.setSelected(selectedButton == engineeringButton);
-		}
-		if (controlPanelButton != null) {
-			controlPanelButton.setSelected(selectedButton == controlPanelButton);
+		java.awt.Container strip = selectedButton != null ? selectedButton.getParent() : null;
+		JButton[] all = { routeButton, systemButton, biologyButton, miningButton, missionsButton,
+				nearbyButton, fleetCarrierButton, engineeringButton, controlPanelButton };
+		for (JButton b : all) {
+			if (b == null) {
+				continue;
+			}
+			if (b == selectedButton) {
+				b.setSelected(true);
+			} else if (strip != null && b.getParent() == strip) {
+				b.setSelected(false);
+			}
 		}
 
 		applyTabButtonStyle(routeButton);

@@ -475,11 +475,19 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
 
             @Override
             public void mousePressed(MouseEvent e) {
-                if (isTitleBarChrome(e.getComponent())) {
+                if (isTitleBarChrome(e.getComponent()) || isOverResizeEdge(e)) {
                     grab = null;
                     return;
                 }
                 grab = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), bar);
+            }
+
+            /** Leave presses on the window's resize border to WindowEdgeResizeSupport. */
+            private boolean isOverResizeEdge(MouseEvent e) {
+                Point p = SwingUtilities.convertPoint(
+                        e.getComponent(), e.getPoint(), getRootPane());
+                int edge = 6;
+                return p.y < edge || p.x < edge || p.x >= getRootPane().getWidth() - edge;
             }
 
             @Override
@@ -491,10 +499,22 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
                 setLocation(screen.x - grab.x, screen.y - grab.y);
             }
         };
-        bar.addMouseListener(drag);
-        bar.addMouseMotionListener(drag);
-        titleLabel.addMouseListener(drag);
-        titleLabel.addMouseMotionListener(drag);
+        // Attach to every non-button child too: filler panels inside the title bar gain their own
+        // mouse listeners (edge-resize support), which stops events from bubbling up to the bar.
+        installTitleDragRecursive(bar, drag);
+    }
+
+    private void installTitleDragRecursive(Component c, MouseAdapter drag) {
+        if (c == null || isTitleBarChrome(c)) {
+            return;
+        }
+        c.addMouseListener(drag);
+        c.addMouseMotionListener(drag);
+        if (c instanceof java.awt.Container container) {
+            for (Component child : container.getComponents()) {
+                installTitleDragRecursive(child, drag);
+            }
+        }
     }
 
     private boolean isTitleBarChrome(Component c) {

@@ -91,6 +91,34 @@ class MaterialsGoalPlannerTest {
     }
 
     @Test
+    void planByPriority_doesNotTradeAwayStockReservedForLaterGoal() {
+        // Repro: commander owns exactly the 5 Compound Shielding a later goal needs. The
+        // higher-priority Heat Exchangers goal must not spend them (which used to produce a
+        // circular "Need 0" buy-back suggestion for Compound Shielding).
+        MaterialsGoal heatExchangers = new MaterialsGoal(
+                "Heat exchangers",
+                List.of(new MaterialRequirement("heatexchangers", 6)),
+                GoalPriority.HIGH);
+        MaterialsGoal compoundShielding = new MaterialsGoal(
+                "Compound shielding",
+                List.of(new MaterialRequirement("compoundshielding", 5)),
+                GoalPriority.LOW);
+
+        Map<String, Integer> inv = Map.of("compoundshielding", 5);
+
+        EngineeringPlanner.PriorityPlanResult plan = planner.planByPriority(
+                List.of(), List.of(heatExchangers, compoundShielding), inv, tradePlanner);
+
+        assertTrue(plan.trades().stream().noneMatch(
+                        t -> "compoundshielding".equalsIgnoreCase(t.getFromKey())),
+                "must not spend Compound Shielding reserved for the later goal");
+        assertTrue(plan.trades().stream().noneMatch(
+                        t -> "compoundshielding".equalsIgnoreCase(t.getToKey())),
+                "must not suggest buying back a material with no overall shortfall");
+        assertEquals(GoalReadiness.READY, plan.readinessByMaterialsGoal().get(compoundShielding));
+    }
+
+    @Test
     void materialsGoal_multiMaterialShortWhenAnyMissing() {
         MaterialsGoal goal = new MaterialsGoal(
                 "Bundle",

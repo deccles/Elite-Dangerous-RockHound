@@ -430,7 +430,51 @@ public class SystemTabPanel extends JPanel {
 				|| SelectiveHitSupport.containsScreenPoint(distByValueButton, screenPoint)) {
 			return true;
 		}
+		if (isPointerOverBioExpandCue(screenPoint)) {
+			return true;
+		}
 		return SelectiveHitSupport.containsScreenPoint(systemPlanMapToolbar, screenPoint);
+	}
+
+	/**
+	 * Selective mode: the bio +/− cues stay real-click targets — a body row's leading cue in the
+	 * Bio column, and the header's expand/collapse-all slot. Mirrors the hit tests in
+	 * {@link #tryToggleBioExpandAt} and the header mouse listener.
+	 */
+	private boolean isPointerOverBioExpandCue(Point screenPoint) {
+		if (screenPoint == null || table == null || !table.isShowing()) {
+			return false;
+		}
+		JTableHeader header = table.getTableHeader();
+		if (header != null && header.isShowing()) {
+			Point hp = new Point(screenPoint);
+			SwingUtilities.convertPointFromScreen(hp, header);
+			if (hp.y >= 0 && hp.y < header.getHeight() && header.columnAtPoint(hp) == 2
+					&& !collectExpandableBioBodyIds().isEmpty()) {
+				Rectangle hr = header.getHeaderRect(2);
+				int relX = hp.x - hr.x;
+				if (relX >= 0 && relX <= bioColumnBioLeadingSlotWidthPx() + EXPAND_HIT_SLOP_PX * 2) {
+					return true;
+				}
+			}
+		}
+		Point p = new Point(screenPoint);
+		SwingUtilities.convertPointFromScreen(p, table);
+		if (p.x < 0 || p.y < 0 || p.x >= table.getWidth() || p.y >= table.getHeight()) {
+			return false;
+		}
+		int row = table.rowAtPoint(p);
+		int col = table.columnAtPoint(p);
+		if (row < 0 || col != 2) {
+			return false;
+		}
+		Row r = tableModel.getRowAt(row);
+		if (r == null || r.detail || r.body == null || !BioTableBuilder.hasExpandableBioDetails(r.body)) {
+			return false;
+		}
+		Rectangle cell = table.getCellRect(row, col, false);
+		int relX = p.x - cell.x;
+		return relX >= 0 && relX <= bioExpandCuePx + EXPAND_HIT_SLOP_PX * 2;
 	}
 
 	/** Apply persisted system tab state (for restore on startup). */
