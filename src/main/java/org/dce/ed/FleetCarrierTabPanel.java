@@ -370,6 +370,12 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		return ownedFleetCarrierTracker.isOwnedCarrierJump(jump, pendingJumpFromOwnedCarrier);
 	}
 
+	/** Carrier jumps burn tritium, not the ship's main tank — ship fuel prediction doesn't apply. */
+	@Override
+	protected boolean routeFuelPredictionApplies() {
+		return false;
+	}
+
 	@Override
 	public boolean importSpanshFleetCarrierRouteFile(Path file) {
 		boolean ok = super.importSpanshFleetCarrierRouteFile(file);

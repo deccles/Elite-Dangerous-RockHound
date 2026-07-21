@@ -87,6 +87,8 @@ import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.FssAllBodiesFoundEvent;
 import org.dce.ed.logreader.event.IFsdJump;
+import org.dce.ed.logreader.event.LoadGameEvent;
+import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.state.SystemState;
@@ -100,6 +102,7 @@ import org.dce.ed.ui.EdoUi.User;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.route.FuelScoopStarClass;
 import org.dce.ed.route.RouteEntry;
+import org.dce.ed.route.RouteFuelPrediction;
 import org.dce.ed.route.RouteGeometry;
 import org.dce.ed.route.RouteJournalApplyOutcome;
 import org.dce.ed.route.RouteMarkerKind;
@@ -136,9 +139,15 @@ public class RouteTabPanel extends JPanel {
 			new StatusCircleIcon(EdoUi.STATUS_GRAY, "!");
 	private static final Icon ICON_UNKNOWN =
 			new StatusCircleIcon(EdoUi.STATUS_GRAY, "?");
-	/** Monochrome green fuel gauge for scoopable stars (Class column). */
+	/** Monochrome green fuel pump for scoopable stars (Class column). */
 	private static final Color FUEL_GAUGE_GREEN = new Color(0x90, 0xC3, 0x8A);
-	private static final Icon ICON_FUEL_SCOOP = new FuelGaugeIcon(FUEL_GAUGE_GREEN);
+	/** Fuel prediction: last system reachable on current fuel. */
+	private static final Color FUEL_PUMP_YELLOW = new Color(0xE8, 0xC5, 0x4A);
+	/** Fuel prediction: out of fuel before this system. */
+	private static final Color FUEL_PUMP_RED = new Color(0xDC, 0x40, 0x30);
+	private static final Icon ICON_FUEL_SCOOP = new FuelPumpIcon(FUEL_GAUGE_GREEN);
+	private static final Icon ICON_FUEL_LAST_REACHABLE = new FuelPumpIcon(FUEL_PUMP_YELLOW);
+	private static final Icon ICON_FUEL_OUT = new FuelPumpIcon(FUEL_PUMP_RED);
 	// Column indexes
 	private static final int COL_MARKER    = 0;
 	private static final int COL_INDEX    = 1;
@@ -184,11 +193,18 @@ public class RouteTabPanel extends JPanel {
 	private SystemTableHoverCopyManager systemTableHoverCopyManager;
 	private ExecTriggerService execTriggerService;
 	private StatusHoverPopupManager statusHoverPopupManager;
+	private StatusHoverPopupManager fuelHoverPopupManager;
 	private final EdsmClient edsmClient;
 	private final BooleanSupplier passThroughEnabledSupplier;
 	// Caches coordinates we resolved from EDSM (used for inserting synthetic rows).
 	private final java.util.Map<String, Double[]> resolvedCoordsCache = new java.util.concurrent.ConcurrentHashMap<>();
 	private final java.util.Set<String> edsmCoordsFetchInProgress = java.util.concurrent.ConcurrentHashMap.newKeySet();
+	// Route fuel prediction: ship/FSD snapshot from Loadout, live fuel/cargo from Status.
+	private volatile RouteFuelPrediction.ShipFuelProfile shipFuelProfile;
+	private volatile double shipFuelMainTons = Double.NaN;
+	private volatile double shipCargoTons = 0.0;
+	/** Result indexes match {@link #tableModel} rows; null = prediction off / no data. */
+	private RouteFuelPrediction.Result routeFuelPrediction;
 	private boolean jumpFlashOn = true;
 	private final Timer jumpFlashTimer = new Timer(500, e -> {
 		jumpFlashOn = !jumpFlashOn;
@@ -683,8 +699,17 @@ public class RouteTabPanel extends JPanel {
 		systemTableHoverCopyManager.start();
 		// Status hover popup: works in both pass-through and non-pass-through modes,
 		// and only when hovering directly over the status symbol column.
-		statusHoverPopupManager = new StatusHoverPopupManager();
+		statusHoverPopupManager = new StatusHoverPopupManager(COL_STATUS, modelRow -> {
+			RouteEntry entry = tableModel.getEntries(modelRow);
+			return entry != null ? buildStatusHoverHtml(entry) : null;
+		});
 		statusHoverPopupManager.start();
+		// Fuel pump hover popup on the Class column (tooltips never fire in pass-through/hybrid).
+		fuelHoverPopupManager = new StatusHoverPopupManager(COL_CLASS, this::buildFuelHoverHtml);
+		fuelHoverPopupManager.start();
+		if (routeFuelPredictionApplies()) {
+			bootstrapShipFuelProfileFromJournals();
+		}
 		table.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mouseClicked(MouseEvent e) {
@@ -821,6 +846,7 @@ public class RouteTabPanel extends JPanel {
 		if (event == null) {
 			return;
 		}
+		trackShipFuelState(event);
 		if (event instanceof NavRouteEvent
 				|| event instanceof NavRouteClearEvent) {
 			reloadFromNavRouteFile();
@@ -854,6 +880,163 @@ public class RouteTabPanel extends JPanel {
 	 */
 	protected boolean shouldUpdateOnCarrierJump(CarrierJumpEvent jump) {
 		return jump != null && jump.isDocked();
+	}
+
+	/**
+	 * Whether route rows should show fuel-exhaustion prediction. FleetCarrierTabPanel overrides to
+	 * false: carriers burn tritium, not the ship's main tank.
+	 */
+	protected boolean routeFuelPredictionApplies() {
+		return true;
+	}
+
+	/**
+	 * {@link org.dce.ed.logreader.LiveJournalMonitor} does not replay history, so without this the
+	 * FSD profile stays unknown until the player swaps ships/modules mid-session. Reads the most
+	 * recent Loadout (and LoadGame fuel level as a Status fallback) off the EDT.
+	 */
+	private void bootstrapShipFuelProfileFromJournals() {
+		Thread t = new Thread(() -> {
+			try {
+				Path dir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
+				if (dir == null || !Files.isDirectory(dir)) {
+					return;
+				}
+				EliteJournalReader reader = new EliteJournalReader(dir);
+				List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(
+						12, Set.of("Loadout", "LoadGame"));
+				LoadoutEvent lastLoadout = null;
+				LoadGameEvent lastLoadGame = null;
+				for (EliteLogEvent e : events) {
+					if (e instanceof LoadoutEvent lo) {
+						lastLoadout = lo;
+					} else if (e instanceof LoadGameEvent lg) {
+						lastLoadGame = lg;
+					}
+				}
+				RouteFuelPrediction.ShipFuelProfile profile =
+						RouteFuelPrediction.profileFromLoadout(lastLoadout);
+				double loadGameFuel = lastLoadGame != null ? lastLoadGame.getFuelLevel() : Double.NaN;
+				SwingUtilities.invokeLater(() -> {
+					// Live events win: only fill in what hasn't arrived yet.
+					if (shipFuelProfile == null && profile != null) {
+						shipFuelProfile = profile;
+					}
+					if (Double.isNaN(shipFuelMainTons) && !Double.isNaN(loadGameFuel)) {
+						shipFuelMainTons = loadGameFuel;
+					}
+					recomputeRouteFuelPrediction();
+				});
+			} catch (Exception ignored) {
+				// Prediction simply stays off until a live Loadout arrives.
+			}
+		}, "RouteFuelProfileBootstrap");
+		t.setDaemon(true);
+		t.start();
+	}
+
+	/** Keeps the ship/FSD fuel snapshot current from journal + Status events. */
+	private void trackShipFuelState(EliteLogEvent event) {
+		if (event instanceof LoadoutEvent lo) {
+			shipFuelProfile = RouteFuelPrediction.profileFromLoadout(lo);
+			recomputeRouteFuelPrediction();
+		} else if (event instanceof LoadGameEvent lg) {
+			shipFuelMainTons = lg.getFuelLevel();
+			recomputeRouteFuelPrediction();
+		} else if (event instanceof FsdJumpEvent fj) {
+			// True post-jump tank; re-anchors the model after every hop (rebuild recomputes).
+			shipFuelMainTons = fj.getFuelLevel();
+		} else if (event instanceof StatusEvent st) {
+			double fuel = st.getFuelMain();
+			double cargo = st.getCargo();
+			boolean fuelChanged = Double.isNaN(shipFuelMainTons) || Math.abs(fuel - shipFuelMainTons) > 0.01;
+			boolean cargoChanged = Math.abs(cargo - shipCargoTons) > 0.01;
+			if (fuelChanged || cargoChanged) {
+				shipFuelMainTons = fuel;
+				shipCargoTons = cargo;
+				recomputeRouteFuelPrediction();
+			}
+		}
+	}
+
+	/** Icon for the Class column: red/yellow fuel prediction overrides the green scoopable pump. */
+	private Icon fuelIconForRow(RouteEntry e, int row) {
+		RouteFuelPrediction.Result fp = routeFuelPrediction;
+		RouteFuelPrediction.RowFuelState fs = fp != null ? fp.stateAt(row) : null;
+		if (fs == RouteFuelPrediction.RowFuelState.UNREACHABLE) {
+			return ICON_FUEL_OUT;
+		}
+		if (fs == RouteFuelPrediction.RowFuelState.LAST_REACHABLE) {
+			return ICON_FUEL_LAST_REACHABLE;
+		}
+		if (e != null && FuelScoopStarClass.isFuelScoopable(e.starClass)) {
+			return ICON_FUEL_SCOOP;
+		}
+		return null;
+	}
+
+	/** Hover popup HTML for Class-column rows that carry a fuel pump icon; null otherwise. */
+	private String buildFuelHoverHtml(int modelRow) {
+		RouteEntry e;
+		try {
+			e = tableModel.getEntries(modelRow);
+		} catch (Exception ex) {
+			return null;
+		}
+		if (e == null || e.isBodyRow || fuelIconForRow(e, modelRow) == null) {
+			return null;
+		}
+		RouteFuelPrediction.Result fp = routeFuelPrediction;
+		RouteFuelPrediction.RowFuelState fs = fp != null ? fp.stateAt(modelRow) : null;
+		StringBuilder sb = new StringBuilder("<html>");
+		if (e.starClass != null && !e.starClass.isBlank()) {
+			sb.append("Star class: ").append(escapeHtml(e.starClass)).append("<br>");
+		}
+		if (fs == RouteFuelPrediction.RowFuelState.UNREACHABLE) {
+			sb.append("<b>Out of fuel before this system</b>")
+					.append(fp.assumesScooping() ? " — even scooping at every scoopable star." : ".");
+		} else if (fs == RouteFuelPrediction.RowFuelState.LAST_REACHABLE) {
+			sb.append("<b>Last system you can reach on current fuel</b>")
+					.append(fuelArrivalHtml(fp, modelRow))
+					.append("<br>Red pumps beyond this point are out of range without refueling.");
+		} else {
+			sb.append("Scoopable star — you can refuel here").append(fuelArrivalHtml(fp, modelRow)).append(".");
+		}
+		return sb.append("</html>").toString();
+	}
+
+	/** "&lt;br&gt;Predicted fuel on arrival: X.X t of YY t" when the simulation has a number for this row. */
+	private static String fuelArrivalHtml(RouteFuelPrediction.Result fp, int row) {
+		if (fp == null) {
+			return "";
+		}
+		double arr = fp.fuelOnArrivalAt(row);
+		if (Double.isNaN(arr)) {
+			return "";
+		}
+		return String.format(Locale.US, "<br>Predicted fuel on arrival: %.1f t of %.0f t",
+				arr, fp.fuelCapacityMain());
+	}
+
+	/** Re-simulates fuel over the displayed route; cheap (O(rows)), called on fuel/route changes. */
+	private void recomputeRouteFuelPrediction() {
+		RouteFuelPrediction.Result next = null;
+		if (routeFuelPredictionApplies()
+				&& OverlayPreferences.isRouteFuelPredictionEnabled()
+				&& shipFuelProfile != null
+				&& !Double.isNaN(shipFuelMainTons)
+				&& tableModel != null) {
+			int n = tableModel.getRowCount();
+			List<RouteEntry> rows = new ArrayList<>(n);
+			for (int i = 0; i < n; i++) {
+				rows.add(tableModel.getEntries(i));
+			}
+			next = RouteFuelPrediction.simulate(rows, shipFuelProfile, shipFuelMainTons, shipCargoTons);
+		}
+		routeFuelPrediction = next;
+		if (table != null) {
+			table.repaint();
+		}
 	}
 
 	/**
@@ -1201,6 +1384,7 @@ public class RouteTabPanel extends JPanel {
 		syncTableCurrentFromRouteSession();
 		RouteDisplaySnapshot snap = routeSession.buildDisplaySnapshot(this::applyRememberedScanStatuses, this::resolveSystemCoords);
 		tableModel.setEntries(snap.displayedEntries());
+		recomputeRouteFuelPrediction();
 		maybeScheduleTargetCoordsFetch(snap.displayedEntries());
 		SwingUtilities.invokeLater(() -> {
 			kickEdsmForBehindCurrentUnknownRows();
@@ -2382,6 +2566,10 @@ public class RouteTabPanel extends JPanel {
 				.replace("<", "&lt;")
 				.replace(">", "&gt;");
 	}
+	/**
+	 * Hover popup for one table column, driven by {@link java.awt.MouseInfo} polling so it works in
+	 * every mouse mode (pass-through / hybrid never deliver real mouse events to Swing).
+	 */
 	private class StatusHoverPopupManager {
 		private static final int POLL_INTERVAL_MS = 100;
 		private static final int HOVER_DELAY_MS = 400;
@@ -2391,8 +2579,18 @@ public class RouteTabPanel extends JPanel {
 		private final javax.swing.Timer hoverTimer =
 				new javax.swing.Timer(HOVER_DELAY_MS, e -> showPopupIfStillHovering());
 
+		/** Model column this popup watches. */
+		private final int modelColumn;
+		/** Builds the popup HTML for a model row; null/blank = no popup. */
+		private final java.util.function.IntFunction<String> htmlForModelRow;
+
 		private int hoverViewRow = -1;
 		private javax.swing.JComponent currentPopup;
+
+		StatusHoverPopupManager(int modelColumn, java.util.function.IntFunction<String> htmlForModelRow) {
+			this.modelColumn = modelColumn;
+			this.htmlForModelRow = htmlForModelRow;
+		}
 
 		void start() {
 			pollTimer.start();
@@ -2443,8 +2641,8 @@ public class RouteTabPanel extends JPanel {
 				return;
 			}
 
-			int statusViewCol = table.convertColumnIndexToView(COL_STATUS);
-			if (viewCol != statusViewCol) {
+			int watchedViewCol = table.convertColumnIndexToView(modelColumn);
+			if (viewCol != watchedViewCol) {
 				hoverTimer.stop();
 				hoverViewRow = -1;
 				hidePopup();
@@ -2469,17 +2667,12 @@ public class RouteTabPanel extends JPanel {
 				return;
 			}
 
-			RouteEntry entry;
+			String html;
 			try {
-				entry = tableModel.getEntries(table.convertRowIndexToModel(viewRow));
+				html = htmlForModelRow.apply(table.convertRowIndexToModel(viewRow));
 			} catch (Exception ex) {
 				return;
 			}
-			if (entry == null) {
-				return;
-			}
-
-			String html = buildStatusHoverHtml(entry);
 			if (html == null || html.isBlank()) {
 				return;
 			}
@@ -2507,7 +2700,7 @@ public class RouteTabPanel extends JPanel {
 			label.setBorder(javax.swing.BorderFactory.createCompoundBorder(outline, padding));
 
 			label.setSize(label.getPreferredSize());
-			java.awt.Rectangle cellRect = table.getCellRect(viewRow, table.convertColumnIndexToView(COL_STATUS), true);
+			java.awt.Rectangle cellRect = table.getCellRect(viewRow, table.convertColumnIndexToView(modelColumn), true);
 			java.awt.Point cellCenter = new java.awt.Point(
 					cellRect.x + cellRect.width / 2,
 					cellRect.y + cellRect.height / 2);
@@ -2593,8 +2786,9 @@ public class RouteTabPanel extends JPanel {
 			if (!full.isBlank() && !full.equals(display)) {
 				l.setToolTipText(full);
 			}
-			if (e != null && FuelScoopStarClass.isFuelScoopable(e.starClass)) {
-				l.setIcon(ICON_FUEL_SCOOP);
+			Icon icon = fuelIconForRow(e, row);
+			if (icon != null) {
+				l.setIcon(icon);
 				l.setIconTextGap(ROUTE_COL_CLASS_ICON_TEXT_GAP);
 			}
 			l.setBorder(new EmptyBorder(3, 4, 3, 4));
@@ -2750,13 +2944,14 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	/**
-	 * Fuel gauge: rim, ticks, hub, and needle in one green; needle pivots at bottom-center.
-	 * Size scales with {@link OverlayPreferences#getUiFontSize()}.
+	 * Clean line-art fuel pump (body + window, hose elbow to a nozzle on the right).
+	 * Monochrome so the same shape reads as scoopable (green), last reachable (yellow),
+	 * or out of fuel (red). Size scales with {@link OverlayPreferences#getUiFontSize()}.
 	 */
-	private static final class FuelGaugeIcon implements Icon {
-		private final Color green;
-		FuelGaugeIcon(Color green) {
-			this.green = green;
+	private static final class FuelPumpIcon implements Icon {
+		private final Color color;
+		FuelPumpIcon(Color color) {
+			this.color = color;
 		}
 		@Override
 		public int getIconWidth() {
@@ -2768,53 +2963,32 @@ public class RouteTabPanel extends JPanel {
 		}
 		@Override
 		public void paintIcon(Component c, Graphics g, int x, int y) {
-			int sz = fuelGaugeIconSizePx();
+			float s = fuelGaugeIconSizePx();
 			Graphics2D g2 = (Graphics2D) g.create();
 			try {
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-				float cx = x + sz / 2f;
-				float cy = y + sz / 2f;
-				float margin = Math.max(0.65f, sz * 0.042f);
-				float outerR = sz / 2f - margin;
-				float rimW = Math.max(0.75f, sz * 0.048f);
-				float tickW = Math.max(0.7f, sz * 0.048f);
-				float needleW = Math.max(0.9f, sz * 0.058f);
-				g2.setColor(green);
-				g2.setStroke(new BasicStroke(rimW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-				g2.draw(new Ellipse2D.Float(cx - outerR, cy - outerR, 2 * outerR, 2 * outerR));
-				float pad = Math.max(0.85f, sz * 0.05f);
-				float rTickOut = outerR - pad;
-				float rTickInFull = outerR * 0.36f;
-				// Half the radial span of the original tick marks
-				float rTickIn = rTickOut - (rTickOut - rTickInFull) * 0.5f;
-				g2.setStroke(new BasicStroke(tickW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-				for (int k = 0; k < 5; k++) {
-					double ang = Math.PI + k * (Math.PI / 4);
-					float x1 = (float) (cx + rTickIn * Math.cos(ang));
-					float y1 = (float) (cy + rTickIn * Math.sin(ang));
-					float x2 = (float) (cx + rTickOut * Math.cos(ang));
-					float y2 = (float) (cy + rTickOut * Math.sin(ang));
-					g2.draw(new Line2D.Float(x1, y1, x2, y2));
-				}
-				// Pivot hub at bottom-center; needle angled up-left of the old 45° (tip nudged left & up).
-				float px = cx;
-				float py = cy + outerR * 0.62f;
-				float pivotR = Math.max(0.65f, sz * 0.085f);
-				double nAng = Math.toRadians(-52);
-				float nx = (float) Math.cos(nAng);
-				float ny = (float) Math.sin(nAng);
-				float needleLen = outerR * 0.78f;
-				float tipX = px + needleLen * nx - sz * 0.035f;
-				float tipY = py + needleLen * ny - sz * 0.04f;
-				// Stem on hub circle toward needle; slight inward bias at small sizes so AA doesn’t look offset
-				float stemScale = pivotR - Math.min(0.55f, needleW * 0.45f)
-						- Math.max(0f, (28 - sz) * 0.028f);
-				stemScale = Math.max(pivotR * 0.78f, stemScale);
-				float stemX = px + stemScale * nx;
-				float stemY = py + stemScale * ny;
-				g2.fill(new Ellipse2D.Float(px - pivotR, py - pivotR, 2 * pivotR, 2 * pivotR));
-				g2.setStroke(new BasicStroke(needleW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-				g2.draw(new Line2D.Float(stemX, stemY, tipX, tipY));
+				g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+				g2.setColor(color);
+				float w = Math.max(1.1f, s * 0.085f);
+				g2.setStroke(new BasicStroke(w, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+				// Pump body
+				g2.draw(new java.awt.geom.RoundRectangle2D.Float(
+						x + s * 0.10f, y + s * 0.16f, s * 0.46f, s * 0.74f, s * 0.16f, s * 0.16f));
+				// Display window (filled so the glyph stays legible at small sizes)
+				g2.fill(new java.awt.geom.RoundRectangle2D.Float(
+						x + s * 0.19f, y + s * 0.26f, s * 0.28f, s * 0.16f, s * 0.08f, s * 0.08f));
+				// Ground base, slightly wider than the body
+				g2.draw(new Line2D.Float(x + s * 0.04f, y + s * 0.94f, x + s * 0.62f, y + s * 0.94f));
+				// Hose: elbow from the body's upper right, down to the nozzle
+				java.awt.geom.Path2D.Float hose = new java.awt.geom.Path2D.Float();
+				hose.moveTo(x + s * 0.56f, y + s * 0.30f);
+				hose.lineTo(x + s * 0.68f, y + s * 0.30f);
+				hose.quadTo(x + s * 0.86f, y + s * 0.30f, x + s * 0.86f, y + s * 0.48f);
+				hose.lineTo(x + s * 0.86f, y + s * 0.62f);
+				g2.draw(hose);
+				// Nozzle tip
+				g2.fill(new Ellipse2D.Float(
+						x + s * 0.86f - s * 0.075f, y + s * 0.62f - s * 0.03f, s * 0.15f, s * 0.15f));
 			} finally {
 				g2.dispose();
 			}

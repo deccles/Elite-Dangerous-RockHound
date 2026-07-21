@@ -77,17 +77,34 @@ class MaterialsGoalPlannerTest {
     }
 
     @Test
-    void materialsGoal_readiness_readyTradesAndShort() {
+    void materialsGoal_readiness_readyIsStockedNotCraftComplete() {
         MaterialsGoal goal = new MaterialsGoal(
                 "Need iron",
                 List.of(new MaterialRequirement("iron", 10)),
                 GoalPriority.MEDIUM);
-
         assertEquals(GoalReadiness.STILL_SHORT, planner.goalReadiness(goal, Map.of(), Map.of()));
+        // Stocked reserve is READY; the Engineering tab labels that "Ready" (not "Complete").
         assertEquals(GoalReadiness.READY, planner.goalReadiness(goal, Map.of("iron", 10), Map.of("iron", 10)));
         assertEquals(
                 GoalReadiness.READY_WITH_TRADES,
                 planner.goalReadiness(goal, Map.of("iron", 0), Map.of("iron", 10)));
+        assertTrue(planner.isGoalReady(goal, Map.of("iron", 10)));
+        assertFalse(planner.isGoalReady(goal, Map.of("iron", 3)));
+    }
+
+    @Test
+    void materialsGoal_acquisitionTarget_ownedPlusNeedCreatesShortfall() {
+        // Mirrors Add-dialog semantics: Need=7 more while owning 5 → target 12 → shortfall 7.
+        int owned = 5;
+        int needMore = 7;
+        int target = owned + needMore;
+        MaterialsGoal goal = new MaterialsGoal(
+                "Acquire iron",
+                List.of(new MaterialRequirement("iron", target)),
+                GoalPriority.MEDIUM);
+        Map<String, Integer> inv = Map.of("iron", owned);
+        assertEquals(GoalReadiness.STILL_SHORT, planner.goalReadiness(goal, inv, inv));
+        assertEquals(needMore, goal.shortfalls(inv).get("iron").intValue());
     }
 
     @Test

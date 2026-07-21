@@ -234,6 +234,9 @@ public final class OverlayPreferences {
     /** Removed Nearby-tab UI; still read once for migration if no newer keys are set. */
     private static final String LEGACY_NEARBY_MIN_VALUE_MILLION_CREDITS = "nearby.minValueMillionCredits";
 
+    /** Route tab: predict fuel exhaustion along the plotted route (yellow/red gauge icons). */
+    private static final String KEY_ROUTE_FUEL_PREDICTION_ENABLED = "route.fuelPrediction.enabled";
+
     // Reuse the same prefs node as OverlayFrame so everything is in one place.
     private static final Preferences PREFS = Preferences.userNodeForPackage(OverlayFrame.class);
 
@@ -723,6 +726,15 @@ public final class OverlayPreferences {
 
     public static void setNextShownTabKeyCode(int keyCode) {
         PREFS.putInt(KEY_NEXT_TAB_KEYCODE, keyCode);
+    }
+
+    /** Default on: color the Route tab fuel icons yellow/red where fuel is predicted to run out. */
+    public static boolean isRouteFuelPredictionEnabled() {
+        return PREFS.getBoolean(KEY_ROUTE_FUEL_PREDICTION_ENABLED, true);
+    }
+
+    public static void setRouteFuelPredictionEnabled(boolean enabled) {
+        PREFS.putBoolean(KEY_ROUTE_FUEL_PREDICTION_ENABLED, enabled);
     }
 
     public static boolean isAutoSwitchRouteOnGalaxyMap() {

@@ -172,8 +172,9 @@ final class EngineeringMaterialsGoalDialog extends JDialog {
         root.setBorder(new EmptyBorder(10, 12, 10, 12));
 
         JLabel intro = new JLabel(mode == Mode.EDIT
-                ? "Update the label, ship, or reserved materials for this goal."
-                : "Create a materials reserve (e.g. mission request). Quantities stack on engineering needs.");
+                ? "Update the label, ship, or target stock for this goal."
+                : "Add materials you still need. Need is how many more to acquire (on top of Owned); "
+                        + "targets also stack on engineering goals.");
         intro.setFont(base.deriveFont(Font.PLAIN, fontSize));
         intro.setForeground(EdoUi.User.MAIN_TEXT);
 
@@ -271,8 +272,11 @@ final class EngineeringMaterialsGoalDialog extends JDialog {
 
         JPanel addRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         addRow.setOpaque(false);
-        addRow.add(fieldLabel("Qty:", base, fontSize));
+        addRow.add(fieldLabel(mode == Mode.EDIT ? "Target:" : "Need:", base, fontSize));
         styleSpinner(addQtySpinner, base);
+        addQtySpinner.setToolTipText(mode == Mode.EDIT
+                ? "Absolute target stock to hold for this goal"
+                : "How many more you need to acquire (target stock = Owned + Need)");
         addRow.add(addQtySpinner);
         JButton addMatBtn = new JButton("Add to goal");
         OverlayOutlineButtonStyle.applyChip(addMatBtn, base, false);
@@ -302,7 +306,9 @@ final class EngineeringMaterialsGoalDialog extends JDialog {
         selectedSouth.add(removeBtn);
         JPanel selectedBlock = new JPanel(new BorderLayout(4, 4));
         selectedBlock.setOpaque(false);
-        selectedBlock.add(sectionHeader("Reserved for this goal", base, fontSize), BorderLayout.NORTH);
+        selectedBlock.add(sectionHeader(
+                mode == Mode.EDIT ? "Target stock for this goal" : "Materials to acquire",
+                base, fontSize), BorderLayout.NORTH);
         selectedBlock.add(selectedScroll, BorderLayout.CENTER);
         selectedBlock.add(selectedSouth, BorderLayout.SOUTH);
         center.add(selectedBlock, BorderLayout.SOUTH);
@@ -450,8 +456,32 @@ final class EngineeringMaterialsGoalDialog extends JDialog {
             return;
         }
         int qty = ((Number) addQtySpinner.getValue()).intValue();
-        selectedModel.addOrMerge(row.key(), row.name(), qty);
-        hintLabel.setText(" ");
+        String key = row.key();
+        int owned = row.owned();
+        int previousTarget = selectedModel.countForKey(key);
+        int newTarget;
+        if (mode == Mode.ADD) {
+            // Spinner is "how many more to acquire". First add sets Owned+Need; later adds raise the target by Need.
+            newTarget = previousTarget > 0
+                    ? previousTarget + qty
+                    : owned + qty;
+        } else {
+            // Edit: spinner is absolute target stock; Add merges by raising the target.
+            newTarget = previousTarget > 0 ? previousTarget + qty : qty;
+        }
+        newTarget = Math.min(MaterialsGoal.MAX_MATERIAL_COUNT, newTarget);
+        selectedModel.setCount(key, row.name(), newTarget);
+        int stillNeed = Math.max(0, newTarget - owned);
+        if (stillNeed <= 0) {
+            hintLabel.setForeground(EdoUi.User.ERROR);
+            hintLabel.setText("Already at target for " + row.name()
+                    + " — raise Need to get trade suggestions.");
+        } else {
+            hintLabel.setForeground(EdoUi.User.MAIN_TEXT);
+            hintLabel.setText(row.name() + ": own " + owned
+                    + " → target " + newTarget
+                    + " (need " + stillNeed + " more)");
+        }
     }
 
     private void removeSelectedMaterial() {
@@ -465,12 +495,14 @@ final class EngineeringMaterialsGoalDialog extends JDialog {
     private void confirmSave() {
         String label = labelField.getText() != null ? labelField.getText().trim() : "";
         if (label.isBlank()) {
+            hintLabel.setForeground(EdoUi.User.ERROR);
             hintLabel.setText("Enter a label for this materials goal.");
             labelField.requestFocusInWindow();
             return;
         }
         List<MaterialRequirement> mats = selectedModel.toRequirements();
         if (mats.isEmpty()) {
+            hintLabel.setForeground(EdoUi.User.ERROR);
             hintLabel.setText("Add at least one material.");
             return;
         }
@@ -600,19 +632,33 @@ final class EngineeringMaterialsGoalDialog extends JDialog {
             fireTableDataChanged();
         }
 
-        void addOrMerge(String key, String name, int qty) {
+        int countForKey(String key) {
             String canonical = EngineeringMaterialKeys.canonicalKey(key);
+            for (SelectedRow row : rows) {
+                if (row.key().equals(canonical)) {
+                    return row.count();
+                }
+            }
+            return 0;
+        }
+
+        void setCount(String key, String name, int count) {
+            String canonical = EngineeringMaterialKeys.canonicalKey(key);
+            int clamped = Math.max(1, Math.min(MaterialsGoal.MAX_MATERIAL_COUNT, count));
             for (int i = 0; i < rows.size(); i++) {
                 SelectedRow existing = rows.get(i);
                 if (existing.key().equals(canonical)) {
-                    int next = Math.min(MaterialsGoal.MAX_MATERIAL_COUNT, existing.count() + qty);
-                    rows.set(i, new SelectedRow(canonical, existing.name(), next));
+                    rows.set(i, new SelectedRow(canonical, existing.name(), clamped));
                     fireTableRowsUpdated(i, i);
                     return;
                 }
             }
-            rows.add(new SelectedRow(canonical, name, Math.min(MaterialsGoal.MAX_MATERIAL_COUNT, qty)));
+            rows.add(new SelectedRow(canonical, name, clamped));
             fireTableRowsInserted(rows.size() - 1, rows.size() - 1);
+        }
+
+        void addOrMerge(String key, String name, int qty) {
+            setCount(key, name, countForKey(key) + qty);
         }
 
         void removeAt(int index) {
@@ -653,7 +699,7 @@ final class EngineeringMaterialsGoalDialog extends JDialog {
 
         @Override
         public String getColumnName(int column) {
-            return column == 0 ? "Material" : "Qty";
+            return column == 0 ? "Material" : "Target";
         }
 
         @Override

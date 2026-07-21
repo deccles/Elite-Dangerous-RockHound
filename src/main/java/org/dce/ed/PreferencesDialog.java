@@ -176,6 +176,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox autoSwitchMiningOnStartupPlanetaryRingCheckBox;
 	private JCheckBox autoSwitchBiologyOnNearBodyCheckBox;
 	private JCheckBox autoSwitchFleetCarrierOnJsonDropCheckBox;
+	private JCheckBox routeFuelPredictionCheckBox;
 
 	/** Overlay tab: System tab ship / plan-map reference body mode */
 	private JComboBox<SystemTabShipRefMode> systemTabShipRefModeComboBox;
@@ -729,6 +730,24 @@ public class PreferencesDialog extends JDialog {
 		autoSwitchPanel.add(autoSwitchFleetCarrierOnJsonDropCheckBox, agc);
 
 		addLeftStackedSection(panel, autoSwitchPanel);
+
+		JPanel routePanel = new JPanel(new GridBagLayout());
+		routePanel.setOpaque(false);
+		routePanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Route tab"));
+		GridBagConstraints rgc = new GridBagConstraints();
+		rgc.gridx = 0;
+		rgc.gridy = 0;
+		rgc.anchor = GridBagConstraints.WEST;
+		rgc.insets = new Insets(2, 8, 2, 8);
+		routeFuelPredictionCheckBox = new JCheckBox(
+				"Predict fuel exhaustion along the route (yellow pump = last reachable system, red pump = out of fuel)");
+		routeFuelPredictionCheckBox.setOpaque(false);
+		routeFuelPredictionCheckBox.setSelected(OverlayPreferences.isRouteFuelPredictionEnabled());
+		routePanel.add(routeFuelPredictionCheckBox, rgc);
+		addLeftStackedSection(panel, routePanel);
+
 		finishLeftSectionStack(panel);
 		return panel;
 	}
@@ -2596,6 +2615,9 @@ public class PreferencesDialog extends JDialog {
 
         if (autoSwitchGalaxyMapToRouteCheckBox != null) {
             OverlayPreferences.setAutoSwitchRouteOnGalaxyMap(autoSwitchGalaxyMapToRouteCheckBox.isSelected());
+        }
+        if (routeFuelPredictionCheckBox != null) {
+            OverlayPreferences.setRouteFuelPredictionEnabled(routeFuelPredictionCheckBox.isSelected());
         }
         if (autoSwitchSystemMapToSystemCheckBox != null) {
             OverlayPreferences.setAutoSwitchSystemOnSystemMap(autoSwitchSystemMapToSystemCheckBox.isSelected());

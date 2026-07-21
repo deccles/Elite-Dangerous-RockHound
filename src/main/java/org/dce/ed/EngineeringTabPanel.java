@@ -2794,9 +2794,10 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     private static String formatMaterialsGoalStatusText(GoalReadiness readiness) {
-        // Materials reserves have no craft step — covered stock is "Complete" until the user deletes the row.
+        // Materials reserves have no craft step — stocked means Ready (not Complete; that implied
+        // the goal auto-finished and confused people who had just added an acquisition target).
         return switch (readiness) {
-            case READY -> STATUS_COMPLETE;
+            case READY -> STATUS_READY;
             case READY_WITH_TRADES -> STATUS_TRADES;
             case STILL_SHORT -> STATUS_SHORT;
         };
