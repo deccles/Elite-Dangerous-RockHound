@@ -1,6 +1,7 @@
 package org.dce.ed.exec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -68,12 +69,32 @@ class ExecTriggerServiceTest {
         binding.setJarPath("");
         binding.setDelayMs(60_000);
         binding.setEnabled(true);
-        binding.setTrigger(ExecTriggerId.MANUAL);
+        binding.setTrigger(ExecTriggerId.ROUTE_COPY_NEXT_DESTINATION);
 
-        service.runBindingNow(binding);
+        ExecBindingsConfig config = new ExecBindingsConfig();
+        config.getBindings().add(binding);
+        service.setConfigSupplier(() -> config);
+
+        service.onCopyNextDestination(ExecTriggerId.ROUTE_COPY_NEXT_DESTINATION, "Sol");
 
         String message = service.killRunningScripts();
         assertTrue(message.contains("scheduled"), message);
+        assertEquals(0, JarExecRunner.runningProcessCount());
+    }
+
+    @Test
+    void runBindingNow_skipsDelayAndDoesNotSchedule() {
+        ExecTriggerService service = new ExecTriggerService();
+
+        ExecBinding binding = new ExecBinding();
+        binding.setJarPath("");
+        binding.setDelayMs(60_000);
+        binding.setEnabled(true);
+        binding.setTrigger(ExecTriggerId.NONE);
+
+        service.runBindingNow(binding);
+
+        assertFalse(service.hasActiveScripts());
         assertEquals(0, JarExecRunner.runningProcessCount());
     }
 }

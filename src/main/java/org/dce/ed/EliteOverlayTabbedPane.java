@@ -1479,20 +1479,26 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		if (!isShowing() || wheelRotation == 0) {
 			return false;
 		}
-		switch (visibleCardName) {
-		case CARD_ROUTE:
-			return routeTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
-		case CARD_SYSTEM:
-			return systemTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
-		case CARD_FLEET_CARRIER:
-			return fleetCarrierTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
-		case CARD_BIOLOGY:
-			return biologyTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
-		case CARD_ENGINEERING:
-			return engineeringTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
-		default:
+		return applyPassThroughWheelForCard(visibleCardName, screenX, screenY, wheelRotation);
+	}
+
+	/**
+	 * Same as {@link #handlePassThroughMouseWheelAtScreen} for a specific card (main or floating dock).
+	 */
+	public boolean applyPassThroughWheelForCard(String cardName, int screenX, int screenY, int wheelRotation) {
+		if (cardName == null || wheelRotation == 0) {
 			return false;
 		}
+		return switch (cardName) {
+			case CARD_ROUTE -> routeTab != null && routeTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+			case CARD_SYSTEM -> systemTab != null && systemTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+			case CARD_FLEET_CARRIER -> fleetCarrierTab != null
+					&& fleetCarrierTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+			case CARD_BIOLOGY -> biologyTab != null && biologyTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+			case CARD_ENGINEERING -> engineeringTab != null
+					&& engineeringTab.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
+			default -> false;
+		};
 	}
 
 	/**
@@ -1509,6 +1515,18 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 	public void resetPassThroughBioMapControlsHover() {
 		biologyTab.resetPassThroughMapControlsHover();
+	}
+
+	/** Full MPT chrome exception: pointer is over the ExoBio map surface. */
+	public boolean isPointerOverBiologyMap(Point screenPoint) {
+		return isPointerOverBiologyMapForCard(visibleCardName, screenPoint);
+	}
+
+	/** Full MPT chrome exception for a specific card (main or floating dock). */
+	public boolean isPointerOverBiologyMapForCard(String cardName, Point screenPoint) {
+		return CARD_BIOLOGY.equals(cardName)
+				&& biologyTab != null
+				&& biologyTab.isPointerOverInteractiveRegion(screenPoint);
 	}
 
 	private void applyTabButtonStyle(JButton button) {

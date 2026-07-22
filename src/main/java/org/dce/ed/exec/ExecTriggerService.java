@@ -336,7 +336,8 @@ public final class ExecTriggerService {
         } else if (prep != null && prep.clipboardCleared()) {
             builder.clipboardCleared(true);
         }
-        scheduleAndRun(binding, builder.build());
+        // Manual runs (Control Panel / Run now) skip binding delay; delay applies only to triggers.
+        launch(binding, builder.build());
     }
 
     private void fireTrigger(ExecTriggerId triggerId, ExecLaunchContext baseContext) {

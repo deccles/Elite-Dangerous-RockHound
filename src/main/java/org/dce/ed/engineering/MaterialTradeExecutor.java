@@ -167,7 +167,7 @@ public final class MaterialTradeExecutor {
                 int ordinal = i + 1;
                 report(status, plans.size() == 1
                         ? "Running trade…"
-                        : "Running trade " + ordinal + " of " + plans.size() + "…");
+                        : "Starting trade " + ordinal + " of " + plans.size() + "…");
                 System.out.println("EDO auto-trade: trade " + ordinal + "/" + plans.size()
                         + " " + plan.suggestion().summary()
                         + " rights=" + plan.rightPresses()
@@ -190,6 +190,11 @@ public final class MaterialTradeExecutor {
                     return new Result(Outcome.MISMATCH,
                             "Journal trade " + ordinal + " did not match the suggestion");
                 }
+
+                // Bump progress only after the journal confirms this trade finished.
+                report(status, plans.size() == 1
+                        ? "Completed trade 1 of 1"
+                        : "Completed trade " + ordinal + " of " + plans.size());
 
                 // The game returns to the grid with the give material highlighted.
                 currentPos = plan.givePos();

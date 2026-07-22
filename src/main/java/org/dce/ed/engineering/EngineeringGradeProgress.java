@@ -1,56 +1,192 @@
 package org.dce.ed.engineering;
 
 /**
- * Elite engineering requires multiple applications per blueprint grade before the next grade unlocks.
+ * Elite engineering grade progress and roll counts.
+ *
+ * <p>Journal {@code Quality} is authoritative when present: a grade finishes when Quality reaches
+ * ~1.0. Roll counts for material estimates follow engineer reputation (see
+ * {@link #rollsRequired(int, int)}).
  */
 public final class EngineeringGradeProgress {
 
-    /** Journal rolls required at each grade (G1–G5) before the next grade unlocks. */
+    /** Worst-case / legacy rolls per grade when reputation is unknown. */
     public static final int ROLLS_PER_GRADE = 5;
+
+    /**
+     * Rolls to finish {@code grade} at engineer access {@code rank} (both 1–5).
+     *
+     * <pre>
+     *        G1 G2 G3 G4 G5
+     * Rank1   5  -  -  -  -
+     * Rank2   4  5  -  -  -
+     * Rank3   3  4  5  -  -
+     * Rank4   2  3  4  5  -
+     * Rank5   1  2  3  4  5
+     * </pre>
+     */
+    private static final int[][] ROLLS_BY_RANK_AND_GRADE = {
+            {0, 0, 0, 0, 0, 0},
+            {0, 5, 5, 5, 5, 5},
+            {0, 4, 5, 5, 5, 5},
+            {0, 3, 4, 5, 5, 5},
+            {0, 2, 3, 4, 5, 5},
+            {0, 1, 2, 3, 4, 5}
+    };
 
     private EngineeringGradeProgress() {
     }
 
-    /** Rolls still needed at {@code grade} for this goal (0 if grade is already complete or out of range). */
+    /**
+     * Rolls needed to complete {@code grade} given engineer reputation {@code rank}.
+     * Unknown/zero rank uses the conservative 5-roll schedule. Grades above the current unlock
+     * assume the minimum rank required to craft that grade.
+     */
+    public static int rollsRequired(int engineerRank, int grade) {
+        if (grade < 1 || grade > 5) {
+            return 0;
+        }
+        int rank = Math.max(0, Math.min(5, engineerRank));
+        if (rank <= 0) {
+            return ROLLS_PER_GRADE;
+        }
+        int effective = Math.min(5, Math.max(rank, grade));
+        return ROLLS_BY_RANK_AND_GRADE[effective][grade];
+    }
+
+    /** Rolls still needed at {@code grade} for this goal (unknown rank ⇒ 5-roll schedule). */
     public static int rollsRemainingAtGrade(EngineeringGoal goal, int grade) {
+        return rollsRemainingAtGrade(goal, grade, 0);
+    }
+
+    public static int rollsRemainingAtGrade(EngineeringGoal goal, int grade, int engineerRank) {
         if (goal == null || grade < 1 || grade > goal.getTargetGrade()) {
             return 0;
         }
         if (grade <= goal.getFromGrade()) {
             return 0;
         }
+        int required = rollsRequired(engineerRank, grade);
         if (grade == goal.getFromGrade() + 1) {
-            return Math.max(0, ROLLS_PER_GRADE - goal.getCraftsAtCurrentGrade());
+            int done = Math.min(required, rescaleCrafts(
+                    goal.getCraftsAtCurrentGrade(), ROLLS_PER_GRADE, required));
+            return Math.max(0, required - done);
         }
-        return ROLLS_PER_GRADE;
+        return required;
     }
 
-    /** Applies one journal craft at {@code craftLevel} to goal progress. */
+    /**
+     * Reinterprets crafts stored on the legacy 5-roll scale onto {@code toScale} rolls for the
+     * current reputation schedule.
+     */
+    static int rescaleCrafts(int craftsOnFiveScale, int fromScale, int toScale) {
+        if (toScale <= 0) {
+            return 0;
+        }
+        if (fromScale <= 0 || fromScale == toScale) {
+            return Math.max(0, Math.min(toScale, craftsOnFiveScale));
+        }
+        if (craftsOnFiveScale <= 0) {
+            return 0;
+        }
+        int scaled = (int) Math.round(craftsOnFiveScale * (double) toScale / (double) fromScale);
+        return Math.max(0, Math.min(toScale, scaled));
+    }
+
     public static EngineeringGoal afterCraft(EngineeringGoal goal, int craftLevel) {
+        return afterCraft(goal, craftLevel, Double.NaN, 0);
+    }
+
+    public static EngineeringGoal afterCraft(EngineeringGoal goal, int craftLevel, double quality) {
+        return afterCraft(goal, craftLevel, quality, 0);
+    }
+
+    /**
+     * @param quality journal {@code Quality} after the craft, or {@link Double#NaN} if unknown
+     * @param engineerRank reputation with the crafting engineer (0 = unknown ⇒ 5-roll schedule)
+     */
+    public static EngineeringGoal afterCraft(EngineeringGoal goal,
+                                             int craftLevel,
+                                             double quality,
+                                             int engineerRank) {
         if (goal == null || craftLevel < 1) {
             return goal;
         }
-        int completed = goal.getFromGrade();
-        int crafts = goal.getCraftsAtCurrentGrade();
-
-        if (craftLevel <= completed) {
+        if (craftLevel <= goal.getFromGrade()) {
             return goal;
         }
-        if (craftLevel == completed + 1) {
-            crafts++;
-            if (crafts >= ROLLS_PER_GRADE) {
-                completed = craftLevel;
-                crafts = 0;
-            }
-            return goal.withProgress(completed, crafts);
+
+        int rollsForLevel = rollsRequired(engineerRank, craftLevel);
+        boolean qualityComplete = !Double.isNaN(quality) && quality >= 0.999d;
+
+        if (qualityComplete) {
+            return goal.withProgress(craftLevel, 0);
         }
-        // craftLevel > completed + 1: journal advanced past the grade we were counting
-        // (incomplete history, or fewer than ROLLS_PER_GRADE logged applications). Treat the
-        // higher Level as authoritative — lower grades are finished.
+
+        int completed = goal.getFromGrade();
+        int craftsFive = goal.getCraftsAtCurrentGrade();
+
+        if (craftLevel == completed + 1) {
+            if (!Double.isNaN(quality)) {
+                int onSchedule = craftsFromQuality(quality, rollsForLevel);
+                if (onSchedule >= rollsForLevel) {
+                    return goal.withProgress(craftLevel, 0);
+                }
+                // Count this application, but never regress below journal Quality.
+                craftsFive = Math.max(craftsFive + 1, craftsFromQualityFive(quality));
+            } else {
+                craftsFive++;
+                int onSchedule = rescaleCrafts(craftsFive, ROLLS_PER_GRADE, rollsForLevel);
+                if (onSchedule >= rollsForLevel) {
+                    return goal.withProgress(craftLevel, 0);
+                }
+            }
+            if (craftsFive >= ROLLS_PER_GRADE) {
+                return goal.withProgress(craftLevel, 0);
+            }
+            return goal.withProgress(completed, Math.min(ROLLS_PER_GRADE - 1, craftsFive));
+        }
+
+        // craftLevel > completed + 1: skipped grades (incomplete history).
+        if (!Double.isNaN(quality)) {
+            int onSchedule = craftsFromQuality(quality, rollsForLevel);
+            if (onSchedule >= rollsForLevel) {
+                return goal.withProgress(craftLevel, 0);
+            }
+            int intoFive = Math.max(1, craftsFromQualityFive(quality));
+            return goal.withProgress(craftLevel - 1, intoFive);
+        }
         return goal.withProgress(craftLevel - 1, 1);
     }
 
+    /** Maps journal Quality onto 0..{@code rollsPerGrade} progress steps. */
+    static int craftsFromQuality(double quality, int rollsPerGrade) {
+        if (Double.isNaN(quality) || quality <= 0.01d || rollsPerGrade <= 0) {
+            return 0;
+        }
+        if (quality >= 0.999d) {
+            return rollsPerGrade;
+        }
+        int rolls = (int) Math.round(quality * rollsPerGrade);
+        if (rolls <= 0) {
+            rolls = 1;
+        }
+        return Math.min(rollsPerGrade, rolls);
+    }
+
+    /** Legacy 5-scale craft count from quality (stored on {@link EngineeringGoal}). */
+    static int craftsFromQualityFive(double quality) {
+        int rolls = craftsFromQuality(quality, ROLLS_PER_GRADE);
+        if (rolls >= ROLLS_PER_GRADE) {
+            return ROLLS_PER_GRADE;
+        }
+        return Math.min(ROLLS_PER_GRADE - 1, rolls);
+    }
+
     public static String progressLabel(EngineeringGoal goal) {
+        return progressLabel(goal, 0);
+    }
+
+    public static String progressLabel(EngineeringGoal goal, int engineerRank) {
         if (goal == null) {
             return "";
         }
@@ -58,9 +194,10 @@ public final class EngineeringGradeProgress {
             return "G" + goal.getTargetGrade();
         }
         int working = goal.getFromGrade() + 1;
+        int required = rollsRequired(engineerRank, working);
+        int done = rescaleCrafts(goal.getCraftsAtCurrentGrade(), ROLLS_PER_GRADE, required);
         if (goal.getFromGrade() > 0 || goal.getCraftsAtCurrentGrade() > 0) {
-            return "G" + goal.getTargetGrade() + " (G" + working + " "
-                    + goal.getCraftsAtCurrentGrade() + "/" + ROLLS_PER_GRADE + ")";
+            return "G" + goal.getTargetGrade() + " (G" + working + " " + done + "/" + required + ")";
         }
         return "G" + goal.getTargetGrade();
     }

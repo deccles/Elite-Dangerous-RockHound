@@ -97,6 +97,13 @@ public final class SystemNameAutocomplete {
         if (suppressDocEvents) {
             return;
         }
+        // Ignore programmatic setText (session restore, jump request, etc.) so we never
+        // open the popup or steal focus when the user isn't editing the field.
+        if (!field.isFocusOwner()) {
+            pendingPrefix = null;
+            hidePopup();
+            return;
+        }
         String text = field.getText().trim();
         if (text.length() < MIN_PREFIX) {
             pendingPrefix = null;
@@ -179,7 +186,7 @@ public final class SystemNameAutocomplete {
             @Override
             public void actionPerformed(ActionEvent e) {
                 hidePopup();
-                field.requestFocusInWindow();
+                focusField();
                 field.setCaretPosition(field.getText().length());
             }
         });
@@ -199,7 +206,7 @@ public final class SystemNameAutocomplete {
                         restore = field.getText();
                     }
                     field.setText(restore);
-                    field.requestFocusInWindow();
+                    focusField();
                     field.setCaretPosition(restore.length());
                     originalTextForListNavigation = null;
                     hidePopup();
@@ -247,8 +254,17 @@ public final class SystemNameAutocomplete {
         }
         popup.setPopupSize(width, listHeight + 4);
         popup.show(field, 0, field.getHeight());
+        // Keep caret at end while editing; do not request focus here — that steals focus
+        // when suggestions arrive after a programmatic setText (session restore).
+        if (field.isFocusOwner()) {
+            field.setCaretPosition(field.getText().length());
+        }
+    }
+
+    /** Ensures click-to-focus fields can regain keyboard focus after popup navigation. */
+    private void focusField() {
+        field.setFocusable(true);
         field.requestFocusInWindow();
-        field.setCaretPosition(field.getText().length());
     }
 
     private void applySelection() {

@@ -1328,11 +1328,15 @@ private void startCarrierJumpCountdown(Instant departureTime, String targetSyste
 }
 
 /**
- * Target shown in the title bar during an FC jump countdown. When a Spansh fleet route is loaded,
- * prefer the next hop on that route over the raw in-game {@link CarrierJumpRequestEvent} target
- * (which may be a manual off-route jump or a stale request).
+ * Target shown in the title bar during an FC jump countdown. The in-game
+ * {@link CarrierJumpRequestEvent} target is authoritative — a manual jump can go off-route, and
+ * showing the loaded Spansh route's next hop instead displayed the wrong destination. The route's
+ * next hop is only a fallback when the request carried no system name.
  */
 private String resolveCarrierJumpTitleTarget() {
+    if (carrierJumpTargetSystem != null && !carrierJumpTargetSystem.isBlank()) {
+        return carrierJumpTargetSystem;
+    }
     EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
     if (tabs != null) {
         FleetCarrierTabPanel fleet = tabs.getFleetCarrierTabPanel();
@@ -2238,11 +2242,14 @@ private void refreshPassThroughUnifiedStatus() {
         if (mouseInteractionMode == MouseInteractionMode.SELECTIVE) {
             return tabs.isPointerOverSelectiveHit(mouse);
         }
-        // Full MPT: preserve existing exceptions (Control Panel buttons + tab scrollbars).
+        // Full MPT: Control Panel buttons, tab scrollbars, and the ExoBio map (pan / zoom / favorite).
         if (tabs.isPointerOverControlPanelActionButton(mouse)) {
             return true;
         }
-        return tabs.isPointerOverTabScrollBar(mouse);
+        if (tabs.isPointerOverTabScrollBar(mouse)) {
+            return true;
+        }
+        return tabs.isPointerOverBiologyMap(mouse);
     }
 
     private static boolean containsScreenPoint(Component component, Point screenPoint) {
@@ -2912,8 +2919,9 @@ private void refreshPassThroughUnifiedStatus() {
         passThroughSettingsHoverStartMs = -1L;
 
         EliteOverlayTabbedPane tp = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
+        // ExoBio map is punched interactive in Selective and Full — use AWT clicks, not dwell.
         if (tp != null) {
-            tp.applyPassThroughBioMapControlsAtScreen(mouseOnScreen.x, mouseOnScreen.y);
+            tp.resetPassThroughBioMapControlsHover();
         }
     }
 

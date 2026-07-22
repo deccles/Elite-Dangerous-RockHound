@@ -43,6 +43,7 @@ import org.dce.ed.logreader.event.SetUserShipNameEvent;
 import org.dce.ed.logreader.event.StoredShipsEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
 import org.dce.ed.logreader.event.EngineerContributionEvent;
+import org.dce.ed.logreader.event.EngineerProgressEvent;
 import org.dce.ed.logreader.event.MaterialCollectedEvent;
 import org.dce.ed.logreader.event.MaterialDiscardedEvent;
 import org.dce.ed.logreader.event.MaterialStack;
@@ -213,6 +214,8 @@ public class EliteLogParser {
                 return parseEngineerCraft(ts, obj);
             case ENGINEER_CONTRIBUTION:
                 return parseEngineerContribution(ts, obj);
+            case ENGINEER_PROGRESS:
+                return parseEngineerProgress(ts, obj);
             default:
                 // For everything else, fall back to generic event.
                 return new GenericEvent(ts, type, obj);
@@ -1338,6 +1341,34 @@ private static String canonicalGasName(String name) {
                 getString(obj, "Commodity_Localised"),
                 getInt(obj, "Quantity", getInt(obj, "Count", 0)),
                 getInt(obj, "TotalQuantity", 0));
+    }
+
+    private EngineerProgressEvent parseEngineerProgress(Instant ts, JsonObject obj) {
+        List<EngineerProgressEvent.EngineerRank> ranks = new ArrayList<>();
+        boolean fullSnapshot = false;
+        if (obj.has("Engineers") && obj.get("Engineers").isJsonArray()) {
+            fullSnapshot = true;
+            for (JsonElement el : obj.getAsJsonArray("Engineers")) {
+                if (el == null || !el.isJsonObject()) {
+                    continue;
+                }
+                JsonObject eng = el.getAsJsonObject();
+                ranks.add(new EngineerProgressEvent.EngineerRank(
+                        getString(eng, "Engineer"),
+                        getLong(eng, "EngineerID", 0L),
+                        getString(eng, "Progress"),
+                        getInt(eng, "Rank", 0),
+                        getInt(eng, "RankProgress", 0)));
+            }
+        } else if (obj.has("Engineer")) {
+            ranks.add(new EngineerProgressEvent.EngineerRank(
+                    getString(obj, "Engineer"),
+                    getLong(obj, "EngineerID", 0L),
+                    getString(obj, "Progress"),
+                    getInt(obj, "Rank", 0),
+                    getInt(obj, "RankProgress", 0)));
+        }
+        return new EngineerProgressEvent(ts, obj, ranks, fullSnapshot);
     }
 
     private EngineerCraftEvent parseEngineerCraft(Instant ts, JsonObject obj) {

@@ -61,6 +61,61 @@ class EngineeringGradeProgressTest {
     }
 
     @Test
+    void rollsRequired_rank5_equalsGradeNumber() {
+        assertEquals(1, EngineeringGradeProgress.rollsRequired(5, 1));
+        assertEquals(2, EngineeringGradeProgress.rollsRequired(5, 2));
+        assertEquals(3, EngineeringGradeProgress.rollsRequired(5, 3));
+        assertEquals(4, EngineeringGradeProgress.rollsRequired(5, 4));
+        assertEquals(5, EngineeringGradeProgress.rollsRequired(5, 5));
+    }
+
+    @Test
+    void rollsRequired_rank1_g1NeedsFive() {
+        assertEquals(5, EngineeringGradeProgress.rollsRequired(1, 1));
+        assertEquals(5, EngineeringGradeProgress.rollsRequired(0, 3), "unknown rank is conservative");
+    }
+
+    @Test
+    void planner_ignoresRank5Discount_keepsConservativeFiveRollNeed() {
+        // Reputation is tracked for progress/UI, but Need always uses the 5-roll schedule.
+        BlueprintGrade g3 = db.gradesFor("Power Distributor", "Charge Enhanced").stream()
+                .filter(b -> b.getGrade() == 3)
+                .findFirst()
+                .orElseThrow();
+        EngineeringGoal goal = new EngineeringGoal(
+                g3.getId(), g3.getModuleType(), g3.getName(), 0, 0, 3, "");
+
+        Map<String, Integer> required = planner.materialsForGoal(goal);
+        int firmware = required.getOrDefault("specialisedlegacyfirmware", 0);
+        assertEquals(10, firmware, "G1+G2 ×5 specialised legacy firmware (conservative)");
+    }
+
+    @Test
+    void afterCraft_qualityOneCompletesGradeInFewerThanFiveRolls() {
+        // Marco Qwent / pinned mats: G3 can finish in three applications (0.33 / 0.67 / 1.0).
+        EngineeringGoal goal = new EngineeringGoal("id", "Power Distributor", "Charge Enhanced", 2, 0, 5, "");
+        goal = EngineeringGradeProgress.afterCraft(goal, 3, 0.3333);
+        assertEquals(2, goal.getFromGrade());
+        assertEquals(2, goal.getCraftsAtCurrentGrade());
+
+        goal = EngineeringGradeProgress.afterCraft(goal, 3, 0.6667);
+        assertEquals(2, goal.getFromGrade());
+        assertEquals(3, goal.getCraftsAtCurrentGrade());
+
+        goal = EngineeringGradeProgress.afterCraft(goal, 3, 1.0);
+        assertEquals(3, goal.getFromGrade());
+        assertEquals(0, goal.getCraftsAtCurrentGrade());
+    }
+
+    @Test
+    void afterCraft_qualityOneOnSkippedGradesMarksLevelComplete() {
+        EngineeringGoal goal = new EngineeringGoal("id", "Power Distributor", "Charge Enhanced", 0, 0, 5, "");
+        goal = EngineeringGradeProgress.afterCraft(goal, 2, 1.0);
+        assertEquals(2, goal.getFromGrade());
+        assertEquals(0, goal.getCraftsAtCurrentGrade());
+    }
+
+    @Test
     void rollsRemaining_partialProgressAtCurrentGrade() {
         EngineeringGoal goal = new EngineeringGoal("id", "Mod", "BP", 1, 2, 5, "");
         assertEquals(3, EngineeringGradeProgress.rollsRemainingAtGrade(goal, 2));

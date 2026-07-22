@@ -1,5 +1,6 @@
 package org.dce.ed.ui;
 
+import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
@@ -50,6 +51,14 @@ public final class OverlayOutlineButtonStyle {
      * (alpha-0 pixels remain click-through even after Selective mode clears {@code WS_EX_TRANSPARENT}).
      */
     public static void applyPrimaryHitSafe(JButton b, Font uiFont) {
+        applyPrimaryHitSafe(b, uiFont, true);
+    }
+
+    /**
+     * @param forceThemeInk when false, label color follows {@link JButton#getForeground()}
+     *        (e.g. muted “Copy next destination” when there is nothing to copy)
+     */
+    public static void applyPrimaryHitSafe(JButton b, Font uiFont, boolean forceThemeInk) {
         if (b == null || uiFont == null) {
             return;
         }
@@ -61,7 +70,7 @@ public final class OverlayOutlineButtonStyle {
         b.setForeground(EdoUi.User.MAIN_TEXT);
         b.setMargin(new Insets(0, 0, 0, 0));
         b.setBorderPainted(true);
-        b.putClientProperty(THEME_INK_KEY, Boolean.TRUE);
+        b.putClientProperty(THEME_INK_KEY, forceThemeInk ? Boolean.TRUE : null);
         b.putClientProperty(DANGER_DISABLED_TEXT_KEY, null);
         b.setBorder(BorderFactory.createCompoundBorder(
                 new ThemeRoundedLineBorder(true, 2, DEFAULT_ARC),
@@ -128,6 +137,13 @@ public final class OverlayOutlineButtonStyle {
             if (c instanceof AbstractButton b && b.isOpaque()) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 try {
+                    // Clear the rectangular bounds first so corners outside the rounded plate
+                    // do not keep a black halo from parent chrome / prior fills.
+                    if (OverlayPreferences.overlayChromeRequestsTransparency(b)) {
+                        g2.setComposite(AlphaComposite.Clear);
+                        g2.fillRect(0, 0, b.getWidth(), b.getHeight());
+                        g2.setComposite(AlphaComposite.SrcOver);
+                    }
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     g2.setColor(b.getBackground());
                     g2.fillRoundRect(0, 0, b.getWidth(), b.getHeight(), DEFAULT_ARC, DEFAULT_ARC);

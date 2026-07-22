@@ -15,9 +15,22 @@ public final class PassThroughScrollSupport {
     private PassThroughScrollSupport() {
     }
 
+    /** {@code true} when the vertical bar can move (content taller than the viewport). */
+    public static boolean isVerticallyScrollable(JScrollPane scrollPane) {
+        if (scrollPane == null || !scrollPane.isShowing()) {
+            return false;
+        }
+        JScrollBar vsb = scrollPane.getVerticalScrollBar();
+        if (vsb == null || !vsb.isEnabled()) {
+            return false;
+        }
+        int max = Math.max(vsb.getMinimum(), vsb.getMaximum() - vsb.getVisibleAmount());
+        return max > vsb.getMinimum();
+    }
+
     /**
      * @param wheelRotation native wheel rotation (positive = scroll down)
-     * @return {@code true} if the scroll bar was adjusted (caller may consume the native event)
+     * @return {@code true} if the wheel was handled for this pane (caller may consume the native event)
      */
     public static boolean applyVerticalWheelIfHit(JScrollPane scrollPane, int screenX, int screenY, int wheelRotation) {
         if (scrollPane == null || !scrollPane.isShowing() || wheelRotation == 0) {
@@ -44,10 +57,10 @@ public final class PassThroughScrollSupport {
         int delta = wheelRotation * unit * 3;
         int v = vsb.getValue();
         int newV = Math.max(vsb.getMinimum(), Math.min(max, v + delta));
-        if (newV == v) {
-            return false;
+        if (newV != v) {
+            vsb.setValue(newV);
         }
-        vsb.setValue(newV);
+        // Consume even at the ends so the game does not also react while over an active scroller.
         return true;
     }
 }

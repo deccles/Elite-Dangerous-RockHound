@@ -351,15 +351,13 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         if (containsScreenPoint(scrollableTabBar, mouse)) {
             return true;
         }
-        if (mouseInteractionMode == MouseInteractionMode.SELECTIVE) {
-            BiPredicate<String, Point> tester = selectiveHitTester;
-            String card = selectedCardName;
-            if (tester != null && card != null) {
-                return tester.test(card, mouse);
-            }
-            return false;
+        // Selective and Full: punch through over card-specific interactive regions (ExoBio map, etc.).
+        // Full previously left map controls click-through with no dwell poller on floats.
+        BiPredicate<String, Point> tester = selectiveHitTester;
+        String card = selectedCardName;
+        if (tester != null && card != null && mouseInteractionMode.isPassThroughLike()) {
+            return tester.test(card, mouse);
         }
-        // Full MPT: only title + tab strip stay clickable.
         return false;
     }
 

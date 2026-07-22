@@ -80,6 +80,7 @@ import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.SelectiveHitSupport;
 
 public class BiologyTabPanel extends JPanel {
 
@@ -424,17 +425,12 @@ private Double lastFootTravelUpDeg;
         }
     }
 
-    /** Selective mouse mode: ExoBio map control hit rects (compass, bookmark, zoom ±). */
+    /**
+     * Selective / Full mouse modes: the whole ExoBio map receives real clicks (pan, zoom buttons,
+     * favorite, wheel). Tiny control-only hits left pan dead under {@code WS_EX_TRANSPARENT}.
+     */
     public boolean isPointerOverInteractiveRegion(Point screenPoint) {
-        if (screenPoint == null || !isShowing() || mapPanel == null) {
-            return false;
-        }
-        int x = screenPoint.x;
-        int y = screenPoint.y;
-        return mapPanel.isCompassAtScreen(x, y)
-                || mapPanel.isBookmarkButtonAtScreen(x, y)
-                || mapPanel.isZoomInButtonAtScreen(x, y)
-                || mapPanel.isZoomOutButtonAtScreen(x, y);
+        return SelectiveHitSupport.containsScreenPoint(mapPanel, screenPoint);
     }
 
     /**
@@ -2416,9 +2412,9 @@ private final class BioMapPanel extends JPanel {
         MouseAdapter mapMouse = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
-                    return;
-                }
+                // When the window stamps clear of WS_EX_TRANSPARENT over this map, AWT events arrive
+                // even in Full MPT — handle them. Dwell remains a fallback when the map stays
+                // click-through (see OverlayFrame pass-through hover).
                 Point p = e.getPoint();
                 if (compassHit.contains(p)) {
                     toggleHeadingUpMode();
@@ -2448,9 +2444,6 @@ private final class BioMapPanel extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (OverlayPreferences.isOverlayFullMousePassThrough()) {
-                    return;
-                }
                 if (mapPanDragActive
                         && (SwingUtilities.isMiddleMouseButton(e) || SwingUtilities.isLeftMouseButton(e))) {
                     mapPanDragActive = false;
@@ -2461,7 +2454,7 @@ private final class BioMapPanel extends JPanel {
 
             @Override
             public void mouseDragged(MouseEvent e) {
-                if (OverlayPreferences.isOverlayFullMousePassThrough() || !mapPanDragActive) {
+                if (!mapPanDragActive) {
                     return;
                 }
                 int x = e.getX();

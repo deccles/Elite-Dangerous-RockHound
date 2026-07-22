@@ -430,6 +430,9 @@ public final class EngineeringPlanner {
     }
 
     private void accumulateSingleUnitMaterials(EngineeringGoal goal, Map<String, Integer> required) {
+        // Always use the conservative 5-roll schedule for Need. Rank-5 discounts (1/2/3/4/5)
+        // would under-buy when crafting at a lower-rep engineer or before ranks are known.
+        // Live progress still follows journal Quality (early grade completion).
         List<BlueprintGrade> grades = database.gradesFor(goal.getModuleType(), goal.getBlueprintName());
         for (BlueprintGrade grade : grades) {
             if (grade.isExperimental()) {
@@ -439,7 +442,7 @@ public final class EngineeringPlanner {
             if (g <= goal.getFromGrade() || g > goal.getTargetGrade()) {
                 continue;
             }
-            int rolls = EngineeringGradeProgress.rollsRemainingAtGrade(goal, g);
+            int rolls = EngineeringGradeProgress.rollsRemainingAtGrade(goal, g, 0);
             if (rolls <= 0) {
                 continue;
             }

@@ -787,21 +787,14 @@ public class RouteTabPanel extends JPanel {
 		if (copyNextDestinationButton == null || !copyNextDestinationButton.isShowing()) {
 			return;
 		}
+		// Punch strip padding / gaps so only Clear + Copy (and their fills) remain visible.
+		TransparentViewportUI.clearPanelChromeExceptButtons(g, this, routeCopyStrip);
 		Graphics2D g2 = (Graphics2D) g.create();
 		try {
 			g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-
 			Component row = routeCopyStrip != null && routeCopyStrip.isShowing()
 					? routeCopyStrip
 					: copyNextDestinationButton;
-			Point rowOrigin = SwingUtilities.convertPoint(row, 0, 0, this);
-			Point btnOrigin = SwingUtilities.convertPoint(copyNextDestinationButton, 0, 0, this);
-			int rowH = Math.max(row.getHeight(), copyNextDestinationButton.getHeight());
-			int leftW = Math.max(0, btnOrigin.x);
-			if (leftW > 0 && rowH > 0) {
-				g2.fillRect(0, rowOrigin.y, leftW, rowH);
-			}
-
 			Point rowBottom = SwingUtilities.convertPoint(row, 0, row.getHeight(), this);
 			int yStart = Math.max(0, rowBottom.y);
 			int yEnd = getHeight();
@@ -813,27 +806,21 @@ public class RouteTabPanel extends JPanel {
 		}
 	}
 
-	private static void styleCopyNextDestinationButton(JButton b, Font uiFont) {
+	/** Inserts a control at the left end of the copy strip (e.g. Fleet Carrier's Clear button). */
+	protected void addCopyStripComponentLeft(Component c) {
+		if (routeCopyStrip != null && c != null) {
+			routeCopyStrip.add(c, 0);
+			routeCopyStrip.revalidate();
+		}
+	}
+
+	static void styleCopyNextDestinationButton(JButton b, Font uiFont) {
 		if (b == null || uiFont == null) {
 			return;
 		}
-		// Outline button like Kill scripts, but avoid ThemeInkButtonUI — on translucent overlay
-		// hosts that UI path paints a solid black plate (especially when disabled).
-		int size = OverlayPreferences.getUiFontSize();
-		b.setFocusable(false);
-		b.setFocusPainted(false);
-		b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		b.setFont(uiFont.deriveFont(Font.BOLD, size));
-		b.setForeground(EdoUi.User.MAIN_TEXT);
-		b.setMargin(new Insets(0, 0, 0, 0));
-		b.setContentAreaFilled(false);
-		b.setOpaque(false);
-		b.setBorderPainted(true);
-		b.setBackground(EdoUi.Internal.TRANSPARENT);
-		b.setUI(new javax.swing.plaf.basic.BasicButtonUI());
-		b.setBorder(BorderFactory.createCompoundBorder(
-				new OverlayOutlineButtonStyle.ThemeRoundedLineBorder(true, 2, 12),
-				new EmptyBorder(8, 18, 8, 18)));
+		// Same hit-safe rounded plate as Control Panel / Kill scripts; allow muted foreground
+		// when there is nothing to copy.
+		OverlayOutlineButtonStyle.applyPrimaryHitSafe(b, uiFont, false);
 	}
 	/**
 	 * Entry point from LiveJournalMonitor.

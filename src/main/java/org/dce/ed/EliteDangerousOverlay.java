@@ -714,12 +714,30 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
                 } catch (HeadlessException | SecurityException ignored) {
                     // keep fallbackX/Y from native event
                 }
-                Rectangle bounds = captureWindowOuterRect(passThroughFrame);
-                if (bounds == null || !bounds.contains(sx, sy)) {
+                EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
+                if (tp == null) {
                     return;
                 }
-                EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
-                if (tp != null && tp.handlePassThroughMouseWheelAtScreen(sx, sy, rot)) {
+                Point screen = new Point(sx, sy);
+                Rectangle bounds = captureWindowOuterRect(passThroughFrame);
+                boolean overMain = bounds != null && bounds.contains(sx, sy);
+                if (overMain) {
+                    // When WS_EX_TRANSPARENT is cleared over interactive chrome, AWT receives the
+                    // wheel — skip native forwarding to avoid double zoom on the ExoBio map.
+                    MouseInteractionMode mode = OverlayPreferences.getOverlayMouseInteractionMode();
+                    if (mode == MouseInteractionMode.SELECTIVE && tp.isPointerOverSelectiveHit(screen)) {
+                        return;
+                    }
+                    if (mode == MouseInteractionMode.FULL_PASS_THROUGH && tp.isPointerOverBiologyMap(screen)) {
+                        return;
+                    }
+                    if (tp.handlePassThroughMouseWheelAtScreen(sx, sy, rot)) {
+                        markNativeInputEventConsumed(e);
+                        return;
+                    }
+                }
+                var docking = contentPanel.getTabDockingController();
+                if (docking != null && docking.handlePassThroughMouseWheelAtScreen(sx, sy, rot)) {
                     markNativeInputEventConsumed(e);
                 }
             });

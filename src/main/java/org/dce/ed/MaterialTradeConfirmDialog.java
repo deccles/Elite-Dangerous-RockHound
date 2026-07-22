@@ -7,6 +7,7 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Window;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,7 +33,8 @@ import org.dce.ed.ui.OverlayOutlineButtonStyle;
 final class MaterialTradeConfirmDialog extends JDialog {
 
     private static final Pattern TRADE_PROGRESS =
-            Pattern.compile("Running trade\\s+(\\d+)\\s+of\\s+(\\d+)", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("(?:Completed|Starting|Running) trade\\s+(\\d+)\\s+of\\s+(\\d+)",
+                    Pattern.CASE_INSENSITIVE);
     private static final String CARD_BUTTONS = "buttons";
     private static final String CARD_PROGRESS = "progress";
 
@@ -187,18 +189,25 @@ final class MaterialTradeConfirmDialog extends JDialog {
             if (total <= 0) {
                 total = Math.max(1, totalTrades);
             }
-            current = Math.min(Math.max(0, current), total);
+            // "Starting/Running trade N" = N-1 done; "Completed trade N" = N done.
+            boolean completed = statusText.toLowerCase(Locale.ROOT).contains("completed");
+            int value = completed ? current : Math.max(0, current - 1);
+            value = Math.min(Math.max(0, value), total);
             progressBar.setIndeterminate(false);
             progressBar.setMaximum(total);
-            progressBar.setValue(current);
-            progressBar.setString(current + " / " + total);
+            progressBar.setValue(value);
+            progressBar.setString(value + " / " + total);
             return;
         }
-        if (statusText.toLowerCase().contains("running trade")) {
+        if (statusText.toLowerCase(Locale.ROOT).contains("running trade")
+                || statusText.toLowerCase(Locale.ROOT).contains("starting trade")) {
+            // In-progress with no ordinal yet — keep the bar at completed count (usually 0).
             progressBar.setIndeterminate(false);
             progressBar.setMaximum(totalTrades);
-            progressBar.setValue(0);
-            progressBar.setString("1 / " + totalTrades);
+            if (progressBar.getValue() < 0) {
+                progressBar.setValue(0);
+            }
+            progressBar.setString(progressBar.getValue() + " / " + totalTrades);
             return;
         }
         progressBar.setIndeterminate(true);

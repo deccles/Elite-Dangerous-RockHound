@@ -58,7 +58,8 @@ public final class EngineeringGoalProgress {
             }
             EngineeringGoal updated = goal;
             if (craft.getLevel() > 0 && matchesCraft(goal, craft, db)) {
-                EngineeringGoal gradeUpdated = EngineeringGradeProgress.afterCraft(goal, craft.getLevel());
+                EngineeringGoal gradeUpdated = EngineeringGradeProgress.afterCraft(
+                        updated, craft.getLevel(), craft.getQuality());
                 if (!gradeUpdated.equals(updated)) {
                     updated = gradeUpdated;
                 }
@@ -117,11 +118,12 @@ public final class EngineeringGoalProgress {
         for (int i = 0; i < goals.size(); i++) {
             goals.set(i, goals.get(i).resetJournalProgress());
         }
-        boolean replayed = replayCraftHistoryFromStore(goals, clientKey, db);
+        boolean[] replayEvidence = new boolean[goals.size()];
+        boolean replayed = replayCraftHistoryFromStore(goals, clientKey, db, replayEvidence);
         if (!replayed) {
             try {
                 EliteJournalReader reader = new EliteJournalReader(clientKey);
-                replayed = replayCraftHistory(goals, reader.readAllEvents(), db);
+                replayed = replayCraftHistory(goals, reader.readAllEvents(), db, replayEvidence);
             } catch (Exception ignored) {
                 // journal directory unavailable
             }
@@ -132,7 +134,7 @@ public final class EngineeringGoalProgress {
         }
         boolean merged = false;
         for (int i = 0; i < goals.size(); i++) {
-            EngineeringGoal mergedGoal = mergeProgress(saved.get(i), goals.get(i));
+            EngineeringGoal mergedGoal = mergeProgress(saved.get(i), goals.get(i), replayEvidence[i]);
             if (!mergedGoal.equals(goals.get(i))) {
                 goals.set(i, mergedGoal);
                 merged = true;
@@ -145,6 +147,17 @@ public final class EngineeringGoalProgress {
     static boolean replayCraftHistoryFromStore(List<EngineeringGoal> goals,
                                                String clientKey,
                                                EngineeringDatabase database) {
+        return replayCraftHistoryFromStore(goals, clientKey, database, null);
+    }
+
+    /**
+     * @param replayEvidenceOut when non-null, {@code [i]} is set when goal {@code i} had at least one
+     *        matching craft in the store (per-instance replay is authoritative for that goal)
+     */
+    static boolean replayCraftHistoryFromStore(List<EngineeringGoal> goals,
+                                               String clientKey,
+                                               EngineeringDatabase database,
+                                               boolean[] replayEvidenceOut) {
         List<EngineeringCraftRecord> records = EngineeringCraftStore.listCrafts(clientKey);
         if (records.isEmpty()) {
             return false;
@@ -170,16 +183,7 @@ public final class EngineeringGoalProgress {
                 if (!goalMatchesShip(template, shipId)) {
                     continue;
                 }
-                if (!matchesGoalModuleBlueprint(template, craft, db)) {
-                    continue;
-                }
-                Map<String, EngineeringGoal> instances = instancesByGoal.get(i);
-                String key = instanceKey(craft);
-                EngineeringGoal working = instances.computeIfAbsent(key, k -> blankUnitProgress(template));
-                List<EngineeringGoal> one = new ArrayList<>(1);
-                one.add(working);
-                if (applyCraft(one, craft, db, shipId)) {
-                    instances.put(key, one.get(0));
+                if (applyCraftToInstances(instancesByGoal.get(i), template, craft, db, shipId)) {
                     replayed = true;
                 }
             }
@@ -189,6 +193,9 @@ public final class EngineeringGoalProgress {
             if (!instances.isEmpty()) {
                 goals.set(i, aggregateInstances(goals.get(i), instances.values()));
                 replayed = true;
+                if (replayEvidenceOut != null && i < replayEvidenceOut.length) {
+                    replayEvidenceOut[i] = true;
+                }
             }
         }
         return replayed;
@@ -251,6 +258,13 @@ public final class EngineeringGoalProgress {
     static boolean replayCraftHistory(List<EngineeringGoal> goals,
                                       Iterable<? extends EliteLogEvent> events,
                                       EngineeringDatabase database) {
+        return replayCraftHistory(goals, events, database, null);
+    }
+
+    static boolean replayCraftHistory(List<EngineeringGoal> goals,
+                                      Iterable<? extends EliteLogEvent> events,
+                                      EngineeringDatabase database,
+                                      boolean[] replayEvidenceOut) {
         if (goals == null || goals.isEmpty() || events == null) {
             return false;
         }
@@ -262,6 +276,9 @@ public final class EngineeringGoalProgress {
             if (!instances.isEmpty()) {
                 goals.set(i, aggregateInstances(goals.get(i), instances.values()));
                 replayed = true;
+                if (replayEvidenceOut != null && i < replayEvidenceOut.length) {
+                    replayEvidenceOut[i] = true;
+                }
             }
         }
         return replayed;
@@ -397,17 +414,7 @@ public final class EngineeringGoalProgress {
                 if (!goalMatchesShip(template, shipId)) {
                     continue;
                 }
-                if (!matchesGoalModuleBlueprint(template, craft, db)) {
-                    continue;
-                }
-                Map<String, EngineeringGoal> instances = instancesByGoal.get(i);
-                String key = instanceKey(craft);
-                EngineeringGoal working = instances.computeIfAbsent(key, k -> blankUnitProgress(template));
-                List<EngineeringGoal> one = new ArrayList<>(1);
-                one.add(working);
-                if (applyCraft(one, craft, db, shipId)) {
-                    instances.put(key, one.get(0));
-                }
+                applyCraftToInstances(instancesByGoal.get(i), template, craft, db, shipId);
             }
         }
         return instancesByGoal;
@@ -467,20 +474,76 @@ public final class EngineeringGoalProgress {
                 if (!goalMatchesShip(template, currentShipId)) {
                     continue;
                 }
-                if (!matchesGoalModuleBlueprint(template, craft, db)) {
-                    continue;
-                }
-                Map<String, EngineeringGoal> instances = instancesByGoal.get(i);
-                String key = instanceKey(craft);
-                EngineeringGoal working = instances.computeIfAbsent(key, k -> blankUnitProgress(template));
-                List<EngineeringGoal> one = new ArrayList<>(1);
-                one.add(working);
-                if (applyCraft(one, craft, db, currentShipId)) {
-                    instances.put(key, one.get(0));
-                }
+                applyCraftToInstances(instancesByGoal.get(i), template, craft, db, currentShipId);
             }
         }
         return instancesByGoal;
+    }
+
+    /**
+     * Applies one craft to the per-instance progress map for a goal. Crafts for the goal's
+     * module/blueprint advance the matching instance; crafts that re-engineer the same physical
+     * module (same slot/item) with a <em>different</em> blueprint wipe its progress — in game,
+     * replacing the blueprint destroys the old grades and experimental (LargeHardpoint1 rolled to
+     * Focused and back kept a January "Oversized applied" flag and falsely completed the goal).
+     *
+     * @return true when the goal's blueprint progress advanced (not for wipes)
+     */
+    private static boolean applyCraftToInstances(Map<String, EngineeringGoal> instances,
+                                                 EngineeringGoal template,
+                                                 EngineerCraftEvent craft,
+                                                 EngineeringDatabase db,
+                                                 long shipId) {
+        String key = instanceKey(craft);
+        if (!matchesGoalModuleBlueprint(template, craft, db)) {
+            if (craft.getLevel() > 0 && instances.containsKey(key)
+                    && matchesGoalModule(template, craft, db)) {
+                instances.put(key, blankUnitProgress(template));
+            }
+            return false;
+        }
+        EngineeringGoal working = instances.computeIfAbsent(key, k -> blankUnitProgress(template));
+        working = syncExperimentalFromCraft(working, craft, db);
+        List<EngineeringGoal> one = new ArrayList<>(1);
+        one.add(working);
+        boolean advanced = applyCraft(one, craft, db, shipId);
+        instances.put(key, one.get(0));
+        return advanced;
+    }
+
+    /**
+     * Grade rolls report the module's <em>current</em> experimental in {@code ExperimentalEffect};
+     * absence means the module has none right now, so a stale "applied" flag from an earlier
+     * blueprint must be cleared. Only trusted for real journal records (raw JSON has a Level) —
+     * synthetic store fallback rows omit these fields entirely.
+     */
+    private static EngineeringGoal syncExperimentalFromCraft(EngineeringGoal working,
+                                                             EngineerCraftEvent craft,
+                                                             EngineeringDatabase db) {
+        if (!working.isExperimentalApplied() || working.getCompletedUnits() > 0) {
+            return working;
+        }
+        if (craft.getLevel() <= 0 || !craft.getApplyExperimentalEffect().isBlank()) {
+            return working;
+        }
+        JsonObject raw = craft.getRawJson();
+        if (raw == null || !raw.has("Level")) {
+            return working;
+        }
+        String expId = working.getExperimentalId();
+        if (expId == null || expId.isBlank()) {
+            return working;
+        }
+        Optional<BlueprintGrade> expBp = db.findById(expId);
+        if (expBp.isEmpty()) {
+            return working;
+        }
+        boolean stillPresent = experimentalEffectMatches(
+                null,
+                craft.getExperimentalEffect(),
+                craft.getExperimentalEffectLocalised(),
+                expBp.get());
+        return stillPresent ? working : working.withExperimentalApplied(false);
     }
 
     private static void mergeLoadoutIntoInstances(List<EngineeringGoal> goals,
@@ -796,13 +859,25 @@ public final class EngineeringGoalProgress {
                         experimental.get());
     }
 
-    private static EngineeringGoal mergeProgress(EngineeringGoal saved, EngineeringGoal replayed) {
+    /**
+     * @param replayHadEvidence true when journal/store crafts actually matched this goal, making the
+     *        replayed unit/experimental state authoritative; saved session values only fill gaps when
+     *        no craft history was found (e.g. journals rolled off disk)
+     */
+    private static EngineeringGoal mergeProgress(EngineeringGoal saved,
+                                                 EngineeringGoal replayed,
+                                                 boolean replayHadEvidence) {
         EngineeringGoal merged = replayed;
         if (saved.getFromGrade() > replayed.getFromGrade()) {
             merged = merged.withProgress(saved.getFromGrade(), saved.getCraftsAtCurrentGrade());
         } else if (saved.getFromGrade() == replayed.getFromGrade()
                 && saved.getCraftsAtCurrentGrade() > replayed.getCraftsAtCurrentGrade()) {
             merged = merged.withProgress(saved.getFromGrade(), saved.getCraftsAtCurrentGrade());
+        }
+        if (replayHadEvidence) {
+            // Replay saw this goal's crafts: trust it for experimental + completed units. Merging a
+            // previously over-counted session here made bogus "Complete" states permanently sticky.
+            return merged;
         }
         if (saved.isExperimentalApplied()) {
             merged = merged.withExperimentalApplied(true);
@@ -863,6 +938,13 @@ public final class EngineeringGoalProgress {
                 expBp.get())) {
             return true;
         }
+        // Ingredient inference is a last resort for journals predating the experimental-effect
+        // fields. A craft that names any blueprint Level is a grade roll, NOT an experimental
+        // application — inferring from ingredients there marked goals' experimentals done when a
+        // grade roll's materials happened to cover the experimental recipe.
+        if (craft.getLevel() > 0) {
+            return false;
+        }
         return ingredientsMatch(expBp.get().getMaterials(), craft.getIngredients(), db);
     }
 
@@ -878,6 +960,17 @@ public final class EngineeringGoalProgress {
                     && goal.getBlueprintName().equalsIgnoreCase(bp.blueprintName());
         }
         return false;
+    }
+
+    /** True when the craft targets the goal's module type, regardless of which blueprint it rolled. */
+    private static boolean matchesGoalModule(EngineeringGoal goal,
+                                             EngineerCraftEvent craft,
+                                             EngineeringDatabase db) {
+        Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
+                EngineeringJournalBlueprintResolver.resolve(
+                        craft.getSlot(), craft.getModule(), craft.getBlueprintName(), db);
+        return resolved.isPresent()
+                && goal.getModuleType().equalsIgnoreCase(resolved.get().moduleType());
     }
 
     private static boolean experimentalEffectMatches(String applyExperimentalEffect,

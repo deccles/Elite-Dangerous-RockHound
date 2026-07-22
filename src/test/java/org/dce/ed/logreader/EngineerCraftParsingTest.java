@@ -105,8 +105,9 @@ class EngineerCraftParsingTest {
                 null));
 
         assertTrue(EngineeringGoalProgress.applyCraft(goals, craft, db));
+        // Level 2 craft with Quality 0.4 ⇒ G1 finished, ~2/5 into G2 on the 5-roll scale.
         assertEquals(1, goals.get(0).getFromGrade());
-        assertEquals(1, goals.get(0).getCraftsAtCurrentGrade());
+        assertEquals(2, goals.get(0).getCraftsAtCurrentGrade());
 
         tracker.applyEvent(craft);
         assertEquals(4, tracker.getCount("specialisedlegacyfirmware"));

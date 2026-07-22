@@ -30,6 +30,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 import org.dce.ed.EliteOverlayTabbedPane;
+import org.dce.ed.MouseInteractionMode;
 import org.dce.ed.OverlayFrame;
 import org.dce.ed.ui.tabdock.OverlayTabTransferable.OverlayTabTransferData;
 
@@ -47,6 +48,14 @@ public final class TabDockingController {
 
     private boolean restoring;
     private boolean dragEndedWithoutDrop;
+    /** Set once this controller is retired; a disposed controller must never persist again. */
+    private boolean disposed;
+    /**
+     * True once the saved layout has been loaded (or the user changed the layout). A freshly built
+     * controller starts with every tab on main; persisting that before {@link #restoreSavedLayout()}
+     * runs (e.g. two theme rebuilds back to back) silently wiped the user's float layout.
+     */
+    private boolean layoutSynced;
 
     public TabDockingController(EliteOverlayTabbedPane tabbedPane, Supplier<Window> mainWindowSupplier) {
         this.tabbedPane = Objects.requireNonNull(tabbedPane, "tabbedPane");
@@ -101,12 +110,15 @@ public final class TabDockingController {
             tabbedPane.onDockTabsChanged();
         } finally {
             restoring = false;
+            layoutSynced = true;
         }
         persistNow();
     }
 
     public void disposeAll() {
+        persistDebounce.stop();
         persistNow();
+        disposed = true;
         for (FloatingTabFrame frame : new ArrayList<>(floats.values())) {
             frame.setVisible(false);
             frame.dispose();
@@ -132,14 +144,18 @@ public final class TabDockingController {
     }
 
     void schedulePersist() {
-        if (restoring) {
+        if (restoring || disposed) {
             return;
         }
         persistDebounce.restart();
     }
 
     private void persistNow() {
-        if (restoring) {
+        // Never save before the saved layout has been applied to this controller (a fresh
+        // controller holds the default all-on-main layout) and never after retirement (a stale
+        // debounce firing post-rebuild captured a torn-down pane). Both overwrote the user's
+        // float layout with "everything on main".
+        if (restoring || disposed || !layoutSynced) {
             return;
         }
         TabLayoutPreferences.save(captureState());
@@ -487,6 +503,43 @@ public final class TabDockingController {
             return tabbedPane;
         }
         return floats.get(dockId);
+    }
+
+    /**
+     * Native wheel forwarding for floating docks (main overlay is handled separately).
+     *
+     * @return {@code true} if a float under the pointer consumed the wheel
+     */
+    public boolean handlePassThroughMouseWheelAtScreen(int screenX, int screenY, int wheelRotation) {
+        if (wheelRotation == 0 || floats.isEmpty()) {
+            return false;
+        }
+        Point screen = new Point(screenX, screenY);
+        for (FloatingTabFrame frame : floats.values()) {
+            if (frame == null || !frame.isShowing()) {
+                continue;
+            }
+            Rectangle bounds = frame.getBounds();
+            if (bounds == null || !bounds.contains(screenX, screenY)) {
+                continue;
+            }
+            String card = frame.getSelectedCardName();
+            if (card == null) {
+                return false;
+            }
+            MouseInteractionMode mode = frame.getMouseInteractionMode();
+            // When WS_EX_TRANSPARENT is cleared, AWT receives the wheel — skip native to avoid double scroll.
+            if (mode == MouseInteractionMode.SELECTIVE
+                    && tabbedPane.isPointerOverSelectiveHitForCard(card, screen)) {
+                return false;
+            }
+            if (mode == MouseInteractionMode.FULL_PASS_THROUGH
+                    && tabbedPane.isPointerOverBiologyMapForCard(card, screen)) {
+                return false;
+            }
+            return tabbedPane.applyPassThroughWheelForCard(card, screenX, screenY, wheelRotation);
+        }
+        return false;
     }
 
     private boolean selectInDock(String dockId, String cardName) {

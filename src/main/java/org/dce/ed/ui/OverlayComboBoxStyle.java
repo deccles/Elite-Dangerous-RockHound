@@ -67,9 +67,51 @@ public final class OverlayComboBoxStyle {
         }
 
         @Override
+        public void paint(java.awt.Graphics g, javax.swing.JComponent c) {
+            // Always theme-fill first — disabled Windows L&F otherwise paints a white plate,
+            // which is especially visible when the closed combo has no selection.
+            g.setColor(EdoUi.User.PANEL_BG);
+            g.fillRect(0, 0, c.getWidth(), c.getHeight());
+            super.paint(g, c);
+        }
+
+        @Override
         public void paintCurrentValueBackground(java.awt.Graphics g, java.awt.Rectangle bounds, boolean hasFocus) {
             g.setColor(EdoUi.User.PANEL_BG);
             g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+        }
+
+        @Override
+        public void paintCurrentValue(java.awt.Graphics g, java.awt.Rectangle bounds, boolean hasFocus) {
+            // BasicComboBoxUI forces ComboBox.disabledBackground (often white) when disabled —
+            // keep theme colors for empty/disabled closed combos (e.g. Unengineered Experimental).
+            @SuppressWarnings("unchecked")
+            javax.swing.ListCellRenderer<Object> renderer =
+                    (javax.swing.ListCellRenderer<Object>) comboBox.getRenderer();
+            if (renderer == null) {
+                return;
+            }
+            boolean selected = hasFocus && !isPopupVisible(comboBox);
+            Component c = renderer.getListCellRendererComponent(
+                    listBox, comboBox.getSelectedItem(), -1, selected, false);
+            c.setFont(comboBox.getFont());
+            c.setForeground(EdoUi.User.MAIN_TEXT);
+            c.setBackground(selected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
+            if (c instanceof javax.swing.JComponent jc) {
+                jc.setOpaque(true);
+            }
+            int x = bounds.x;
+            int y = bounds.y;
+            int w = bounds.width;
+            int h = bounds.height;
+            if (padding != null) {
+                x += padding.left;
+                y += padding.top;
+                w -= padding.left + padding.right;
+                h -= padding.top + padding.bottom;
+            }
+            boolean shouldValidate = c instanceof javax.swing.JPanel;
+            currentValuePane.paintComponent(g, c, comboBox, x, y, w, h, shouldValidate);
         }
     }
 }

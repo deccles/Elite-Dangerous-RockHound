@@ -403,24 +403,25 @@ public class SystemTabPanel extends JPanel {
 	}
 
 	/**
-	 * Mouse pass-through: apply global wheel to the orbital map (zoom) when the pointer is over the map, else to the
-	 * bodies table when the pointer is over the scroll area and the vertical bar is visible.
+	 * Mouse pass-through: scroll the bodies table when the pointer is over it and the vertical bar is
+	 * active; otherwise zoom the orbital map (or nudge view-tilt) when over those controls.
 	 */
 	public boolean applyPassThroughWheelIfHit(int screenX, int screenY, int wheelRotation) {
 		if (applyPassThroughMapViewTiltWheelIfHit(screenX, screenY, wheelRotation)) {
 			return true;
 		}
-		if (systemPlanMapPanel.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation)) {
+		// Table before map so an active bodies scroller always wins under the pointer.
+		if (PassThroughScrollSupport.applyVerticalWheelIfHit(systemBodyScrollPane, screenX, screenY, wheelRotation)) {
 			return true;
 		}
-		return PassThroughScrollSupport.applyVerticalWheelIfHit(systemBodyScrollPane, screenX, screenY, wheelRotation);
+		return systemPlanMapPanel.applyPassThroughWheelIfHit(screenX, screenY, wheelRotation);
 	}
 
 	public boolean isPointerOverScrollBar(Point screenPoint) {
 		return OverlayScrollPaneSupport.isPointerOverScrollBar(systemBodyScrollPane, screenPoint);
 	}
 
-	/** Selective mouse mode: sort icons, system name field, map toolbar. */
+	/** Selective mouse mode: sort icons, bodies scroller (when active), bio cues, map toolbar. */
 	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
 		if (SelectiveHitSupport.containsScreenPoint(headerLabel, screenPoint)) {
 			return true;
@@ -431,6 +432,12 @@ public class SystemTabPanel extends JPanel {
 			return true;
 		}
 		if (isPointerOverBioExpandCue(screenPoint)) {
+			return true;
+		}
+		// When the bodies table can scroll, clear WS_EX_TRANSPARENT so AWT receives the wheel in
+		// Selective mode (same pattern as Engineering's trade scroller).
+		if (PassThroughScrollSupport.isVerticallyScrollable(systemBodyScrollPane)
+				&& SelectiveHitSupport.containsScreenPoint(systemBodyScrollPane, screenPoint)) {
 			return true;
 		}
 		return SelectiveHitSupport.containsScreenPoint(systemPlanMapToolbar, screenPoint);

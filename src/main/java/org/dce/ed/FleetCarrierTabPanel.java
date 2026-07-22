@@ -7,6 +7,10 @@ import java.awt.Cursor;
 import java.awt.Font;
 import java.awt.Insets;
 import java.awt.Point;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.function.BooleanSupplier;
@@ -18,6 +22,7 @@ import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -83,6 +88,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	private final JLabel destinationLabel;
 	private final JTextField destinationField;
 	private final JButton calculateButton;
+	private final JButton clearRouteButton;
 	private final SystemNameAutocomplete destinationAutocomplete;
 
 	public FleetCarrierTabPanel(BooleanSupplier passThroughEnabledSupplier) {
@@ -108,13 +114,53 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		destinationLabel.setFont(base);
 
 		destinationField = new JTextField();
-		destinationField.setFocusable(true);
+		// Click-to-focus only — avoid stealing focus when the overlay/dialog opens.
+		destinationField.setFocusable(false);
 		destinationField.setOpaque(true);
 		destinationField.setForeground(EdoUi.User.MAIN_TEXT);
 		destinationField.setCaretColor(EdoUi.User.MAIN_TEXT);
 		destinationField.setBackground(EdoUi.Internal.DARK_ALPHA_220);
 		destinationField.setFont(base);
 		destinationField.setToolTipText("Destination system name (EDSM autocomplete)");
+		destinationField.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent e) {
+				destinationField.setFocusable(true);
+				destinationField.requestFocusInWindow();
+				// Click-to-focus often leaves the whole value selected; place the caret at the click.
+				SwingUtilities.invokeLater(() -> {
+					if (!destinationField.isFocusOwner()) {
+						return;
+					}
+					int pos = destinationField.viewToModel2D(e.getPoint());
+					if (pos < 0) {
+						pos = destinationField.getText().length();
+					}
+					destinationField.setCaretPosition(pos);
+				});
+			}
+		});
+		destinationField.addFocusListener(new FocusAdapter() {
+			@Override
+			public void focusLost(FocusEvent e) {
+				if (e.isTemporary()) {
+					return;
+				}
+				// Keep focusable while navigating the autocomplete popup list.
+				Component opposite = e.getOppositeComponent();
+				if (opposite != null) {
+					for (Component c = opposite; c != null; c = c.getParent()) {
+						if (c instanceof JPopupMenu) {
+							return;
+						}
+					}
+				}
+				// Drop any highlight so the field doesn't look "selected" while unfocused.
+				int caret = destinationField.getCaretPosition();
+				destinationField.select(caret, caret);
+				destinationField.setFocusable(false);
+			}
+		});
 
 		destinationAutocomplete = new SystemNameAutocomplete(destinationField, edsmClient());
 
@@ -140,6 +186,13 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		calculateButton = new JButton("Calculate");
 		styleFleetSecondaryButton(calculateButton);
 		calculateButton.addActionListener(e -> fetchRouteFromSpansh());
+
+		clearRouteButton = new JButton("Clear");
+		styleCopyNextDestinationButton(clearRouteButton, base);
+		clearRouteButton.setToolTipText("Clear the loaded fleet carrier route");
+		clearRouteButton.addActionListener(e -> clearFleetCarrierRoute());
+		addCopyStripComponentLeft(Box.createHorizontalStrut(10));
+		addCopyStripComponentLeft(clearRouteButton);
 
 		JPanel fetchRow = new JPanel(new BorderLayout(10, 0));
 		fetchRow.setOpaque(false);
@@ -191,6 +244,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		// Hit the field/button directly (not only topBar) so layout struts cannot shrink the target.
 		if (SelectiveHitSupport.containsScreenPoint(destinationField, screenPoint)
 				|| SelectiveHitSupport.containsScreenPoint(calculateButton, screenPoint)
+				|| SelectiveHitSupport.containsScreenPoint(clearRouteButton, screenPoint)
 				|| SelectiveHitSupport.containsScreenPoint(topBar, screenPoint)) {
 			return true;
 		}
@@ -211,6 +265,17 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		b.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createLineBorder(EdoUi.Internal.MAIN_TEXT_ALPHA_180, 1),
 				new EmptyBorder(2, 4, 2, 4)));
+	}
+
+	/** Clears the loaded carrier route (session rows, header, pending-jump display state). */
+	private void clearFleetCarrierRoute() {
+		routeSession.clearAfterNavRouteClearEvent();
+		spanshRouteLoaded = false;
+		setHeaderLabelText("Fleet Carrier: (no data)");
+		statusLabel.setText("Route cleared.");
+		rebuildDisplayedEntries();
+		fireSessionStateChanged();
+		flushSessionToDisk();
 	}
 
 	private void fetchRouteFromSpansh() {
@@ -298,6 +363,9 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			if (destinationField != null) {
 				destinationField.setFont(font);
 			}
+			if (clearRouteButton != null) {
+				styleCopyNextDestinationButton(clearRouteButton, font);
+			}
 		}
 	}
 
@@ -340,6 +408,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			if (destinationField != null) {
 				String q = d.getSpanshDestinationQuery();
 				destinationField.setText(q != null ? q : "");
+				destinationField.select(0, 0);
 			}
 		}
 		bootstrapOwnedFleetCarrierFromJournalIfNeeded();
@@ -426,9 +495,11 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 			}
 			pendingJumpFromOwnedCarrier = true;
 			applyScheduledJumpDestinationIfNeeded(req);
+			// The journal request is authoritative: a manual jump may be off-route, so only fall
+			// back to the loaded route's next hop when the request carries no system name.
 			String blinkName = req.getSystemName();
 			long blinkAddr = req.getSystemAddress();
-			if (spanshRouteLoaded) {
+			if ((blinkName == null || blinkName.isBlank()) && spanshRouteLoaded) {
 				String routeNext = RouteTabPanel.nextRouteDestinationSystemName(routeSession);
 				if (routeNext != null && !routeNext.isBlank()) {
 					blinkName = routeNext;
@@ -615,6 +686,9 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		destinationLabel.setOpaque(false);
 
 		calculateButton.setForeground(EdoUi.User.MAIN_TEXT);
+		if (clearRouteButton != null) {
+			styleCopyNextDestinationButton(clearRouteButton, OverlayPreferences.getUiFont());
+		}
 
 		// Always paint a real background. Opaque=false + alpha chrome leaves layered pixels at
 		// alpha 0, and Windows ignores clicks there even after selective mode clears WS_EX_TRANSPARENT.

@@ -66,6 +66,7 @@ import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.EngineeringGoalProgress;
 import org.dce.ed.engineering.EngineeringInventoryTracker;
+import org.dce.ed.engineering.EngineerReputationTracker;
 import org.dce.ed.engineering.EngineeringMaterialKeys;
 import org.dce.ed.engineering.EngineeringPlanner;
 import org.dce.ed.engineering.GoalPriority;
@@ -185,6 +186,7 @@ public class EngineeringTabPanel extends JPanel {
 
     private final EngineeringDatabase database = EngineeringDatabase.getInstance();
     private final EngineeringInventoryTracker inventoryTracker = new EngineeringInventoryTracker();
+    private final EngineerReputationTracker reputationTracker = new EngineerReputationTracker();
     private final EngineeringPlanner planner = new EngineeringPlanner(database);
     private final MaterialTradePlanner tradePlanner = new MaterialTradePlanner(database);
 
@@ -244,6 +246,8 @@ public class EngineeringTabPanel extends JPanel {
         tradeTable = createTradeOverlayTable(tradeModel);
 
         configureTable(goalsTable, base, new EllipsisTextCellRenderer());
+        // Two-line Blueprint cells (module + blueprint name).
+        goalsTable.setRowHeight(Math.max(36, fontSize * 2 + 12));
         goalsTable.getColumnModel().getColumn(COL_GOAL_BLUEPRINT).setCellRenderer(new BlueprintNameCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_EXP).setCellRenderer(new EllipsisTextCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_TARGET).setCellRenderer(new GoalTargetCellRenderer());
@@ -426,6 +430,7 @@ public class EngineeringTabPanel extends JPanel {
         });
 
         inventoryTracker.setChangeCallback(this::scheduleRefresh);
+        reputationTracker.setChangeCallback(this::scheduleRefresh);
         installEngineeringTableLayoutListeners();
         refreshUi();
     }
@@ -598,16 +603,16 @@ public class EngineeringTabPanel extends JPanel {
             return;
         }
         int pref = top.getPreferredSize().height;
-        // The trade scroller reports a fixed preferred height; when the table content is
-        // shorter, tighten so the button hugs the last row instead of the scroller's minimum.
+        // The trade scroller reports a fixed preferred height; substitute the table's real
+        // content height so the panel shrinks to hug a short list and grows to fit a long one.
+        // The max-divider clamp below means the scrollbar only appears once the content would
+        // exceed the space the user has given the dialog.
         if (tradeScroll != null && tradeScroll.isVisible()) {
             int scrollPref = tradeScroll.getPreferredSize().height;
             JTableHeader header = tradeTable.getTableHeader();
             int contentH = tradeTable.getPreferredSize().height
                     + (header != null ? header.getPreferredSize().height : 0) + 4;
-            if (contentH < scrollPref) {
-                pref = pref - scrollPref + contentH;
-            }
+            pref = pref - scrollPref + contentH;
         }
         int min = lowerSplit.getMinimumDividerLocation();
         int max = lowerSplit.getMaximumDividerLocation();
@@ -1574,6 +1579,7 @@ public class EngineeringTabPanel extends JPanel {
 
     public void hydrateFromJournalIfNeeded(String clientKey) {
         inventoryTracker.bootstrapFromJournal(clientKey);
+        reputationTracker.bootstrapFromJournal(clientKey);
         shipCatalog.bootstrapFromJournal(clientKey);
         rememberCurrentShipFromLoadout();
         for (EngineeringGoal g : goals) {
@@ -1606,12 +1612,21 @@ public class EngineeringTabPanel extends JPanel {
     private void openBuildProgressDialog() {
         Window owner = SwingUtilities.getWindowAncestor(this);
         String clientKey = EliteDangerousOverlay.clientKey;
+        // Same rule as Add Goal: honor the Engineering tab ship filter when set; only fall
+        // back to the currently equipped ship when the filter is All.
+        Long initialShipId = goalsShipFilterId;
+        if (initialShipId == null) {
+            EngineeringShipRef currentShip = currentShipRef();
+            if (currentShip != null && currentShip.isKnown()) {
+                initialShipId = Long.valueOf(currentShip.getShipId());
+            }
+        }
         // Dialog loads journal progress on a background thread; don't block the EDT with a full rescan first.
         EngineeringBuildProgressDialog.show(
                 owner,
                 List.copyOf(goals),
                 shipCatalog,
-                goalsShipFilterId,
+                initialShipId,
                 database,
                 clientKey,
                 passThroughEnabledSupplier,
@@ -1662,6 +1677,11 @@ public class EngineeringTabPanel extends JPanel {
             scheduleRefresh();
             if (type == EliteEventType.MATERIAL_TRADE && event instanceof MaterialTradeEvent tradeEvent) {
                 tradeExecutor.onMaterialTrade(tradeEvent);
+            }
+        }
+        if (type == EliteEventType.ENGINEER_PROGRESS) {
+            if (reputationTracker.applyEvent(event)) {
+                scheduleRefresh();
             }
         }
         if (type == EliteEventType.ENGINEER_CRAFT && event instanceof EngineerCraftEvent craft) {
@@ -2290,12 +2310,13 @@ public class EngineeringTabPanel extends JPanel {
     private void openAddMaterialsGoalDialog() {
         Window owner = SwingUtilities.getWindowAncestor(this);
         EngineeringShipRef equipped = currentShipRef();
+        EngineeringShipRef defaultShip = resolveAddGoalDefaultShip(equipped);
         MaterialsGoal goal = EngineeringMaterialsGoalDialog.showForAdd(
                 owner,
                 database,
                 passThroughEnabledSupplier,
                 shipCatalog,
-                equipped,
+                defaultShip,
                 inventoryTracker.snapshot());
         if (goal != null && goal.isValid()) {
             materialsGoals.add(goal);
@@ -2313,10 +2334,18 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     /**
-     * Prefer the last manually chosen Add Goal ship while still in the same equipped ship;
-     * when the equipped ship changes (or first time), follow the current loadout.
+     * Default ship for Add Goal / Add Materials Goal / Add Goal via Loadout:
+     * when the Engineering tab filter is a specific ship, use that. When the filter is All,
+     * prefer the last manually chosen Add Goal ship while still on the same equipped hull;
+     * when the equipped ship changes (or first time), follow the loadout.
      */
     private EngineeringShipRef resolveAddGoalDefaultShip(EngineeringShipRef equipped) {
+        if (goalsShipFilterId != null) {
+            EngineeringShipRef filtered = shipCatalog.get(goalsShipFilterId.longValue());
+            if (filtered != null && filtered.isKnown()) {
+                return filtered;
+            }
+        }
         long equippedId = equipped != null && equipped.isKnown() ? equipped.getShipId() : -1L;
         Long baseline = OverlayPreferences.getEngineeringAddGoalEquippedBaselineId();
         if (equippedId >= 0L && (baseline == null || baseline.longValue() != equippedId)) {
@@ -2775,6 +2804,9 @@ public class EngineeringTabPanel extends JPanel {
             return;
         }
         int fontSize = OverlayPreferences.getUiFontSize();
+        if (goalsTable != null) {
+            goalsTable.setRowHeight(Math.max(36, fontSize * 2 + 12));
+        }
         EdoMiningSplitPaneUi.applyDividerTheme(mainSplit);
         EdoMiningSplitPaneUi.applyDividerTheme(lowerSplit);
         stripAllEngineeringScrollChrome();
@@ -3057,24 +3089,95 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
-    private final class BlueprintNameCellRenderer extends EdoTableCellRenderer {
+    private final class BlueprintNameCellRenderer implements javax.swing.table.TableCellRenderer {
+        private final JPanel panel = new JPanel();
+        private final JLabel topLine = new JLabel();
+        private final JLabel bottomLine = new JLabel();
+
+        BlueprintNameCellRenderer() {
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.setOpaque(false);
+            panel.setBorder(new EmptyBorder(1, 6, 1, 6));
+            topLine.setOpaque(false);
+            bottomLine.setOpaque(false);
+            topLine.setAlignmentX(Component.LEFT_ALIGNMENT);
+            bottomLine.setAlignmentX(Component.LEFT_ALIGNMENT);
+            panel.add(topLine);
+            panel.add(bottomLine);
+        }
+
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
-            Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
-            if (c instanceof JLabel label) {
-                int modelRow = table.convertRowIndexToModel(row);
-                GoalUiRow goalRow = goalRowAtUi(modelRow);
-                if (goalRow != null && goalRow.isMaterials()) {
-                    label.setToolTipText(goalRow.materials().materialsTooltip(database));
-                } else if (value != null) {
-                    label.setToolTipText(value.toString());
-                } else {
-                    label.setToolTipText(null);
-                }
+            Font base = OverlayPreferences.getUiFont();
+            int size = OverlayPreferences.getUiFontSize();
+            topLine.setFont(base.deriveFont(Font.BOLD, size));
+            bottomLine.setFont(base.deriveFont(Font.PLAIN, size));
+            topLine.setForeground(EdoUi.User.MAIN_TEXT);
+            bottomLine.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+
+            int modelRow = table.convertRowIndexToModel(row);
+            GoalUiRow goalRow = goalRowAtUi(modelRow);
+            String top = "";
+            String bottom = "";
+            String tip = null;
+            if (goalRow != null && goalRow.isMaterials()) {
+                MaterialsGoal g = goalRow.materials();
+                top = goalPrimaryLine(
+                        g.hasShip() ? g.getShipId() : -1L, g.getShipLabel(), g.getLabel(), 1);
+                bottom = "";
+                tip = g.materialsTooltip(database);
+            } else if (goalRow != null && goalRow.blueprint() != null) {
+                EngineeringGoal g = goalRow.blueprint();
+                top = goalPrimaryLine(g.getShipId(), g.getShipLabel(), g.getModuleType(), g.getQuantity());
+                bottom = g.getBlueprintName() != null ? g.getBlueprintName().trim() : "";
+                tip = top + (bottom.isBlank() ? "" : " — " + bottom);
+            } else if (value != null) {
+                top = value.toString();
+                tip = top;
             }
-            return c;
+            topLine.setText(top);
+            bottomLine.setText(bottom);
+            bottomLine.setVisible(!bottom.isBlank());
+            panel.setToolTipText(tip != null && !tip.isBlank() ? tip : null);
+            return panel;
         }
+    }
+
+    /**
+     * Top line: module/label, and when the ship filter is All, {@code "Thrusters - Anaconda"}.
+     */
+    private String goalPrimaryLine(long shipId, String shipLabel, String moduleOrLabel, int quantity) {
+        String body = moduleOrLabel != null ? moduleOrLabel.trim() : "";
+        if (goalsShipFilterId == null) {
+            String ship = shortShipNameForGoal(shipId, shipLabel);
+            if (!ship.isBlank()) {
+                body = body.isBlank() ? ship : body + " - " + ship;
+            }
+        }
+        if (quantity > 1 && !body.isBlank()) {
+            return quantity + "x " + body;
+        }
+        return body;
+    }
+
+    /** Hull type only (e.g. "Anaconda") — not custom name / callsign. */
+    private String shortShipNameForGoal(long shipId, String shipLabel) {
+        if (shipId >= 0) {
+            EngineeringShipRef ref = shipCatalog.get(shipId);
+            if (ref != null && !ref.getShipType().isBlank()) {
+                return new EngineeringShipRef(ref.getShipId(), ref.getShipType(), "", "").baseDisplayLabel();
+            }
+        }
+        if (shipLabel != null && !shipLabel.isBlank()) {
+            String s = shipLabel.trim();
+            int sep = s.indexOf('·');
+            if (sep > 0) {
+                s = s.substring(0, sep).trim();
+            }
+            return s;
+        }
+        return "";
     }
 
     private final class GoalEditCellRenderer extends JLabel implements javax.swing.table.TableCellRenderer {
@@ -3119,12 +3222,16 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
-    private static String blueprintDisplayName(EngineeringGoal goal) {
-        String name = goal.getModuleType() + ": " + goal.getBlueprintName();
-        if (goal.getQuantity() > 1) {
-            return goal.getQuantity() + "x " + name;
+    private String blueprintDisplayName(EngineeringGoal goal) {
+        if (goal == null) {
+            return "";
         }
-        return name;
+        String top = goalPrimaryLine(goal.getShipId(), goal.getShipLabel(), goal.getModuleType(), goal.getQuantity());
+        String bottom = goal.getBlueprintName() != null ? goal.getBlueprintName().trim() : "";
+        if (bottom.isBlank()) {
+            return top;
+        }
+        return top.isBlank() ? bottom : top + " / " + bottom;
     }
 
     private final class GoalsTableModel extends AbstractTableModel {

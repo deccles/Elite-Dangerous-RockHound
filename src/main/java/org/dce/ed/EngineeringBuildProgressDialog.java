@@ -1069,41 +1069,49 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		}
 		boolean hasBlueprints = blueprintCombo.getItemCount() > 0;
 		blueprintCombo.setEnabled(hasBlueprints);
+		// Nothing selected until the user chooses a blueprint (JComboBox selects index 0 on add).
+		blueprintCombo.setSelectedIndex(-1);
 		gbc.gridx = 2;
 		panel.add(blueprintCombo, gbc);
 		blueprintCombos.add(blueprintCombo);
 
 		JComboBox<String> experimentalCombo = new JComboBox<>();
 		styleActionCombo(experimentalCombo);
-		experimentalCombo.addItem("(none)");
-		experimentalCombo.setEnabled(hasBlueprints);
+		experimentalCombo.setEnabled(false);
+		experimentalCombo.setSelectedIndex(-1);
 		gbc.gridx = 3;
 		panel.add(experimentalCombo, gbc);
 		experimentalCombos.add(experimentalCombo);
 
+		JButton addBtn = new JButton("Add goal");
+		OverlayOutlineButtonStyle.applyChip(addBtn, baseFont, false);
+		Runnable syncAddEnabled = () -> {
+			String bp = (String) blueprintCombo.getSelectedItem();
+			addBtn.setEnabled(addGoalHandler != null
+					&& bp != null && !bp.isBlank());
+		};
+		syncAddEnabled.run();
+
 		Runnable refreshExperimentals = () -> {
 			String blueprint = (String) blueprintCombo.getSelectedItem();
-			String keep = (String) experimentalCombo.getSelectedItem();
 			experimentalCombo.removeAllItems();
-			experimentalCombo.addItem("(none)");
 			if (blueprint != null && !blueprint.isBlank()) {
+				experimentalCombo.addItem("(none)");
 				for (String name : experimentalNamesFor(row.moduleType(), blueprint)) {
 					experimentalCombo.addItem(name);
 				}
+				experimentalCombo.setEnabled(true);
+				// Leave experimental unselected until the user picks one.
+				experimentalCombo.setSelectedIndex(-1);
+			} else {
+				experimentalCombo.setEnabled(false);
+				experimentalCombo.setSelectedIndex(-1);
 			}
-			if (keep != null) {
-				experimentalCombo.setSelectedItem(keep);
-			}
-			if (experimentalCombo.getSelectedItem() == null && experimentalCombo.getItemCount() > 0) {
-				experimentalCombo.setSelectedIndex(0);
-			}
+			OverlayComboBoxStyle.refreshInk(experimentalCombo);
+			syncAddEnabled.run();
 		};
 		blueprintCombo.addActionListener(e -> refreshExperimentals.run());
-		refreshExperimentals.run();
 
-		JButton addBtn = new JButton("Add goal");
-		OverlayOutlineButtonStyle.applyChip(addBtn, baseFont, false);
-		addBtn.setEnabled(hasBlueprints && addGoalHandler != null);
 		Runnable addAction = () -> addGoalFromUnengineered(row, blueprintCombo, experimentalCombo);
 		addBtn.addActionListener(e -> addAction.run());
 		HoverClickPoller.register(addBtn, HOVER_CLICK_DELAY_MS, addAction, passThroughEnabledSupplier);
@@ -1266,6 +1274,9 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			return;
 		}
 		String blueprint = blueprintCombo != null ? (String) blueprintCombo.getSelectedItem() : null;
+		if (blueprint == null || blueprint.isBlank()) {
+			return;
+		}
 		String experimental = experimentalCombo != null ? (String) experimentalCombo.getSelectedItem() : null;
 		if (experimental != null && "(none)".equalsIgnoreCase(experimental)) {
 			experimental = null;

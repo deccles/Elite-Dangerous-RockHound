@@ -2,6 +2,8 @@ package org.dce.ed.ui;
 
 import java.awt.AlphaComposite;
 import java.awt.Color;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
@@ -118,5 +120,56 @@ public final class TransparentViewportUI extends BasicViewportUI {
         }
         return OverlayPreferences.getOverlayMouseInteractionMode() == MouseInteractionMode.SELECTIVE
                 && OverlayPreferences.isPassThroughWindowActive();
+    }
+
+    /**
+     * Selective mode: punch {@code panel} fully transparent except descendant {@link JButton}s
+     * (rounded hit plates keep their fill; gaps/padding lose the black halo).
+     *
+     * @param host coordinate space for {@code g} (usually the tab panel)
+     */
+    public static void clearPanelChromeExceptButtons(Graphics g, JComponent host, JComponent panel) {
+        if (g == null || host == null || panel == null || !panel.isShowing()
+                || !isSelectivePassThroughContext(host)) {
+            return;
+        }
+        Rectangle area = javax.swing.SwingUtilities.convertRectangle(
+                panel.getParent() != null ? panel.getParent() : panel,
+                panel.getBounds(),
+                host);
+        if (area.width <= 0 || area.height <= 0) {
+            return;
+        }
+        java.awt.geom.Area clear = new java.awt.geom.Area(area);
+        collectButtonKeepAreas(panel, host, clear);
+        if (clear.isEmpty()) {
+            return;
+        }
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+            g2.fill(clear);
+        } finally {
+            g2.dispose();
+        }
+    }
+
+    private static void collectButtonKeepAreas(Component root, JComponent host, java.awt.geom.Area clear) {
+        if (root == null || !root.isShowing()) {
+            return;
+        }
+        if (root instanceof javax.swing.JButton) {
+            Rectangle keep = javax.swing.SwingUtilities.convertRectangle(
+                    root.getParent() != null ? root.getParent() : root,
+                    root.getBounds(),
+                    host);
+            clear.subtract(new java.awt.geom.Area(keep));
+            return;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                collectButtonKeepAreas(child, host, clear);
+            }
+        }
     }
 }

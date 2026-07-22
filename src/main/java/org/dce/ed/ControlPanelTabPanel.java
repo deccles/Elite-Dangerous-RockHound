@@ -32,6 +32,7 @@ import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
+import org.dce.ed.ui.TransparentViewportUI;
 
 /**
  * Control Panel overlay tab: buttons for Exec bindings marked "include on Control Panel".
@@ -138,20 +139,11 @@ public final class ControlPanelTabPanel extends JPanel {
         if (g == null || !isSelectiveMouseMode() || !OverlayPreferences.isPassThroughWindowActive()) {
             return;
         }
+        // Punch gaps/padding around Control Panel buttons so only the rounded hit plates remain.
+        TransparentViewportUI.clearPanelChromeExceptButtons(g, this, buttonPanel);
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-            // Empty strip to the left of Kill scripts only (command buttons stay tinted).
-            if (killButton != null && killButton.isShowing()) {
-                Component row = killButtonRow != null && killButtonRow.isShowing() ? killButtonRow : killButton;
-                Point rowOrigin = SwingUtilities.convertPoint(row, 0, 0, this);
-                Point killOrigin = SwingUtilities.convertPoint(killButton, 0, 0, this);
-                int leftW = Math.max(0, killOrigin.x);
-                int h = Math.max(killButton.getHeight(), row.getHeight());
-                if (leftW > 0 && h > 0) {
-                    g2.fillRect(0, rowOrigin.y, leftW, h);
-                }
-            }
             int yStart = buttonStackContentBottomY();
             int yEnd = getHeight();
             if (yEnd > yStart) {

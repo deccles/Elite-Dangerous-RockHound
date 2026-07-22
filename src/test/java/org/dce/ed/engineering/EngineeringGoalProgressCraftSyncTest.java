@@ -300,6 +300,84 @@ class EngineeringGoalProgressCraftSyncTest {
         assertEquals(1, goals.get(1).getCraftsAtCurrentGrade());
     }
 
+    @Test
+    void replay_qualityFinishesGradeEarly_loweringTargetMarksComplete() {
+        // Real Marco Qwent session: G2 in two rolls, G3 in three, then Super Conduits — while the
+        // goal still targeted G5. Lowering to G3 must become Complete (not Ready for a phantom roll).
+        List<org.dce.ed.logreader.EliteLogEvent> events = new ArrayList<>();
+        events.add(pdCraft(1, 0.5));
+        events.add(pdCraft(1, 1.0));
+        events.add(pdCraft(2, 0.5));
+        events.add(pdCraft(2, 1.0));
+        events.add(pdCraft(3, 0.3333));
+        events.add(pdCraft(3, 0.6667));
+        events.add(pdCraft(3, 1.0));
+        events.add(parser.parseRecord("""
+                {
+                  "timestamp": "2026-07-22T13:14:09Z",
+                  "event": "EngineerCraft",
+                  "Slot": "PowerDistributor",
+                  "Module": "int_powerdistributor_size6_class5",
+                  "Engineer": "Marco Qwent",
+                  "BlueprintName": "PowerDistributor_HighFrequency",
+                  "Level": 3,
+                  "Quality": 1.0,
+                  "ApplyExperimentalEffect": "special_powerdistributor_fast",
+                  "ExperimentalEffect": "special_powerdistributor_fast",
+                  "ExperimentalEffect_Localised": "Super Conduits",
+                  "Ingredients": [
+                    { "Name": "phosphorus", "Count": 5 },
+                    { "Name": "heatresistantceramics", "Count": 3 },
+                    { "Name": "securityfirmwarepatch", "Count": 1 }
+                  ]
+                }
+                """));
+
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "power-distributor-charge-enhanced-g5",
+                "Power Distributor",
+                "Charge Enhanced",
+                0,
+                0,
+                5,
+                "power-distributor-super-conduits-experimental"));
+
+        assertTrue(EngineeringGoalProgress.replayCraftHistory(goals, events, db));
+        EngineeringGoal atG5 = goals.get(0);
+        assertEquals(3, atG5.getFromGrade());
+        assertTrue(atG5.isExperimentalApplied());
+        assertTrue(!atG5.isComplete(), "still targeting G5");
+
+        EngineeringGoal lowered = atG5.withUserSettings(3, atG5.getExperimentalId(), 1);
+        assertEquals(3, lowered.getTargetGrade());
+        assertEquals(3, lowered.getFromGrade());
+        assertTrue(lowered.isExperimentalApplied());
+        assertTrue(lowered.isComplete(), "G3 + experimental must be Complete after lowering target");
+
+        // Re-bootstrap as the edit dialog does: reset + replay against the new target.
+        List<EngineeringGoal> refreshed = new ArrayList<>();
+        refreshed.add(lowered.resetJournalProgress());
+        assertTrue(EngineeringGoalProgress.replayCraftHistory(refreshed, events, db));
+        assertTrue(refreshed.get(0).isComplete());
+    }
+
+    private EngineerCraftEvent pdCraft(int level, double quality) {
+        return (EngineerCraftEvent) parser.parseRecord("""
+                {
+                  "timestamp": "2026-07-22T13:13:00Z",
+                  "event": "EngineerCraft",
+                  "Slot": "PowerDistributor",
+                  "Module": "int_powerdistributor_size6_class5",
+                  "Ingredients": [{ "Name": "legacyfirmware", "Count": 1 }],
+                  "Engineer": "Marco Qwent",
+                  "BlueprintName": "PowerDistributor_HighFrequency",
+                  "Level": %d,
+                  "Quality": %s
+                }
+                """.formatted(Integer.valueOf(level), Double.valueOf(quality)));
+    }
+
     private EngineerCraftEvent boosterCraft(String slot, int level) {
         return (EngineerCraftEvent) parser.parseRecord("""
                 {
