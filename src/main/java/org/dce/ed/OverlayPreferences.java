@@ -112,9 +112,6 @@ public final class OverlayPreferences {
     private static final String KEY_ENGINEERING_BLUEPRINT_SORT_DESC = "overlay.engineering.blueprintPicker.sortDescending";
     private static final String KEY_ENGINEERING_BLUEPRINT_INSTALLED_ONLY =
             "overlay.engineering.blueprintPicker.installedOnly";
-    /** Build progress: hide All engineered / Unengineered rows that already have a matching goal. */
-    private static final String KEY_ENGINEERING_BUILD_PROGRESS_HIDE_MODULES_WITH_GOALS =
-            "overlay.engineering.buildProgress.hideModulesWithGoals";
     /** Last ship chosen in Add Goal; kept until the equipped ship changes. */
     private static final String KEY_ENGINEERING_ADD_GOAL_PREFERRED_SHIP_ID =
             "overlay.engineering.addGoal.preferredShipId";
@@ -634,14 +631,6 @@ public final class OverlayPreferences {
 
     public static void setEngineeringLowerSplitDividerLocation(int location) {
         PREFS.putInt(KEY_ENGINEERING_LOWER_SPLIT_DIVIDER, location);
-    }
-
-    public static boolean isEngineeringBuildProgressHideModulesWithGoals() {
-        return PREFS.getBoolean(KEY_ENGINEERING_BUILD_PROGRESS_HIDE_MODULES_WITH_GOALS, true);
-    }
-
-    public static void setEngineeringBuildProgressHideModulesWithGoals(boolean hide) {
-        PREFS.putBoolean(KEY_ENGINEERING_BUILD_PROGRESS_HIDE_MODULES_WITH_GOALS, hide);
     }
 
     /**

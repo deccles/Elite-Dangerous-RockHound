@@ -6,7 +6,7 @@
 
     <groupId>org.dce</groupId>
     <artifactId>elite-dangerous-overlay-parent</artifactId>
-    <version>1.4.41</version>
+    <version>1.4.42</version>
     <packaging>pom</packaging>
 
     <name>Elite Dangerous Overlay (parent)</name>

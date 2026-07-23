@@ -62,6 +62,7 @@ import org.dce.ed.engineering.BlueprintGrade;
 import org.dce.ed.engineering.EngineeringCraftStore;
 import org.dce.ed.engineering.EngineeringDatabase;
 import org.dce.ed.engineering.EngineeringGoal;
+import org.dce.ed.engineering.EngineeringJournalBlueprintResolver;
 import org.dce.ed.engineering.EngineeringLoadoutExperimentalPatch;
 import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
@@ -250,7 +251,7 @@ public class EngineeringTabPanel extends JPanel {
         // Two-line Blueprint cells (module + blueprint name).
         goalsTable.setRowHeight(Math.max(36, fontSize * 2 + 12));
         goalsTable.getColumnModel().getColumn(COL_GOAL_BLUEPRINT).setCellRenderer(new BlueprintNameCellRenderer());
-        goalsTable.getColumnModel().getColumn(COL_GOAL_EXP).setCellRenderer(new EllipsisTextCellRenderer());
+        goalsTable.getColumnModel().getColumn(COL_GOAL_EXP).setCellRenderer(new ExperimentalEffectCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_TARGET).setCellRenderer(new GoalTargetCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_STATUS).setCellRenderer(new GoalStatusCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_ENABLED).setCellRenderer(new GoalEnabledCellRenderer());
@@ -475,9 +476,10 @@ public class EngineeringTabPanel extends JPanel {
         HoverClickPoller.register(addMatsBtn, HOVER_CLICK_DELAY_MS, this::openAddMaterialsGoalDialog,
                 passThroughEnabledSupplier);
         buttonsRow.add(addMatsBtn);
-        JButton loadoutBtn = new JButton("Add Goal via Loadout");
+        JButton loadoutBtn = new JButton("Loadout");
         OverlayOutlineButtonStyle.applyChip(loadoutBtn, base, false);
-        loadoutBtn.setToolTipText("Build progress — grade / multi-module craft status and fitted engineering");
+        loadoutBtn.setToolTipText(
+                "View this ship's engineering status (gap / partial / done) and add goals from fitted modules");
         loadoutBtn.addActionListener(e -> openBuildProgressDialog());
         HoverClickPoller.register(loadoutBtn, HOVER_CLICK_DELAY_MS, this::openBuildProgressDialog, passThroughEnabledSupplier);
         buttonsRow.add(loadoutBtn);
@@ -1399,6 +1401,20 @@ public class EngineeringTabPanel extends JPanel {
                             return "Trades available to complete";
                         }
                     }
+                    if (modelCol == COL_GOAL_BLUEPRINT || modelCol == COL_GOAL_EXP) {
+                        String effectTip = engineeringEffectTipAt(row, modelCol);
+                        if (effectTip != null && !effectTip.isBlank()) {
+                            return effectTip;
+                        }
+                    }
+                    // Prefer renderer tooltip (effect descriptions) over raw cell text.
+                    Component renderer = prepareRenderer(getCellRenderer(row, col), row, col);
+                    if (renderer instanceof JComponent jc) {
+                        String rendererTip = jc.getToolTipText();
+                        if (rendererTip != null && !rendererTip.isBlank()) {
+                            return rendererTip;
+                        }
+                    }
                 }
                 String tip = TableCellToolTipSupport.cellTextAt(this, event);
                 return tip != null ? tip : super.getToolTipText(event);
@@ -1640,6 +1656,28 @@ public class EngineeringTabPanel extends JPanel {
             return null;
         }
         Window owner = SwingUtilities.getWindowAncestor(this);
+        if (request.existingGoal() != null) {
+            EngineeringGoal updated = EngineeringGoalDialog.showForEdit(
+                    owner,
+                    database,
+                    passThroughEnabledSupplier,
+                    request.existingGoal(),
+                    shipCatalog);
+            if (updated != null) {
+                int idx = indexOfGoalInstance(request.existingGoal());
+                if (idx >= 0) {
+                    goals.set(idx, updated);
+                } else {
+                    goals.add(updated);
+                }
+                shipCatalog.rememberGoal(updated);
+                rebuildShipFilterCombo();
+                refreshGoalProgressFromJournal();
+                fireSessionChanged();
+                refreshUi();
+            }
+            return updated;
+        }
         EngineeringGoal goal = EngineeringGoalDialog.showForAdd(
                 owner,
                 database,
@@ -1651,7 +1689,8 @@ public class EngineeringTabPanel extends JPanel {
                         request.blueprintName(),
                         request.moduleType(),
                         request.experimentalName(),
-                        request.quantity()));
+                        request.quantity(),
+                        request.preferredTargetGrade()));
         if (goal != null) {
             goals.add(goal);
             shipCatalog.rememberGoal(goal);
@@ -1661,6 +1700,35 @@ public class EngineeringTabPanel extends JPanel {
             refreshUi();
         }
         return goal;
+    }
+
+    private int indexOfGoalInstance(EngineeringGoal existing) {
+        if (existing == null) {
+            return -1;
+        }
+        for (int i = 0; i < goals.size(); i++) {
+            if (goals.get(i) == existing) {
+                return i;
+            }
+        }
+        // Progress replay may have replaced the instance; match by ship + module + blueprint.
+        for (int i = 0; i < goals.size(); i++) {
+            EngineeringGoal g = goals.get(i);
+            if (g == null) {
+                continue;
+            }
+            if (existing.hasShip() && g.hasShip() && existing.getShipId() != g.getShipId()) {
+                continue;
+            }
+            if (!EngineeringJournalBlueprintResolver.sameModuleType(existing.getModuleType(), g.getModuleType())) {
+                continue;
+            }
+            if (EngineeringJournalBlueprintResolver.normalizeToken(existing.getBlueprintName())
+                    .equals(EngineeringJournalBlueprintResolver.normalizeToken(g.getBlueprintName()))) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     public void handleLogEvent(EliteLogEvent event) {
@@ -2339,7 +2407,7 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     /**
-     * Default ship for Add Goal / Add Materials Goal / Add Goal via Loadout:
+     * Default ship for Add Goal / Add Materials Goal / Loadout:
      * when the Engineering tab filter is a specific ship, use that. When the filter is All,
      * prefer the last manually chosen Add Goal ship while still on the same equipped hull;
      * when the equipped ship changes (or first time), follow the loadout.
@@ -3026,6 +3094,31 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
+    private final class ExperimentalEffectCellRenderer extends EdoTableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
+            if (!(c instanceof JLabel label)) {
+                return c;
+            }
+            String text = value != null ? value.toString() : "";
+            String tip = null;
+            int modelRow = table.convertRowIndexToModel(row);
+            GoalUiRow goalRow = goalRowAtUi(modelRow);
+            if (goalRow != null && goalRow.blueprint() != null && !"—".equals(text) && !text.isBlank()) {
+                EngineeringGoal g = goalRow.blueprint();
+                tip = database.experimentalEffectTooltip(
+                        g.getModuleType(), g.getBlueprintName(), text);
+            }
+            if (tip == null && !text.isBlank() && !"—".equals(text)) {
+                tip = text;
+            }
+            label.setToolTipText(tip);
+            return c;
+        }
+    }
+
     private final class GoalStatusCellRenderer extends EdoTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
@@ -3136,7 +3229,11 @@ public class EngineeringTabPanel extends JPanel {
                 EngineeringGoal g = goalRow.blueprint();
                 top = goalPrimaryLine(g.getShipId(), g.getShipLabel(), g.getModuleType(), g.getQuantity());
                 bottom = g.getBlueprintName() != null ? g.getBlueprintName().trim() : "";
-                tip = top + (bottom.isBlank() ? "" : " — " + bottom);
+                String effects = database.blueprintEffectTooltip(
+                        g.getModuleType(), g.getBlueprintName(), g.getTargetGrade());
+                tip = effects != null && !effects.isBlank()
+                        ? effects
+                        : top + (bottom.isBlank() ? "" : " — " + bottom);
             } else if (value != null) {
                 top = value.toString();
                 tip = top;
@@ -3146,6 +3243,45 @@ public class EngineeringTabPanel extends JPanel {
             bottomLine.setVisible(!bottom.isBlank());
             panel.setToolTipText(tip != null && !tip.isBlank() ? tip : null);
             return panel;
+        }
+    }
+
+    /**
+     * Effect-description tooltip for goals table blueprint / experimental columns.
+     */
+    private String engineeringEffectTipAt(int viewRow, int modelCol) {
+        int modelRow = convertGoalsViewRowToModel(viewRow);
+        GoalUiRow goalRow = goalRowAtUi(modelRow);
+        if (goalRow == null || goalRow.blueprint() == null || database == null) {
+            return null;
+        }
+        EngineeringGoal g = goalRow.blueprint();
+        if (modelCol == COL_GOAL_BLUEPRINT) {
+            return database.blueprintEffectTooltip(
+                    g.getModuleType(), g.getBlueprintName(), g.getTargetGrade());
+        }
+        if (modelCol == COL_GOAL_EXP) {
+            if (g.getExperimentalId().isBlank()) {
+                return null;
+            }
+            return database.findById(g.getExperimentalId())
+                    .map(EngineeringDatabase::formatEffectTooltip)
+                    .orElseGet(() -> database.experimentalEffectTooltip(
+                            g.getModuleType(),
+                            g.getBlueprintName(),
+                            g.getExperimentalId()));
+        }
+        return null;
+    }
+
+    private int convertGoalsViewRowToModel(int viewRow) {
+        if (viewRow < 0) {
+            return -1;
+        }
+        try {
+            return goalsTable.convertRowIndexToModel(viewRow);
+        } catch (RuntimeException ex) {
+            return viewRow;
         }
     }
 

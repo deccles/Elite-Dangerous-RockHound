@@ -327,11 +327,22 @@ public final class OverlayOutlineButtonStyle {
                 super.paintText(g, b, textRect, text);
                 return;
             }
+            // BasicButtonUI's disabled path uses background.brighter()/darker(). Chip buttons are
+            // transparent, so that paints invisible black text (empty orange outline chips).
             Color previous = b.getForeground();
+            boolean enabled = b.isEnabled();
             try {
-                b.setForeground(EdoUi.User.MAIN_TEXT);
+                b.setForeground(enabled
+                        ? EdoUi.User.MAIN_TEXT
+                        : EdoUi.Internal.MAIN_TEXT_ALPHA_140);
+                if (!enabled) {
+                    b.getModel().setEnabled(true);
+                }
                 super.paintText(g, b, textRect, text);
             } finally {
+                if (!enabled) {
+                    b.getModel().setEnabled(false);
+                }
                 b.setForeground(previous);
             }
         }

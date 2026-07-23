@@ -134,6 +134,126 @@ public final class EngineeringDatabase {
         return out;
     }
 
+    /**
+     * Hover text for a blueprint grade: description and/or modifier summary.
+     * {@code gradeOrZeroForMax <= 0} uses the highest available grade.
+     */
+    public String blueprintEffectTooltip(String moduleType, String blueprintName, int gradeOrZeroForMax) {
+        if (moduleType == null || moduleType.isBlank()
+                || blueprintName == null || blueprintName.isBlank()
+                || "—".equals(blueprintName.trim())) {
+            return null;
+        }
+        List<BlueprintGrade> grades = gradesFor(moduleType, blueprintName);
+        if (grades.isEmpty()) {
+            // Tolerant fallback when loadout label differs slightly from catalog module type.
+            for (Map.Entry<String, List<BlueprintGrade>> e : byModuleAndName.entrySet()) {
+                List<BlueprintGrade> list = e.getValue();
+                if (list == null || list.isEmpty()) {
+                    continue;
+                }
+                BlueprintGrade sample = list.get(0);
+                if (sample.isExperimental()) {
+                    continue;
+                }
+                if (!EngineeringJournalBlueprintResolver.normalizeToken(sample.getName())
+                        .equals(EngineeringJournalBlueprintResolver.normalizeToken(blueprintName))) {
+                    continue;
+                }
+                if (!EngineeringJournalBlueprintResolver.sameModuleType(sample.getModuleType(), moduleType)
+                        && !EngineeringJournalBlueprintResolver.normalizeToken(sample.getModuleType())
+                                .contains(EngineeringJournalBlueprintResolver.normalizeToken(moduleType))
+                        && !EngineeringJournalBlueprintResolver.normalizeToken(moduleType)
+                                .contains(EngineeringJournalBlueprintResolver.normalizeToken(sample.getModuleType()))) {
+                    continue;
+                }
+                grades = list;
+                break;
+            }
+        }
+        BlueprintGrade pick = null;
+        int maxGrade = 0;
+        for (BlueprintGrade g : grades) {
+            if (g == null || g.isExperimental()) {
+                continue;
+            }
+            if (g.getGrade() > maxGrade) {
+                maxGrade = g.getGrade();
+                pick = g;
+            }
+        }
+        if (gradeOrZeroForMax > 0) {
+            for (BlueprintGrade g : grades) {
+                if (g != null && !g.isExperimental() && g.getGrade() == gradeOrZeroForMax) {
+                    pick = g;
+                    break;
+                }
+            }
+        }
+        return formatEffectTooltip(pick);
+    }
+
+    /** Hover text for an experimental effect (modifiers / description). */
+    public String experimentalEffectTooltip(String moduleType, String parentBlueprintName, String experimentalName) {
+        if (experimentalName == null || experimentalName.isBlank()
+                || "—".equals(experimentalName.trim())
+                || "(none)".equalsIgnoreCase(experimentalName.trim())) {
+            return null;
+        }
+        String parent = parentBlueprintName != null ? parentBlueprintName : "";
+        for (BlueprintGrade exp : experimentalsFor(moduleType, parent)) {
+            if (exp.getName().equalsIgnoreCase(experimentalName.trim())) {
+                return formatEffectTooltip(exp);
+            }
+        }
+        String want = EngineeringJournalBlueprintResolver.normalizeToken(experimentalName);
+        for (BlueprintGrade bp : allBlueprints) {
+            if (!bp.isExperimental()) {
+                continue;
+            }
+            if (!EngineeringJournalBlueprintResolver.normalizeToken(bp.getName()).equals(want)) {
+                continue;
+            }
+            if (moduleType != null && !moduleType.isBlank()
+                    && !EngineeringJournalBlueprintResolver.sameModuleType(bp.getModuleType(), moduleType)) {
+                continue;
+            }
+            return formatEffectTooltip(bp);
+        }
+        return null;
+    }
+
+    /** HTML tooltip body for a blueprint grade or experimental. */
+    public static String formatEffectTooltip(BlueprintGrade bp) {
+        if (bp == null) {
+            return null;
+        }
+        String desc = bp.getDescription() != null ? bp.getDescription().trim() : "";
+        String mods = bp.modifierSummary();
+        if (desc.isBlank() && (mods == null || mods.isBlank())) {
+            return null;
+        }
+        String title = bp.isExperimental()
+                ? bp.getName()
+                : bp.getName() + " G" + bp.getGrade();
+        StringBuilder body = new StringBuilder();
+        body.append("<b>").append(htmlEscape(title)).append("</b>");
+        if (!desc.isBlank()) {
+            body.append("<br>").append(htmlEscape(desc));
+        }
+        if (mods != null && !mods.isBlank()) {
+            body.append("<br>").append(htmlEscape(mods));
+        }
+        return "<html><body style='width:300px'>" + body + "</body></html>";
+    }
+
+    private static String htmlEscape(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("&", "&amp;").replace("<", "&lt;");
+    }
+
     public Optional<EngineeringMaterial> material(String key) {
         if (key == null || key.isBlank()) {
             return Optional.empty();

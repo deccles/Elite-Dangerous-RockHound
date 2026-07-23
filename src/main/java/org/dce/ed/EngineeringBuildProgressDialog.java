@@ -3,33 +3,29 @@ package org.dce.ed;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.Font;
 import java.awt.FlowLayout;
-import java.awt.FontMetrics;
+import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Toolkit;
 import java.awt.Window;
+import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BooleanSupplier;
-import java.util.function.Supplier;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
-import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
@@ -38,7 +34,7 @@ import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
-import javax.swing.SwingConstants;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.border.EmptyBorder;
@@ -46,58 +42,53 @@ import javax.swing.border.EmptyBorder;
 import org.dce.ed.engineering.BlueprintGrade;
 import org.dce.ed.engineering.EngineeringCraftStore;
 import org.dce.ed.engineering.EngineeringDatabase;
-import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringGoal;
 import org.dce.ed.engineering.EngineeringGoalProgress;
 import org.dce.ed.engineering.EngineeringGoalProgress.ModuleUnitProgress;
 import org.dce.ed.engineering.EngineeringJournalBlueprintResolver;
 import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
+import org.dce.ed.engineering.ShipEngineeringSummary;
+import org.dce.ed.engineering.ShipEngineeringSummary.Band;
+import org.dce.ed.engineering.ShipEngineeringSummary.Row;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.ui.AlwaysOnTopPopupFactory;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
-import org.dce.ed.ui.OverlayCheckBoxStyle;
 import org.dce.ed.ui.OverlayComboBoxStyle;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
+import org.dce.ed.ui.SystemTableHoverCopyManager;
 
 /**
- * Hierarchical engineering build progress: ship → blueprint → fitted modules,
- * engineered components currently installed, and unengineered engineerable modules
- * with a quick Add goal affordance.
+ * Ship Loadout hub: glanceable Gap / Partial / Done engineering status with add-goal actions
+ * and a concise clipboard copy.
  */
 final class EngineeringBuildProgressDialog extends JDialog {
 
 	private static final int HOVER_CLICK_DELAY_MS = 500;
-	/** Extra width for combo chrome (border + arrow) beyond the longest item string. */
-	private static final int COMBO_CHROME_PAD = 28;
+	private static final String CORIOLIS_IMPORT_URL = "https://coriolis.io/import";
 
 	private final EngineeringDatabase database;
 	private final BooleanSupplier passThroughEnabledSupplier;
 	private final EngineeringShipCatalog shipCatalog;
 	private final Long initialShipFilterId;
 	private final JComboBox<ShipFilterItem> shipCombo;
-	private final JCheckBox hideModulesWithGoalsCheck;
+	private final JLabel countsLabel;
 	private final JPanel contentPanel;
 	private final JScrollPane contentScroll;
 	private final Font baseFont;
 	private final int fontSize;
-	/** False while async load has not finished — ignore combo selection changes. */
 	private boolean shipComboReady;
 
 	private List<ModuleUnitProgress> allUnits = List.of();
-	/** Ship id → engineered modules from the latest stored loadout. */
-	private Map<Long, List<FittedModuleRow>> fittedByShip = Map.of();
-	/** Ship id → unengineered but engineerable modules from the latest stored loadout. */
-	private Map<Long, List<UnengineeredModuleRow>> unengineeredByShip = Map.of();
-	/** Ship id → latest stored loadout, kept for the text/Coriolis report. */
 	private Map<Long, LoadoutEvent> loadoutsByShip = Map.of();
+	private ShipEngineeringSummary currentSummary = ShipEngineeringSummary.fromLoadout(null, null);
 	private Long lastSelectedShipFilterId;
 	private SwingWorker<?, ?> loadWorker;
 	private final Function<AddGoalRequest, EngineeringGoal> addGoalHandler;
 	private final Supplier<List<EngineeringGoal>> goalsSupplier;
 	private String clientKey = "";
-	/** Vertical scroll to restore after the next load/rebuild, or {@code -1} if none. */
 	private int pendingRestoreScrollY = -1;
 
 	private EngineeringBuildProgressDialog(Window owner,
@@ -107,7 +98,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			BooleanSupplier passThroughEnabledSupplier,
 			Function<AddGoalRequest, EngineeringGoal> addGoalHandler,
 			Supplier<List<EngineeringGoal>> goalsSupplier) {
-		super(owner, "Engineering build progress", ModalityType.MODELESS);
+		super(owner, "Loadout", ModalityType.MODELESS);
 		setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 		this.database = database;
 		this.passThroughEnabledSupplier = passThroughEnabledSupplier;
@@ -125,7 +116,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 		JPanel north = new JPanel(new BorderLayout(8, 6));
 		north.setOpaque(false);
-		JLabel title = new JLabel("Build progress");
+		JLabel title = new JLabel("Loadout");
 		title.setFont(baseFont.deriveFont(Font.BOLD, fontSize + 2));
 		title.setForeground(EdoUi.User.MAIN_TEXT);
 		north.add(title, BorderLayout.NORTH);
@@ -158,30 +149,12 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			rebuildContent();
 		});
 		filterRow.add(shipCombo);
+		north.add(filterRow, BorderLayout.CENTER);
 
-		hideModulesWithGoalsCheck = new JCheckBox("Hide Modules w/ Goals");
-		OverlayCheckBoxStyle.apply(hideModulesWithGoalsCheck);
-		hideModulesWithGoalsCheck.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-		hideModulesWithGoalsCheck.setToolTipText(
-				"Hide All engineered and Unengineered rows that already have a matching goal");
-		hideModulesWithGoalsCheck.setSelected(OverlayPreferences.isEngineeringBuildProgressHideModulesWithGoals());
-		hideModulesWithGoalsCheck.addItemListener(e -> {
-			if (e.getStateChange() != java.awt.event.ItemEvent.SELECTED
-					&& e.getStateChange() != java.awt.event.ItemEvent.DESELECTED) {
-				return;
-			}
-			OverlayPreferences.setEngineeringBuildProgressHideModulesWithGoals(
-					hideModulesWithGoalsCheck.isSelected());
-			rebuildContent();
-		});
-		HoverClickPoller.register(
-				hideModulesWithGoalsCheck,
-				HOVER_CLICK_DELAY_MS,
-				() -> hideModulesWithGoalsCheck.setSelected(!hideModulesWithGoalsCheck.isSelected()),
-				passThroughEnabledSupplier);
-		filterRow.add(hideModulesWithGoalsCheck);
-
-		north.add(filterRow, BorderLayout.SOUTH);
+		countsLabel = new JLabel(" ");
+		countsLabel.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		countsLabel.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+		north.add(countsLabel, BorderLayout.SOUTH);
 
 		JPanel northWithRule = new JPanel(new BorderLayout());
 		northWithRule.setOpaque(false);
@@ -199,25 +172,38 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		contentScroll.setBorder(BorderFactory.createEmptyBorder());
 		contentScroll.getViewport().setOpaque(false);
 		contentScroll.setOpaque(false);
+		contentScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 		OverlayScrollPaneSupport.installSubtleScrollBars(contentScroll);
 		root.add(contentScroll, BorderLayout.CENTER);
 
 		JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
 		south.setOpaque(false);
-		JButton reportBtn = new JButton("Report");
-		OverlayOutlineButtonStyle.applyChip(reportBtn, baseFont, false);
-		reportBtn.setToolTipText(
-				"Plain-text summary of this ship's engineered, unengineered and fitted modules"
-						+ " — suitable for pasting into an AI chat");
-		Runnable reportAction = this::openReport;
-		reportBtn.addActionListener(e -> reportAction.run());
-		HoverClickPoller.register(reportBtn, HOVER_CLICK_DELAY_MS, reportAction, passThroughEnabledSupplier);
-		south.add(reportBtn);
+
+		JButton copyBtn = new JButton("Copy Summary");
+		OverlayOutlineButtonStyle.applyChip(copyBtn, baseFont, false);
+		copyBtn.setToolTipText("Copy a concise Gap / Partial / Done summary");
+		Runnable copyAction = () -> {
+			if (copySummaryToClipboard()) {
+				SystemTableHoverCopyManager.showCopiedToast(copyBtn, "Summary");
+			}
+		};
+		copyBtn.addActionListener(e -> copyAction.run());
+		HoverClickPoller.register(copyBtn, HOVER_CLICK_DELAY_MS, copyAction, passThroughEnabledSupplier);
+		south.add(copyBtn);
+
+		JButton coriolisBtn = new JButton("Coriolis");
+		OverlayOutlineButtonStyle.applyChip(coriolisBtn, baseFont, false);
+		Runnable coriolisAction = this::copyLoadoutJsonAndOpenCoriolis;
+		coriolisBtn.addActionListener(e -> coriolisAction.run());
+		HoverClickPoller.register(coriolisBtn, HOVER_CLICK_DELAY_MS, coriolisAction, passThroughEnabledSupplier);
+		south.add(coriolisBtn);
+
 		JButton closeBtn = new JButton("Close");
 		OverlayOutlineButtonStyle.applyChip(closeBtn, baseFont, false);
 		closeBtn.addActionListener(e -> dispose());
 		HoverClickPoller.register(closeBtn, HOVER_CLICK_DELAY_MS, this::dispose, passThroughEnabledSupplier);
 		south.add(closeBtn);
+
 		JPanel southWithRule = new JPanel(new BorderLayout());
 		southWithRule.setOpaque(false);
 		southWithRule.add(sectionSeparator(), BorderLayout.NORTH);
@@ -225,12 +211,39 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		root.add(southWithRule, BorderLayout.SOUTH);
 
 		setContentPane(root);
-		setMinimumSize(new Dimension(720, 480));
-		setPreferredSize(new Dimension(940, 820));
+		int dialogW = preferredDialogWidth();
+		int dialogH = preferredDialogHeight();
+		setMinimumSize(new Dimension(minimumDialogWidth(), 520));
+		setPreferredSize(new Dimension(dialogW, dialogH));
 		pack();
-		setSize(940, 820);
+		setSize(dialogW, dialogH);
 		setLocationRelativeTo(owner);
 		setAlwaysOnTop(true);
+		// Heavyweight tooltips otherwise appear behind this always-on-top dialog.
+		AlwaysOnTopPopupFactory.installWhileShowing(this);
+	}
+
+	/** Fixed Component / Size / Blueprint / Experimental / Level / Action columns + gutters. */
+	private int fixedColumnsWidth() {
+		return FIXED_COMPONENT_COL_W
+				+ FIXED_SLOT_SIZE_COL_W
+				+ FIXED_BLUEPRINT_COMBO_W
+				+ FIXED_EXPERIMENTAL_COMBO_W
+				+ levelColumnWidth()
+				+ actionColumnWidth()
+				+ (8 * 5);
+	}
+
+	private int minimumDialogWidth() {
+		return fixedColumnsWidth() + 56;
+	}
+
+	private int preferredDialogWidth() {
+		return Math.max(1020, fixedColumnsWidth() + 72);
+	}
+
+	private int preferredDialogHeight() {
+		return 960;
 	}
 
 	static void show(Window owner,
@@ -279,9 +292,6 @@ final class EngineeringBuildProgressDialog extends JDialog {
 				List<ModuleUnitProgress> units =
 						EngineeringGoalProgress.collectModuleUnitProgress(goalSnapshot, key, db);
 				Map<Long, LoadoutEvent> loadouts = EngineeringCraftStore.loadLatestLoadouts(key);
-				Map<Long, List<FittedModuleRow>> fitted = collectFittedModules(loadouts, db, catalog);
-				Map<Long, List<UnengineeredModuleRow>> unengineered =
-						collectUnengineeredModules(loadouts, catalog);
 				if (catalog != null) {
 					for (ModuleUnitProgress u : units) {
 						if (u.shipId() >= 0 && catalog.get(u.shipId()) == null) {
@@ -299,7 +309,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 						}
 					}
 				}
-				return new DialogLoadResult(units, fitted, unengineered, loadouts);
+				return new DialogLoadResult(units, loadouts);
 			}
 
 			@Override
@@ -310,209 +320,80 @@ final class EngineeringBuildProgressDialog extends JDialog {
 				try {
 					DialogLoadResult result = get();
 					allUnits = result.units();
-					fittedByShip = result.fittedByShip();
-					unengineeredByShip = result.unengineeredByShip();
 					loadoutsByShip = result.loadoutsByShip();
 				} catch (InterruptedException ex) {
 					Thread.currentThread().interrupt();
 					allUnits = List.of();
-					fittedByShip = Map.of();
-					unengineeredByShip = Map.of();
 					loadoutsByShip = Map.of();
 				} catch (ExecutionException ex) {
 					allUnits = List.of();
-					fittedByShip = Map.of();
-					unengineeredByShip = Map.of();
 					loadoutsByShip = Map.of();
 				}
-				// Keep current ship filter on refresh; use initial only for the first open.
 				populateShipCombo(keepScroll ? null : initialShipFilterId);
-				shipComboReady = true;
-				OverlayComboBoxStyle.refreshInk(shipCombo);
 				rebuildContent();
-				restoreScrollIfPending();
+				if (keepScroll && pendingRestoreScrollY >= 0) {
+					final int y = pendingRestoreScrollY;
+					pendingRestoreScrollY = -1;
+					SwingUtilities.invokeLater(() -> {
+						JScrollBar bar = contentScroll.getVerticalScrollBar();
+						bar.setValue(Math.min(y, bar.getMaximum()));
+					});
+				}
 			}
 		};
 		loadWorker.execute();
 	}
 
-	private void restoreScrollIfPending() {
-		final int y = pendingRestoreScrollY;
-		if (y < 0) {
-			return;
-		}
-		pendingRestoreScrollY = -1;
-		Runnable apply = () -> {
-			JScrollBar bar = contentScroll.getVerticalScrollBar();
-			if (bar == null) {
-				return;
-			}
-			int max = Math.max(0, bar.getMaximum() - bar.getVisibleAmount());
-			bar.setValue(Math.min(y, max));
-		};
-		SwingUtilities.invokeLater(() -> {
-			apply.run();
-			// Second pass after layout settles (content height changes post-revalidate).
-			SwingUtilities.invokeLater(apply);
-		});
-	}
-
-	@Override
-	public void dispose() {
-		if (loadWorker != null) {
-			loadWorker.cancel(true);
-			loadWorker = null;
-		}
-		super.dispose();
-	}
-
 	private void showLoading() {
 		contentPanel.removeAll();
-		JLabel loading = mutedLabel("Loading build progress…");
+		countsLabel.setText(" ");
+		JLabel loading = mutedLabel("Loading loadout…");
 		loading.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(loading);
 		contentPanel.revalidate();
 		contentPanel.repaint();
 	}
 
-	private void populateShipCombo(Long preferShipFilterId) {
-		ShipFilterItem keep = (ShipFilterItem) shipCombo.getSelectedItem();
-		Long prefer = preferShipFilterId != null
-				? preferShipFilterId
-				: (keep != null && keep.shipId() != null ? keep.shipId() : lastSelectedShipFilterId);
+	private void populateShipCombo(Long preferShipId) {
+		shipComboReady = false;
 		shipCombo.removeAllItems();
-
-		Set<Long> shipsWithGoals = new HashSet<>();
+		Map<Long, String> labels = new LinkedHashMap<>();
+		for (Long id : loadoutsByShip.keySet()) {
+			labels.put(id, resolveShipTitle(id.longValue()));
+		}
 		for (ModuleUnitProgress u : allUnits) {
 			if (u.shipId() >= 0) {
-				shipsWithGoals.add(Long.valueOf(u.shipId()));
+				labels.putIfAbsent(Long.valueOf(u.shipId()), resolveShipTitle(u.shipId()));
 			}
 		}
-
-		List<EngineeringShipRef> withGoals = new ArrayList<>();
-		List<EngineeringShipRef> withoutGoals = new ArrayList<>();
-		Set<Long> seen = new HashSet<>();
-		for (EngineeringShipRef ref : shipCatalog.listSorted()) {
-			Long id = Long.valueOf(ref.getShipId());
-			seen.add(id);
-			if (shipsWithGoals.contains(id)) {
-				withGoals.add(ref);
-			} else {
-				withoutGoals.add(ref);
-			}
+		List<Long> ordered = new ArrayList<>(labels.keySet());
+		ordered.sort(Comparator.comparing(labels::get, String.CASE_INSENSITIVE_ORDER));
+		for (Long id : ordered) {
+			shipCombo.addItem(ShipFilterItem.ship(id.longValue(), labels.get(id)));
 		}
-		// Fitted-only / goal-only hulls not yet in the catalog.
-		for (Long shipId : shipsWithGoals) {
-			if (shipId != null && seen.add(shipId) && shipId >= 0) {
-				withGoals.add(new EngineeringShipRef(shipId.longValue(), "", resolveShipTitle(shipId, List.of()), ""));
-			}
-		}
-		for (Long shipId : fittedByShip.keySet()) {
-			if (shipId != null && shipId >= 0 && seen.add(shipId) && !shipsWithGoals.contains(shipId)) {
-				withoutGoals.add(new EngineeringShipRef(shipId.longValue(), "", resolveShipTitle(shipId, List.of()), ""));
-			}
-		}
-		for (Long shipId : unengineeredByShip.keySet()) {
-			if (shipId != null && shipId >= 0 && seen.add(shipId) && !shipsWithGoals.contains(shipId)) {
-				withoutGoals.add(new EngineeringShipRef(shipId.longValue(), "", resolveShipTitle(shipId, List.of()), ""));
-			}
-		}
-		withGoals.sort(Comparator.comparing(r -> shipCatalog.displayLabel(r), String.CASE_INSENSITIVE_ORDER));
-		withoutGoals.sort(Comparator.comparing(r -> shipCatalog.displayLabel(r), String.CASE_INSENSITIVE_ORDER));
-
-		for (EngineeringShipRef ref : withGoals) {
-			shipCombo.addItem(ShipFilterItem.ship(ref.getShipId(), shipCatalog.displayLabel(ref)));
-		}
-		if (!withGoals.isEmpty() && !withoutGoals.isEmpty()) {
-			shipCombo.addItem(ShipFilterItem.separator());
-		}
-		for (EngineeringShipRef ref : withoutGoals) {
-			shipCombo.addItem(ShipFilterItem.ship(ref.getShipId(), shipCatalog.displayLabel(ref)));
-		}
-
+		Long prefer = preferShipId != null ? preferShipId : lastSelectedShipFilterId;
 		ShipFilterItem select = findShipFilterItem(prefer);
+		if (select == null && shipCombo.getItemCount() > 0) {
+			select = shipCombo.getItemAt(0);
+		}
 		if (select != null) {
 			shipCombo.setSelectedItem(select);
 			lastSelectedShipFilterId = select.shipId();
-		} else {
-			lastSelectedShipFilterId = null;
 		}
-		widenShipComboToFitItems();
+		shipComboReady = true;
 	}
 
-	/** Prefer {@code shipId} when present; otherwise the first concrete ship in the combo. */
 	private ShipFilterItem findShipFilterItem(Long shipId) {
-		if (shipId != null) {
-			for (int i = 0; i < shipCombo.getItemCount(); i++) {
-				ShipFilterItem item = shipCombo.getItemAt(i);
-				if (item != null && !item.isSeparator() && shipId.equals(item.shipId())) {
-					return item;
-				}
-			}
+		if (shipId == null) {
+			return null;
 		}
 		for (int i = 0; i < shipCombo.getItemCount(); i++) {
 			ShipFilterItem item = shipCombo.getItemAt(i);
-			if (item != null && !item.isSeparator() && item.shipId() != null) {
+			if (item != null && !item.isSeparator() && shipId.equals(item.shipId())) {
 				return item;
 			}
 		}
 		return null;
-	}
-
-	private void widenShipComboToFitItems() {
-		Font font = shipCombo.getFont();
-		int maxText = 0;
-		java.awt.FontMetrics fm = shipCombo.getFontMetrics(
-				font != null ? font : new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-		for (int i = 0; i < shipCombo.getItemCount(); i++) {
-			ShipFilterItem item = shipCombo.getItemAt(i);
-			if (item == null || item.isSeparator()) {
-				continue;
-			}
-			maxText = Math.max(maxText, fm.stringWidth(item.label()));
-		}
-		Dimension pref = shipCombo.getPreferredSize();
-		int width = Math.max(260, maxText + 48);
-		shipCombo.setPreferredSize(new Dimension(width, pref.height));
-		shipCombo.revalidate();
-	}
-
-	private void styleShipCombo(JComboBox<ShipFilterItem> combo) {
-		OverlayComboBoxStyle.apply(combo, baseFont.deriveFont(Font.PLAIN, fontSize));
-		combo.setMaximumRowCount(12);
-		Dimension pref = combo.getPreferredSize();
-		combo.setPreferredSize(new Dimension(Math.max(260, pref.width), pref.height));
-		OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
-		combo.setRenderer(new DefaultListCellRenderer() {
-			@Override
-			public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-					boolean isSelected, boolean cellHasFocus) {
-				if (value instanceof ShipFilterItem item && item.isSeparator()) {
-					JPanel line = new JPanel() {
-						@Override
-						protected void paintComponent(java.awt.Graphics g) {
-							super.paintComponent(g);
-							g.setColor(EdoUi.Internal.separatorLineStrong());
-							int y = getHeight() / 2;
-							g.drawLine(6, y, getWidth() - 6, y);
-						}
-					};
-					line.setOpaque(true);
-					line.setBackground(EdoUi.User.PANEL_BG);
-					line.setPreferredSize(new Dimension(1, Math.max(8, fontSize / 2)));
-					return line;
-				}
-				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-				setEnabled(true);
-				if (value instanceof ShipFilterItem item) {
-					setText(item.label());
-				}
-				setForeground(EdoUi.User.MAIN_TEXT);
-				setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
-				setOpaque(true);
-				return c;
-			}
-		});
 	}
 
 	private void rebuildContent() {
@@ -520,7 +401,8 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		ShipFilterItem filter = (ShipFilterItem) shipCombo.getSelectedItem();
 		Long shipFilterId = filter != null && filter.shipId() != null ? filter.shipId() : null;
 		if (shipFilterId == null) {
-			JLabel empty = mutedLabel("Select a ship to view build progress.");
+			countsLabel.setText(" ");
+			JLabel empty = mutedLabel("Select a ship to view its loadout.");
 			empty.setAlignmentX(Component.LEFT_ALIGNMENT);
 			contentPanel.add(empty);
 			contentPanel.revalidate();
@@ -528,212 +410,90 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			return;
 		}
 
-		List<ModuleUnitProgress> visibleGoals = new ArrayList<>();
-		for (ModuleUnitProgress u : allUnits) {
-			if (u.shipId() == shipFilterId.longValue()) {
-				visibleGoals.add(u);
+		LoadoutEvent loadout = loadoutsByShip.get(shipFilterId);
+		if (loadout == null) {
+			countsLabel.setText(" ");
+			JLabel empty = mutedLabel(
+					"No stored loadout for this ship yet. Board it in-game (or change a module) to record one.");
+			empty.setAlignmentX(Component.LEFT_ALIGNMENT);
+			contentPanel.add(empty);
+			contentPanel.revalidate();
+			contentPanel.repaint();
+			return;
+		}
+
+		ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, database);
+		currentSummary = summary;
+		List<Row> visible = summary.rows();
+		countsLabel.setText(summary.countsLine());
+
+		if (visible.isEmpty()) {
+			JLabel empty = mutedLabel("No engineerable modules on this loadout.");
+			empty.setAlignmentX(Component.LEFT_ALIGNMENT);
+			contentPanel.add(empty);
+			contentPanel.revalidate();
+			contentPanel.repaint();
+			return;
+		}
+
+		boolean firstBand = true;
+		for (Band band : List.of(Band.GAP, Band.PARTIAL, Band.DONE)) {
+			List<Row> section = new ArrayList<>();
+			for (Row row : visible) {
+				if (row.band() == band) {
+					section.add(row);
+				}
 			}
-		}
-
-		Map<Long, List<FittedModuleRow>> visibleFitted = new LinkedHashMap<>();
-		Map<Long, List<UnengineeredModuleRow>> visibleUnengineered = new LinkedHashMap<>();
-		List<FittedModuleRow> fittedRows = fittedByShip.getOrDefault(shipFilterId, List.of());
-		if (!fittedRows.isEmpty()) {
-			visibleFitted.put(shipFilterId, fittedRows);
-		}
-		List<UnengineeredModuleRow> unRows = unengineeredByShip.getOrDefault(shipFilterId, List.of());
-		if (!unRows.isEmpty()) {
-			visibleUnengineered.put(shipFilterId, unRows);
-		}
-
-		if (hideModulesWithGoalsCheck.isSelected()) {
-			visibleFitted = filterFittedWithoutGoals(visibleFitted);
-			visibleUnengineered = filterUnengineeredWithoutGoals(visibleUnengineered);
-		}
-
-		if (visibleGoals.isEmpty() && visibleFitted.isEmpty() && visibleUnengineered.isEmpty()) {
-			JLabel empty = mutedLabel(allUnits.isEmpty() && fittedByShip.isEmpty() && unengineeredByShip.isEmpty()
-					? "No engineering goals or fitted modules yet."
-					: (hideModulesWithGoalsCheck.isSelected()
-							? "Nothing to show (modules with goals are hidden)."
-							: "Nothing for this ship."));
-			empty.setAlignmentX(Component.LEFT_ALIGNMENT);
-			contentPanel.add(empty);
-			contentPanel.revalidate();
-			contentPanel.repaint();
-			return;
-		}
-
-		Map<Long, List<ModuleUnitProgress>> goalsByShip = new LinkedHashMap<>();
-		for (ModuleUnitProgress u : visibleGoals) {
-			goalsByShip.computeIfAbsent(Long.valueOf(u.shipId()), k -> new ArrayList<>()).add(u);
-		}
-
-		List<Long> shipOrder = orderedShipIds(goalsByShip, visibleFitted, visibleUnengineered);
-		boolean firstShip = true;
-		for (Long shipIdObj : shipOrder) {
-			List<ModuleUnitProgress> shipUnits = goalsByShip.getOrDefault(shipIdObj, List.of());
-			List<FittedModuleRow> fitted = visibleFitted.getOrDefault(shipIdObj, List.of());
-			List<UnengineeredModuleRow> unengineered = visibleUnengineered.getOrDefault(shipIdObj, List.of());
-			if (shipUnits.isEmpty() && fitted.isEmpty() && unengineered.isEmpty()) {
+			if (section.isEmpty()) {
 				continue;
 			}
-			if (!firstShip) {
-				contentPanel.add(Box.createVerticalStrut(16));
+			if (!firstBand) {
+				contentPanel.add(sectionSeparator());
+				contentPanel.add(Box.createVerticalStrut(6));
 			}
-			firstShip = false;
-
-			boolean firstBlock = true;
-			if (!fitted.isEmpty()) {
-				firstBlock = false;
-				contentPanel.add(sectionHeadline("All engineered"));
-				contentPanel.add(Box.createVerticalStrut(4));
-				contentPanel.add(createFittedTablePanel(fitted));
-			}
-			if (!unengineered.isEmpty()) {
-				if (!firstBlock) {
-					contentPanel.add(sectionSeparator());
-				}
-				firstBlock = false;
-				contentPanel.add(sectionHeadline("Unengineered"));
-				contentPanel.add(Box.createVerticalStrut(4));
-				contentPanel.add(createUnengineeredPanel(unengineered));
-			}
-			if (!shipUnits.isEmpty()) {
-				if (!firstBlock) {
-					contentPanel.add(sectionSeparator());
-				}
-				contentPanel.add(sectionHeadline("Goal progress"));
-				contentPanel.add(Box.createVerticalStrut(4));
-				appendGoalBlocks(shipUnits);
-			}
+			firstBand = false;
+			String headline = band == Band.GAP
+					? "No Engineering (" + section.size() + ")"
+					: section.get(0).bandLabel() + " (" + section.size() + ")";
+			contentPanel.add(sectionHeadline(headline, band));
+			contentPanel.add(Box.createVerticalStrut(4));
+			contentPanel.add(createBandPanel(band, section));
 		}
 		contentPanel.add(Box.createVerticalGlue());
 		contentPanel.revalidate();
 		contentPanel.repaint();
 	}
 
-	private void appendGoalBlocks(List<ModuleUnitProgress> shipUnits) {
-		Map<String, List<ModuleUnitProgress>> byGoal = new LinkedHashMap<>();
-		for (ModuleUnitProgress u : shipUnits) {
-			String key = u.moduleType() + "\0" + u.blueprintName() + "\0" + u.targetGrade();
-			byGoal.computeIfAbsent(key, k -> new ArrayList<>()).add(u);
+	private static final int FIXED_BLUEPRINT_COMBO_W = 230;
+	private static final int FIXED_EXPERIMENTAL_COMBO_W = 190;
+	private static final int FIXED_SLOT_SIZE_COL_W = 56;
+	/** Cap so short names don't leave a huge empty Component column. */
+	private static final int FIXED_COMPONENT_COL_W = 200;
+
+	/** Prefer natural chip width for longest action label so text isn't ellipsized. */
+	private int actionColumnWidth() {
+		int w = 120;
+		for (String label : List.of("Add goal", "Edit goal", "Modify")) {
+			JButton probe = new JButton(label);
+			OverlayOutlineButtonStyle.applyChip(probe, baseFont, false);
+			w = Math.max(w, probe.getPreferredSize().width + 4);
 		}
-		boolean firstGoal = true;
-		for (List<ModuleUnitProgress> goalUnits : byGoal.values()) {
-			if (!firstGoal) {
-				contentPanel.add(Box.createVerticalStrut(12));
-			}
-			firstGoal = false;
-			ModuleUnitProgress head = goalUnits.get(0);
-			contentPanel.add(goalHeadline(head));
-			contentPanel.add(Box.createVerticalStrut(4));
-			for (ModuleUnitProgress unit : goalUnits) {
-				contentPanel.add(moduleSubline(unit));
-			}
-		}
+		return w;
 	}
 
-	private List<Long> orderedShipIds(Map<Long, List<ModuleUnitProgress>> goalsByShip,
-			Map<Long, List<FittedModuleRow>> fittedByShipVisible,
-			Map<Long, List<UnengineeredModuleRow>> unengineeredByShipVisible) {
-		Map<Long, String> labels = new LinkedHashMap<>();
-		for (Long id : goalsByShip.keySet()) {
-			labels.put(id, resolveShipTitle(id.longValue(), goalsByShip.get(id)));
-		}
-		for (Long id : fittedByShipVisible.keySet()) {
-			labels.putIfAbsent(id, resolveShipTitle(id.longValue(), List.of()));
-		}
-		for (Long id : unengineeredByShipVisible.keySet()) {
-			labels.putIfAbsent(id, resolveShipTitle(id.longValue(), List.of()));
-		}
-		List<Long> ordered = new ArrayList<>(labels.keySet());
-		ordered.sort(Comparator.comparing(labels::get, String.CASE_INSENSITIVE_ORDER));
-		return ordered;
+	private int levelColumnWidth() {
+		JLabel probe = headerLabel("Level");
+		return Math.max(probe.getPreferredSize().width + 4, 56);
 	}
 
-	private String resolveShipTitle(long shipId, List<ModuleUnitProgress> shipUnits) {
-		if (shipId >= 0) {
-			EngineeringShipRef ref = shipCatalog.get(shipId);
-			if (ref != null) {
-				return shipCatalog.displayLabel(ref);
-			}
-		}
-		if (!shipUnits.isEmpty() && !shipUnits.get(0).shipLabel().isBlank()) {
-			return shipUnits.get(0).shipLabel();
-		}
-		List<FittedModuleRow> fitted = fittedByShip.get(Long.valueOf(shipId));
-		if (fitted != null && !fitted.isEmpty() && !fitted.get(0).shipLabel().isBlank()) {
-			return fitted.get(0).shipLabel();
-		}
-		List<UnengineeredModuleRow> unengineered = unengineeredByShip.get(Long.valueOf(shipId));
-		if (unengineered != null && !unengineered.isEmpty() && !unengineered.get(0).shipLabel().isBlank()) {
-			return unengineered.get(0).shipLabel();
-		}
-		return shipId >= 0 ? "Ship #" + shipId : "Unassigned";
+	private Dimension actionButtonSize(JButton btn) {
+		Dimension pref = btn.getPreferredSize();
+		int w = Math.max(actionColumnWidth(), pref.width);
+		int h = Math.max(fontSize + 10, pref.height);
+		return new Dimension(w, h);
 	}
 
-	private JPanel sectionHeadline(String title) {
-		JPanel row = new JPanel(new BorderLayout());
-		row.setOpaque(false);
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, fontSize + 16));
-		JLabel label = new JLabel(title);
-		label.setFont(baseFont.deriveFont(Font.BOLD, fontSize));
-		label.setForeground(EdoUi.User.MAIN_TEXT);
-		row.add(label, BorderLayout.WEST);
-		return row;
-	}
-
-	/** Thin non-interactive horizontal rule (Route-tab style), between content sections. */
-	private JComponent sectionSeparator() {
-		JPanel wrap = new JPanel(new BorderLayout());
-		wrap.setOpaque(false);
-		wrap.setAlignmentX(Component.LEFT_ALIGNMENT);
-		wrap.setBorder(new EmptyBorder(10, 0, 10, 0));
-		wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
-		JPanel rule = new JPanel() {
-			@Override
-			public Dimension getMaximumSize() {
-				Dimension d = super.getMaximumSize();
-				return new Dimension(Integer.MAX_VALUE, 1);
-			}
-		};
-		rule.setOpaque(true);
-		rule.setBackground(EdoUi.ED_ORANGE_TRANS);
-		rule.setPreferredSize(new Dimension(10, 1));
-		wrap.add(rule, BorderLayout.CENTER);
-		return wrap;
-	}
-
-	private JPanel goalHeadline(ModuleUnitProgress unit) {
-		JPanel row = new JPanel(new BorderLayout(10, 0));
-		row.setOpaque(false);
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, fontSize + 16));
-		JLabel left = new JLabel(unit.goalHeadline());
-		left.setFont(baseFont.deriveFont(Font.BOLD, fontSize));
-		left.setForeground(EdoUi.User.MAIN_TEXT);
-		JLabel right = new JLabel("Target G" + unit.targetGrade());
-		right.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-		right.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-		right.setHorizontalAlignment(SwingConstants.RIGHT);
-		row.add(left, BorderLayout.WEST);
-		row.add(right, BorderLayout.EAST);
-		return row;
-	}
-
-	private JPanel moduleSubline(ModuleUnitProgress unit) {
-		return twoColumnRow(
-				unit.moduleLabel(),
-				unit.installed() ? gradeProgressText(unit) : "",
-				unit.installed()
-						? EdoUi.Internal.MAIN_TEXT_ALPHA_220
-						: EdoUi.withAlpha(EdoUi.User.MAIN_TEXT, 140),
-				gradeColor(unit));
-	}
-
-	private JComponent createFittedTablePanel(List<FittedModuleRow> fitted) {
+	private JComponent createBandPanel(Band band, List<Row> rows) {
 		JPanel panel = new JPanel(new GridBagLayout());
 		panel.setOpaque(false);
 		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -742,114 +502,44 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		gbc.insets = new Insets(0, 0, 2, 8);
 		gbc.anchor = GridBagConstraints.WEST;
 		gbc.gridy = 0;
-
-		JLabel[] headers = new JLabel[6];
-		headers[0] = headerLabel("Module");
-		gbc.gridx = 0;
-		gbc.weightx = 1;
-		gbc.fill = GridBagConstraints.HORIZONTAL;
-		panel.add(headers[0], gbc);
-
-		headers[1] = headerLabel("#");
-		headers[1].setHorizontalAlignment(SwingConstants.CENTER);
-		gbc.gridx = 1;
-		gbc.weightx = 0;
-		gbc.fill = GridBagConstraints.NONE;
-		panel.add(headers[1], gbc);
-
-		headers[2] = headerLabel("Blueprint");
-		gbc.gridx = 2;
-		panel.add(headers[2], gbc);
-
-		headers[3] = headerLabel("Experimental");
-		gbc.gridx = 3;
-		panel.add(headers[3], gbc);
-
-		headers[4] = headerLabel("Grade");
-		headers[4].setHorizontalAlignment(SwingConstants.CENTER);
-		gbc.gridx = 4;
-		panel.add(headers[4], gbc);
-
-		headers[5] = headerLabel(" ");
-		gbc.gridx = 5;
-		panel.add(headers[5], gbc);
-
-		List<JLabel> countLabels = new ArrayList<>();
-		List<JLabel> blueprintLabels = new ArrayList<>();
-		List<JLabel> gradeLabels = new ArrayList<>();
-		List<JLabel> experimentalLabels = new ArrayList<>();
-		List<JButton> upgradeButtons = new ArrayList<>();
+		addBandHeader(panel, gbc, band);
 
 		gbc.insets = new Insets(0, 0, 4, 8);
 		int y = 1;
-		for (FittedModuleRow row : fitted) {
-			gbc.gridy = y++;
-
-			JLabel moduleLbl = new JLabel(row.moduleLabel());
-			moduleLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-			moduleLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-			moduleLbl.setToolTipText(row.moduleType() != null && !row.moduleType().isBlank()
-					? row.moduleType()
-					: row.moduleLabel());
-			gbc.gridx = 0;
-			gbc.weightx = 1;
-			gbc.fill = GridBagConstraints.HORIZONTAL;
-			panel.add(moduleLbl, gbc);
-
-			JLabel countLbl = new JLabel(Integer.toString(Math.max(1, row.count())));
-			countLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-			countLbl.setForeground(EdoUi.User.MAIN_TEXT);
-			countLbl.setHorizontalAlignment(SwingConstants.CENTER);
-			gbc.gridx = 1;
-			gbc.weightx = 0;
-			gbc.fill = GridBagConstraints.NONE;
-			panel.add(countLbl, gbc);
-			countLabels.add(countLbl);
-
-			JLabel blueprintLbl = new JLabel(blankDash(row.blueprintLabel()));
-			blueprintLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-			blueprintLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-			blueprintLbl.setToolTipText(blankDash(row.blueprintLabel()));
-			gbc.gridx = 2;
-			panel.add(blueprintLbl, gbc);
-			blueprintLabels.add(blueprintLbl);
-
-			String experimental = blankDash(row.experimentalLabel());
-			JLabel experimentalLbl = new JLabel(experimental);
-			experimentalLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-			experimentalLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-			experimentalLbl.setToolTipText("—".equals(experimental) ? null : experimental);
-			gbc.gridx = 3;
-			panel.add(experimentalLbl, gbc);
-			experimentalLabels.add(experimentalLbl);
-
-			JLabel gradeLbl = new JLabel(blankDash(row.gradeLabel()));
-			gradeLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-			gradeLbl.setForeground(EdoUi.User.MAIN_TEXT);
-			gradeLbl.setHorizontalAlignment(SwingConstants.CENTER);
-			gbc.gridx = 4;
-			panel.add(gradeLbl, gbc);
-			gradeLabels.add(gradeLbl);
-
-			gbc.gridx = 5;
-			if (row.canUpgrade() && addGoalHandler != null && !hasExistingGoalFor(row)) {
-				JButton upgradeBtn = new JButton("+ Upgrade Goal");
-				OverlayOutlineButtonStyle.applyChip(upgradeBtn, baseFont, false);
-				upgradeBtn.setToolTipText("Add a goal to finish this module at G" + row.maxGrade());
-				Runnable upgradeAction = () -> addGoalFromFittedUpgrade(row);
-				upgradeBtn.addActionListener(e -> upgradeAction.run());
-				HoverClickPoller.register(upgradeBtn, HOVER_CLICK_DELAY_MS, upgradeAction, passThroughEnabledSupplier);
-				panel.add(upgradeBtn, gbc);
-				upgradeButtons.add(upgradeBtn);
-			} else {
-				JLabel spacer = new JLabel(" ");
-				spacer.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-				panel.add(spacer, gbc);
+		if (band == Band.PARTIAL) {
+			List<Row> withoutGoal = new ArrayList<>();
+			List<Row> withGoal = new ArrayList<>();
+			for (Row row : rows) {
+				if (hasExistingGoalFor(row)) {
+					withGoal.add(row);
+				} else {
+					withoutGoal.add(row);
+				}
+			}
+			for (Row row : withoutGoal) {
+				gbc.gridy = y++;
+				gbc.gridwidth = 1;
+				addEngineeredRow(panel, gbc, row);
+			}
+			if (!withoutGoal.isEmpty() && !withGoal.isEmpty()) {
+				addIntraBandSeparator(panel, gbc, y++);
+			}
+			for (Row row : withGoal) {
+				gbc.gridy = y++;
+				gbc.gridwidth = 1;
+				gbc.insets = new Insets(0, 0, 4, 8);
+				addEngineeredRow(panel, gbc, row);
+			}
+		} else {
+			for (Row row : rows) {
+				gbc.gridy = y++;
+				if (band == Band.GAP) {
+					addNoEngineeringRow(panel, gbc, row);
+				} else {
+					addEngineeredRow(panel, gbc, row);
+				}
 			}
 		}
-
-		equalizeFittedColumns(headers, countLabels, blueprintLabels, gradeLabels, experimentalLabels, upgradeButtons);
-
 		gbc.gridx = 0;
 		gbc.gridy = y;
 		gbc.gridwidth = 6;
@@ -860,173 +550,64 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		JPanel filler = new JPanel();
 		filler.setOpaque(false);
 		panel.add(filler, gbc);
-
 		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 		return panel;
 	}
 
-	private static String blankDash(String value) {
-		return value == null || value.isBlank() ? "—" : value;
-	}
-
-	private void equalizeFittedColumns(JLabel[] headers,
-			List<JLabel> countLabels,
-			List<JLabel> blueprintLabels,
-			List<JLabel> gradeLabels,
-			List<JLabel> experimentalLabels,
-			List<JButton> upgradeButtons) {
-		FontMetrics fm = getFontMetrics(baseFont.deriveFont(Font.PLAIN, fontSize));
-		FontMetrics headerFm = getFontMetrics(baseFont.deriveFont(Font.BOLD, fontSize));
-		int countW = Math.max(headerFm.stringWidth("#"), fm.stringWidth("99")) + 12;
-		int bpW = Math.max(120, headers[2] != null ? headers[2].getPreferredSize().width : 0);
-		int expW = Math.max(120, headers[3] != null ? headers[3].getPreferredSize().width : 0);
-		int gradeW = Math.max(48, headers[4] != null ? headers[4].getPreferredSize().width : 0);
-		int upgradeW = 80;
-		int h = fontSize + 8;
-		for (JLabel label : blueprintLabels) {
-			bpW = Math.max(bpW, label.getPreferredSize().width);
-			h = Math.max(h, label.getPreferredSize().height);
-		}
-		for (JLabel label : experimentalLabels) {
-			expW = Math.max(expW, label.getPreferredSize().width);
-			h = Math.max(h, label.getPreferredSize().height);
-		}
-		for (JLabel label : gradeLabels) {
-			gradeW = Math.max(gradeW, label.getPreferredSize().width);
-			h = Math.max(h, label.getPreferredSize().height);
-		}
-		for (JButton btn : upgradeButtons) {
-			Dimension pref = btn.getPreferredSize();
-			upgradeW = Math.max(upgradeW, pref.width);
-			h = Math.max(h, pref.height);
-		}
-		Dimension countSize = new Dimension(countW, h);
-		Dimension bpSize = new Dimension(bpW, h);
-		Dimension expSize = new Dimension(expW, h);
-		Dimension gradeSize = new Dimension(gradeW + 8, h);
-		Dimension upgradeSize = new Dimension(upgradeW, h);
-		if (headers[1] != null) {
-			headers[1].setPreferredSize(countSize);
-			headers[1].setMinimumSize(countSize);
-			headers[1].setHorizontalAlignment(SwingConstants.CENTER);
-		}
-		if (headers[2] != null) {
-			headers[2].setPreferredSize(bpSize);
-		}
-		if (headers[3] != null) {
-			headers[3].setPreferredSize(expSize);
-		}
-		if (headers[4] != null) {
-			headers[4].setPreferredSize(gradeSize);
-			headers[4].setHorizontalAlignment(SwingConstants.CENTER);
-		}
-		if (headers[5] != null && !upgradeButtons.isEmpty()) {
-			headers[5].setPreferredSize(upgradeSize);
-			headers[5].setMinimumSize(upgradeSize);
-		}
-		for (JLabel label : countLabels) {
-			label.setPreferredSize(countSize);
-			label.setMinimumSize(countSize);
-		}
-		for (JLabel label : blueprintLabels) {
-			label.setPreferredSize(bpSize);
-			label.setMinimumSize(bpSize);
-		}
-		for (JLabel label : experimentalLabels) {
-			label.setPreferredSize(expSize);
-			label.setMinimumSize(expSize);
-		}
-		for (JLabel label : gradeLabels) {
-			label.setPreferredSize(gradeSize);
-			label.setMinimumSize(gradeSize);
-			label.setHorizontalAlignment(SwingConstants.CENTER);
-		}
-		for (JButton btn : upgradeButtons) {
-			btn.setPreferredSize(upgradeSize);
-			btn.setMinimumSize(upgradeSize);
-			btn.setMaximumSize(upgradeSize);
-		}
-	}
-
-	private JComponent createUnengineeredPanel(List<UnengineeredModuleRow> rows) {
-		JPanel panel = new JPanel(new GridBagLayout());
-		panel.setOpaque(false);
-		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		GridBagConstraints gbc = new GridBagConstraints();
-		gbc.insets = new Insets(0, 0, 4, 8);
-		gbc.anchor = GridBagConstraints.WEST;
-
-		List<JLabel> countLabels = new ArrayList<>();
-		List<JComboBox<String>> blueprintCombos = new ArrayList<>();
-		List<JComboBox<String>> experimentalCombos = new ArrayList<>();
-		List<JButton> addButtons = new ArrayList<>();
-		JLabel[] headers = new JLabel[5];
-		int maxExperimentalTextW = 0;
-		FontMetrics fm = getFontMetrics(baseFont.deriveFont(Font.PLAIN, fontSize));
-
-		gbc.gridy = 0;
-		gbc.insets = new Insets(0, 0, 2, 8);
-		addUnengineeredHeader(panel, gbc, headers);
-
-		gbc.insets = new Insets(0, 0, 4, 8);
-		int y = 1;
-		for (UnengineeredModuleRow row : rows) {
-			gbc.gridy = y++;
-			maxExperimentalTextW = Math.max(maxExperimentalTextW,
-					maxExperimentalTextWidth(row.moduleType(), fm));
-			addUnengineeredDataRow(panel, gbc, row, countLabels, blueprintCombos, experimentalCombos, addButtons);
-		}
-
-		equalizeUnengineeredColumns(headers, countLabels, blueprintCombos, experimentalCombos,
-				addButtons, maxExperimentalTextW);
-
-		// Stretch horizontally with the dialog; pin content to the top.
-		gbc.gridx = 0;
+	private void addIntraBandSeparator(JPanel panel, GridBagConstraints gbc, int y) {
 		gbc.gridy = y;
-		gbc.gridwidth = 5;
+		gbc.gridx = 0;
+		gbc.gridwidth = 6;
 		gbc.weightx = 1;
-		gbc.weighty = 1;
-		gbc.fill = GridBagConstraints.BOTH;
-		gbc.insets = new Insets(0, 0, 0, 0);
-		JPanel filler = new JPanel();
-		filler.setOpaque(false);
-		panel.add(filler, gbc);
-
-		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-		return panel;
+		gbc.weighty = 0;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.anchor = GridBagConstraints.WEST;
+		gbc.insets = new Insets(4, 0, 6, 0);
+		panel.add(sectionSeparator(), gbc);
 	}
 
-	private void addUnengineeredHeader(JPanel panel, GridBagConstraints gbc, JLabel[] headers) {
-		JLabel moduleHdr = headerLabel("Module");
-		headers[0] = moduleHdr;
+	private void addBandHeader(JPanel panel, GridBagConstraints gbc, Band band) {
+		JLabel moduleHdr = headerLabel("Component");
 		gbc.gridx = 0;
-		gbc.weightx = 1;
-		gbc.fill = GridBagConstraints.HORIZONTAL;
-		panel.add(moduleHdr, gbc);
-
-		JLabel countHdr = headerLabel("#");
-		countHdr.setHorizontalAlignment(SwingConstants.CENTER);
-		headers[1] = countHdr;
-		gbc.gridx = 1;
 		gbc.weightx = 0;
 		gbc.fill = GridBagConstraints.NONE;
-		panel.add(countHdr, gbc);
+		panel.add(moduleHdr, gbc);
+		moduleHdr.setPreferredSize(new Dimension(FIXED_COMPONENT_COL_W, fontSize + 8));
 
-		JLabel blueprintHdr = headerLabel("Blueprint");
-		headers[2] = blueprintHdr;
+		JLabel sizeHdr = headerLabel("Size");
+		gbc.gridx = 1;
+		panel.add(sizeHdr, gbc);
+		sizeHdr.setPreferredSize(new Dimension(FIXED_SLOT_SIZE_COL_W, fontSize + 8));
+
+		JLabel bpHdr = headerLabel("Blueprint");
 		gbc.gridx = 2;
-		panel.add(blueprintHdr, gbc);
+		gbc.weightx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		panel.add(bpHdr, gbc);
+		bpHdr.setPreferredSize(new Dimension(FIXED_BLUEPRINT_COMBO_W, fontSize + 8));
+		bpHdr.setMinimumSize(new Dimension(FIXED_BLUEPRINT_COMBO_W, fontSize + 8));
 
 		JLabel expHdr = headerLabel("Experimental");
-		headers[3] = expHdr;
 		gbc.gridx = 3;
+		gbc.weightx = 0.75;
 		panel.add(expHdr, gbc);
+		expHdr.setPreferredSize(new Dimension(FIXED_EXPERIMENTAL_COMBO_W, fontSize + 8));
+		expHdr.setMinimumSize(new Dimension(FIXED_EXPERIMENTAL_COMBO_W, fontSize + 8));
 
-		JLabel addHdr = headerLabel(" ");
-		headers[4] = addHdr;
+		int levelW = levelColumnWidth();
+		int actionW = actionColumnWidth();
+
+		JLabel levelHdr = headerLabel(band == Band.GAP ? " " : "Level");
 		gbc.gridx = 4;
-		panel.add(addHdr, gbc);
+		gbc.weightx = 0;
+		gbc.fill = GridBagConstraints.NONE;
+		panel.add(levelHdr, gbc);
+		levelHdr.setPreferredSize(new Dimension(levelW, fontSize + 8));
+
+		JLabel actionHdr = headerLabel(" ");
+		gbc.gridx = 5;
+		panel.add(actionHdr, gbc);
+		actionHdr.setPreferredSize(new Dimension(actionW, fontSize + 8));
 	}
 
 	private JLabel headerLabel(String text) {
@@ -1036,205 +617,404 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		return label;
 	}
 
-	private void addUnengineeredDataRow(JPanel panel,
-			GridBagConstraints gbc,
-			UnengineeredModuleRow row,
-			List<JLabel> countLabels,
-			List<JComboBox<String>> blueprintCombos,
-			List<JComboBox<String>> experimentalCombos,
-			List<JButton> addButtons) {
-		JLabel moduleLbl = new JLabel(row.moduleLabel());
+	private JLabel componentLabel(Row row) {
+		JLabel moduleLbl = new JLabel(row.componentDisplay());
 		moduleLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
 		moduleLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-		moduleLbl.setToolTipText(row.moduleType());
-		gbc.gridx = 0;
-		gbc.weightx = 1;
-		gbc.fill = GridBagConstraints.HORIZONTAL;
-		panel.add(moduleLbl, gbc);
+		String tip = row.componentDisplay();
+		if (row.moduleLabel() != null && !row.moduleLabel().isBlank()
+				&& !row.moduleLabel().equalsIgnoreCase(row.componentDisplay())) {
+			tip = tip + " · " + row.moduleLabel();
+		}
+		moduleLbl.setToolTipText(tip);
+		int h = Math.max(fontSize + 10, moduleLbl.getPreferredSize().height);
+		int naturalW = moduleLbl.getPreferredSize().width;
+		int w = Math.min(Math.max(naturalW, 80), FIXED_COMPONENT_COL_W);
+		moduleLbl.setPreferredSize(new Dimension(w, h));
+		moduleLbl.setMinimumSize(new Dimension(80, h));
+		moduleLbl.setMaximumSize(new Dimension(FIXED_COMPONENT_COL_W, h));
+		return moduleLbl;
+	}
 
-		JLabel countLbl = new JLabel(Integer.toString(Math.max(1, row.count())));
-		countLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-		countLbl.setForeground(EdoUi.User.MAIN_TEXT);
-		countLbl.setHorizontalAlignment(SwingConstants.CENTER);
-		gbc.gridx = 1;
+	private JLabel slotSizeLabel(Row row) {
+		JLabel sizeLbl = new JLabel(row.slotSizeDisplay());
+		sizeLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		sizeLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+		sizeLbl.setPreferredSize(new Dimension(FIXED_SLOT_SIZE_COL_W, fontSize + 10));
+		if (row.slotLabel() != null && !row.slotLabel().isBlank()) {
+			sizeLbl.setToolTipText(row.slotLabel());
+		}
+		return sizeLbl;
+	}
+
+	private void addNoEngineeringRow(JPanel panel, GridBagConstraints gbc, Row row) {
+		JLabel moduleLbl = componentLabel(row);
+		gbc.gridx = 0;
 		gbc.weightx = 0;
 		gbc.fill = GridBagConstraints.NONE;
-		panel.add(countLbl, gbc);
-		countLabels.add(countLbl);
+		panel.add(moduleLbl, gbc);
+
+		gbc.gridx = 1;
+		panel.add(slotSizeLabel(row), gbc);
 
 		JComboBox<String> blueprintCombo = new JComboBox<>();
 		styleActionCombo(blueprintCombo);
-		for (String name : blueprintNamesForModuleType(row.moduleType())) {
+		List<String> blueprintNames = blueprintNamesForModuleType(row.moduleType());
+		boolean hasBlueprints = !blueprintNames.isEmpty();
+		blueprintCombo.addItem("(none)");
+		for (String name : blueprintNames) {
 			blueprintCombo.addItem(name);
 		}
-		boolean hasBlueprints = blueprintCombo.getItemCount() > 0;
 		blueprintCombo.setEnabled(hasBlueprints);
-		// Nothing selected until the user chooses a blueprint (JComboBox selects index 0 on add).
-		blueprintCombo.setSelectedIndex(-1);
+		blueprintCombo.setSelectedItem("(none)");
+		sizeFlexibleCombo(blueprintCombo, FIXED_BLUEPRINT_COMBO_W);
+		installBlueprintComboEffectTooltips(blueprintCombo, row.moduleType());
 		gbc.gridx = 2;
+		gbc.weightx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
 		panel.add(blueprintCombo, gbc);
-		blueprintCombos.add(blueprintCombo);
 
 		JComboBox<String> experimentalCombo = new JComboBox<>();
 		styleActionCombo(experimentalCombo);
 		experimentalCombo.setEnabled(false);
 		experimentalCombo.setSelectedIndex(-1);
+		sizeFlexibleCombo(experimentalCombo, FIXED_EXPERIMENTAL_COMBO_W);
+		installExperimentalComboEffectTooltips(experimentalCombo, row.moduleType(),
+				() -> {
+					String bp = (String) blueprintCombo.getSelectedItem();
+					return isNoneComboChoice(bp) ? null : bp;
+				});
 		gbc.gridx = 3;
+		gbc.weightx = 0.75;
 		panel.add(experimentalCombo, gbc);
-		experimentalCombos.add(experimentalCombo);
+
+		JLabel levelSpacer = new JLabel(" ");
+		levelSpacer.setPreferredSize(new Dimension(levelColumnWidth(), fontSize + 10));
+		gbc.gridx = 4;
+		gbc.weightx = 0;
+		gbc.fill = GridBagConstraints.NONE;
+		panel.add(levelSpacer, gbc);
 
 		JButton addBtn = new JButton("Add goal");
 		OverlayOutlineButtonStyle.applyChip(addBtn, baseFont, false);
-		Runnable syncAddEnabled = () -> {
-			String bp = (String) blueprintCombo.getSelectedItem();
-			addBtn.setEnabled(addGoalHandler != null
-					&& bp != null && !bp.isBlank());
-		};
-		syncAddEnabled.run();
-
-		Runnable refreshExperimentals = () -> {
+		Dimension actionSize = actionButtonSize(addBtn);
+		addBtn.setPreferredSize(actionSize);
+		addBtn.setMinimumSize(actionSize);
+		addBtn.setMaximumSize(actionSize);
+		addBtn.setEnabled(addGoalHandler != null);
+		blueprintCombo.addActionListener(e -> {
 			String blueprint = (String) blueprintCombo.getSelectedItem();
 			experimentalCombo.removeAllItems();
-			if (blueprint != null && !blueprint.isBlank()) {
+			if (!isNoneComboChoice(blueprint)) {
 				experimentalCombo.addItem("(none)");
 				for (String name : experimentalNamesFor(row.moduleType(), blueprint)) {
 					experimentalCombo.addItem(name);
 				}
 				experimentalCombo.setEnabled(true);
-				// Leave experimental unselected until the user picks one.
-				experimentalCombo.setSelectedIndex(-1);
+				experimentalCombo.setSelectedItem("(none)");
 			} else {
 				experimentalCombo.setEnabled(false);
 				experimentalCombo.setSelectedIndex(-1);
 			}
 			OverlayComboBoxStyle.refreshInk(experimentalCombo);
-			syncAddEnabled.run();
-		};
-		blueprintCombo.addActionListener(e -> refreshExperimentals.run());
-
-		Runnable addAction = () -> addGoalFromUnengineered(row, blueprintCombo, experimentalCombo);
+		});
+		Runnable addAction = () -> addGoalFromGap(row, blueprintCombo, experimentalCombo, addBtn);
 		addBtn.addActionListener(e -> addAction.run());
 		HoverClickPoller.register(addBtn, HOVER_CLICK_DELAY_MS, addAction, passThroughEnabledSupplier);
-		gbc.gridx = 4;
+		gbc.gridx = 5;
 		panel.add(addBtn, gbc);
-		addButtons.add(addBtn);
 	}
 
-	private void equalizeUnengineeredColumns(JLabel[] headers,
-			List<JLabel> countLabels,
-			List<JComboBox<String>> blueprintCombos,
-			List<JComboBox<String>> experimentalCombos,
-			List<JButton> addButtons,
-			int maxExperimentalTextW) {
-		FontMetrics fm = getFontMetrics(baseFont.deriveFont(Font.PLAIN, fontSize));
-		FontMetrics headerFm = getFontMetrics(baseFont.deriveFont(Font.BOLD, fontSize));
-		int countW = Math.max(headerFm.stringWidth("#"), fm.stringWidth("99")) + 12;
-		int bpW = Math.max(headerFm.stringWidth("Blueprint"), 80);
-		int expW = Math.max(headerFm.stringWidth("Experimental"), Math.max(80, maxExperimentalTextW));
-		int addW = Math.max(headerFm.stringWidth("Add goal"), 80);
-		int h = fontSize + 10;
+	private void addEngineeredRow(JPanel panel, GridBagConstraints gbc, Row row) {
+		JLabel moduleLbl = componentLabel(row);
+		gbc.gridx = 0;
+		gbc.weightx = 0;
+		gbc.fill = GridBagConstraints.NONE;
+		panel.add(moduleLbl, gbc);
 
-		for (JComboBox<String> combo : blueprintCombos) {
-			bpW = Math.max(bpW, measureComboContentWidth(combo, fm));
-			h = Math.max(h, Math.max(combo.getPreferredSize().height, fontSize + 10));
-		}
-		for (JComboBox<String> combo : experimentalCombos) {
-			expW = Math.max(expW, measureComboContentWidth(combo, fm));
-			h = Math.max(h, Math.max(combo.getPreferredSize().height, fontSize + 10));
-		}
-		for (JButton btn : addButtons) {
-			Dimension pref = btn.getPreferredSize();
-			addW = Math.max(addW, pref.width);
-			h = Math.max(h, pref.height);
-		}
+		gbc.gridx = 1;
+		panel.add(slotSizeLabel(row), gbc);
 
-		// Cap so Module keeps breathing room in the ~940 dialog.
-		bpW = Math.min(Math.max(bpW + COMBO_CHROME_PAD, 100), 220);
-		expW = Math.min(Math.max(expW + COMBO_CHROME_PAD, 100), 200);
+		JLabel bpLbl = new JLabel(row.blueprintDisplay());
+		bpLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		bpLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+		int bpH = Math.max(fontSize + 10, bpLbl.getPreferredSize().height);
+		bpLbl.setPreferredSize(new Dimension(FIXED_BLUEPRINT_COMBO_W, bpH));
+		bpLbl.setMinimumSize(new Dimension(FIXED_BLUEPRINT_COMBO_W, bpH));
+		bpLbl.setToolTipText(database != null
+				? database.blueprintEffectTooltip(row.moduleType(), row.blueprintLabel(), row.level())
+				: null);
+		gbc.gridx = 2;
+		gbc.weightx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		panel.add(bpLbl, gbc);
 
-		Dimension countSize = new Dimension(countW, h);
-		Dimension bpSize = new Dimension(bpW, h);
-		Dimension expSize = new Dimension(expW, h);
-		Dimension addSize = new Dimension(addW, h);
+		JLabel expLbl = new JLabel(row.experimentalDisplay());
+		expLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		expLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+		int expH = Math.max(fontSize + 10, expLbl.getPreferredSize().height);
+		expLbl.setPreferredSize(new Dimension(FIXED_EXPERIMENTAL_COMBO_W, expH));
+		expLbl.setMinimumSize(new Dimension(FIXED_EXPERIMENTAL_COMBO_W, expH));
+		expLbl.setToolTipText(database != null
+				? database.experimentalEffectTooltip(
+						row.moduleType(), row.blueprintLabel(), row.experimentalLabel())
+				: null);
+		gbc.gridx = 3;
+		gbc.weightx = 0.75;
+		panel.add(expLbl, gbc);
 
-		if (headers[1] != null) {
-			headers[1].setPreferredSize(countSize);
-			headers[1].setMinimumSize(countSize);
-			headers[1].setHorizontalAlignment(SwingConstants.CENTER);
-		}
-		if (headers[2] != null) {
-			headers[2].setPreferredSize(bpSize);
-			headers[2].setMinimumSize(bpSize);
-		}
-		if (headers[3] != null) {
-			headers[3].setPreferredSize(expSize);
-			headers[3].setMinimumSize(expSize);
-		}
-		if (headers[4] != null) {
-			headers[4].setPreferredSize(addSize);
-			headers[4].setMinimumSize(addSize);
-		}
+		JLabel levelLbl = new JLabel(row.levelDisplay());
+		levelLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		levelLbl.setForeground(EdoUi.User.MAIN_TEXT);
+		levelLbl.setPreferredSize(new Dimension(levelColumnWidth(), fontSize + 10));
+		gbc.gridx = 4;
+		gbc.weightx = 0;
+		gbc.fill = GridBagConstraints.NONE;
+		panel.add(levelLbl, gbc);
 
-		for (JLabel label : countLabels) {
-			label.setPreferredSize(countSize);
-			label.setMinimumSize(countSize);
+		boolean hasGoal = hasExistingGoalFor(row);
+		String actionLabel = row.band() == Band.DONE
+				? (hasGoal ? "Edit goal" : "Modify")
+				: (hasGoal ? "Edit goal" : "Add goal");
+		JButton goalBtn = new JButton(actionLabel);
+		OverlayOutlineButtonStyle.applyChip(goalBtn, baseFont, false);
+		goalBtn.setEnabled(addGoalHandler != null);
+		goalBtn.setToolTipText(hasGoal
+				? "Edit the matching engineering goal (grade / experimental / quantity)"
+				: row.band() == Band.DONE
+						? "Modify engineering on this finished module (e.g. experimental)"
+						: "Add an engineering goal for this module");
+		Dimension actionSize = actionButtonSize(goalBtn);
+		goalBtn.setPreferredSize(actionSize);
+		goalBtn.setMinimumSize(actionSize);
+		goalBtn.setMaximumSize(actionSize);
+		Runnable goalAction = () -> openGoalForEngineeredRow(row);
+		goalBtn.addActionListener(e -> goalAction.run());
+		HoverClickPoller.register(goalBtn, HOVER_CLICK_DELAY_MS, goalAction, passThroughEnabledSupplier);
+		gbc.gridx = 5;
+		panel.add(goalBtn, gbc);
+	}
+
+	private void sizeFixedCombo(JComboBox<String> combo, int width) {
+		int h = Math.max(fontSize + 10, combo.getPreferredSize().height);
+		Dimension size = new Dimension(width, h);
+		combo.setPreferredSize(size);
+		combo.setMinimumSize(size);
+		combo.setMaximumSize(size);
+	}
+
+	/** Preferred/min width fixed; max unbounded so GridBag can grow the column. */
+	private void sizeFlexibleCombo(JComboBox<String> combo, int width) {
+		int h = Math.max(fontSize + 10, combo.getPreferredSize().height);
+		combo.setPreferredSize(new Dimension(width, h));
+		combo.setMinimumSize(new Dimension(width, h));
+		combo.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+	}
+
+	private static java.awt.Color statusColor(Band band) {
+		return switch (band) {
+			case GAP -> EdoUi.User.ERROR;
+			case PARTIAL -> EdoUi.User.WARNING;
+			case DONE -> EdoUi.User.SUCCESS;
+		};
+	}
+
+	private void addGoalFromGap(Row row, JComboBox<String> blueprintCombo, JComboBox<String> experimentalCombo,
+			JComponent toastAnchor) {
+		if (addGoalHandler == null || row == null) {
+			return;
 		}
-		for (JComboBox<String> combo : blueprintCombos) {
-			combo.setPreferredSize(bpSize);
-			combo.setMinimumSize(bpSize);
-			combo.setMaximumSize(bpSize);
+		String blueprint = blueprintCombo != null ? (String) blueprintCombo.getSelectedItem() : null;
+		if (isNoneComboChoice(blueprint)) {
+			SystemTableHoverCopyManager.showToast(
+					toastAnchor != null ? toastAnchor : this.getRootPane(),
+					"Pick a blueprint");
+			return;
 		}
-		for (JComboBox<String> combo : experimentalCombos) {
-			combo.setPreferredSize(expSize);
-			combo.setMinimumSize(expSize);
-			combo.setMaximumSize(expSize);
+		String experimental = experimentalCombo != null ? (String) experimentalCombo.getSelectedItem() : null;
+		if (isNoneComboChoice(experimental)) {
+			experimental = null;
 		}
-		for (JButton btn : addButtons) {
-			btn.setPreferredSize(addSize);
-			btn.setMinimumSize(addSize);
-			btn.setMaximumSize(addSize);
+		EngineeringShipRef ship = shipRefFor(row);
+		EngineeringGoal created = addGoalHandler.apply(new AddGoalRequest(
+				ship,
+				row.moduleType(),
+				row.moduleLabel(),
+				blueprint,
+				experimental,
+				quantityForRow(row),
+				maxGradeForBlueprint(row.moduleType(), blueprint),
+				null));
+		if (created != null) {
+			startLoad(goalsSupplier.get(), clientKey, true);
 		}
 	}
 
-	private int maxExperimentalTextWidth(String moduleType, FontMetrics fm) {
-		int max = fm.stringWidth("(none)");
-		for (String blueprint : blueprintNamesForModuleType(moduleType)) {
-			for (String name : experimentalNamesFor(moduleType, blueprint)) {
-				if (name != null && !name.isBlank()) {
-					max = Math.max(max, fm.stringWidth(name));
+	/** Add or edit a goal for an engineered module (including experimental swaps on Done rows). */
+	private void openGoalForEngineeredRow(Row row) {
+		if (addGoalHandler == null || row == null) {
+			return;
+		}
+		String experimental = row.experimentalLabel();
+		if (experimental != null && experimental.isBlank()) {
+			experimental = null;
+		}
+		EngineeringGoal existing = findMatchingGoal(row);
+		EngineeringGoal result = addGoalHandler.apply(new AddGoalRequest(
+				shipRefFor(row),
+				row.moduleType(),
+				row.moduleLabel(),
+				row.blueprintLabel(),
+				experimental,
+				quantityForRow(row),
+				row.maxGrade() > 0 ? row.maxGrade() : maxGradeForBlueprint(row.moduleType(), row.blueprintLabel()),
+				existing));
+		if (result != null) {
+			startLoad(goalsSupplier.get(), clientKey, true);
+		}
+	}
+
+	/**
+	 * How many identical fitted modules this line represents for goal quantity (same type /
+	 * blueprint / level / experimental on the selected ship).
+	 */
+	private int quantityForRow(Row row) {
+		if (row == null) {
+			return 1;
+		}
+		int n = 0;
+		for (Row other : currentSummary.rows()) {
+			if (other.shipId() != row.shipId()) {
+				continue;
+			}
+			if (!EngineeringJournalBlueprintResolver.sameModuleType(other.moduleType(), row.moduleType())) {
+				continue;
+			}
+			if (row.band() == Band.GAP) {
+				if (other.band() != Band.GAP) {
+					continue;
+				}
+			} else {
+				String a = EngineeringJournalBlueprintResolver.normalizeToken(row.blueprintLabel());
+				String b = EngineeringJournalBlueprintResolver.normalizeToken(other.blueprintLabel());
+				if (!a.equals(b) || other.level() != row.level()) {
+					continue;
+				}
+				String expA = EngineeringJournalBlueprintResolver.normalizeToken(row.experimentalLabel());
+				String expB = EngineeringJournalBlueprintResolver.normalizeToken(other.experimentalLabel());
+				if (!expA.equals(expB)) {
+					continue;
 				}
 			}
+			n += Math.max(1, other.count());
 		}
-		return max;
+		return Math.max(1, n);
 	}
 
-	private static int measureComboContentWidth(JComboBox<String> combo, FontMetrics fm) {
-		int max = 0;
-		for (int i = 0; i < combo.getItemCount(); i++) {
-			String item = combo.getItemAt(i);
-			if (item != null && !item.isBlank()) {
-				max = Math.max(max, fm.stringWidth(item));
-			}
+	private int maxGradeForBlueprint(String moduleType, String blueprintName) {
+		if (database == null || moduleType == null || moduleType.isBlank()
+				|| blueprintName == null || blueprintName.isBlank()) {
+			return 0;
 		}
-		return max;
+		return database.gradesFor(moduleType, blueprintName).stream()
+				.filter(g -> !g.isExperimental())
+				.mapToInt(BlueprintGrade::getGrade)
+				.max()
+				.orElse(0);
 	}
 
-	private void styleActionCombo(JComboBox<String> combo) {
-		OverlayComboBoxStyle.apply(combo, baseFont.deriveFont(Font.PLAIN, fontSize));
-		combo.setMaximumRowCount(10);
-		OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
-		combo.setRenderer(new DefaultListCellRenderer() {
-			@Override
-			public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-					boolean isSelected, boolean cellHasFocus) {
-				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-				setEnabled(true);
-				setForeground(EdoUi.User.MAIN_TEXT);
-				setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
-				setOpaque(true);
-				return c;
+	private EngineeringShipRef shipRefFor(Row row) {
+		EngineeringShipRef ship = shipCatalog.get(row.shipId());
+		if (ship != null) {
+			return ship;
+		}
+		return new EngineeringShipRef(row.shipId(), "", resolveShipTitle(row.shipId()), "");
+	}
+
+	private EngineeringGoal findMatchingGoal(Row row) {
+		if (row == null) {
+			return null;
+		}
+		List<EngineeringGoal> live = goalsSupplier != null ? goalsSupplier.get() : List.of();
+		String rowBp = EngineeringJournalBlueprintResolver.normalizeToken(row.blueprintLabel());
+		for (EngineeringGoal goal : live) {
+			if (goal == null || !goal.hasShip() || goal.getShipId() != row.shipId()) {
+				continue;
 			}
-		});
+			if (!EngineeringJournalBlueprintResolver.sameModuleType(goal.getModuleType(), row.moduleType())) {
+				continue;
+			}
+			if (row.band() == Band.GAP) {
+				return goal;
+			}
+			String goalBp = EngineeringJournalBlueprintResolver.normalizeToken(goal.getBlueprintName());
+			if (!rowBp.isEmpty() && rowBp.equals(goalBp)) {
+				return goal;
+			}
+		}
+		for (ModuleUnitProgress unit : allUnits) {
+			if (unit == null || unit.unit() == null || unit.shipId() != row.shipId()) {
+				continue;
+			}
+			if (!EngineeringJournalBlueprintResolver.sameModuleType(unit.moduleType(), row.moduleType())) {
+				continue;
+			}
+			if (row.band() == Band.GAP) {
+				return unit.unit();
+			}
+			String goalBp = EngineeringJournalBlueprintResolver.normalizeToken(unit.blueprintName());
+			if (!rowBp.isEmpty() && rowBp.equals(goalBp)) {
+				return unit.unit();
+			}
+		}
+		return null;
+	}
+
+	private boolean hasExistingGoalFor(Row row) {
+		return findMatchingGoal(row) != null;
+	}
+
+	private boolean copySummaryToClipboard() {
+		ShipFilterItem filter = (ShipFilterItem) shipCombo.getSelectedItem();
+		Long shipId = filter != null ? filter.shipId() : null;
+		if (shipId == null) {
+			return false;
+		}
+		LoadoutEvent loadout = loadoutsByShip.get(shipId);
+		ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, database);
+		String title = resolveShipTitle(shipId.longValue());
+		copyToClipboard(summary.toClipboardText(title));
+		return true;
+	}
+
+	private void copyLoadoutJsonAndOpenCoriolis() {
+		ShipFilterItem filter = (ShipFilterItem) shipCombo.getSelectedItem();
+		Long shipId = filter != null ? filter.shipId() : null;
+		if (shipId == null) {
+			return;
+		}
+		LoadoutEvent loadout = loadoutsByShip.get(shipId);
+		if (loadout == null || loadout.getRawJson() == null) {
+			return;
+		}
+		copyToClipboard(loadout.getRawJson().toString());
+		try {
+			if (java.awt.Desktop.isDesktopSupported()
+					&& java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
+				java.awt.Desktop.getDesktop().browse(java.net.URI.create(CORIOLIS_IMPORT_URL));
+			}
+		} catch (Exception ignored) {
+			// Clipboard already has JSON.
+		}
+	}
+
+	private static void copyToClipboard(String text) {
+		Toolkit.getDefaultToolkit().getSystemClipboard()
+				.setContents(new StringSelection(text != null ? text : ""), null);
+	}
+
+	private static boolean isNoneComboChoice(String value) {
+		return value == null || value.isBlank() || "(none)".equalsIgnoreCase(value);
 	}
 
 	private List<String> blueprintNamesForModuleType(String moduleType) {
@@ -1267,208 +1047,146 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		return List.copyOf(names.keySet());
 	}
 
-	private void addGoalFromUnengineered(UnengineeredModuleRow row,
-			JComboBox<String> blueprintCombo,
-			JComboBox<String> experimentalCombo) {
-		if (addGoalHandler == null || row == null) {
-			return;
-		}
-		String blueprint = blueprintCombo != null ? (String) blueprintCombo.getSelectedItem() : null;
-		if (blueprint == null || blueprint.isBlank()) {
-			return;
-		}
-		String experimental = experimentalCombo != null ? (String) experimentalCombo.getSelectedItem() : null;
-		if (experimental != null && "(none)".equalsIgnoreCase(experimental)) {
-			experimental = null;
-		}
-		EngineeringShipRef ship = shipCatalog.get(row.shipId());
-		if (ship == null) {
-			ship = new EngineeringShipRef(row.shipId(), "", row.shipLabel(), "");
-		}
-		EngineeringGoal created = addGoalHandler.apply(new AddGoalRequest(
-				ship,
-				row.moduleType(),
-				row.moduleLabel(),
-				blueprint,
-				experimental,
-				Math.max(1, row.count())));
-		if (created != null) {
-			startLoad(goalsSupplier.get(), clientKey, true);
-		}
+	private void styleActionCombo(JComboBox<String> combo) {
+		OverlayComboBoxStyle.apply(combo, baseFont.deriveFont(Font.PLAIN, fontSize));
+		combo.setMaximumRowCount(10);
+		OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
+		combo.setRenderer(new DefaultListCellRenderer() {
+			@Override
+			public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+					boolean isSelected, boolean cellHasFocus) {
+				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+				setEnabled(true);
+				setForeground(EdoUi.User.MAIN_TEXT);
+				setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
+				setOpaque(true);
+				return c;
+			}
+		});
 	}
 
-	private void addGoalFromFittedUpgrade(FittedModuleRow row) {
-		if (addGoalHandler == null || row == null || !row.canUpgrade() || hasExistingGoalFor(row)) {
-			return;
-		}
-		EngineeringShipRef ship = shipCatalog.get(row.shipId());
-		if (ship == null) {
-			ship = new EngineeringShipRef(row.shipId(), "", row.shipLabel(), "");
-		}
-		String experimental = row.experimentalLabel();
-		if (experimental != null && ("—".equals(experimental) || experimental.isBlank())) {
-			experimental = null;
-		}
-		EngineeringGoal created = addGoalHandler.apply(new AddGoalRequest(
-				ship,
-				row.moduleType(),
-				row.moduleLabel(),
-				row.blueprintLabel(),
-				experimental,
-				Math.max(1, row.count())));
-		if (created != null) {
-			startLoad(goalsSupplier.get(), clientKey, true);
-		}
+	private void installBlueprintComboEffectTooltips(JComboBox<String> combo, String moduleType) {
+		combo.setRenderer(new DefaultListCellRenderer() {
+			@Override
+			public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+					boolean isSelected, boolean cellHasFocus) {
+				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+				setEnabled(true);
+				setForeground(EdoUi.User.MAIN_TEXT);
+				setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
+				setOpaque(true);
+				String name = value != null ? value.toString() : "";
+				setToolTipText(database != null && !isNoneComboChoice(name)
+						? database.blueprintEffectTooltip(moduleType, name, 0)
+						: null);
+				return c;
+			}
+		});
+		Runnable syncTip = () -> {
+			String name = (String) combo.getSelectedItem();
+			combo.setToolTipText(database != null && !isNoneComboChoice(name)
+					? database.blueprintEffectTooltip(moduleType, name, 0)
+					: null);
+		};
+		combo.addActionListener(e -> syncTip.run());
+		syncTip.run();
 	}
 
-	/** True when a goal already covers this ship + module type + blueprint. */
-	private boolean hasExistingGoalFor(FittedModuleRow row) {
-		if (row == null || allUnits == null || allUnits.isEmpty()) {
-			return false;
-		}
-		String rowBp = EngineeringJournalBlueprintResolver.normalizeToken(row.blueprintLabel());
-		for (ModuleUnitProgress unit : allUnits) {
-			if (unit == null || unit.shipId() != row.shipId()) {
-				continue;
+	private void installExperimentalComboEffectTooltips(JComboBox<String> combo,
+			String moduleType,
+			Supplier<String> blueprintSupplier) {
+		combo.setRenderer(new DefaultListCellRenderer() {
+			@Override
+			public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+					boolean isSelected, boolean cellHasFocus) {
+				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+				setEnabled(true);
+				setForeground(EdoUi.User.MAIN_TEXT);
+				setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
+				setOpaque(true);
+				String name = value != null ? value.toString() : "";
+				String blueprint = blueprintSupplier != null ? blueprintSupplier.get() : null;
+				setToolTipText(database != null
+						? database.experimentalEffectTooltip(moduleType, blueprint, name)
+						: null);
+				return c;
 			}
-			if (!EngineeringJournalBlueprintResolver.sameModuleType(unit.moduleType(), row.moduleType())) {
-				continue;
-			}
-			String goalBp = EngineeringJournalBlueprintResolver.normalizeToken(unit.blueprintName());
-			if (!rowBp.isEmpty() && rowBp.equals(goalBp)) {
-				return true;
-			}
-		}
-		return false;
+		});
+		Runnable syncTip = () -> {
+			String name = (String) combo.getSelectedItem();
+			String blueprint = blueprintSupplier != null ? blueprintSupplier.get() : null;
+			combo.setToolTipText(database != null
+					? database.experimentalEffectTooltip(moduleType, blueprint, name)
+					: null);
+		};
+		combo.addActionListener(e -> syncTip.run());
+		syncTip.run();
 	}
 
-	/** True when any goal on this ship covers this module type (any blueprint). */
-	private boolean hasExistingGoalForModuleType(long shipId, String moduleType) {
-		if (moduleType == null || moduleType.isBlank() || allUnits == null || allUnits.isEmpty()) {
-			return false;
-		}
-		for (ModuleUnitProgress unit : allUnits) {
-			if (unit == null || unit.shipId() != shipId) {
-				continue;
-			}
-			if (EngineeringJournalBlueprintResolver.sameModuleType(unit.moduleType(), moduleType)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private Map<Long, List<FittedModuleRow>> filterFittedWithoutGoals(
-			Map<Long, List<FittedModuleRow>> byShip) {
-		Map<Long, List<FittedModuleRow>> out = new LinkedHashMap<>();
-		for (Map.Entry<Long, List<FittedModuleRow>> e : byShip.entrySet()) {
-			List<FittedModuleRow> kept = new ArrayList<>();
-			for (FittedModuleRow row : e.getValue()) {
-				if (!hasExistingGoalFor(row)) {
-					kept.add(row);
+	private void styleShipCombo(JComboBox<ShipFilterItem> combo) {
+		OverlayComboBoxStyle.apply(combo, baseFont.deriveFont(Font.PLAIN, fontSize));
+		OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
+		combo.setRenderer(new DefaultListCellRenderer() {
+			@Override
+			public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+					boolean isSelected, boolean cellHasFocus) {
+				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+				if (value instanceof ShipFilterItem item) {
+					setText(item.label());
 				}
+				setForeground(EdoUi.User.MAIN_TEXT);
+				setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
+				setOpaque(true);
+				return c;
 			}
-			if (!kept.isEmpty()) {
-				out.put(e.getKey(), List.copyOf(kept));
-			}
-		}
-		return out;
+		});
 	}
 
-	private Map<Long, List<UnengineeredModuleRow>> filterUnengineeredWithoutGoals(
-			Map<Long, List<UnengineeredModuleRow>> byShip) {
-		Map<Long, List<UnengineeredModuleRow>> out = new LinkedHashMap<>();
-		for (Map.Entry<Long, List<UnengineeredModuleRow>> e : byShip.entrySet()) {
-			List<UnengineeredModuleRow> kept = new ArrayList<>();
-			for (UnengineeredModuleRow row : e.getValue()) {
-				if (!hasExistingGoalForModuleType(row.shipId(), row.moduleType())) {
-					kept.add(row);
-				}
-			}
-			if (!kept.isEmpty()) {
-				out.put(e.getKey(), List.copyOf(kept));
+	private String resolveShipTitle(long shipId) {
+		if (shipId >= 0) {
+			EngineeringShipRef ref = shipCatalog.get(shipId);
+			if (ref != null) {
+				return shipCatalog.displayLabel(ref);
 			}
 		}
-		return out;
+		LoadoutEvent loadout = loadoutsByShip.get(Long.valueOf(shipId));
+		if (loadout != null) {
+			String name = loadout.getShipName() != null ? loadout.getShipName().trim() : "";
+			String ship = loadout.getShip() != null ? loadout.getShip().trim() : "";
+			if (!name.isBlank() && !ship.isBlank()) {
+				return ship + " · " + name;
+			}
+			if (!name.isBlank()) {
+				return name;
+			}
+			if (!ship.isBlank()) {
+				return ship;
+			}
+		}
+		for (ModuleUnitProgress u : allUnits) {
+			if (u.shipId() == shipId && !u.shipLabel().isBlank()) {
+				return u.shipLabel();
+			}
+		}
+		return shipId >= 0 ? "Ship #" + shipId : "Ship";
 	}
 
-	private JPanel twoColumnRow(String leftText, String rightText,
-			java.awt.Color leftColor, java.awt.Color rightColor) {
-		JPanel row = new JPanel(new GridBagLayout());
-		row.setOpaque(false);
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, fontSize + 14));
-		row.setBorder(new EmptyBorder(1, 18, 1, 0));
-
-		GridBagConstraints gbc = new GridBagConstraints();
-		gbc.gridy = 0;
-		gbc.insets = new Insets(0, 0, 0, 10);
-		gbc.anchor = GridBagConstraints.WEST;
-
-		JLabel left = new JLabel(leftText != null ? leftText : "");
-		left.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-		left.setForeground(leftColor);
-		gbc.gridx = 0;
-		gbc.weightx = 1;
-		gbc.fill = GridBagConstraints.HORIZONTAL;
-		row.add(left, gbc);
-
-		JLabel right = new JLabel(rightText != null ? rightText : "");
-		right.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
-		right.setForeground(rightColor);
-		gbc.gridx = 1;
-		gbc.weightx = 0;
-		gbc.fill = GridBagConstraints.NONE;
-		gbc.anchor = GridBagConstraints.EAST;
-		row.add(right, gbc);
-		return row;
+	private JLabel sectionHeadline(String text, Band band) {
+		JLabel label = new JLabel(text);
+		label.setFont(baseFont.deriveFont(Font.BOLD, fontSize + 1));
+		label.setForeground(statusColor(band));
+		label.setAlignmentX(Component.LEFT_ALIGNMENT);
+		return label;
 	}
 
-	private String gradeProgressText(ModuleUnitProgress unit) {
-		EngineeringGoal g = unit.unit();
-		if (g == null) {
-			return "";
-		}
-		String progress;
-		int from = g.getFromGrade();
-		int target = unit.targetGrade();
-		int crafts = g.getCraftsAtCurrentGrade();
-		if (g.isComplete() || from >= target) {
-			progress = "G" + target + " done";
-		} else if (from <= 0 && crafts <= 0) {
-			progress = "Not started";
-		} else if (crafts <= 0) {
-			progress = "G" + from;
-		} else {
-			progress = "G" + from + " · G" + (from + 1) + " "
-					+ crafts + "/" + EngineeringGradeProgress.ROLLS_PER_GRADE;
-		}
-		if (!g.getExperimentalId().isBlank()) {
-			String expName = database != null
-					? database.findById(g.getExperimentalId()).map(BlueprintGrade::getName).orElse("experimental")
-					: "experimental";
-			progress += g.isExperimentalApplied()
-					? " · " + expName
-					: " · needs " + expName;
-		}
-		return progress;
-	}
-
-	private java.awt.Color gradeColor(ModuleUnitProgress unit) {
-		if (!unit.installed()) {
-			return EdoUi.Internal.MAIN_TEXT_ALPHA_220;
-		}
-		EngineeringGoal g = unit.unit();
-		if (g == null) {
-			return EdoUi.Internal.MAIN_TEXT_ALPHA_220;
-		}
-		if (g.isComplete() || g.getFromGrade() >= unit.targetGrade()) {
-			return EdoUi.User.SUCCESS;
-		}
-		if (g.getFromGrade() <= 0 && g.getCraftsAtCurrentGrade() <= 0) {
-			return EdoUi.Internal.MAIN_TEXT_ALPHA_220;
-		}
-		return EdoUi.User.MAIN_TEXT;
+	private JComponent sectionSeparator() {
+		JPanel rule = new JPanel();
+		rule.setOpaque(true);
+		rule.setBackground(EdoUi.Internal.MAIN_TEXT_ALPHA_40);
+		rule.setPreferredSize(new Dimension(1, 1));
+		rule.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+		rule.setAlignmentX(Component.LEFT_ALIGNMENT);
+		return rule;
 	}
 
 	private JLabel mutedLabel(String text) {
@@ -1478,463 +1196,8 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		return label;
 	}
 
-	private void openReport() {
-		ShipFilterItem filter = (ShipFilterItem) shipCombo.getSelectedItem();
-		Long shipId = filter != null && !filter.isSeparator() ? filter.shipId() : null;
-		if (shipId == null) {
-			return;
-		}
-		LoadoutEvent loadout = loadoutsByShip.get(shipId);
-		String shipTitle = resolveShipTitle(shipId.longValue(), List.of());
-		String report = buildReportText(shipId.longValue(), shipTitle, loadout);
-		String loadoutJson = loadout != null && loadout.getRawJson() != null
-				? loadout.getRawJson().toString()
-				: null;
-		EngineeringShipReportDialog.show(
-				this, shipTitle, report, loadoutJson, baseFont, fontSize, passThroughEnabledSupplier);
-	}
-
-	/** Plain-text ship report: engineered modules with details, unengineered, then every fitted module. */
-	private String buildReportText(long shipId, String shipTitle, LoadoutEvent loadout) {
-		StringBuilder sb = new StringBuilder(4096);
-		sb.append("SHIP ENGINEERING REPORT (Elite Dangerous Overlay)\n");
-		sb.append("Ship: ").append(shipTitle).append('\n');
-		if (loadout != null) {
-			appendHeaderLine(sb, "Hull", loadout.getShip());
-			appendHeaderLine(sb, "Name", loadout.getShipName());
-			appendHeaderLine(sb, "Ident", loadout.getShipIdent());
-			if (loadout.getTimestamp() != null) {
-				sb.append("Loadout as of: ").append(loadout.getTimestamp()).append('\n');
-			}
-		}
-		sb.append("Ship ID: ").append(shipId).append('\n');
-		if (loadout == null) {
-			sb.append("\nNo stored loadout for this ship yet. ")
-					.append("Board the ship in-game (or change any module) to record a Loadout event.\n");
-			return sb.toString();
-		}
-
-		List<LoadoutEvent.Module> engineered = new ArrayList<>();
-		List<LoadoutEvent.Module> unengineered = new ArrayList<>();
-		List<LoadoutEvent.Module> allFitted = new ArrayList<>();
-		for (LoadoutEvent.Module module : loadout.getModules()) {
-			if (module == null || module.getItem() == null || module.getItem().isBlank()
-					|| isCosmeticItem(module.getItem())) {
-				continue;
-			}
-			allFitted.add(module);
-			LoadoutEvent.Engineering engineering = module.getEngineering();
-			if (engineering != null && engineering.getLevel() > 0) {
-				engineered.add(module);
-			} else {
-				String moduleType = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
-				if (moduleType != null && !moduleType.isBlank()) {
-					unengineered.add(module);
-				}
-			}
-		}
-
-		sb.append("\nENGINEERED MODULES (").append(engineered.size()).append(")\n");
-		if (engineered.isEmpty()) {
-			sb.append("  (none)\n");
-		}
-		for (LoadoutEvent.Module module : engineered) {
-			LoadoutEvent.Engineering engineering = module.getEngineering();
-			sb.append("- ").append(reportModuleLine(module)).append('\n');
-			String moduleType = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
-			String blueprint = friendlyBlueprint(module, engineering, database);
-			int maxGrade = maxBlueprintGrade(database, moduleType, blueprint);
-			sb.append("    Blueprint: ").append(blueprint.isBlank() ? "(unknown)" : blueprint)
-					.append("  G").append(engineering.getLevel());
-			if (maxGrade > 0) {
-				sb.append(" of G").append(maxGrade);
-			}
-			if (engineering.getQuality() > 0) {
-				sb.append(" (").append(Math.round(engineering.getQuality() * 100.0d)).append("% quality)");
-			}
-			sb.append('\n');
-			if (engineering.getEngineer() != null && !engineering.getEngineer().isBlank()) {
-				sb.append("    Engineer: ").append(engineering.getEngineer()).append('\n');
-			}
-			String experimental = friendlyExperimental(engineering, database);
-			if (experimental != null && !experimental.isBlank()) {
-				sb.append("    Experimental: ").append(experimental).append('\n');
-			}
-			if (!engineering.getModifiers().isEmpty()) {
-				sb.append("    Modifiers:\n");
-				for (LoadoutEvent.Modifier modifier : engineering.getModifiers()) {
-					sb.append("      ").append(friendlifySlot(modifier.getLabel()))
-							.append(": ").append(formatModifierValue(modifier.getValue()))
-							.append(" (base ").append(formatModifierValue(modifier.getOriginalValue()))
-							.append(")\n");
-				}
-			}
-		}
-
-		sb.append("\nUNENGINEERED MODULES (engineerable) (").append(unengineered.size()).append(")\n");
-		if (unengineered.isEmpty()) {
-			sb.append("  (none)\n");
-		}
-		for (LoadoutEvent.Module module : unengineered) {
-			sb.append("- ").append(reportModuleLine(module)).append('\n');
-		}
-
-		sb.append("\nALL FITTED MODULES (").append(allFitted.size()).append(")\n");
-		for (LoadoutEvent.Module module : allFitted) {
-			sb.append("- ").append(reportModuleLine(module));
-			LoadoutEvent.Engineering engineering = module.getEngineering();
-			if (engineering != null && engineering.getLevel() > 0) {
-				sb.append("  [G").append(engineering.getLevel())
-						.append(' ').append(friendlyBlueprint(module, engineering, database));
-				String experimental = friendlyExperimental(engineering, database);
-				if (experimental != null && !experimental.isBlank()) {
-					sb.append(" + ").append(experimental);
-				}
-				sb.append(']');
-			}
-			sb.append('\n');
-		}
-
-		sb.append("\nNote: covers modules currently fitted to this ship (from the latest Loadout journal event);")
-				.append("\nmodules in station storage are not included.\n");
-		return sb.toString();
-	}
-
-	private static void appendHeaderLine(StringBuilder sb, String label, String value) {
-		if (value != null && !value.isBlank()) {
-			sb.append(label).append(": ").append(value.trim()).append('\n');
-		}
-	}
-
-	/** "Medium Hardpoint 1: Multi-cannon Turreted (hpt_multicannon_turret_medium)". */
-	private static String reportModuleLine(LoadoutEvent.Module module) {
-		String slot = friendlifySlot(module.getSlot());
-		String label = EngineeringJournalBlueprintResolver.displayModuleName(module.getItem());
-		StringBuilder sb = new StringBuilder(64);
-		if (!slot.isBlank()) {
-			sb.append(slot).append(": ");
-		}
-		sb.append(label.isBlank() ? module.getItem() : label);
-		sb.append(" (").append(module.getItem().toLowerCase(Locale.ROOT)).append(')');
-		return sb.toString();
-	}
-
-	/** Paint jobs, decals, ship kits, etc. — noise for an engineering report. */
-	private static boolean isCosmeticItem(String item) {
-		String m = item.toLowerCase(Locale.ROOT);
-		return m.startsWith("paintjob") || m.startsWith("decal") || m.startsWith("nameplate")
-				|| m.startsWith("voicepack") || m.startsWith("bobble") || m.contains("shipkit")
-				|| m.contains("weaponcustomisation") || m.contains("enginecustomisation");
-	}
-
-	private static String formatModifierValue(double value) {
-		if (value == Math.rint(value) && Math.abs(value) < 1e9) {
-			return Long.toString((long) value);
-		}
-		String s = String.format(Locale.ROOT, "%.4f", value);
-		s = s.replaceAll("0+$", "");
-		if (s.endsWith(".")) {
-			s = s.substring(0, s.length() - 1);
-		}
-		return s;
-	}
-
-	private static Map<Long, List<FittedModuleRow>> collectFittedModules(
-			Map<Long, LoadoutEvent> loadouts,
-			EngineeringDatabase db,
-			EngineeringShipCatalog catalog) {
-		Map<Long, List<FittedModuleRow>> out = new LinkedHashMap<>();
-		if (loadouts == null || loadouts.isEmpty()) {
-			return out;
-		}
-		for (Map.Entry<Long, LoadoutEvent> entry : loadouts.entrySet()) {
-			LoadoutEvent loadout = entry.getValue();
-			if (loadout == null) {
-				continue;
-			}
-			long shipId = entry.getKey() != null ? entry.getKey().longValue() : loadout.getShipId();
-			String shipLabel = "";
-			if (catalog != null && shipId >= 0) {
-				EngineeringShipRef ref = catalog.get(shipId);
-				if (ref != null) {
-					shipLabel = catalog.displayLabel(ref);
-				}
-			}
-			if (shipLabel.isBlank()) {
-				String name = loadout.getShipName() != null ? loadout.getShipName().trim() : "";
-				String ship = loadout.getShip() != null ? loadout.getShip().trim() : "";
-				if (!name.isBlank() && !ship.isBlank()) {
-					shipLabel = ship + " · " + name;
-				} else if (!name.isBlank()) {
-					shipLabel = name;
-				} else if (!ship.isBlank()) {
-					shipLabel = ship;
-				} else if (shipId >= 0) {
-					shipLabel = "Ship #" + shipId;
-				}
-			}
-			Map<String, FittedModuleRow> merged = new LinkedHashMap<>();
-			for (LoadoutEvent.Module module : loadout.getModules()) {
-				LoadoutEvent.Engineering engineering = module.getEngineering();
-				if (engineering == null || engineering.getLevel() <= 0) {
-					continue;
-				}
-				String moduleType = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
-				String moduleLabel = EngineeringJournalBlueprintResolver.displayModuleName(module.getItem());
-				String blueprint = friendlyBlueprint(module, engineering, db);
-				String experimental = friendlyExperimental(engineering, db);
-				int maxGrade = maxBlueprintGrade(db, moduleType, blueprint);
-				int level = engineering.getLevel();
-				double quality = engineering.getQuality();
-				String key = moduleLabel.toLowerCase(Locale.ROOT)
-						+ "\0" + blueprint.toLowerCase(Locale.ROOT)
-						+ "\0" + level
-						+ "\0" + Math.round(Math.max(0.0d, quality) * 100.0d)
-						+ "\0" + (experimental != null ? experimental.toLowerCase(Locale.ROOT) : "");
-				FittedModuleRow existing = merged.get(key);
-				if (existing == null) {
-					merged.put(key, new FittedModuleRow(
-							shipId,
-							shipLabel,
-							friendlifySlot(module.getSlot()),
-							moduleLabel,
-							moduleType != null ? moduleType : "",
-							blueprint,
-							level,
-							maxGrade,
-							quality,
-							experimental,
-							1));
-				} else {
-					merged.put(key, existing.withCount(existing.count() + 1));
-				}
-			}
-			List<FittedModuleRow> rows = new ArrayList<>(merged.values());
-			rows.sort(Comparator
-					.comparing(FittedModuleRow::moduleLabel, String.CASE_INSENSITIVE_ORDER)
-					.thenComparing(FittedModuleRow::blueprintLabel, String.CASE_INSENSITIVE_ORDER)
-					.thenComparingInt(FittedModuleRow::level));
-			if (!rows.isEmpty()) {
-				out.put(Long.valueOf(shipId), List.copyOf(rows));
-			}
-		}
-		return out;
-	}
-
-	private static Map<Long, List<UnengineeredModuleRow>> collectUnengineeredModules(
-			Map<Long, LoadoutEvent> loadouts,
-			EngineeringShipCatalog catalog) {
-		Map<Long, List<UnengineeredModuleRow>> out = new LinkedHashMap<>();
-		if (loadouts == null || loadouts.isEmpty()) {
-			return out;
-		}
-		for (Map.Entry<Long, LoadoutEvent> entry : loadouts.entrySet()) {
-			LoadoutEvent loadout = entry.getValue();
-			if (loadout == null) {
-				continue;
-			}
-			long shipId = entry.getKey() != null ? entry.getKey().longValue() : loadout.getShipId();
-			String shipLabel = resolveLoadoutShipLabel(shipId, loadout, catalog);
-			Map<String, UnengineeredModuleRow> merged = new LinkedHashMap<>();
-			for (LoadoutEvent.Module module : loadout.getModules()) {
-				if (module == null || module.getItem() == null || module.getItem().isBlank()) {
-					continue;
-				}
-				LoadoutEvent.Engineering engineering = module.getEngineering();
-				if (engineering != null && engineering.getLevel() > 0) {
-					continue;
-				}
-				String moduleType = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
-				if (moduleType == null || moduleType.isBlank()) {
-					continue;
-				}
-				String moduleLabel = EngineeringJournalBlueprintResolver.displayModuleName(module.getItem());
-				String key = moduleLabel.toLowerCase(Locale.ROOT);
-				UnengineeredModuleRow existing = merged.get(key);
-				if (existing == null) {
-					merged.put(key, new UnengineeredModuleRow(
-							shipId,
-							shipLabel,
-							friendlifySlot(module.getSlot()),
-							moduleLabel,
-							moduleType,
-							1));
-				} else {
-					merged.put(key, existing.withCount(existing.count() + 1));
-				}
-			}
-			List<UnengineeredModuleRow> rows = new ArrayList<>(merged.values());
-			rows.sort(Comparator.comparing(UnengineeredModuleRow::moduleLabel, String.CASE_INSENSITIVE_ORDER));
-			if (!rows.isEmpty()) {
-				out.put(Long.valueOf(shipId), List.copyOf(rows));
-			}
-		}
-		return out;
-	}
-
-	private static String resolveLoadoutShipLabel(long shipId, LoadoutEvent loadout, EngineeringShipCatalog catalog) {
-		String shipLabel = "";
-		if (catalog != null && shipId >= 0) {
-			EngineeringShipRef ref = catalog.get(shipId);
-			if (ref != null) {
-				shipLabel = catalog.displayLabel(ref);
-			}
-		}
-		if (!shipLabel.isBlank()) {
-			return shipLabel;
-		}
-		String name = loadout.getShipName() != null ? loadout.getShipName().trim() : "";
-		String ship = loadout.getShip() != null ? loadout.getShip().trim() : "";
-		if (!name.isBlank() && !ship.isBlank()) {
-			return ship + " · " + name;
-		}
-		if (!name.isBlank()) {
-			return name;
-		}
-		if (!ship.isBlank()) {
-			return ship;
-		}
-		return shipId >= 0 ? "Ship #" + shipId : "";
-	}
-
-	private static String friendlyBlueprint(LoadoutEvent.Module module,
-			LoadoutEvent.Engineering engineering,
-			EngineeringDatabase db) {
-		Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
-				EngineeringJournalBlueprintResolver.resolve(
-						module.getSlot(), module.getItem(), engineering.getBlueprintName(), db);
-		if (resolved.isPresent()) {
-			String bp = resolved.get().blueprintName();
-			if (bp != null && !bp.isBlank()) {
-				return bp;
-			}
-		}
-		return friendlifyJournalToken(engineering.getBlueprintName());
-	}
-
-	private static String friendlyExperimental(LoadoutEvent.Engineering engineering,
-			EngineeringDatabase db) {
-		String localised = engineering.getExperimentalEffectLocalised();
-		if (localised != null && !localised.isBlank()) {
-			return localised.trim();
-		}
-		String effect = engineering.getExperimentalEffect();
-		if (effect == null || effect.isBlank()) {
-			return "";
-		}
-		if (db != null) {
-			String norm = normalizeToken(effect);
-			for (BlueprintGrade bp : db.getAllBlueprints()) {
-				if (!bp.isExperimental()) {
-					continue;
-				}
-				String nName = normalizeToken(bp.getName());
-				String nId = normalizeToken(bp.getId());
-				if ((!nName.isEmpty() && (norm.contains(nName) || nName.contains(norm)))
-						|| (!nId.isEmpty() && (norm.contains(nId) || nId.contains(norm)))) {
-					return bp.getName();
-				}
-			}
-		}
-		return friendlifyJournalToken(effect);
-	}
-
-	private static String normalizeToken(String value) {
-		if (value == null || value.isBlank()) {
-			return "";
-		}
-		return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
-	}
-
-	private static String friendlifySlot(String slot) {
-		if (slot == null || slot.isBlank()) {
-			return "";
-		}
-		String s = slot.trim().replace('_', ' ');
-		StringBuilder out = new StringBuilder(s.length() + 8);
-		for (int i = 0; i < s.length(); i++) {
-			char c = s.charAt(i);
-			if (i > 0) {
-				char prev = s.charAt(i - 1);
-				boolean boundary = (Character.isLowerCase(prev) && Character.isUpperCase(c))
-						|| (Character.isLetter(prev) && Character.isDigit(c))
-						|| (Character.isDigit(prev) && Character.isLetter(c));
-				if (boundary && out.charAt(out.length() - 1) != ' ') {
-					out.append(' ');
-				}
-			}
-			out.append(c);
-		}
-		return titleCaseWords(out.toString());
-	}
-
-	private static String friendlifyJournalToken(String value) {
-		if (value == null || value.isBlank()) {
-			return "";
-		}
-		String s = value.trim();
-		if (s.regionMatches(true, 0, "special_", 0, 8)) {
-			s = s.substring(8);
-		}
-		return titleCaseWords(s.replace('_', ' '));
-	}
-
-	private static String titleCaseWords(String s) {
-		if (s == null || s.isBlank()) {
-			return "";
-		}
-		StringBuilder out = new StringBuilder(s.length());
-		boolean cap = true;
-		for (int i = 0; i < s.length(); i++) {
-			char c = s.charAt(i);
-			if (c == ' ') {
-				out.append(c);
-				cap = true;
-			} else if (cap) {
-				out.append(Character.toUpperCase(c));
-				cap = false;
-			} else {
-				out.append(Character.toLowerCase(c));
-			}
-		}
-		return out.toString().trim();
-	}
-
-	private static int maxBlueprintGrade(EngineeringDatabase db, String moduleType, String blueprintName) {
-		if (db == null || moduleType == null || moduleType.isBlank()
-				|| blueprintName == null || blueprintName.isBlank()) {
-			return 0;
-		}
-		int max = 0;
-		for (BlueprintGrade bp : db.gradesFor(moduleType, blueprintName)) {
-			if (bp != null && !bp.isExperimental()) {
-				max = Math.max(max, bp.getGrade());
-			}
-		}
-		if (max > 0) {
-			return max;
-		}
-		// Fallback if journal/localised blueprint name doesn't exact-match the catalog key.
-		for (BlueprintGrade bp : db.getAllBlueprints()) {
-			if (bp == null || bp.isExperimental()) {
-				continue;
-			}
-			if (!EngineeringJournalBlueprintResolver.sameModuleType(moduleType, bp.getModuleType())) {
-				continue;
-			}
-			if (!EngineeringJournalBlueprintResolver.normalizeToken(blueprintName)
-					.equals(EngineeringJournalBlueprintResolver.normalizeToken(bp.getName()))) {
-				continue;
-			}
-			max = Math.max(max, bp.getGrade());
-		}
-		return max;
-	}
-
 	private record DialogLoadResult(
 			List<ModuleUnitProgress> units,
-			Map<Long, List<FittedModuleRow>> fittedByShip,
-			Map<Long, List<UnengineeredModuleRow>> unengineeredByShip,
 			Map<Long, LoadoutEvent> loadoutsByShip) {
 	}
 
@@ -1944,70 +1207,14 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			String moduleLabel,
 			String blueprintName,
 			String experimentalName,
-			int quantity) {
-	}
-
-	private record UnengineeredModuleRow(
-			long shipId,
-			String shipLabel,
-			String slotLabel,
-			String moduleLabel,
-			String moduleType,
-			int count) {
-		UnengineeredModuleRow withCount(int newCount) {
-			return new UnengineeredModuleRow(shipId, shipLabel, slotLabel, moduleLabel, moduleType, Math.max(1, newCount));
-		}
-	}
-
-	private record FittedModuleRow(
-			long shipId,
-			String shipLabel,
-			String slotLabel,
-			String moduleLabel,
-			String moduleType,
-			String blueprintLabel,
-			int level,
-			int maxGrade,
-			double quality,
-			String experimentalLabel,
-			int count) {
-		FittedModuleRow withCount(int newCount) {
-			return new FittedModuleRow(
-					shipId, shipLabel, slotLabel, moduleLabel, moduleType, blueprintLabel,
-					level, maxGrade, quality, experimentalLabel, Math.max(1, newCount));
-		}
-
-		boolean canUpgrade() {
-			return moduleType != null && !moduleType.isBlank()
-					&& blueprintLabel != null && !blueprintLabel.isBlank()
-					&& maxGrade > 0
-					&& level < maxGrade;
-		}
-
-		String gradeLabel() {
-			if (level <= 0) {
-				return "";
-			}
-			if (quality >= 0 && quality < 0.999d) {
-				return "G" + level + " · " + Math.round(quality * 100.0) + "%";
-			}
-			return "G" + level;
-		}
+			int quantity,
+			int preferredTargetGrade,
+			EngineeringGoal existingGoal) {
 	}
 
 	private record ShipFilterItem(Long shipId, String label, boolean isSeparator) {
 		static ShipFilterItem ship(long shipId, String label) {
-			String text = label != null && !label.isBlank() ? label : "Ship #" + shipId;
-			return new ShipFilterItem(Long.valueOf(shipId), text, false);
-		}
-
-		static ShipFilterItem separator() {
-			return new ShipFilterItem(null, "", true);
-		}
-
-		@Override
-		public String toString() {
-			return isSeparator ? "" : label;
+			return new ShipFilterItem(Long.valueOf(shipId), label != null ? label : ("Ship #" + shipId), false);
 		}
 	}
 }

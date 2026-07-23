@@ -17,6 +17,7 @@ import javax.swing.JFrame;
 import javax.swing.JLayeredPane;
 import javax.swing.JLabel;
 import javax.swing.JRootPane;
+import javax.swing.RootPaneContainer;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
 
@@ -244,20 +245,34 @@ public class SystemTableHoverCopyManager {
 
     /**
      * Shows the same "Copied: …" toast as hover/double-click copy, anchored to the center of a component.
+     * Works for {@link javax.swing.JFrame} and {@link javax.swing.JDialog} hosts.
      */
     public static void showCopiedToast(JComponent anchor, String copiedText) {
-        if (anchor == null || copiedText == null || copiedText.isBlank()) {
+        if (copiedText == null || copiedText.isBlank()) {
+            return;
+        }
+        showToast(anchor, "Copied: " + copiedText);
+    }
+
+    /**
+     * Shows a short dark toast centered on {@code anchor} (same style as copy feedback).
+     * Works for {@link javax.swing.JFrame} and {@link javax.swing.JDialog} hosts.
+     */
+    public static void showToast(JComponent anchor, String message) {
+        if (anchor == null || message == null || message.isBlank()) {
             return;
         }
         Window window = SwingUtilities.getWindowAncestor(anchor);
-        if (!(window instanceof JFrame)) {
+        if (!(window instanceof RootPaneContainer rpc)) {
             return;
         }
-        JFrame frame = (JFrame) window;
-        JRootPane rootPane = frame.getRootPane();
+        JRootPane rootPane = rpc.getRootPane();
+        if (rootPane == null) {
+            return;
+        }
         JLayeredPane layeredPane = rootPane.getLayeredPane();
 
-        JLabel toast = new JLabel("Copied: " + copiedText, SwingConstants.CENTER);
+        JLabel toast = new JLabel(message, SwingConstants.CENTER);
         toast.setOpaque(true);
         toast.setBackground(EdoUi.Internal.BLACK_ALPHA_180);
         toast.setForeground(Color.WHITE);
