@@ -1769,9 +1769,12 @@ public class EngineeringTabPanel extends JPanel {
             String clientKey = EliteDangerousOverlay.clientKey;
             boolean loadoutPatched = false;
             if (clientKey != null && !clientKey.isBlank() && shipId >= 0) {
-                EngineeringCraftStore.rememberCraft(clientKey, craft, shipId);
-                // rememberCraft already patches stored loadout; detect for UI refresh.
-                loadoutPatched = EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft);
+                loadoutPatched = EngineeringCraftStore.rememberCraft(clientKey, craft, shipId);
+            }
+            // Live Loadout is patched in EliteOverlayTabbedPane.handleLogEvent; treat grade/experimental
+            // crafts as a UI refresh even when the stored snapshot was already current.
+            if (EngineeringLoadoutExperimentalPatch.shouldPatchLoadout(craft)) {
+                loadoutPatched = true;
             }
             boolean goalsChanged = EngineeringGoalProgress.applyCraft(goals, craft, database, shipId);
             if (loadoutPatched || goalsChanged) {

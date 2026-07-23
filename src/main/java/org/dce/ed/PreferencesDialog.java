@@ -745,7 +745,7 @@ public class PreferencesDialog extends JDialog {
 		rgc.anchor = GridBagConstraints.WEST;
 		rgc.insets = new Insets(2, 8, 2, 8);
 		routeFuelPredictionCheckBox = new JCheckBox(
-				"Predict fuel exhaustion along the route (yellow pump = last reachable system, red pump = out of fuel)");
+				"Predict fuel along the route (green=scoopable; yellow/red=fuel warning; slash=not scoopable)");
 		routeFuelPredictionCheckBox.setOpaque(false);
 		routeFuelPredictionCheckBox.setSelected(OverlayPreferences.isRouteFuelPredictionEnabled());
 		routePanel.add(routeFuelPredictionCheckBox, rgc);

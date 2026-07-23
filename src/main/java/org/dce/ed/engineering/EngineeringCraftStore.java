@@ -81,7 +81,7 @@ public final class EngineeringCraftStore {
                             craft.getLevel(),
                             craft.getQuality(),
                             raw != null ? raw : ""));
-                    if (EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft)
+                    if (EngineeringLoadoutExperimentalPatch.shouldPatchLoadout(craft)
                             && currentShipId >= 0) {
                         LoadoutSnapshot snap = loadouts.get(Long.valueOf(currentShipId));
                         if (snap != null) {
@@ -151,10 +151,14 @@ public final class EngineeringCraftStore {
         }
     }
 
-    /** Live craft with attributed hull. Skips when {@code shipId < 0}. */
-    public static void rememberCraft(String clientKey, EngineerCraftEvent craft, long shipId) {
+    /**
+     * Live craft with attributed hull. Skips when {@code shipId < 0}.
+     *
+     * @return true when the stored Loadout snapshot was patched from this craft
+     */
+    public static boolean rememberCraft(String clientKey, EngineerCraftEvent craft, long shipId) {
         if (clientKey == null || clientKey.isBlank() || craft == null || shipId < 0) {
-            return;
+            return false;
         }
         String raw = rawJsonString(craft);
         upsertCraft(new EngineeringCraftRecord(
@@ -167,20 +171,20 @@ public final class EngineeringCraftStore {
                 craft.getLevel(),
                 craft.getQuality(),
                 raw != null ? raw : ""));
-        patchStoredLoadoutFromExperimentalCraft(clientKey, craft, shipId);
+        return patchStoredLoadoutFromCraft(clientKey, craft, shipId);
     }
 
     /**
-     * Updates the stored Loadout snapshot when an experimental is applied (Elite does not emit a
-     * new Loadout for experimental-only crafts).
+     * Updates the stored Loadout snapshot from an {@code EngineerCraft} when Elite omits a fresh
+     * Loadout (grade rolls and experimental-only applies).
      *
      * @return true when the stored loadout JSON was changed
      */
-    public static boolean patchStoredLoadoutFromExperimentalCraft(String clientKey,
-                                                                  EngineerCraftEvent craft,
-                                                                  long shipId) {
+    public static boolean patchStoredLoadoutFromCraft(String clientKey,
+                                                      EngineerCraftEvent craft,
+                                                      long shipId) {
         if (clientKey == null || clientKey.isBlank() || craft == null || shipId < 0
-                || !EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft)) {
+                || !EngineeringLoadoutExperimentalPatch.shouldPatchLoadout(craft)) {
             return false;
         }
         Path dbPath = SystemCache.getSqliteCacheDbPath();
@@ -226,9 +230,16 @@ public final class EngineeringCraftStore {
                 return true;
             }
         } catch (Exception ex) {
-            System.err.println("[EDO] Engineering loadout experimental patch failed: " + ex.getMessage());
+            System.err.println("[EDO] Engineering loadout craft patch failed: " + ex.getMessage());
             return false;
         }
+    }
+
+    /** @deprecated use {@link #patchStoredLoadoutFromCraft} */
+    public static boolean patchStoredLoadoutFromExperimentalCraft(String clientKey,
+                                                                  EngineerCraftEvent craft,
+                                                                  long shipId) {
+        return patchStoredLoadoutFromCraft(clientKey, craft, shipId);
     }
 
     public static void rememberLoadout(String clientKey, LoadoutEvent loadout) {
@@ -334,8 +345,8 @@ public final class EngineeringCraftStore {
             System.err.println("[EDO] Engineering loadout list failed: " + ex.getMessage());
             return Map.of();
         }
-        // Overlay experimental applies that landed after the last stored Loadout (common: engineer
-        // only emits EngineerCraft until the next board/module-change Loadout).
+        // Overlay EngineerCraft updates that landed after the last stored Loadout (Elite often
+        // omits Loadout for grade rolls and experimental-only applies).
         for (EngineeringCraftRecord craftRec : listCrafts(clientKey)) {
             Instant loadoutTs = tsByShip.get(Long.valueOf(craftRec.getShipId()));
             String raw = rawByShip.get(Long.valueOf(craftRec.getShipId()));
@@ -350,7 +361,7 @@ public final class EngineeringCraftStore {
             try {
                 EliteLogEvent parsed = parser.parseRecord(craftRec.getRawJson());
                 if (!(parsed instanceof EngineerCraftEvent craft)
-                        || !EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft)) {
+                        || !EngineeringLoadoutExperimentalPatch.shouldPatchLoadout(craft)) {
                     continue;
                 }
                 String patched = EngineeringLoadoutExperimentalPatch.patchLoadoutRawJson(raw, craft);

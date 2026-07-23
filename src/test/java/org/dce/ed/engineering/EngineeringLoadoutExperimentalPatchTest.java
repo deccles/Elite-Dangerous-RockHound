@@ -69,7 +69,7 @@ class EngineeringLoadoutExperimentalPatchTest {
     }
 
     @Test
-    void patch_ignoresGradeRollWithoutApplyExperimental() {
+    void patch_gradeRollUpdatesEngineeringWithoutApplyExperimental() {
         String gradeRoll =
                 "{\"timestamp\":\"2026-07-23T04:58:00Z\",\"event\":\"EngineerCraft\","
                         + "\"Slot\":\"HugeHardpoint1\",\"Module\":\"hpt_multicannon_gimbal_huge\","
@@ -79,7 +79,17 @@ class EngineeringLoadoutExperimentalPatchTest {
                         + "\"Ingredients\":[],\"Engineer\":\"Tod\",\"EngineerID\":1,\"BlueprintID\":1}";
         EngineerCraftEvent craft = (EngineerCraftEvent) new EliteLogParser().parseRecord(gradeRoll);
         assertFalse(EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft));
-        assertNull(EngineeringLoadoutExperimentalPatch.patchLoadoutRawJson(LOADOUT, craft));
+        assertTrue(EngineeringLoadoutExperimentalPatch.isGradeCraft(craft));
+        String patched = EngineeringLoadoutExperimentalPatch.patchLoadoutRawJson(LOADOUT, craft);
+        assertNotNull(patched);
+        LoadoutEvent loadout = (LoadoutEvent) new EliteLogParser().parseRecord(patched);
+        LoadoutEvent.Module huge = loadout.getModules().stream()
+                .filter(m -> "HugeHardpoint1".equals(m.getSlot()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(5, huge.getEngineering().getLevel());
+        assertEquals("Tod", huge.getEngineering().getEngineer());
+        assertEquals(1L, huge.getEngineering().getBlueprintId());
     }
 
     @Test

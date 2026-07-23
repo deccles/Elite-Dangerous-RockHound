@@ -3,7 +3,12 @@ package org.dce.ed.route;
 import java.util.List;
 import java.util.Locale;
 
+import org.dce.ed.logreader.event.EngineerCraftEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 /**
  * Predicts where along the plotted route the ship runs out of fuel, using the hyperspace
@@ -11,19 +16,36 @@ import org.dce.ed.logreader.event.LoadoutEvent;
  * <p>
  * FSD parameters come from the journal {@code Loadout} event: stock values from the tables
  * below, overridden by Engineering modifiers ({@code FSDOptimalMass} / {@code MaxFuelPerJump})
- * when present. Ships with a fuel scoop are assumed to scoop to full at every scoopable
- * (KGBFOAM) star on the route, so warnings only appear for unscoopable stretches longer than
- * a tank, or when current fuel can't reach the next scoopable star.
+ * when present. A hop that exceeds {@code maxFuelPerJump} is reported as beyond FSD range
+ * (not an empty tank). Elite often upgrades the FSD via {@code EngineerCraft} without emitting a
+ * fresh Loadout — call {@link #applyFsdCraft} so those crafts refresh optimal mass / max fuel.
+ * Ships with a fuel scoop are assumed to scoop to full at every scoopable (KGBFOAM) star on the
+ * route, so tank-empty warnings only appear for unscoopable stretches longer than a tank, or when
+ * current fuel can't reach the next scoopable star.
  */
 public final class RouteFuelPrediction {
 
     public enum RowFuelState {
         /** Reachable on predicted fuel. */
         REACHABLE,
-        /** Last system reachable before the tank runs dry. */
+        /** Last system reachable before the route is blocked. */
         LAST_REACHABLE,
-        /** Predicted out of fuel before arriving here. */
-        UNREACHABLE
+        /** Predicted out of main-tank fuel before arriving here. */
+        UNREACHABLE,
+        /**
+         * Hop to this system needs more fuel than {@code maxFuelPerJump} allows (beyond FSD
+         * range), even with a full tank.
+         */
+        BEYOND_JUMP_RANGE
+    }
+
+    /** Why the route is blocked after {@link RowFuelState#LAST_REACHABLE}, if it is. */
+    public enum BlockReason {
+        NONE,
+        /** Remaining main-tank fuel is not enough for the next hop. */
+        TANK_EMPTY,
+        /** Next hop exceeds the FSD's max fuel per jump (range limit). */
+        JUMP_TOO_FAR
     }
 
     /** Ship + FSD parameters needed by the fuel equation (immutable snapshot of a Loadout). */
@@ -39,10 +61,22 @@ public final class RouteFuelPrediction {
         final boolean hasFuelScoop;
         /** Guardian FSD booster bonus in Ly (0 when absent). */
         final double guardianBoostLy;
+        /**
+         * Loadout {@code MaxJumpRange} when known (unladen, just enough fuel for one jump);
+         * {@link Double#NaN} when the journal omitted it.
+         */
+        final double maxJumpRangeLy;
 
         ShipFuelProfile(double unladenMass, double fuelCapacityMain, double fuelCapacityReserve,
                 double optimalMass, double maxFuelPerJump, double linearConstant, double powerConstant,
                 boolean hasFuelScoop, double guardianBoostLy) {
+            this(unladenMass, fuelCapacityMain, fuelCapacityReserve, optimalMass, maxFuelPerJump,
+                    linearConstant, powerConstant, hasFuelScoop, guardianBoostLy, Double.NaN);
+        }
+
+        ShipFuelProfile(double unladenMass, double fuelCapacityMain, double fuelCapacityReserve,
+                double optimalMass, double maxFuelPerJump, double linearConstant, double powerConstant,
+                boolean hasFuelScoop, double guardianBoostLy, double maxJumpRangeLy) {
             this.unladenMass = unladenMass;
             this.fuelCapacityMain = fuelCapacityMain;
             this.fuelCapacityReserve = fuelCapacityReserve;
@@ -52,6 +86,7 @@ public final class RouteFuelPrediction {
             this.powerConstant = powerConstant;
             this.hasFuelScoop = hasFuelScoop;
             this.guardianBoostLy = guardianBoostLy;
+            this.maxJumpRangeLy = maxJumpRangeLy;
         }
 
         public boolean hasFuelScoop() {
@@ -61,6 +96,11 @@ public final class RouteFuelPrediction {
         public double fuelCapacityMain() {
             return fuelCapacityMain;
         }
+
+        /** Loadout max jump range in Ly, or NaN when unknown. */
+        public double maxJumpRangeLy() {
+            return maxJumpRangeLy;
+        }
     }
 
     /** Per-row prediction for one displayed route snapshot; indexes match the displayed entries. */
@@ -69,12 +109,25 @@ public final class RouteFuelPrediction {
         private final double[] fuelOnArrivalTons;
         private final double fuelCapacityMain;
         private final boolean assumesScooping;
+        private final BlockReason blockReason;
+        private final double maxFuelPerJump;
+        private final double maxJumpRangeLy;
 
-        Result(RowFuelState[] states, double[] fuelOnArrivalTons, double fuelCapacityMain, boolean assumesScooping) {
+        Result(RowFuelState[] states, double[] fuelOnArrivalTons, double fuelCapacityMain, boolean assumesScooping,
+                BlockReason blockReason, double maxFuelPerJump) {
+            this(states, fuelOnArrivalTons, fuelCapacityMain, assumesScooping, blockReason, maxFuelPerJump,
+                    Double.NaN);
+        }
+
+        Result(RowFuelState[] states, double[] fuelOnArrivalTons, double fuelCapacityMain, boolean assumesScooping,
+                BlockReason blockReason, double maxFuelPerJump, double maxJumpRangeLy) {
             this.states = states;
             this.fuelOnArrivalTons = fuelOnArrivalTons;
             this.fuelCapacityMain = fuelCapacityMain;
             this.assumesScooping = assumesScooping;
+            this.blockReason = blockReason != null ? blockReason : BlockReason.NONE;
+            this.maxFuelPerJump = maxFuelPerJump;
+            this.maxJumpRangeLy = maxJumpRangeLy;
         }
 
         /** @return state for the row, or null when no prediction applies (behind current, body row, unknown). */
@@ -96,6 +149,21 @@ public final class RouteFuelPrediction {
         /** True when the simulation refuels at scoopable stars (ship carries a fuel scoop). */
         public boolean assumesScooping() {
             return assumesScooping;
+        }
+
+        /** Why prediction stopped advancing past the last reachable system. */
+        public BlockReason blockReason() {
+            return blockReason;
+        }
+
+        /** FSD max fuel per jump (tons) used for this prediction. */
+        public double maxFuelPerJump() {
+            return maxFuelPerJump;
+        }
+
+        /** Loadout max jump range (Ly), or NaN when unknown. */
+        public double maxJumpRangeLy() {
+            return maxJumpRangeLy;
         }
     }
 
@@ -204,19 +272,99 @@ public final class RouteFuelPrediction {
         if (capMain <= 0 || optMass <= 0 || maxFuel <= 0) {
             return null;
         }
+        double maxJump = loadout.getMaxJumpRange();
+        if (maxJump <= 0) {
+            maxJump = Double.NaN;
+        }
         return new ShipFuelProfile(loadout.getUnladenMass(), capMain, capReserve,
-                optMass, maxFuel, linear, power, scoop, boostLy);
+                optMass, maxFuel, linear, power, scoop, boostLy, maxJump);
+    }
+
+    /**
+     * Whether this craft updates the fitted FSD (slot and/or module id).
+     * Elite frequently omits a follow-up {@code Loadout} after grade crafts at an engineer.
+     */
+    public static boolean isFsdCraft(EngineerCraftEvent craft) {
+        if (craft == null) {
+            return false;
+        }
+        String slot = craft.getSlot() != null ? craft.getSlot() : "";
+        if ("FrameShiftDrive".equalsIgnoreCase(slot)) {
+            return true;
+        }
+        String module = craft.getModule() != null ? craft.getModule().toLowerCase(Locale.ROOT) : "";
+        return module.startsWith("int_hyperdrive");
+    }
+
+    /**
+     * Applies {@code FSDOptimalMass} / {@code MaxFuelPerJump} from an {@code EngineerCraft} onto
+     * the current profile. Clears stale Loadout {@code MaxJumpRange} (recomputes from the fuel
+     * equation). Returns {@code current} unchanged when the craft is not an FSD update or has no
+     * usable modifiers.
+     */
+    public static ShipFuelProfile applyFsdCraft(ShipFuelProfile current, EngineerCraftEvent craft) {
+        if (current == null || craft == null || !isFsdCraft(craft)) {
+            return current;
+        }
+        JsonObject raw = craft.getRawJson();
+        if (raw == null || !raw.has("Modifiers") || !raw.get("Modifiers").isJsonArray()) {
+            return current;
+        }
+        double optMass = current.optimalMass;
+        double maxFuel = current.maxFuelPerJump;
+        boolean touched = false;
+        JsonArray mods = raw.getAsJsonArray("Modifiers");
+        for (JsonElement el : mods) {
+            if (el == null || !el.isJsonObject()) {
+                continue;
+            }
+            JsonObject m = el.getAsJsonObject();
+            String label = m.has("Label") && !m.get("Label").isJsonNull() ? m.get("Label").getAsString() : "";
+            if (!m.has("Value") || m.get("Value").isJsonNull()) {
+                continue;
+            }
+            double value = m.get("Value").getAsDouble();
+            if ("FSDOptimalMass".equalsIgnoreCase(label) && value > 0) {
+                optMass = value;
+                touched = true;
+            } else if ("MaxFuelPerJump".equalsIgnoreCase(label) && value > 0) {
+                maxFuel = value;
+                touched = true;
+            }
+        }
+        if (!touched) {
+            return current;
+        }
+        // Loadout MaxJumpRange is stale after crafts; recompute like the journal definition
+        // (unladen + just enough fuel for one max jump). Unladen mass shifts slightly with FSD
+        // module mass, but Loadout already baked that in — ignore Mass modifier deltas here.
+        double maxJump = (optMass / (current.unladenMass + maxFuel))
+                * Math.pow(1000.0 * maxFuel / current.linearConstant, 1.0 / current.powerConstant);
+        return new ShipFuelProfile(current.unladenMass, current.fuelCapacityMain, current.fuelCapacityReserve,
+                optMass, maxFuel, current.linearConstant, current.powerConstant,
+                current.hasFuelScoop, current.guardianBoostLy, maxJump);
     }
 
     /** Fuel (tons) for one hyperspace jump of {@code distanceLy} at total ship mass {@code massTons}. */
     static double fuelForJump(ShipFuelProfile p, double distanceLy, double massTons) {
-        double dist = distanceLy;
+        return fuelForJump(p, distanceLy, massTons, 1.0);
+    }
+
+    /**
+     * Fuel for one jump, optionally with a jet-cone range multiplier ({@code 4} neutron,
+     * {@code 1.5} white dwarf). The multiplier stretches range for the same fuel by treating
+     * the hop as shorter in the hyperspace equation.
+     */
+    static double fuelForJump(ShipFuelProfile p, double distanceLy, double massTons,
+            double jetConeRangeMultiplier) {
+        double mult = jetConeRangeMultiplier > 1.0 ? jetConeRangeMultiplier : 1.0;
+        double dist = distanceLy / mult;
         if (p.guardianBoostLy > 0) {
             // Booster stretches range for the same fuel: scale distance by baseMax / (baseMax + boost).
             double baseMax = (p.optimalMass / massTons) * Math.pow(1000.0 * p.maxFuelPerJump / p.linearConstant,
                     1.0 / p.powerConstant);
             if (baseMax > 0) {
-                dist = distanceLy * baseMax / (baseMax + p.guardianBoostLy);
+                dist = dist * baseMax / (baseMax + p.guardianBoostLy);
             }
         }
         return p.linearConstant * 1e-3 * Math.pow(dist * massTons / p.optimalMass, p.powerConstant);
@@ -225,6 +373,9 @@ public final class RouteFuelPrediction {
     /**
      * Simulates the remaining route from the CURRENT-marker row using live fuel.
      * Indexes in the result line up with {@code entries}.
+     * <p>
+     * Hops that leave a neutron ({@code N}) or white dwarf ({@code D}…) assume a jet-cone
+     * supercharge (4× / 1.5×), matching the galaxy map plotter when jet-cone boost is enabled.
      *
      * @return result, or null when there's nothing to predict (no current row / no fuel reading)
      */
@@ -256,14 +407,16 @@ public final class RouteFuelPrediction {
 
         RouteEntry prev = entries.get(currentRow);
         int lastReachable = currentRow;
-        boolean ranDry = false;
+        boolean blocked = false;
+        BlockReason blockReason = BlockReason.NONE;
+        RowFuelState blockedState = RowFuelState.UNREACHABLE;
         for (int i = currentRow + 1; i < n; i++) {
             RouteEntry e = entries.get(i);
             if (e == null || e.isBodyRow) {
                 continue;
             }
-            if (ranDry) {
-                states[i] = RowFuelState.UNREACHABLE;
+            if (blocked) {
+                states[i] = blockedState;
                 continue;
             }
             double dist = legDistanceLy(prev, e);
@@ -271,11 +424,24 @@ public final class RouteFuelPrediction {
                 // Unknown geometry: stop predicting rather than guessing.
                 break;
             }
-            double cost = fuelForJump(profile, dist, baseMass + fuel);
-            if (cost > profile.maxFuelPerJump + EPSILON || cost > fuel + EPSILON) {
-                ranDry = true;
+            // Jet-cone charge is taken at the departure remnant before this hop.
+            double jetCone = FsdJetConeBoost.multiplierLeaving(prev != null ? prev.starClass : null);
+            double cost = fuelForJump(profile, dist, baseMass + fuel, jetCone);
+            // FSD range limit (max fuel per jump) is distinct from an empty main tank.
+            if (cost > profile.maxFuelPerJump + EPSILON) {
+                blocked = true;
+                blockReason = BlockReason.JUMP_TOO_FAR;
+                blockedState = RowFuelState.BEYOND_JUMP_RANGE;
                 states[lastReachable] = RowFuelState.LAST_REACHABLE;
-                states[i] = RowFuelState.UNREACHABLE;
+                states[i] = blockedState;
+                continue;
+            }
+            if (cost > fuel + EPSILON) {
+                blocked = true;
+                blockReason = BlockReason.TANK_EMPTY;
+                blockedState = RowFuelState.UNREACHABLE;
+                states[lastReachable] = RowFuelState.LAST_REACHABLE;
+                states[i] = blockedState;
                 continue;
             }
             fuel -= cost;
@@ -287,7 +453,8 @@ public final class RouteFuelPrediction {
             }
             prev = e;
         }
-        return new Result(states, arrival, profile.fuelCapacityMain, profile.hasFuelScoop);
+        return new Result(states, arrival, profile.fuelCapacityMain, profile.hasFuelScoop,
+                blockReason, profile.maxFuelPerJump, profile.maxJumpRangeLy);
     }
 
     /** Distance between two route rows: coordinates when both known, else the stored per-leg value. */

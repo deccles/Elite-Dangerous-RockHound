@@ -2,8 +2,10 @@ package org.dce.ed.engineering;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 import org.dce.ed.logreader.event.LoadoutEvent;
@@ -48,6 +50,11 @@ public final class ShipEngineeringSummary {
 
         /** Catalog component name (e.g. Shield Booster), preferred over slot-first labels. */
         public String componentDisplay() {
+            // Armour rows store "Armour · Reactive Surface Composite" in moduleLabel.
+            if (moduleLabel != null && !moduleLabel.isBlank()
+                    && moduleLabel.regionMatches(true, 0, "Armour", 0, 6)) {
+                return moduleLabel.trim();
+            }
             if (moduleType != null && !moduleType.isBlank()) {
                 return moduleType.trim();
             }
@@ -139,13 +146,34 @@ public final class ShipEngineeringSummary {
         }
     }
 
+    /**
+     * Fitted module that is not engineerable (or not mapped to an engineering catalog type).
+     * Included in Copy Summary only.
+     */
+    public record OtherModule(String slotLabel, String label, int count) {
+        public String display() {
+            String size = shortSlotSize(slotLabel);
+            String base = label != null ? label.trim() : "";
+            if (!base.isBlank() && !size.isBlank()) {
+                return base + " · " + size;
+            }
+            return !base.isBlank() ? base : size;
+        }
+    }
+
     private final List<Row> rows;
+    private final List<OtherModule> otherModules;
     private final int gapCount;
     private final int partialCount;
     private final int doneCount;
 
     private ShipEngineeringSummary(List<Row> rows) {
+        this(rows, List.of());
+    }
+
+    private ShipEngineeringSummary(List<Row> rows, List<OtherModule> otherModules) {
         this.rows = List.copyOf(rows);
+        this.otherModules = List.copyOf(otherModules != null ? otherModules : List.of());
         int g = 0;
         int p = 0;
         int d = 0;
@@ -163,6 +191,10 @@ public final class ShipEngineeringSummary {
 
     public List<Row> rows() {
         return rows;
+    }
+
+    public List<OtherModule> otherModules() {
+        return otherModules;
     }
 
     public int gapCount() {
@@ -221,7 +253,22 @@ public final class ShipEngineeringSummary {
         appendBandSection(sb, Band.GAP, goalTargetForRow, experimentalForRow);
         appendBandSection(sb, Band.PARTIAL, goalTargetForRow, experimentalForRow);
         appendBandSection(sb, Band.DONE, goalTargetForRow, experimentalForRow);
+        appendOtherSection(sb);
         return sb.toString().stripTrailing() + '\n';
+    }
+
+    private void appendOtherSection(StringBuilder sb) {
+        if (otherModules.isEmpty()) {
+            return;
+        }
+        sb.append('\n').append("Other").append('\n');
+        for (OtherModule other : otherModules) {
+            sb.append("  ").append(other.display());
+            if (other.count() > 1) {
+                sb.append(" ×").append(other.count());
+            }
+            sb.append('\n');
+        }
     }
 
     private void appendBandSection(StringBuilder sb, Band band,
@@ -256,18 +303,30 @@ public final class ShipEngineeringSummary {
         }
         long shipId = loadout.getShipId();
         List<Row> built = new ArrayList<>();
+        List<OtherModule> otherBuilt = new ArrayList<>();
         for (LoadoutEvent.Module module : loadout.getModules()) {
             if (module == null || module.getItem() == null || module.getItem().isBlank()) {
                 continue;
             }
-            if (isCosmeticItem(module.getItem())) {
+            if (isCosmeticItem(module.getItem()) || isStructuralNoiseItem(module.getItem())) {
                 continue;
             }
             String moduleType = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
             if (moduleType == null || moduleType.isBlank()) {
+                String label = nonEngineeringLabel(module.getItem());
+                if (!label.isBlank()) {
+                    otherBuilt.add(new OtherModule(
+                            friendlifySlot(module.getSlot()),
+                            label,
+                            1));
+                }
                 continue;
             }
             String moduleLabel = EngineeringJournalBlueprintResolver.displayModuleName(module.getItem());
+            String armourType = armourBulkheadName(module.getItem());
+            if (!armourType.isBlank()) {
+                moduleLabel = "Armour · " + armourType;
+            }
             String slotLabel = friendlifySlot(module.getSlot());
             LoadoutEvent.Engineering engineering = module.getEngineering();
             if (engineering == null || engineering.getLevel() <= 0) {
@@ -311,7 +370,7 @@ public final class ShipEngineeringSummary {
                 .comparingInt((Row r) -> bandOrder(r.band()))
                 .thenComparing(Row::slotLabel, String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(Row::moduleLabel, String.CASE_INSENSITIVE_ORDER));
-        return new ShipEngineeringSummary(built);
+        return new ShipEngineeringSummary(built, mergeOtherModules(otherBuilt));
     }
 
     private static int bandOrder(Band band) {
@@ -327,6 +386,202 @@ public final class ShipEngineeringSummary {
         return m.startsWith("paintjob") || m.startsWith("decal") || m.startsWith("nameplate")
                 || m.startsWith("voicepack") || m.startsWith("bobble") || m.contains("shipkit")
                 || m.contains("weaponcustomisation") || m.contains("enginecustomisation");
+    }
+
+    /** Cockpit / hatch noise that should not appear in Copy Summary. */
+    static boolean isStructuralNoiseItem(String item) {
+        if (item == null || item.isBlank()) {
+            return true;
+        }
+        String m = item.toLowerCase(Locale.ROOT);
+        return m.contains("cockpit")
+                || m.contains("cargobaydoor")
+                || m.contains("modularcargobay")
+                || m.contains("cargohatch");
+    }
+
+    /**
+     * Bulkhead grade name for armour item ids, e.g. {@code anaconda_armour_reactive}
+     * → {@code Reactive Surface Composite}.
+     */
+    static String armourBulkheadName(String item) {
+        if (item == null || item.isBlank()) {
+            return "";
+        }
+        String m = item.toLowerCase(Locale.ROOT);
+        if (!(m.contains("armour") || m.contains("armor"))) {
+            return "";
+        }
+        if (m.contains("reactive")) {
+            return "Reactive Surface Composite";
+        }
+        if (m.contains("mirrored")) {
+            return "Mirrored Surface Composite";
+        }
+        if (m.contains("grade3") || m.contains("military")) {
+            return "Military Grade Composite";
+        }
+        if (m.contains("grade2") || m.contains("reinforced")) {
+            return "Reinforced Alloys";
+        }
+        if (m.contains("grade1") || m.contains("lightweight")) {
+            return "Lightweight Alloys";
+        }
+        return "";
+    }
+
+    /** Human label for fitted modules that are not in the engineering catalog. */
+    static String nonEngineeringLabel(String item) {
+        if (item == null || item.isBlank()) {
+            return "";
+        }
+        String m = item.toLowerCase(Locale.ROOT);
+        if (m.contains("fighterbay") || m.contains("fighterhangar")) {
+            return "Fighter Hangar";
+        }
+        if (m.contains("modulereinforcement")) {
+            return "Module Reinforcement Package";
+        }
+        if (m.contains("cargorack")) {
+            return "Cargo Rack";
+        }
+        if (m.contains("passengercabin") || m.contains("_cabin_")) {
+            return "Passenger Cabin";
+        }
+        if (m.contains("dockingcomputer")) {
+            return m.contains("advanced") ? "Advanced Docking Computer" : "Docking Computer";
+        }
+        if (m.contains("supercruiseassist")) {
+            return "Supercruise Assist";
+        }
+        if (m.contains("buggybay") || m.contains("planetvehicle") || m.contains("srvhangar")
+                || m.contains("vehiclehangar")) {
+            return "Planetary Vehicle Hangar";
+        }
+        if (m.contains("planetapproach")) {
+            return "Planetary Approach Suite";
+        }
+        if (m.contains("fueltank")) {
+            return "Fuel Tank";
+        }
+        if (m.contains("fuelscoop")) {
+            return "Fuel Scoop";
+        }
+        if (m.contains("repairer") || m.contains("autofield") || m.contains("afmu")) {
+            return "Auto Field-Maintenance Unit";
+        }
+        if (m.contains("guardian")) {
+            return guardianModuleLabel(item);
+        }
+        if (m.contains("dronecontrol") || m.contains("limpet")) {
+            return limpetControllerLabel(item);
+        }
+        if (m.contains("fsdbooster") || m.contains("fsd_booster")) {
+            return "FSD Booster";
+        }
+        // Fallback: strip int_/hpt_ and size/class tokens.
+        return friendlifyModuleItemId(item);
+    }
+
+    private static String guardianModuleLabel(String item) {
+        String m = item.toLowerCase(Locale.ROOT);
+        if (m.contains("hullreinforcement")) {
+            return "Guardian Hull Reinforcement";
+        }
+        if (m.contains("modulereinforcement") || m.contains("module_reinforcement")) {
+            return "Guardian Module Reinforcement";
+        }
+        if (m.contains("shieldreinforcement") || m.contains("shield_reinforcement")) {
+            return "Guardian Shield Reinforcement";
+        }
+        if (m.contains("fsdbooster") || m.contains("fsd_booster")) {
+            return "Guardian FSD Booster";
+        }
+        if (m.contains("gausscannon") || m.contains("gauss")) {
+            return "Guardian Gauss Cannon";
+        }
+        if (m.contains("plasmacharger") || m.contains("plasma")) {
+            return "Guardian Plasma Charger";
+        }
+        if (m.contains("shardcannon") || m.contains("shard")) {
+            return "Guardian Shard Cannon";
+        }
+        return "Guardian Module";
+    }
+
+    private static String limpetControllerLabel(String item) {
+        String m = item.toLowerCase(Locale.ROOT);
+        if (m.contains("collection") || m.contains("collector")) {
+            return "Collector Limpet Controller";
+        }
+        if (m.contains("fueltransfer")) {
+            return "Fuel Transfer Limpet Controller";
+        }
+        if (m.contains("prospector")) {
+            return "Prospector Limpet Controller";
+        }
+        if (m.contains("hatchbreaker")) {
+            return "Hatch Breaker Limpet Controller";
+        }
+        if (m.contains("repair")) {
+            return "Repair Limpet Controller";
+        }
+        if (m.contains("decontamination")) {
+            return "Decontamination Limpet Controller";
+        }
+        if (m.contains("recon")) {
+            return "Recon Limpet Controller";
+        }
+        if (m.contains("research")) {
+            return "Research Limpet Controller";
+        }
+        return "Limpet Controller";
+    }
+
+    private static String friendlifyModuleItemId(String item) {
+        String s = item.trim().toLowerCase(Locale.ROOT);
+        if (s.startsWith("hpt_") || s.startsWith("int_")) {
+            s = s.substring(4);
+        }
+        StringBuilder out = new StringBuilder();
+        for (String part : s.split("_+")) {
+            if (part == null || part.isBlank()) {
+                continue;
+            }
+            if (part.matches("size\\d+") || part.matches("class\\d+")) {
+                continue;
+            }
+            if (out.length() > 0) {
+                out.append(' ');
+            }
+            out.append(titleCaseWords(part));
+        }
+        return out.toString().trim();
+    }
+
+    private static List<OtherModule> mergeOtherModules(List<OtherModule> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        Map<String, OtherModule> merged = new LinkedHashMap<>();
+        for (OtherModule other : raw) {
+            if (other == null || other.label() == null || other.label().isBlank()) {
+                continue;
+            }
+            String size = shortSlotSize(other.slotLabel());
+            String key = other.label().trim().toLowerCase(Locale.ROOT) + "\0" + size.toLowerCase(Locale.ROOT);
+            OtherModule prev = merged.get(key);
+            if (prev == null) {
+                merged.put(key, other);
+            } else {
+                merged.put(key, new OtherModule(prev.slotLabel(), prev.label(), prev.count() + other.count()));
+            }
+        }
+        List<OtherModule> out = new ArrayList<>(merged.values());
+        out.sort(Comparator
+                .comparing(OtherModule::label, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(o -> shortSlotSize(o.slotLabel()), String.CASE_INSENSITIVE_ORDER));
+        return out;
     }
 
     static String friendlyBlueprint(LoadoutEvent.Module module,

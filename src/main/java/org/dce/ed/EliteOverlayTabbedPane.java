@@ -67,7 +67,9 @@ import org.dce.ed.logreader.event.FssDiscoveryScanEvent;
 import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.logreader.event.EngineerCraftEvent;
 import org.dce.ed.logreader.event.SetUserShipNameEvent;
+import org.dce.ed.engineering.EngineeringLoadoutExperimentalPatch;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.StartJumpEvent;
@@ -805,10 +807,49 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		}
 		return loadoutEventx;
 	}
+
+	/**
+	 * Elite often skips a fresh {@code Loadout} after {@code EngineerCraft}. Patch the in-memory
+	 * snapshot so Loadout UI / consumers see updated Level/Modifiers without waiting for the next
+	 * board/module-change Loadout.
+	 *
+	 * @return true when {@link #getLatestLoadout()} was replaced with a patched event
+	 */
+	public static boolean applyEngineerCraftToLatestLoadout(EngineerCraftEvent craft) {
+		if (craft == null || !EngineeringLoadoutExperimentalPatch.shouldPatchLoadout(craft)) {
+			return false;
+		}
+		LoadoutEvent current = getLatestLoadout();
+		if (current == null || current.getRawJson() == null) {
+			return false;
+		}
+		String patched = EngineeringLoadoutExperimentalPatch.patchLoadoutRawJson(
+				current.getRawJson().toString(), craft);
+		if (patched == null || patched.isBlank()) {
+			return false;
+		}
+		try {
+			EliteLogEvent parsed = new EliteLogParser().parseRecord(patched);
+			if (!(parsed instanceof LoadoutEvent updated)) {
+				return false;
+			}
+			loadoutEventx = updated;
+			NpcCrewTracker.getInstance().onLoadout(updated);
+			return true;
+		} catch (Exception ex) {
+			return false;
+		}
+	}
+
 	public void handleLogEvent(EliteLogEvent event) {
         if (event instanceof LoadoutEvent e) {
         	loadoutEventx = e;
         	NpcCrewTracker.getInstance().onLoadout(e);
+        	for (Runnable r : loadoutChangeListeners) {
+        		SwingUtilities.invokeLater(r);
+        	}
+        } else if (event instanceof EngineerCraftEvent craft
+        		&& applyEngineerCraftToLatestLoadout(craft)) {
         	for (Runnable r : loadoutChangeListeners) {
         		SwingUtilities.invokeLater(r);
         	}

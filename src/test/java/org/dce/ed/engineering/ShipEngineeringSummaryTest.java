@@ -117,6 +117,51 @@ class ShipEngineeringSummaryTest {
     }
 
     @Test
+    void clipboard_includesOtherNonEngineerableAndArmourType() {
+        String loadoutJson =
+                "{\"timestamp\":\"2026-07-23T04:16:12Z\",\"event\":\"Loadout\",\"Ship\":\"anaconda\",\"ShipID\":7,"
+                        + "\"ShipName\":\"Exception Handler\",\"Modules\":["
+                        + "{\"Slot\":\"Armour\",\"Item\":\"anaconda_armour_reactive\",\"On\":true,"
+                        + "\"Engineering\":{\"BlueprintName\":\"Armour_HeavyDuty\",\"Level\":5,\"Quality\":1.0}},"
+                        + "{\"Slot\":\"Slot04_Size6\",\"Item\":\"int_fighterbay_size6_class1\",\"On\":true},"
+                        + "{\"Slot\":\"Slot06_Size5\",\"Item\":\"int_cargorack_size5_class1\",\"On\":true},"
+                        + "{\"Slot\":\"Slot07_Size5\",\"Item\":\"int_cargorack_size5_class1\",\"On\":true},"
+                        + "{\"Slot\":\"Slot13_Size2\",\"Item\":\"int_dockingcomputer_advanced\",\"On\":true},"
+                        + "{\"Slot\":\"Slot14_Size1\",\"Item\":\"int_supercruiseassist\",\"On\":true},"
+                        + "{\"Slot\":\"TinyHardpoint7\",\"Item\":\"hpt_crimescanner_size0_class4\",\"On\":true},"
+                        + "{\"Slot\":\"PaintJob\",\"Item\":\"PaintJob_Anaconda_Black\",\"On\":true},"
+                        + "{\"Slot\":\"ShipCockpit\",\"Item\":\"anaconda_cockpit\",\"On\":true}"
+                        + "]}";
+        LoadoutEvent loadout = (LoadoutEvent) new EliteLogParser().parseRecord(loadoutJson);
+        ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, db);
+        String text = summary.toClipboardText("Exception Handler (Anaconda)");
+
+        assertTrue(text.contains("Armour · Reactive Surface Composite"), text);
+        assertTrue(text.contains("\nOther\n"), text);
+        assertTrue(text.contains("Fighter Hangar"), text);
+        assertTrue(text.contains("Cargo Rack"), text);
+        assertTrue(text.contains("×2") || text.contains("Cargo Rack · Size 5 ×2"), text);
+        assertTrue(text.contains("Advanced Docking Computer") || text.contains("Docking Computer"), text);
+        assertTrue(text.contains("Supercruise Assist"), text);
+        assertFalse(text.toLowerCase().contains("cockpit"), text);
+        assertFalse(text.toLowerCase().contains("paintjob"), text);
+
+        // Crime scanner is engineerable Kill Warrant Scanner, so it belongs in bands not Other.
+        assertTrue(summary.rows().stream().anyMatch(r ->
+                r.moduleType().toLowerCase().contains("kill warrant")), text);
+    }
+
+    @Test
+    void armourBulkheadName_reactiveAndMilitary() {
+        assertEquals("Reactive Surface Composite",
+                ShipEngineeringSummary.armourBulkheadName("anaconda_armour_reactive"));
+        assertEquals("Military Grade Composite",
+                ShipEngineeringSummary.armourBulkheadName("cutter_armour_grade3"));
+        assertEquals("Lightweight Alloys",
+                ShipEngineeringSummary.armourBulkheadName("sidewinder_armour_grade1"));
+    }
+
+    @Test
     void emptyLoadout_emptySummary() {
         ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(null, db);
         assertTrue(summary.isEmpty());

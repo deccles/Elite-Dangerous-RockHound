@@ -83,6 +83,7 @@ import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
+import org.dce.ed.logreader.event.EngineerCraftEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.FssAllBodiesFoundEvent;
@@ -145,9 +146,18 @@ public class RouteTabPanel extends JPanel {
 	private static final Color FUEL_PUMP_YELLOW = new Color(0xE8, 0xC5, 0x4A);
 	/** Fuel prediction: out of fuel before this system. */
 	private static final Color FUEL_PUMP_RED = new Color(0xDC, 0x40, 0x30);
-	private static final Icon ICON_FUEL_SCOOP = new FuelPumpIcon(FUEL_GAUGE_GREEN);
-	private static final Icon ICON_FUEL_LAST_REACHABLE = new FuelPumpIcon(FUEL_PUMP_YELLOW);
-	private static final Icon ICON_FUEL_OUT = new FuelPumpIcon(FUEL_PUMP_RED);
+	/** Green = scoopable star class (original meaning). */
+	private static final Icon ICON_FUEL_SCOOP = new FuelPumpIcon(FUEL_GAUGE_GREEN, null);
+	/** Yellow = last reachable on a scoopable star (e.g. no scoop fitted). */
+	private static final Icon ICON_FUEL_LAST_SCOOPABLE = new FuelPumpIcon(FUEL_PUMP_YELLOW, null);
+	/** Red = unreachable / beyond range on a scoopable star. */
+	private static final Icon ICON_FUEL_OUT_SCOOPABLE = new FuelPumpIcon(FUEL_PUMP_RED, null);
+	/** Yellow + red slash = last reachable on a non-scoopable star. */
+	private static final Icon ICON_FUEL_LAST_UNSCOOPABLE =
+			new FuelPumpIcon(FUEL_PUMP_YELLOW, FUEL_PUMP_RED);
+	/** Red + yellow slash = unreachable on a non-scoopable star. */
+	private static final Icon ICON_FUEL_OUT_UNSCOOPABLE =
+			new FuelPumpIcon(FUEL_PUMP_RED, FUEL_PUMP_YELLOW);
 	// Column indexes
 	private static final int COL_MARKER    = 0;
 	private static final int COL_INDEX    = 1;
@@ -890,24 +900,37 @@ public class RouteTabPanel extends JPanel {
 					return;
 				}
 				EliteJournalReader reader = new EliteJournalReader(dir);
+				// EngineerCraft often upgrades the FSD without a follow-up Loadout (Farseer grade crafts).
 				List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(
-						12, Set.of("Loadout", "LoadGame"));
+						12, Set.of("Loadout", "LoadGame", "EngineerCraft"));
 				LoadoutEvent lastLoadout = null;
 				LoadGameEvent lastLoadGame = null;
+				List<EngineerCraftEvent> fsdCraftsAfterLoadout = new ArrayList<>();
 				for (EliteLogEvent e : events) {
 					if (e instanceof LoadoutEvent lo) {
 						lastLoadout = lo;
+						fsdCraftsAfterLoadout.clear();
 					} else if (e instanceof LoadGameEvent lg) {
 						lastLoadGame = lg;
+					} else if (e instanceof EngineerCraftEvent craft
+							&& RouteFuelPrediction.isFsdCraft(craft)
+							&& lastLoadout != null) {
+						fsdCraftsAfterLoadout.add(craft);
 					}
 				}
 				RouteFuelPrediction.ShipFuelProfile profile =
 						RouteFuelPrediction.profileFromLoadout(lastLoadout);
+				if (profile != null) {
+					for (EngineerCraftEvent craft : fsdCraftsAfterLoadout) {
+						profile = RouteFuelPrediction.applyFsdCraft(profile, craft);
+					}
+				}
 				double loadGameFuel = lastLoadGame != null ? lastLoadGame.getFuelLevel() : Double.NaN;
+				RouteFuelPrediction.ShipFuelProfile profileFinal = profile;
 				SwingUtilities.invokeLater(() -> {
 					// Live events win: only fill in what hasn't arrived yet.
-					if (shipFuelProfile == null && profile != null) {
-						shipFuelProfile = profile;
+					if (shipFuelProfile == null && profileFinal != null) {
+						shipFuelProfile = profileFinal;
 					}
 					if (Double.isNaN(shipFuelMainTons) && !Double.isNaN(loadGameFuel)) {
 						shipFuelMainTons = loadGameFuel;
@@ -926,6 +949,11 @@ public class RouteTabPanel extends JPanel {
 	private void trackShipFuelState(EliteLogEvent event) {
 		if (event instanceof LoadoutEvent lo) {
 			shipFuelProfile = RouteFuelPrediction.profileFromLoadout(lo);
+			recomputeRouteFuelPrediction();
+		} else if (event instanceof EngineerCraftEvent craft
+				&& RouteFuelPrediction.isFsdCraft(craft)
+				&& shipFuelProfile != null) {
+			shipFuelProfile = RouteFuelPrediction.applyFsdCraft(shipFuelProfile, craft);
 			recomputeRouteFuelPrediction();
 		} else if (event instanceof LoadGameEvent lg) {
 			shipFuelMainTons = lg.getFuelLevel();
@@ -946,17 +974,26 @@ public class RouteTabPanel extends JPanel {
 		}
 	}
 
-	/** Icon for the Class column: red/yellow fuel prediction overrides the green scoopable pump. */
+	/**
+	 * Class-column fuel pump:
+	 * <ul>
+	 *   <li>Green — scoopable star (KGBFOAM)</li>
+	 *   <li>Yellow / red — fuel warning on a scoopable star (often: scoopable but no scoop fitted)</li>
+	 *   <li>Yellow+red slash / red+yellow slash — fuel warning on a non-scoopable star</li>
+	 * </ul>
+	 */
 	private Icon fuelIconForRow(RouteEntry e, int row) {
+		boolean scoopable = e != null && FuelScoopStarClass.isFuelScoopable(e.starClass);
 		RouteFuelPrediction.Result fp = routeFuelPrediction;
 		RouteFuelPrediction.RowFuelState fs = fp != null ? fp.stateAt(row) : null;
-		if (fs == RouteFuelPrediction.RowFuelState.UNREACHABLE) {
-			return ICON_FUEL_OUT;
+		if (fs == RouteFuelPrediction.RowFuelState.UNREACHABLE
+				|| fs == RouteFuelPrediction.RowFuelState.BEYOND_JUMP_RANGE) {
+			return scoopable ? ICON_FUEL_OUT_SCOOPABLE : ICON_FUEL_OUT_UNSCOOPABLE;
 		}
 		if (fs == RouteFuelPrediction.RowFuelState.LAST_REACHABLE) {
-			return ICON_FUEL_LAST_REACHABLE;
+			return scoopable ? ICON_FUEL_LAST_SCOOPABLE : ICON_FUEL_LAST_UNSCOOPABLE;
 		}
-		if (e != null && FuelScoopStarClass.isFuelScoopable(e.starClass)) {
+		if (scoopable) {
 			return ICON_FUEL_SCOOP;
 		}
 		return null;
@@ -973,23 +1010,73 @@ public class RouteTabPanel extends JPanel {
 		if (e == null || e.isBodyRow || fuelIconForRow(e, modelRow) == null) {
 			return null;
 		}
+		boolean scoopable = FuelScoopStarClass.isFuelScoopable(e.starClass);
+		boolean hasScoop = shipFuelProfile != null && shipFuelProfile.hasFuelScoop();
 		RouteFuelPrediction.Result fp = routeFuelPrediction;
 		RouteFuelPrediction.RowFuelState fs = fp != null ? fp.stateAt(modelRow) : null;
 		StringBuilder sb = new StringBuilder("<html>");
 		if (e.starClass != null && !e.starClass.isBlank()) {
-			sb.append("Star class: ").append(escapeHtml(e.starClass)).append("<br>");
+			sb.append("Star class: ").append(escapeHtml(e.starClass));
+			if (scoopable) {
+				sb.append(" (scoopable)");
+			} else {
+				sb.append(" (not scoopable)");
+			}
+			sb.append("<br>");
 		}
-		if (fs == RouteFuelPrediction.RowFuelState.UNREACHABLE) {
+		if (fs == RouteFuelPrediction.RowFuelState.BEYOND_JUMP_RANGE) {
+			sb.append("<b>Beyond FSD jump range</b> — this hop needs more fuel than your frame shift ")
+					.append("drive can burn in one jump");
+			if (fp != null && fp.maxFuelPerJump() > 0) {
+				sb.append(String.format(Locale.US, " (max %.1f t/jump)", fp.maxFuelPerJump()));
+			}
+			if (fp != null && !Double.isNaN(fp.maxJumpRangeLy()) && fp.maxJumpRangeLy() > 0) {
+				sb.append(String.format(Locale.US, "; loadout max range %.2f Ly", fp.maxJumpRangeLy()));
+			}
+			sb.append(", even with a full tank.");
+			sb.append("<br>Neutron (4×) / white-dwarf (1.5×) jet-cone boosts are included when leaving those stars.");
+			appendSlashLegend(sb, scoopable);
+		} else if (fs == RouteFuelPrediction.RowFuelState.UNREACHABLE) {
 			sb.append("<b>Out of fuel before this system</b>")
 					.append(fp.assumesScooping() ? " — even scooping at every scoopable star." : ".");
+			appendSlashLegend(sb, scoopable);
 		} else if (fs == RouteFuelPrediction.RowFuelState.LAST_REACHABLE) {
-			sb.append("<b>Last system you can reach on current fuel</b>")
-					.append(fuelArrivalHtml(fp, modelRow))
-					.append("<br>Red pumps beyond this point are out of range without refueling.");
+			if (fp != null && fp.blockReason() == RouteFuelPrediction.BlockReason.JUMP_TOO_FAR) {
+				sb.append("<b>Last system before a jump that exceeds your FSD range</b>")
+						.append(fuelArrivalHtml(fp, modelRow));
+				if (!Double.isNaN(fp.maxJumpRangeLy()) && fp.maxJumpRangeLy() > 0) {
+					sb.append(String.format(Locale.US, "<br>Loadout max jump range: %.2f Ly.", fp.maxJumpRangeLy()));
+				}
+			} else {
+				sb.append("<b>Last system you can reach on current fuel</b>")
+						.append(fuelArrivalHtml(fp, modelRow));
+			}
+			if (scoopable && !hasScoop) {
+				sb.append("<br>Star is scoopable, but this ship has no fuel scoop.");
+			}
+			appendSlashLegend(sb, scoopable);
 		} else {
-			sb.append("Scoopable star — you can refuel here").append(fuelArrivalHtml(fp, modelRow)).append(".");
+			if (hasScoop) {
+				sb.append("Scoopable star — you can refuel here")
+						.append(fuelArrivalHtml(fp, modelRow)).append(".");
+			} else if (shipFuelProfile != null) {
+				sb.append("Scoopable star class — this ship has no fuel scoop.")
+						.append(fuelArrivalHtml(fp, modelRow));
+			} else {
+				sb.append("Scoopable star class (KGBFOAM)")
+						.append(fuelArrivalHtml(fp, modelRow)).append(".");
+			}
 		}
 		return sb.append("</html>").toString();
+	}
+
+	/** Explain slash vs plain yellow/red so the pump doesn't read as “scoopable”. */
+	private static void appendSlashLegend(StringBuilder sb, boolean scoopable) {
+		if (scoopable) {
+			sb.append("<br>Yellow/red pump (no slash) = fuel warning on a scoopable star.");
+		} else {
+			sb.append("<br>Slashed pump = fuel warning on a non-scoopable star.");
+		}
 	}
 
 	/** "&lt;br&gt;Predicted fuel on arrival: X.X t of YY t" when the simulation has a number for this row. */
@@ -2932,13 +3019,16 @@ public class RouteTabPanel extends JPanel {
 
 	/**
 	 * Clean line-art fuel pump (body + window, hose elbow to a nozzle on the right).
-	 * Monochrome so the same shape reads as scoopable (green), last reachable (yellow),
-	 * or out of fuel (red). Size scales with {@link OverlayPreferences#getUiFontSize()}.
+	 * Monochrome body color: green = scoopable, yellow = last reachable, red = out of fuel.
+	 * Optional contrasting diagonal slash marks a fuel warning on a non-scoopable star.
 	 */
 	private static final class FuelPumpIcon implements Icon {
 		private final Color color;
-		FuelPumpIcon(Color color) {
+		/** Contrasting slash color, or null for no slash. */
+		private final Color slashColor;
+		FuelPumpIcon(Color color, Color slashColor) {
 			this.color = color;
+			this.slashColor = slashColor;
 		}
 		@Override
 		public int getIconWidth() {
@@ -2976,6 +3066,15 @@ public class RouteTabPanel extends JPanel {
 				// Nozzle tip
 				g2.fill(new Ellipse2D.Float(
 						x + s * 0.86f - s * 0.075f, y + s * 0.62f - s * 0.03f, s * 0.15f, s * 0.15f));
+				if (slashColor != null) {
+					// Diagonal slash (upper-left → lower-right) in the contrasting fuel color.
+					float slashW = Math.max(1.6f, s * 0.14f);
+					g2.setColor(slashColor);
+					g2.setStroke(new BasicStroke(slashW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+					g2.draw(new Line2D.Float(
+							x + s * 0.08f, y + s * 0.12f,
+							x + s * 0.92f, y + s * 0.88f));
+				}
 			} finally {
 				g2.dispose();
 			}

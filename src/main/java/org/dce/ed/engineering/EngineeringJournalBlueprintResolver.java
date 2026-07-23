@@ -386,7 +386,7 @@ public final class EngineeringJournalBlueprintResolver {
         if (m.contains("electroniccountermeasure") || m.contains("_ecm")) {
             return "Electronic Countermeasure";
         }
-        if (m.contains("killwarrantscanner") || m.contains("killwarrant")) {
+        if (m.contains("killwarrantscanner") || m.contains("killwarrant") || m.contains("crimescanner")) {
             return "Kill Warrant Scanner";
         }
         if (m.contains("cargoscanner") || m.contains("manifestscanner")) {

@@ -49,6 +49,7 @@ class RouteFuelPredictionTest {
         assertEquals(RouteFuelPrediction.RowFuelState.LAST_REACHABLE, r.stateAt(1));
         assertEquals(RouteFuelPrediction.RowFuelState.UNREACHABLE, r.stateAt(2));
         assertEquals(RouteFuelPrediction.RowFuelState.UNREACHABLE, r.stateAt(3));
+        assertEquals(RouteFuelPrediction.BlockReason.TANK_EMPTY, r.blockReason());
         assertTrue(r.fuelOnArrivalAt(1) > 2.3 && r.fuelOnArrivalAt(1) < 2.5);
     }
 
@@ -56,8 +57,9 @@ class RouteFuelPredictionTest {
     void scoopShipRefuelsAtScoopableStarsAndReachesFarther() {
         // Same route, but hop 1 is a scoopable K star: tank resets to full there,
         // so hop 2 succeeds and the dry point moves one system down the route.
+        // Use T (brown dwarf), not N — N would apply a 4× jet-cone boost on departure.
         RouteFuelPrediction.Result r = RouteFuelPrediction.simulate(
-                route("M", "K", "N", "N"), profile(true), 8.0, 0.0);
+                route("M", "K", "T", "T"), profile(true), 8.0, 0.0);
         assertEquals(RouteFuelPrediction.RowFuelState.REACHABLE, r.stateAt(1));
         assertEquals(RouteFuelPrediction.RowFuelState.LAST_REACHABLE, r.stateAt(2));
         assertEquals(RouteFuelPrediction.RowFuelState.UNREACHABLE, r.stateAt(3));
@@ -65,13 +67,23 @@ class RouteFuelPredictionTest {
     }
 
     @Test
-    void legLongerThanMaxFuelPerJumpIsUnreachableEvenWithFullTank() {
+    void legLongerThanMaxFuelPerJumpIsBeyondRangeEvenWithFullTank() {
         // maxFuelPerJump 2 t: hop 1 needs ~5.6 t — impossible regardless of the 8 t tank.
         RouteFuelPrediction.ShipFuelProfile p = new RouteFuelPrediction.ShipFuelProfile(
                 100, 8, 0, 100, 2, 12, 2.0, false, 0);
         RouteFuelPrediction.Result r = RouteFuelPrediction.simulate(route("M", "M"), p, 8.0, 0.0);
         assertEquals(RouteFuelPrediction.RowFuelState.LAST_REACHABLE, r.stateAt(0));
-        assertEquals(RouteFuelPrediction.RowFuelState.UNREACHABLE, r.stateAt(1));
+        assertEquals(RouteFuelPrediction.RowFuelState.BEYOND_JUMP_RANGE, r.stateAt(1));
+        assertEquals(RouteFuelPrediction.BlockReason.JUMP_TOO_FAR, r.blockReason());
+    }
+
+    @Test
+    void tankEmptyIsDistinctFromJumpTooFar() {
+        // Full tank: hop 1 costs ~5.60 t, hop 2 needs ~5.03 t but only ~2.40 t remain.
+        RouteFuelPrediction.Result r = RouteFuelPrediction.simulate(
+                route("M", "M", "M", "M"), profile(false), 8.0, 0.0);
+        assertEquals(RouteFuelPrediction.BlockReason.TANK_EMPTY, r.blockReason());
+        assertEquals(RouteFuelPrediction.RowFuelState.UNREACHABLE, r.stateAt(2));
     }
 
     @Test
@@ -82,11 +94,62 @@ class RouteFuelPredictionTest {
     }
 
     @Test
+    void applyFsdCraftUpdatesOptimalMassAndClearsStaleMaxJump() {
+        RouteFuelPrediction.ShipFuelProfile before = new RouteFuelPrediction.ShipFuelProfile(
+                1318.813599, 32, 1.07, 2808, 8.30, 13, 2.6, false, 0, 25.373886);
+        // Minimal EngineerCraft raw JSON matching a Farseer G5 finish (opt 3224).
+        com.google.gson.JsonObject raw = com.google.gson.JsonParser.parseString("""
+                {"event":"EngineerCraft","Slot":"FrameShiftDrive",
+                 "Module":"int_hyperdrive_overcharge_size6_class5",
+                 "Modifiers":[{"Label":"FSDOptimalMass","Value":3224.0,"OriginalValue":2000.0}]}
+                """).getAsJsonObject();
+        org.dce.ed.logreader.event.EngineerCraftEvent craft =
+                new org.dce.ed.logreader.event.EngineerCraftEvent(
+                        java.time.Instant.EPOCH, raw, "FrameShiftDrive",
+                        "int_hyperdrive_overcharge_size6_class5", "Felicity Farseer", 300100,
+                        "FSD_LongRange", 128673694, 5, 1.0, "", "special_fsd_heavy", "Mass Manager",
+                        List.of());
+        RouteFuelPrediction.ShipFuelProfile after = RouteFuelPrediction.applyFsdCraft(before, craft);
+        assertEquals(3224.0, after.optimalMass, 1e-6);
+        assertTrue(after.maxJumpRangeLy() > 28.0 && after.maxJumpRangeLy() < 30.0);
+        // 28 Ly hop must now be within maxFuelPerJump at full tank.
+        double cost = RouteFuelPrediction.fuelForJump(after, 28.045, 1318.813599 + 32);
+        assertTrue(cost < after.maxFuelPerJump);
+    }
+
+    @Test
     void guardianBoosterReducesFuelCost() {
         RouteFuelPrediction.ShipFuelProfile boosted = new RouteFuelPrediction.ShipFuelProfile(
                 100, 8, 0, 100, 8, 12, 2.0, false, 10.5);
         double plain = RouteFuelPrediction.fuelForJump(profile(false), 20, 108);
         double withBooster = RouteFuelPrediction.fuelForJump(boosted, 20, 108);
         assertTrue(withBooster < plain);
+    }
+
+    @Test
+    void neutronDepartureAllowsJumpThatExceedsUnboostedMaxFuel() {
+        // maxFuelPerJump 2 t: 20 Ly hop needs ~5.6 t unboosted — beyond FSD.
+        // Leaving a neutron (4×) treats the hop as 5 Ly → affordable.
+        RouteFuelPrediction.ShipFuelProfile p = new RouteFuelPrediction.ShipFuelProfile(
+                100, 8, 0, 100, 2, 12, 2.0, false, 0);
+        RouteFuelPrediction.Result blocked = RouteFuelPrediction.simulate(
+                route("M", "M"), p, 8.0, 0.0);
+        assertEquals(RouteFuelPrediction.RowFuelState.BEYOND_JUMP_RANGE, blocked.stateAt(1));
+
+        RouteFuelPrediction.Result ok = RouteFuelPrediction.simulate(route("N", "M"), p, 8.0, 0.0);
+        assertEquals(RouteFuelPrediction.RowFuelState.REACHABLE, ok.stateAt(1));
+        assertEquals(RouteFuelPrediction.BlockReason.NONE, ok.blockReason());
+    }
+
+    @Test
+    void whiteDwarfDepartureUsesOnePointFiveMultiplier() {
+        double plain = RouteFuelPrediction.fuelForJump(profile(false), 30, 108, 1.0);
+        double wd = RouteFuelPrediction.fuelForJump(profile(false), 30, 108, FsdJetConeBoost.WHITE_DWARF);
+        double neutron = RouteFuelPrediction.fuelForJump(profile(false), 30, 108, FsdJetConeBoost.NEUTRON);
+        assertTrue(wd < plain);
+        assertTrue(neutron < wd);
+        assertEquals(FsdJetConeBoost.WHITE_DWARF, FsdJetConeBoost.multiplierLeaving("DA"), 1e-9);
+        assertEquals(FsdJetConeBoost.NEUTRON, FsdJetConeBoost.multiplierLeaving("N"), 1e-9);
+        assertEquals(1.0, FsdJetConeBoost.multiplierLeaving("K"), 1e-9);
     }
 }
