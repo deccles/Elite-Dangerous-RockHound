@@ -19,6 +19,8 @@ import org.dce.ed.cache.SystemCache;
  *   <li>{@link org.dce.ed.MiningTabPanelTest} – static buildInventoryTonsFromCargo / csvEscape, no files</li>
  *   <li>{@link org.dce.ed.SystemTabTargetLogicTest} – pure logic, no I/O</li>
  * </ul>
+ * Also sets {@link EdoTestFlags#ISOLATE_UI_PROPERTY} so overlay UI tests do not restore floating tabs
+ * or write window bounds into the live Preferences store.
  */
 public final class TestEnvironment {
 
@@ -29,6 +31,9 @@ public final class TestEnvironment {
         }
         if (System.getProperty("edo.test.allowSpeechGating") == null) {
             System.setProperty("edo.test.allowSpeechGating", "false");
+        }
+        if (System.getProperty(EdoTestFlags.ISOLATE_UI_PROPERTY) == null) {
+            System.setProperty(EdoTestFlags.ISOLATE_UI_PROPERTY, "true");
         }
     }
 

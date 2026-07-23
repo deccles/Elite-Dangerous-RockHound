@@ -57,7 +57,7 @@ class NpcCrewTrackerTest {
 	}
 
 	@Test
-	void shipSwapClearsActiveCrewEvenWhenPersisted() {
+	void shipSwapTransfersActiveCrewWhenStillAssigned() {
 		LoadoutEvent shipOne = loadoutWithFighterHangar(1, 1);
 		NpcCrewTracker.getInstance().onLoadout(shipOne);
 		applyCrewEvent("{\"event\":\"CrewAssign\",\"Name\":\"Dannie Koller\",\"Role\":\"Active\"}");
@@ -65,7 +65,45 @@ class NpcCrewTrackerTest {
 
 		LoadoutEvent shipTwo = loadoutWithFighterHangar(2, 1);
 		NpcCrewTracker.getInstance().onLoadout(shipTwo);
+		assertTrue(NpcCrewTracker.getInstance().hasActiveNpcCrew());
+		assertEquals("Dannie Koller", NpcCrewTracker.getInstance().getActiveNpcCrewName());
+		assertFalse(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, shipTwo));
+	}
+
+	@Test
+	void assignThenSwapKeepsActiveWithoutNewCrewAssign() {
+		LoadoutEvent krait = loadoutWithFighterHangar(13, 2);
+		NpcCrewTracker.getInstance().onLoadout(krait);
+		applyCrewEvent("{\"event\":\"CrewAssign\",\"Name\":\"Roscoe Francis\",\"Role\":\"Active\"}");
+
+		LoadoutEvent anaconda = loadoutWithFighterHangar(7, 2);
+		NpcCrewTracker.getInstance().onLoadout(anaconda);
+
+		assertTrue(NpcCrewTracker.getInstance().hasActiveNpcCrew());
+		assertEquals("Roscoe Francis", NpcCrewTracker.getInstance().getActiveNpcCrewName());
+		assertFalse(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, anaconda));
+	}
+
+	@Test
+	void npcLaunchFighterMarksActiveWhenTrackerLostAssignment() {
+		LoadoutEvent anaconda = loadoutWithFighterHangar(7, 2);
+		NpcCrewTracker tracker = NpcCrewTracker.getInstance();
+		tracker.onLoadout(anaconda);
+		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, anaconda));
+
+		applyCrewEvent("{\"event\":\"LaunchFighter\",\"Loadout\":\"one\",\"ID\":20,\"PlayerControlled\":false}");
+
+		assertTrue(tracker.hasActiveNpcCrew());
+		assertFalse(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, anaconda));
+	}
+
+	@Test
+	void playerControlledLaunchFighterDoesNotMarkActive() {
+		LoadoutEvent anaconda = loadoutWithFighterHangar(7, 2);
+		NpcCrewTracker.getInstance().onLoadout(anaconda);
+		applyCrewEvent("{\"event\":\"LaunchFighter\",\"Loadout\":\"one\",\"ID\":20,\"PlayerControlled\":true}");
 		assertFalse(NpcCrewTracker.getInstance().hasActiveNpcCrew());
+		assertTrue(NpcCrewTracker.shouldShowNoFighterPilotWarning(true, anaconda));
 	}
 
 	@Test

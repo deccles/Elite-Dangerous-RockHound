@@ -59,6 +59,12 @@ public final class OverlayMenuStatusBar {
          */
         public final JPanel fleetCarrierTimeBadgeHost;
         public final JLabel fleetCarrierTimeLabel;
+        /**
+         * Static fleet-carrier announcement ({@code FC jump → …} / {@code Cooldown}) to the right of the time badge.
+         * Stays fixed while {@link #statusLabel} may marquee-scroll Bio/Geo/Bounties and other messages.
+         */
+        public final JPanel fleetCarrierAnnouncementHost;
+        public final JLabel fleetCarrierAnnouncementLabel;
         /** Standalone Tools menu (not shown on menu bar); used by hammer button and title bar. */
         public final JMenu toolsMenu;
 
@@ -67,11 +73,15 @@ public final class OverlayMenuStatusBar {
                 JLabel statusLabel,
                 JPanel fleetCarrierTimeBadgeHost,
                 JLabel fleetCarrierTimeLabel,
+                JPanel fleetCarrierAnnouncementHost,
+                JLabel fleetCarrierAnnouncementLabel,
                 JMenu toolsMenu) {
             this.menuBar = menuBar;
             this.statusLabel = statusLabel;
             this.fleetCarrierTimeBadgeHost = fleetCarrierTimeBadgeHost;
             this.fleetCarrierTimeLabel = fleetCarrierTimeLabel;
+            this.fleetCarrierAnnouncementHost = fleetCarrierAnnouncementHost;
+            this.fleetCarrierAnnouncementLabel = fleetCarrierAnnouncementLabel;
             this.toolsMenu = toolsMenu;
         }
     }
@@ -153,11 +163,28 @@ public final class OverlayMenuStatusBar {
     }
 
     /**
+     * Hide the static FC announcement so Bio/Geo/Bounties (and other marquee text) start at the left of the
+     * scroll region when no jump/cooldown is active.
+     */
+    public static void applyFleetAnnouncementCollapsedLayout(JPanel host, JLabel label) {
+        if (host == null || label == null) {
+            return;
+        }
+        label.setFont(statusRowFontFromPreferences());
+        label.setText("");
+        host.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        host.setPreferredSize(null);
+        host.setMinimumSize(null);
+        host.setVisible(false);
+        host.revalidate();
+    }
+
+    /**
      * {@link JMenuBar} uses horizontal {@link javax.swing.BoxLayout}; default {@link JPanel} maximum width is
      * unbounded, so the badge would absorb extra space. This panel stays exactly as wide as its content.
      */
-    private static final class FleetCarrierTimeBadgePanel extends JPanel {
-        FleetCarrierTimeBadgePanel() {
+    private static final class StatusRowFixedPanel extends JPanel {
+        StatusRowFixedPanel() {
             super(new BorderLayout(0, 0));
         }
 
@@ -201,7 +228,7 @@ public final class OverlayMenuStatusBar {
         MarqueeStatusScrollPane statusScroll = new MarqueeStatusScrollPane(statusLabel);
         statusScroll.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        FleetCarrierTimeBadgePanel fleetCarrierTimeBadgeHost = new FleetCarrierTimeBadgePanel();
+        StatusRowFixedPanel fleetCarrierTimeBadgeHost = new StatusRowFixedPanel();
         fleetCarrierTimeBadgeHost.setOpaque(true);
         fleetCarrierTimeBadgeHost.setBackground(opaquePlate(EdoUi.User.BACKGROUND));
         JLabel fleetCarrierTimeLabel = new JLabel("");
@@ -212,6 +239,17 @@ public final class OverlayMenuStatusBar {
         fleetCarrierTimeLabel.setVerticalAlignment(SwingConstants.CENTER);
         fleetCarrierTimeBadgeHost.add(fleetCarrierTimeLabel, BorderLayout.CENTER);
         applyFleetBadgeCollapsedLayout(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+
+        StatusRowFixedPanel fleetCarrierAnnouncementHost = new StatusRowFixedPanel();
+        fleetCarrierAnnouncementHost.setOpaque(false);
+        JLabel fleetCarrierAnnouncementLabel = new JLabel("");
+        fleetCarrierAnnouncementLabel.setOpaque(false);
+        fleetCarrierAnnouncementLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
+        fleetCarrierAnnouncementLabel.setFont(statusRowFont);
+        fleetCarrierAnnouncementLabel.setHorizontalAlignment(SwingConstants.LEADING);
+        fleetCarrierAnnouncementLabel.setVerticalAlignment(SwingConstants.CENTER);
+        fleetCarrierAnnouncementHost.add(fleetCarrierAnnouncementLabel, BorderLayout.CENTER);
+        applyFleetAnnouncementCollapsedLayout(fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel);
 
         if (parent != null) {
             MouseAdapter statusClick = new MouseAdapter() {
@@ -232,14 +270,22 @@ public final class OverlayMenuStatusBar {
 
         bar.add(fleetCarrierTimeBadgeHost);
         bar.add(Box.createHorizontalStrut(6));
-        // Scroll region fills space between fleet badge and toolbar; scrolls when HTML status is wider than the slot.
+        bar.add(fleetCarrierAnnouncementHost);
+        // Scroll region fills space between FC announcement and toolbar; scrolls when HTML status is wider than the slot.
         bar.add(statusScroll);
         bar.add(Box.createHorizontalStrut(includeToolbarIcons ? 10 : 4));
         if (includeToolbarIcons) {
             bar.add(createDecoratedToolbar(parent, clientKey, toolsMenu, onRequestPassThrough));
         }
         applyStatusBarRowHeight(bar);
-        return new Result(bar, statusLabel, fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel, toolsMenu);
+        return new Result(
+                bar,
+                statusLabel,
+                fleetCarrierTimeBadgeHost,
+                fleetCarrierTimeLabel,
+                fleetCarrierAnnouncementHost,
+                fleetCarrierAnnouncementLabel,
+                toolsMenu);
     }
 
     private static void applyStatusBarRowHeight(JMenuBar bar) {

@@ -41,6 +41,10 @@ import org.junit.jupiter.api.Test;
  */
 class TransparencyTest {
 
+    static {
+        TestEnvironment.ensureTestIsolation();
+    }
+
     /** Distinct color placed behind the panel; we assert it shows through. */
     private static final Color BACKING_COLOR = new Color(255, 0, 255);
 
@@ -143,6 +147,7 @@ class TransparencyTest {
         frame.getContentPane().setLayout(new java.awt.BorderLayout());
         frame.getContentPane().add(backing, java.awt.BorderLayout.CENTER);
         frame.setSize(width, height);
+        frame.setLocation(-20_000, -20_000);
         frame.setVisible(true);
         try {
             backing.setLocation(0, 0);

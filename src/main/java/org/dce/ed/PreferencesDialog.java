@@ -61,8 +61,11 @@ import org.dce.ed.ui.EdoDialogTitleBar;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HelpCircleIcon;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
+import org.dce.ed.ui.OverlayComboBoxStyle;
+import org.dce.ed.ui.OverlayFieldStyle;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
+import org.dce.ed.ui.OverlaySliderUI;
 import org.dce.ed.ui.WindowEdgeResizeSupport;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
@@ -1727,9 +1730,24 @@ public class PreferencesDialog extends JDialog {
 		javax.swing.UIManager.put("Panel.background", bg);
 		javax.swing.UIManager.put("Viewport.background", bg);
 		javax.swing.UIManager.put("ScrollPane.background", bg);
+		Color fieldBg = EdoUi.User.PANEL_BG;
+		javax.swing.UIManager.put("TextField.background", fieldBg);
+		javax.swing.UIManager.put("TextField.foreground", fg);
+		javax.swing.UIManager.put("TextField.caretForeground", fg);
+		javax.swing.UIManager.put("TextField.inactiveBackground", fieldBg);
+		javax.swing.UIManager.put("TextField.inactiveForeground", fg);
+		javax.swing.UIManager.put("TextArea.background", fieldBg);
+		javax.swing.UIManager.put("TextArea.foreground", fg);
+		javax.swing.UIManager.put("TextArea.inactiveBackground", fieldBg);
+		javax.swing.UIManager.put("ComboBox.background", fieldBg);
+		javax.swing.UIManager.put("ComboBox.foreground", fg);
+		javax.swing.UIManager.put("ComboBox.disabledBackground", fieldBg);
+		javax.swing.UIManager.put("ComboBox.disabledForeground", fg);
+		javax.swing.UIManager.put("Spinner.background", fieldBg);
+		javax.swing.UIManager.put("Spinner.foreground", fg);
 		stylePreferenceTabChrome();
-		Font chipFont = restyleControls ? OverlayPreferences.getUiFont() : null;
-		if (chipFont == null && restyleControls) {
+		Font chipFont = OverlayPreferences.getUiFont();
+		if (chipFont == null) {
 			chipFont = getFont();
 		}
 		applyPreferenceChromeRecursive(getContentPane(), bg, fg, chipFont, restyleControls);
@@ -1785,6 +1803,27 @@ public class PreferencesDialog extends JDialog {
 		}
 		if (root instanceof JComponent jc && jc.getBorder() instanceof javax.swing.border.TitledBorder titled) {
 			titled.setTitleColor(fg);
+		}
+		// Fields always get themed (including live color preview); chips/checkboxes only on full restyle.
+		if (root instanceof JSpinner spinner) {
+			OverlayFieldStyle.applySpinner(spinner, chipFont);
+		} else if (root instanceof JTextField textField) {
+			// Spinner editors are also JTextFields; style them via the spinner branch above.
+			if (!(textField.getParent() instanceof JSpinner.DefaultEditor)
+					&& !(SwingUtilities.getAncestorOfClass(JSpinner.class, textField) instanceof JSpinner)) {
+				OverlayFieldStyle.applyTextField(textField, chipFont);
+			}
+		} else if (root instanceof JTextArea textArea) {
+			OverlayFieldStyle.applyTextArea(textArea, chipFont);
+		} else if (root instanceof JComboBox<?> combo) {
+			if (restyleControls) {
+				OverlayComboBoxStyle.apply(combo, chipFont);
+				OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
+			} else {
+				OverlayComboBoxStyle.refreshInk(combo);
+			}
+		} else if (root instanceof JSlider slider) {
+			OverlaySliderUI.apply(slider);
 		}
 		if (restyleControls) {
 			if (root instanceof JCheckBox checkBox) {
@@ -2955,11 +2994,13 @@ public class PreferencesDialog extends JDialog {
 
 			gbc.gridx = 1;
 			gbc.fill = GridBagConstraints.HORIZONTAL;
-			gbc.weightx = 1.0;
+			// Cap track to ~half the dialog; trailing glue absorbs the rest.
+			gbc.weightx = 0.5;
 			JSlider slider = new JSlider(0, 100, clampPct(initialTransparencyPct));
 			slider.setPaintTicks(true);
 			slider.setMajorTickSpacing(25);
 			slider.setMinorTickSpacing(5);
+			OverlaySliderUI.apply(slider);
 			panel.add(slider, gbc);
 
 			gbc.gridx = 2;
@@ -2967,6 +3008,13 @@ public class PreferencesDialog extends JDialog {
 			gbc.weightx = 0;
 			JLabel valueLabel = new JLabel(slider.getValue() + "%");
 			panel.add(valueLabel, gbc);
+
+			gbc.gridx = 3;
+			gbc.fill = GridBagConstraints.HORIZONTAL;
+			gbc.weightx = 0.5;
+			JPanel sliderSpacer = new JPanel();
+			sliderSpacer.setOpaque(false);
+			panel.add(sliderSpacer, gbc);
 
 			slider.addChangeListener(new ChangeListener() {
 				@Override

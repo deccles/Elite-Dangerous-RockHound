@@ -27,6 +27,10 @@ import com.sun.jna.platform.win32.WinUser.WNDENUMPROC;
  */
 class OverlayMousePassThroughTest {
 
+    static {
+        TestEnvironment.ensureTestIsolation();
+    }
+
     private boolean savedMousePassThrough;
 
     @BeforeEach
@@ -43,6 +47,12 @@ class OverlayMousePassThroughTest {
         OverlayPreferences.setOverlayMousePassThroughToGame(savedMousePassThrough);
     }
 
+    /** Realize HWND off-screen so tests do not flash over the user's desktop. */
+    private static void showOffScreen(OverlayFrame frame, int width, int height) {
+        frame.setBounds(-20_000, -20_000, width, height);
+        frame.setVisible(true);
+    }
+
     @Test
     void wsExTransparentSetWhenMousePassThroughEnabled() throws Exception {
         OverlayContentPanel content = new OverlayContentPanel(() -> true);
@@ -51,8 +61,7 @@ class OverlayMousePassThroughTest {
             OverlayFrame frame = new OverlayFrame(content);
             frameRef[0] = frame;
             frame.setPassThroughEnabled(true, false);
-            frame.setBounds(80, 80, 320, 240);
-            frame.setVisible(true);
+            showOffScreen(frame, 320, 240);
         });
 
         try {
@@ -67,7 +76,7 @@ class OverlayMousePassThroughTest {
 
             SwingUtilities.invokeAndWait(() -> {
                 frameRef[0].setPassThroughEnabled(true, false);
-                frameRef[0].setBounds(100, 100, 340, 260);
+                frameRef[0].setBounds(-20_000, -20_000, 340, 260);
                 frameRef[0].reapplyNativeMousePassThroughIfEnabled();
             });
             int afterBounds = readExtendedStyle(frameRef[0]);
@@ -91,8 +100,7 @@ class OverlayMousePassThroughTest {
             OverlayFrame frame = new OverlayFrame(content);
             frameRef[0] = frame;
             frame.setPassThroughEnabled(true, false);
-            frame.setBounds(80, 80, 320, 240);
-            frame.setVisible(true);
+            showOffScreen(frame, 320, 240);
         });
 
         try {
@@ -125,8 +133,7 @@ class OverlayMousePassThroughTest {
             OverlayFrame frame = new OverlayFrame(content);
             frameRef[0] = frame;
             frame.setPassThroughEnabled(true, false);
-            frame.setBounds(80, 80, 320, 240);
-            frame.setVisible(true);
+            showOffScreen(frame, 320, 240);
         });
 
         try {
@@ -165,8 +172,7 @@ class OverlayMousePassThroughTest {
             OverlayFrame frame = new OverlayFrame(content);
             frameRef[0] = frame;
             frame.setPassThroughEnabled(true, false);
-            frame.setBounds(80, 80, 400, 300);
-            frame.setVisible(true);
+            showOffScreen(frame, 400, 300);
         });
 
         try {

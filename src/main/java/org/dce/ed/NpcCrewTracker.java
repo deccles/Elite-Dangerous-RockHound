@@ -46,8 +46,10 @@ public final class NpcCrewTracker {
 	private volatile String activeCrewName;
 	private volatile int currentShipId = -1;
 	/**
-	 * After swapping ships, crew must be set Active again in the crew lounge before we trust
-	 * persisted assignment or skip the fighter-pilot warning.
+	 * After swapping ships without an Active crew already known, we wait for a lounge
+	 * {@code CrewAssign}/{@code LaunchFighter} before treating a pilot as assigned.
+	 * Elite often keeps Active across {@code ShipyardSwap} without re-emitting {@code CrewAssign},
+	 * so a known Active name is transferred to the new ShipID instead of cleared.
 	 */
 	private volatile boolean requiresCrewLoungeAssign;
 	private volatile Runnable sessionStateChangeCallback;
@@ -87,12 +89,20 @@ public final class NpcCrewTracker {
 
 		int shipId = loadout.getShipId();
 		boolean shipSwap = currentShipId >= 0 && currentShipId != shipId;
+		String previousActive = hasActiveNpcCrew() ? activeCrewName.trim() : null;
 		currentShipId = shipId;
 
 		if (shipSwap) {
-			activeCrewName = null;
-			persistActiveCrewName(null);
-			requiresCrewLoungeAssign = true;
+			// Elite frequently keeps Active across shipyard swaps without a new CrewAssign
+			// (assign on ship A, swap to B, then LaunchFighter NPC on B with no journal CrewAssign).
+			if (previousActive != null) {
+				activeCrewName = previousActive;
+				persistActiveCrewName(previousActive);
+				requiresCrewLoungeAssign = false;
+			} else {
+				activeCrewName = null;
+				requiresCrewLoungeAssign = true;
+			}
 		} else if (!requiresCrewLoungeAssign) {
 			activeCrewName = getPersistedActiveName(shipId);
 		}
@@ -122,6 +132,7 @@ public final class NpcCrewTracker {
 			case "CrewAssign" -> changed = onCrewAssign(raw);
 			case "CrewHire" -> changed = onCrewHire(raw);
 			case "CrewFire" -> changed = onCrewFire(raw);
+			case "LaunchFighter" -> changed = onLaunchFighter(raw);
 			default -> {
 				return;
 			}
@@ -355,6 +366,37 @@ public final class NpcCrewTracker {
 			changed = true;
 		}
 		return changed;
+	}
+
+	/**
+	 * NPC-controlled fighter launch is definitive proof an Active pilot is assigned, even when
+	 * Frontier skipped a post-swap {@code CrewAssign}.
+	 */
+	private boolean onLaunchFighter(JsonObject raw) {
+		if (raw == null || !raw.has("PlayerControlled") || raw.get("PlayerControlled").isJsonNull()) {
+			return false;
+		}
+		boolean playerControlled;
+		try {
+			playerControlled = raw.get("PlayerControlled").getAsBoolean();
+		} catch (Exception e) {
+			return false;
+		}
+		if (playerControlled) {
+			return false;
+		}
+		requiresCrewLoungeAssign = false;
+		if (hasActiveNpcCrew()) {
+			persistActiveCrewName(activeCrewName);
+			return false;
+		}
+		String inferred = getPersistedActiveName(currentShipId);
+		if (inferred == null || inferred.isBlank()) {
+			inferred = "NPC";
+		}
+		activeCrewName = inferred;
+		persistActiveCrewName(inferred);
+		return true;
 	}
 
 	private String getPersistedActiveName(int shipId) {

@@ -16,6 +16,10 @@ import org.junit.jupiter.api.Test;
 
 class ExecTriggerServiceResolverTest {
 
+    static {
+        TestEnvironment.ensureTestIsolation();
+    }
+
     @BeforeEach
     void assumeDisplay() {
         assumeFalse(

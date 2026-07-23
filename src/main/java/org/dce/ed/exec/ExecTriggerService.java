@@ -404,7 +404,7 @@ public final class ExecTriggerService {
 
     private void launch(ExecBinding binding, ExecLaunchContext context) {
         notifyActivityChanged();
-        publishStatus("Running " + shortProgramName(binding.getJarPath()) + "…");
+        publishStatus("Running " + runningLabel(binding) + "…");
         JarExecRunner.runAsync(binding, context, placeholderContext,
                 this::notifyActivityChanged,
                 result -> SwingUtilities.invokeLater(() -> {
@@ -456,6 +456,40 @@ public final class ExecTriggerService {
         } else {
             SwingUtilities.invokeLater(listener);
         }
+    }
+
+    /** Status-bar label: binding name, else {@code --play} script, else catalog/jar name. */
+    static String runningLabel(ExecBinding binding) {
+        if (binding == null) {
+            return "(no program)";
+        }
+        String name = binding.getName();
+        if (name != null && !name.isBlank()) {
+            return name.trim();
+        }
+        String playScript = playScriptName(binding.getProgramArgs());
+        if (playScript != null) {
+            return playScript;
+        }
+        String programName = binding.getProgramName();
+        if (programName != null && !programName.isBlank()) {
+            return programName.trim();
+        }
+        return shortProgramName(binding.getJarPath());
+    }
+
+    /** {@code --play <script>} token from RoboHound-style args, or {@code null}. */
+    static String playScriptName(String programArgs) {
+        if (programArgs == null || programArgs.isBlank()) {
+            return null;
+        }
+        String[] tokens = programArgs.trim().split("\\s+");
+        for (int i = 0; i < tokens.length - 1; i++) {
+            if ("--play".equalsIgnoreCase(tokens[i]) && tokens[i + 1] != null && !tokens[i + 1].isBlank()) {
+                return tokens[i + 1].trim();
+            }
+        }
+        return null;
     }
 
     private static String shortProgramName(String programPath) {

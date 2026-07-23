@@ -4,7 +4,7 @@
 	<parent>
 		<groupId>org.dce</groupId>
 		<artifactId>elite-dangerous-overlay-parent</artifactId>
-		<version>1.4.40</version>
+		<version>1.4.41</version>
 		<relativePath>reactor/pom.xml</relativePath>
 	</parent>
 
@@ -192,6 +192,8 @@
 						<edo.test.disableSpeech>true</edo.test.disableSpeech>
 						<!-- Isolate SQLite from ~/.edo so session/cache tests do not race the live DB or each other -->
 						<edo.cacheDbFile>${project.build.directory}/edo-test-cache.db</edo.cacheDbFile>
+						<!-- Skip floating-tab restore/persist and overlay bounds writes (Preferences are the OS user store). -->
+						<edo.test.isolateUi>true</edo.test.isolateUi>
 						<!-- Java Preferences (userNodeForPackage) are still the OS user store: tests must not clobber mining/Google prefs (see MiningSheetPrefsTestGuard). -->
 					</systemPropertyVariables>
 					<!-- Perf baselines (LargeSystemMapPerfRegressionTest): run with -Dsurefire.excludedGroups= -Dgroups=perf -->

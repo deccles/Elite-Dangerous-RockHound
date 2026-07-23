@@ -1733,6 +1733,9 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
      * First launch: migrate legacy mixed sheet to per-commander tabs when layout version is still 0.
      */
     public static void scheduleFirstLaunchMigration(OverlayFrame frame) {
+        if (org.dce.ed.EdoTestFlags.isolateUi()) {
+            return;
+        }
         if (!shouldRunFirstLaunchMiningSheetMigration()) {
             return;
         }

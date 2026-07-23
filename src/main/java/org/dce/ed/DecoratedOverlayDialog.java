@@ -48,6 +48,8 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 	private JLabel statusLabel;
 	private JPanel fleetCarrierTimeBadgeHost;
 	private JLabel fleetCarrierTimeLabel;
+	private JPanel fleetCarrierAnnouncementHost;
+	private JLabel fleetCarrierAnnouncementLabel;
 	private volatile CargoMonitor.Snapshot lastCargoSnapshot;
 	private String lastRightStatusText = "";
 	private JComponent transitionShield;
@@ -320,18 +322,23 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		}
 
 		Runnable r = () -> {
-			OverlayFrame.updateFleetCarrierTimeBadgeExternal(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
 			boolean limpet = shouldShowLowLimpetWarning();
 			boolean fighterPilot = shouldShowNoFighterPilotWarning();
+			OverlayFrame frame = OverlayFrame.overlayFrame;
+			boolean showExec = frame != null && frame.hasExecOverlayStatus();
+			boolean marqueeData = frame != null && !frame.isMarqueeRightStatusEmpty();
+			boolean trailingSep = marqueeData || limpet || fighterPilot || showExec;
+			OverlayFrame.updateFleetCarrierTimeBadgeExternal(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+			OverlayFrame.updateFleetCarrierAnnouncementExternal(
+					fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel, trailingSep);
 			String right = lastRightStatusText != null ? lastRightStatusText.trim() : "";
 			String full = OverlayFrame.buildDecoratedMenuStatusHtml(right, limpet, fighterPilot);
-			OverlayFrame frame = OverlayFrame.overlayFrame;
 			String execFrag = frame != null ? frame.buildExecOverlayStatusHtmlFragment() : "";
 			boolean execErr = frame != null && frame.isExecOverlayStatusError();
 			if (!execFrag.isEmpty()) {
 				full = OverlayFrame.mergeExecIntoDecoratedStatus(execFrag, full);
 			}
-			if (full.isEmpty()) {
+			if (full.isEmpty() || OverlayFrame.isRightStatusHtmlVisuallyEmpty(full)) {
 				statusLabel.setText("");
 				statusLabel.setVisible(false);
 				return;
@@ -380,6 +387,8 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 		statusLabel = r.statusLabel;
 		fleetCarrierTimeBadgeHost = r.fleetCarrierTimeBadgeHost;
 		fleetCarrierTimeLabel = r.fleetCarrierTimeLabel;
+		fleetCarrierAnnouncementHost = r.fleetCarrierAnnouncementHost;
+		fleetCarrierAnnouncementLabel = r.fleetCarrierAnnouncementLabel;
 		return r.menuBar;
 	}
 
@@ -425,8 +434,13 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 			Font rowFont = OverlayMenuStatusBar.statusRowFontFromPreferences();
 			statusLabel.setFont(rowFont);
 			fleetCarrierTimeLabel.setFont(rowFont);
+			if (fleetCarrierAnnouncementLabel != null) {
+				fleetCarrierAnnouncementLabel.setFont(rowFont);
+			}
 			OverlayMenuStatusBar.clearFleetBadgeSlotCache(fleetCarrierTimeBadgeHost);
 			OverlayFrame.updateFleetCarrierTimeBadgeExternal(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+			OverlayFrame.updateFleetCarrierAnnouncementExternal(
+					fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel);
 		}
 		revalidate();
 		repaint();
@@ -474,6 +488,8 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 	private void refreshMenuBarAccentColors() {
 		OverlayMenuStatusBar.refreshMenuBarTheme(menuBar);
 		OverlayFrame.updateFleetCarrierTimeBadgeExternal(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+		OverlayFrame.updateFleetCarrierAnnouncementExternal(
+				fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel);
 	}
 
 	@Override
@@ -487,8 +503,13 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 			Font rowFont = OverlayMenuStatusBar.statusRowFontFromPreferences();
 			statusLabel.setFont(rowFont);
 			fleetCarrierTimeLabel.setFont(rowFont);
+			if (fleetCarrierAnnouncementLabel != null) {
+				fleetCarrierAnnouncementLabel.setFont(rowFont);
+			}
 			OverlayMenuStatusBar.clearFleetBadgeSlotCache(fleetCarrierTimeBadgeHost);
 			OverlayFrame.updateFleetCarrierTimeBadgeExternal(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+			OverlayFrame.updateFleetCarrierAnnouncementExternal(
+					fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel);
 		}
 		revalidate();
 		repaint();
@@ -504,8 +525,13 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 			Font rowFont = OverlayMenuStatusBar.statusRowFontFromPreferences();
 			statusLabel.setFont(rowFont);
 			fleetCarrierTimeLabel.setFont(rowFont);
+			if (fleetCarrierAnnouncementLabel != null) {
+				fleetCarrierAnnouncementLabel.setFont(rowFont);
+			}
 			OverlayMenuStatusBar.clearFleetBadgeSlotCache(fleetCarrierTimeBadgeHost);
 			OverlayFrame.updateFleetCarrierTimeBadgeExternal(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+			OverlayFrame.updateFleetCarrierAnnouncementExternal(
+					fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel);
 		}
 		revalidate();
 		repaint();

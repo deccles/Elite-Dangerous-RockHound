@@ -155,6 +155,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private final JLabel passThroughStatusLabel;
     private final JPanel fleetCarrierTimeBadgeHost;
     private final JLabel fleetCarrierTimeLabel;
+    private final JPanel fleetCarrierAnnouncementHost;
+    private final JLabel fleetCarrierAnnouncementLabel;
     /** Same Tools menu as status-bar hammer (Preferences dialog is separate). */
     private final JMenu toolsMenu;
     private final OverlayContentPanel contentPanel;
@@ -446,25 +448,20 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 return "Cooldown " + time;
             }
         }
-        return formatScienceCredits(exoCreditsTotal, geoSurveyCreditsTotal, bountyCreditsTracker.getUnclaimedTotal());
+        return formatScienceCredits(exoCreditsTotal, bountyCreditsTracker.getUnclaimedTotal());
     }
 
     /**
-     * Text shown in the HTML status label (and “is main empty” checks): no time token when the left badge shows it.
+     * Marquee / HTML status main line: Bio / Bounties only. Geo survey totals are tracked but hidden
+     * until estimates are more accurate. Fleet jump / cooldown text lives in the static announcement
+     * label so it does not scroll with overflow messages.
      */
     private String getRightStatusMainSuffixPlain() {
-        if (carrierJumpDepartureTime != null) {
-            String s = "FC jump";
-            String tgt = resolveCarrierJumpTitleTarget();
-            if (tgt != null && !tgt.isBlank()) {
-                s += " → " + tgt;
-            }
-            return s;
-        }
-        if (carrierJumpCooldownEndTime != null) {
-            return "Cooldown";
-        }
-        return formatScienceCredits(exoCreditsTotal, geoSurveyCreditsTotal, bountyCreditsTracker.getUnclaimedTotal());
+        return formatScienceCredits(exoCreditsTotal, bountyCreditsTracker.getUnclaimedTotal());
+    }
+
+    private boolean hasFleetCarrierStatusAnnouncement() {
+        return carrierJumpDepartureTime != null || carrierJumpCooldownEndTime != null;
     }
 
     private String getFleetCarrierTimeBadgeTextOnly() {
@@ -497,47 +494,39 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         return "New version " + updateAvailableVersion + " available";
     }
 
-    private Color getRightStatusMainForeground() {
-        if (carrierJumpDepartureTime != null) {
-            return EdoUi.User.ERROR;
-        }
-        if (carrierJumpCooldownEndTime != null) {
-            return EdoUi.User.CORE_BLUE;
-        }
-        return EdoUi.Internal.MENU_FG_LIGHT;
-    }
-
     private void appendRightStatusInnerHtml(StringBuilder sb) {
+        StringBuilder body = new StringBuilder();
         Long targetedBounty = BountyScanTracker.getInstance().getTargetedBountyInSight();
         boolean hasTargetedBounty = targetedBounty != null && targetedBounty.longValue() > 0L;
         if (hasTargetedBounty) {
-            appendTargetedBountyInSightHtml(sb, targetedBounty.longValue());
+            appendTargetedBountyInSightHtml(body, targetedBounty.longValue());
         }
 
-        boolean hasMainLine = carrierJumpDepartureTime != null || hasRightStatusMainSuffixContent();
+        boolean hasMainLine = hasRightStatusMainSuffixContent();
         if (hasTargetedBounty && hasMainLine) {
-            sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT)).append(";'> · </span>");
+            body.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT)).append(";'> · </span>");
         }
 
-        if (carrierJumpDepartureTime != null) {
-            appendFcJumpRightStatusHtml(sb);
-        } else {
-            String main = getRightStatusMainSuffixPlain();
-            if (main == null) {
-                main = "";
-            }
-            main = main.trim();
-            if (!main.isEmpty()) {
-                sb.append("<span style='color:").append(EdoUi.htmlRgb(getRightStatusMainForeground())).append(";'>")
-                        .append(EdoUi.escapeHtmlMinimal(main)).append("</span>");
-            }
+        String main = getRightStatusMainSuffixPlain();
+        if (main == null) {
+            main = "";
+        }
+        main = main.trim();
+        if (!main.isEmpty()) {
+            body.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT)).append(";'>")
+                    .append(EdoUi.escapeHtmlMinimal(main)).append("</span>");
         }
         String hint = getRightStatusUpdateHintPlain();
         if (hint != null) {
-            sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.SUCCESS)).append(";'> | ")
+            body.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.SUCCESS)).append(";'> | ")
                     .append(EdoUi.escapeHtmlMinimal(hint)).append("</span>");
         }
-        appendSpeechCacheMissBannerHtml(sb);
+        appendSpeechCacheMissBannerHtml(body);
+
+        if (body.length() == 0) {
+            return;
+        }
+        sb.append(body);
     }
 
     private boolean hasRightStatusMainSuffixContent() {
@@ -564,9 +553,19 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                 .append(EdoUi.escapeHtmlMinimal(s)).append("</span>");
     }
 
+    private Color getFleetCarrierAnnouncementForeground() {
+        if (carrierJumpDepartureTime != null) {
+            return EdoUi.User.ERROR;
+        }
+        if (carrierJumpCooldownEndTime != null) {
+            return EdoUi.User.CORE_BLUE;
+        }
+        return EdoUi.Internal.MENU_FG_LIGHT;
+    }
+
     /** HTML for fleet-carrier jump line: light, bold, slightly larger arrow between label and target. */
     private void appendFcJumpRightStatusHtml(StringBuilder sb) {
-        Color fg = getRightStatusMainForeground();
+        Color fg = getFleetCarrierAnnouncementForeground();
         String fgHtml = EdoUi.htmlRgb(fg);
         sb.append("<span style='color:").append(fgHtml).append(";'>FC jump</span>");
         String tgt = resolveCarrierJumpTitleTarget();
@@ -576,6 +575,20 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
                     .append(";'> \u2192 </span>");
             sb.append("<span style='color:").append(fgHtml).append(";'>")
                     .append(EdoUi.escapeHtmlMinimal(tgt.trim())).append("</span>");
+        }
+    }
+
+    private void appendFleetCarrierAnnouncementInnerHtml(StringBuilder sb, boolean trailingSeparator) {
+        if (carrierJumpDepartureTime != null) {
+            appendFcJumpRightStatusHtml(sb);
+        } else if (carrierJumpCooldownEndTime != null) {
+            sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.CORE_BLUE)).append(";'>Cooldown</span>");
+        } else {
+            return;
+        }
+        // Trailing separator stays with the static FC text so marquee content can read as "| Bounties…".
+        if (trailingSeparator) {
+            sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.Internal.MENU_FG_LIGHT)).append(";'> | </span>");
         }
     }
 
@@ -593,8 +606,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     static String buildDecoratedMenuStatusHtml(String rightStatusHtml, boolean limpet, boolean fighterPilot) {
         String right = rightStatusHtml != null ? rightStatusHtml.trim() : "";
         OverlayFrame f = OverlayFrame.overlayFrame;
+        // Fleet jump / cooldown text is in a separate static label; only marquee HTML affects this separator.
         boolean noVisibleRight = (f != null)
-                ? f.isRightStatusEffectivelyEmpty()
+                ? f.isMarqueeRightStatusEmpty()
                 : isRightStatusHtmlVisuallyEmpty(right);
         String warningSpan = buildStatusWarningSpan(noVisibleRight, limpet, fighterPilot);
         if (warningSpan.isEmpty()) {
@@ -654,6 +668,31 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         f.applyFleetCarrierTimeBadge(host, label);
     }
 
+    /**
+     * Keeps the static FC jump / cooldown announcement in sync (used by {@link DecoratedOverlayDialog}).
+     */
+    static void updateFleetCarrierAnnouncementExternal(JPanel host, JLabel label) {
+        OverlayFrame f = overlayFrame;
+        if (f == null) {
+            OverlayMenuStatusBar.applyFleetAnnouncementCollapsedLayout(host, label);
+            return;
+        }
+        f.applyFleetCarrierAnnouncement(host, label, !f.isMarqueeRightStatusEmpty());
+    }
+
+    /**
+     * Same as {@link #updateFleetCarrierAnnouncementExternal(JPanel, JLabel)} but controls whether a trailing
+     * {@code | } is shown (e.g. when limpet / exec text will appear in the marquee even with no credits).
+     */
+    static void updateFleetCarrierAnnouncementExternal(JPanel host, JLabel label, boolean trailingSeparator) {
+        OverlayFrame f = overlayFrame;
+        if (f == null) {
+            OverlayMenuStatusBar.applyFleetAnnouncementCollapsedLayout(host, label);
+            return;
+        }
+        f.applyFleetCarrierAnnouncement(host, label, trailingSeparator);
+    }
+
     private void applyFleetCarrierTimeBadge(JPanel host, JLabel label) {
         if (host == null || label == null) {
             return;
@@ -677,6 +716,27 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         host.setVisible(true);
         host.revalidate();
         OverlayMenuStatusBar.cacheFleetBadgeSlotFromPreferred(host);
+    }
+
+    private void applyFleetCarrierAnnouncement(JPanel host, JLabel label, boolean trailingSeparator) {
+        if (host == null || label == null) {
+            return;
+        }
+        label.setFont(OverlayMenuStatusBar.statusRowFontFromPreferences());
+        if (!hasFleetCarrierStatusAnnouncement()) {
+            OverlayMenuStatusBar.applyFleetAnnouncementCollapsedLayout(host, label);
+            return;
+        }
+        StringBuilder sb = new StringBuilder("<html>");
+        appendFleetCarrierAnnouncementInnerHtml(sb, trailingSeparator);
+        sb.append("</html>");
+        host.setPreferredSize(null);
+        host.setMinimumSize(null);
+        host.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        host.setVisible(true);
+        label.setText(sb.toString());
+        label.setForeground(getFleetCarrierAnnouncementForeground());
+        host.revalidate();
     }
     
     public static OverlayFrame overlayFrame = null;
@@ -775,6 +835,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         passThroughStatusLabel = passThroughMenu.statusLabel;
         fleetCarrierTimeBadgeHost = passThroughMenu.fleetCarrierTimeBadgeHost;
         fleetCarrierTimeLabel = passThroughMenu.fleetCarrierTimeLabel;
+        fleetCarrierAnnouncementHost = passThroughMenu.fleetCarrierAnnouncementHost;
+        fleetCarrierAnnouncementLabel = passThroughMenu.fleetCarrierAnnouncementLabel;
 
         JPanel northStack = new JPanel(new BorderLayout(0, 0));
         northStack.setOpaque(false);
@@ -1432,9 +1494,6 @@ private void clearCarrierJumpCountdown() {
 }
 
 private void updateRightStatusDefault() {
-    if (carrierJumpDepartureTime != null || carrierJumpCooldownEndTime != null) {
-        return;
-    }
     publishRightStatusText();
 }
 
@@ -1458,24 +1517,6 @@ private static String formatExoCredits(long credits) {
     return "Bio: " + nf.format(credits) + " Cr";
 }
 
-private static String formatGeoSurveyCredits(long credits) {
-    if (credits <= 0) {
-        return "";
-    }
-    double d = credits;
-    if (credits >= 1_000_000_000L) {
-        return String.format(Locale.US, "Geo: %.1fB Cr", d / 1_000_000_000d);
-    }
-    if (credits >= 1_000_000L) {
-        return String.format(Locale.US, "Geo: %.1fM Cr", d / 1_000_000d);
-    }
-    if (credits >= 1_000L) {
-        return String.format(Locale.US, "Geo: %.1fK Cr", d / 1_000d);
-    }
-    NumberFormat nf = NumberFormat.getIntegerInstance(Locale.US);
-    return "Geo: " + nf.format(credits) + " Cr";
-}
-
 private static String formatBountyCredits(long credits) {
     if (credits <= 0) {
         return "";
@@ -1494,13 +1535,12 @@ private static String formatBountyCredits(long credits) {
     return "Bounties Earned: " + nf.format(credits) + " Cr";
 }
 
-private static String formatScienceCredits(long exoCredits, long geoCredits, long bountyCredits) {
+/** Status bar credit line: Bio + Bounties. Geo survey totals stay tracked but are not shown yet. */
+private static String formatScienceCredits(long exoCredits, long bountyCredits) {
     String bio = formatExoCredits(exoCredits);
-    String geo = formatGeoSurveyCredits(geoCredits);
     String bounty = formatBountyCredits(bountyCredits);
     StringBuilder sb = new StringBuilder();
     appendStatusCreditSegment(sb, bio);
-    appendStatusCreditSegment(sb, geo);
     appendStatusCreditSegment(sb, bounty);
     return sb.toString();
 }
@@ -1748,6 +1788,17 @@ private void installLowLimpetStatusUpdater() {
  * Used by pass-through status and by {@link #buildDecoratedMenuStatusHtml} so a lone limpet warning does not get a leading {@code |}.
  */
 boolean isRightStatusEffectivelyEmpty() {
+    if (hasFleetCarrierStatusAnnouncement()) {
+        return false;
+    }
+    return isMarqueeRightStatusEmpty();
+}
+
+/**
+ * True when the marquee/status label has no Bio/Geo/Bounties, target bounty, update hint, or speech banner.
+ * Fleet jump / cooldown text is shown in the static announcement label, not here.
+ */
+boolean isMarqueeRightStatusEmpty() {
     Long targetedBounty = BountyScanTracker.getInstance().getTargetedBountyInSight();
     if (targetedBounty != null && targetedBounty.longValue() > 0L) {
         return false;
@@ -1783,17 +1834,20 @@ private void refreshPassThroughUnifiedStatus() {
         boolean showExec = hasExecOverlayStatus();
         String execFrag = showExec ? buildExecOverlayStatusHtmlFragment() : "";
 
-        boolean rightEmpty = isRightStatusEffectivelyEmpty();
+        boolean marqueeEmpty = isMarqueeRightStatusEmpty();
         boolean showWarning = limpet || fighterPilot;
 
-        if (!showErr && !showMiningErr && !showExec && !showWarning && rightEmpty) {
-            // Keep the status row visually clear when there is no content.
+        boolean marqueeWillShow = showErr || showMiningErr || showExec || showWarning || !marqueeEmpty;
+        applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+        applyFleetCarrierAnnouncement(fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel, marqueeWillShow);
+
+        if (!showErr && !showMiningErr && !showExec && !showWarning && marqueeEmpty) {
+            // Keep the status row visually clear when there is no marquee content.
             // A visible placeholder dash is confusing after totals reset (e.g., after SellOrganicData).
             passThroughStatusLabel.setText("");
             passThroughStatusLabel.setForeground(EdoUi.Internal.MENU_FG_LIGHT);
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
             passThroughStatusLabel.setVisible(true);
-            applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
             return;
         }
 
@@ -1802,28 +1856,29 @@ private void refreshPassThroughUnifiedStatus() {
         if (showErr) {
             html.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.ERROR)).append(";'>")
                     .append(EdoUi.escapeHtmlMinimal(err)).append("</span>");
-            if (!rightEmpty) {
+            if (!marqueeEmpty) {
                 html.append(sep);
                 appendRightStatusInnerHtml(html);
             }
         } else if (showMiningErr) {
             html.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.ERROR)).append(";'>")
                     .append(EdoUi.escapeHtmlMinimal(miningErr)).append("</span>");
-            if (!rightEmpty) {
+            if (!marqueeEmpty) {
                 html.append(sep);
                 appendRightStatusInnerHtml(html);
             }
         } else if (showExec) {
             html.append(execFrag);
-            if (!rightEmpty) {
+            if (!marqueeEmpty) {
                 html.append(sep);
                 appendRightStatusInnerHtml(html);
             }
         } else if (showWarning) {
-            if (!rightEmpty) {
+            if (!marqueeEmpty) {
                 appendRightStatusInnerHtml(html);
             }
-            html.append(buildStatusWarningSpan(rightEmpty, limpet, fighterPilot));
+            // FC announcement already owns the "| " when active and marquee is otherwise empty.
+            html.append(buildStatusWarningSpan(marqueeEmpty, limpet, fighterPilot));
         } else {
             appendRightStatusInnerHtml(html);
         }
@@ -1837,7 +1892,6 @@ private void refreshPassThroughUnifiedStatus() {
             passThroughStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
         }
         passThroughStatusLabel.setVisible(true);
-        applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
     };
 
     if (SwingUtilities.isEventDispatchThread()) {
@@ -2058,8 +2112,13 @@ private void refreshPassThroughUnifiedStatus() {
             java.awt.Font rowFont = OverlayMenuStatusBar.statusRowFontFromPreferences();
             passThroughStatusLabel.setFont(rowFont);
             fleetCarrierTimeLabel.setFont(rowFont);
+            if (fleetCarrierAnnouncementLabel != null) {
+                fleetCarrierAnnouncementLabel.setFont(rowFont);
+            }
             OverlayMenuStatusBar.clearFleetBadgeSlotCache(fleetCarrierTimeBadgeHost);
             applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+            applyFleetCarrierAnnouncement(fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel,
+                    !isMarqueeRightStatusEmpty());
         }
         revalidate();
         repaint();
@@ -2076,6 +2135,8 @@ private void refreshPassThroughUnifiedStatus() {
         if (passThroughMenuBar != null) {
             OverlayMenuStatusBar.refreshMenuBarTheme(passThroughMenuBar);
             applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+            applyFleetCarrierAnnouncement(fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel,
+                    !isMarqueeRightStatusEmpty());
         }
 
         if (contentPanel != null) {
@@ -2119,8 +2180,13 @@ private void refreshPassThroughUnifiedStatus() {
             java.awt.Font rowFont = OverlayMenuStatusBar.statusRowFontFromPreferences();
             passThroughStatusLabel.setFont(rowFont);
             fleetCarrierTimeLabel.setFont(rowFont);
+            if (fleetCarrierAnnouncementLabel != null) {
+                fleetCarrierAnnouncementLabel.setFont(rowFont);
+            }
             OverlayMenuStatusBar.clearFleetBadgeSlotCache(fleetCarrierTimeBadgeHost);
             applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+            applyFleetCarrierAnnouncement(fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel,
+                    !isMarqueeRightStatusEmpty());
         }
         revalidate();
         repaint();
@@ -2136,8 +2202,13 @@ private void refreshPassThroughUnifiedStatus() {
             java.awt.Font rowFont = OverlayMenuStatusBar.statusRowFontFromPreferences();
             passThroughStatusLabel.setFont(rowFont);
             fleetCarrierTimeLabel.setFont(rowFont);
+            if (fleetCarrierAnnouncementLabel != null) {
+                fleetCarrierAnnouncementLabel.setFont(rowFont);
+            }
             OverlayMenuStatusBar.clearFleetBadgeSlotCache(fleetCarrierTimeBadgeHost);
             applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+            applyFleetCarrierAnnouncement(fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel,
+                    !isMarqueeRightStatusEmpty());
         }
         revalidate();
         repaint();
@@ -2195,6 +2266,8 @@ private void refreshPassThroughUnifiedStatus() {
         if (passThroughMenuBar != null) {
             OverlayMenuStatusBar.refreshMenuBarTheme(passThroughMenuBar);
             applyFleetCarrierTimeBadge(fleetCarrierTimeBadgeHost, fleetCarrierTimeLabel);
+            applyFleetCarrierAnnouncement(fleetCarrierAnnouncementHost, fleetCarrierAnnouncementLabel,
+                    !isMarqueeRightStatusEmpty());
         }
 
         revalidate();
@@ -2404,6 +2477,9 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
     public static void setDecoratedMaximizedStored(boolean maximized) {
+        if (EdoTestFlags.isolateUi()) {
+            return;
+        }
         Preferences p = Preferences.userNodeForPackage(OverlayFrame.class);
         p.putBoolean(PREF_KEY_DECORATED_MAXIMIZED, maximized);
         flushOverlayPrefs(p);
@@ -2414,6 +2490,9 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
     public static void setPassThroughMaximizedStored(boolean maximized) {
+        if (EdoTestFlags.isolateUi()) {
+            return;
+        }
         Preferences p = Preferences.userNodeForPackage(OverlayFrame.class);
         p.putBoolean(PREF_KEY_PT_MAXIMIZED, maximized);
         flushOverlayPrefs(p);
@@ -2495,7 +2574,7 @@ private void refreshPassThroughUnifiedStatus() {
 
     /** Persists pass-through outer bounds and mirrors to legacy {@code overlay.*} keys. */
     public static void persistPassThroughBoundsRectangle(Rectangle r) {
-        if (r == null) {
+        if (r == null || EdoTestFlags.isolateUi()) {
             return;
         }
         Rectangle c = clampFrameBoundsToVirtualScreens(r.x, r.y, r.width, r.height);
@@ -2508,7 +2587,7 @@ private void refreshPassThroughUnifiedStatus() {
 
     /** Persists decorated-window outer bounds and mirrors to legacy {@code overlay.*} keys. */
     public static void persistDecoratedBoundsRectangle(Rectangle r) {
-        if (r == null) {
+        if (r == null || EdoTestFlags.isolateUi()) {
             return;
         }
         Rectangle c = clampFrameBoundsToVirtualScreens(r.x, r.y, r.width, r.height);
@@ -2555,6 +2634,9 @@ private void refreshPassThroughUnifiedStatus() {
             String keyWidth,
             String keyHeight
     ) {
+        if (EdoTestFlags.isolateUi()) {
+            return;
+        }
         prefs.putInt(keyX, getX());
         prefs.putInt(keyY, getY());
         prefs.putInt(keyWidth, getWidth());

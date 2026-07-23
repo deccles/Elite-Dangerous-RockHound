@@ -47,16 +47,17 @@ import org.dce.ed.exec.ExecShortcutKeys;
 import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.exec.ExecReferenceHelp;
 import org.dce.ed.exec.NameDescriptionHelpDialog;
-import org.dce.ed.ui.EdoUi;
-import org.dce.ed.ui.HelpCircleIcon;
-import org.dce.ed.ui.OverlayCheckBoxStyle;
-import org.dce.ed.ui.OverlayOutlineButtonStyle;
-import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.exec.placeholder.ExecPlaceholderId;
 import org.dce.ed.exec.placeholder.ExecPlaceholderFieldSupport;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.HelpCircleIcon;
+import org.dce.ed.ui.OverlayCheckBoxStyle;
+import org.dce.ed.ui.OverlayComboBoxStyle;
+import org.dce.ed.ui.OverlayFieldStyle;
+import org.dce.ed.ui.OverlayOutlineButtonStyle;
+import org.dce.ed.ui.OverlayScrollPaneSupport;
 
 /**
  * Exec tab: configure programs to run on overlay triggers (fleet cooldown complete, low tritium, etc.).
@@ -302,6 +303,13 @@ public final class ExecTabPanel extends JPanel {
             table.getTableHeader().setBackground(panel);
             table.getTableHeader().setOpaque(true);
         }
+
+        Font fieldFont = OverlayPreferences.getUiFont();
+        if (fieldFont == null) {
+            fieldFont = getFont();
+        }
+        OverlayFieldStyle.applySpinner(tritiumThresholdSpinner, fieldFont);
+        OverlayFieldStyle.applySpinner(tritiumHysteresisSpinner, fieldFont);
 
         Component scrollParent = table.getParent() != null ? table.getParent().getParent() : null;
         if (scrollParent instanceof JScrollPane pane) {
@@ -672,8 +680,14 @@ public final class ExecTabPanel extends JPanel {
     }
 
     private void installEditors() {
+        Font fieldFont = OverlayPreferences.getUiFont();
+        if (fieldFont == null) {
+            fieldFont = getFont();
+        }
+
         JComboBox<ExecTriggerId> triggerCombo = new JComboBox<>(ExecTriggerId.configurableValues());
-        triggerCombo.setOpaque(false);
+        OverlayComboBoxStyle.apply(triggerCombo, fieldFont);
+        OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(triggerCombo);
         table.getColumnModel().getColumn(COL_TRIGGER).setCellEditor(new javax.swing.DefaultCellEditor(triggerCombo));
         table.getColumnModel().getColumn(COL_TRIGGER).setCellRenderer(new DefaultTableCellRenderer() {
             private static final long serialVersionUID = 1L;
@@ -690,9 +704,11 @@ public final class ExecTabPanel extends JPanel {
         });
 
         JComboBox<EliteEventType> journalEventCombo = new JComboBox<>(EliteEventType.execSelectableValues());
-        journalEventCombo.setOpaque(false);
+        OverlayComboBoxStyle.apply(journalEventCombo, fieldFont);
+        OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(journalEventCombo);
         JComboBox<String> shortcutKeyCombo = new JComboBox<>(ExecShortcutKeys.displayChoices());
-        shortcutKeyCombo.setOpaque(false);
+        OverlayComboBoxStyle.apply(shortcutKeyCombo, fieldFont);
+        OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(shortcutKeyCombo);
         table.getColumnModel().getColumn(COL_JOURNAL_EVENT).setCellEditor(new BindingDetailCellEditor(journalEventCombo, shortcutKeyCombo));
         table.getColumnModel().getColumn(COL_JOURNAL_EVENT).setCellRenderer(new DefaultTableCellRenderer() {
             private static final long serialVersionUID = 1L;
@@ -749,7 +765,16 @@ public final class ExecTabPanel extends JPanel {
             }
         });
 
+        JTextField nameField = new JTextField();
+        OverlayFieldStyle.applyTextField(nameField, fieldFont);
+        table.getColumnModel().getColumn(COL_NAME).setCellEditor(new javax.swing.DefaultCellEditor(nameField));
+
+        JTextField delayField = new JTextField();
+        OverlayFieldStyle.applyTextField(delayField, fieldFont);
+        table.getColumnModel().getColumn(COL_DELAY_SEC).setCellEditor(new javax.swing.DefaultCellEditor(delayField));
+
         JTextField argsField = new JTextField();
+        OverlayFieldStyle.applyTextField(argsField, fieldFont);
         new ExecPlaceholderFieldSupport(argsField, () ->
                 triggerService != null ? triggerService.resolvePlaceholdersForUi() : Map.of());
         argsField.getDocument().addDocumentListener(new DocumentListener() {
@@ -844,7 +869,12 @@ public final class ExecTabPanel extends JPanel {
         private boolean ignoreAction;
 
         ProgramCellEditor() {
-            combo.setOpaque(false);
+            Font fieldFont = OverlayPreferences.getUiFont();
+            if (fieldFont == null) {
+                fieldFont = ExecTabPanel.this.getFont();
+            }
+            OverlayComboBoxStyle.apply(combo, fieldFont);
+            OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
             combo.addActionListener(e -> {
                 if (ignoreAction) {
                     return;

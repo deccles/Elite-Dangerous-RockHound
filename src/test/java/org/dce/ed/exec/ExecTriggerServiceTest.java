@@ -97,4 +97,25 @@ class ExecTriggerServiceTest {
         assertFalse(service.hasActiveScripts());
         assertEquals(0, JarExecRunner.runningProcessCount());
     }
+
+    @Test
+    void runningLabel_prefersBindingNameOverJarFile() {
+        ExecBinding binding = new ExecBinding();
+        binding.setName("Supercruise Autoland");
+        binding.setProgramName("RoboHound");
+        binding.setJarPath("C:\\apps\\RoboHound.jar");
+        binding.setProgramArgs("--play supercruise-to-landing-v2");
+        assertEquals("Supercruise Autoland", ExecTriggerService.runningLabel(binding));
+    }
+
+    @Test
+    void runningLabel_fallsBackToPlayScriptWhenBindingNameBlank() {
+        ExecBinding binding = new ExecBinding();
+        binding.setName("");
+        binding.setProgramName("RoboHound");
+        binding.setJarPath("C:\\apps\\RoboHound.jar");
+        binding.setProgramArgs("--play fleet-carrier-arrival $CARRIER_NAME");
+        assertEquals("fleet-carrier-arrival", ExecTriggerService.runningLabel(binding));
+        assertEquals("fleet-carrier-arrival", ExecTriggerService.playScriptName(binding.getProgramArgs()));
+    }
 }

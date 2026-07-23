@@ -30,6 +30,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 import org.dce.ed.EliteOverlayTabbedPane;
+import org.dce.ed.EdoTestFlags;
 import org.dce.ed.MouseInteractionMode;
 import org.dce.ed.OverlayFrame;
 import org.dce.ed.ui.tabdock.OverlayTabTransferable.OverlayTabTransferData;
@@ -78,6 +79,11 @@ public final class TabDockingController {
     }
 
     public void restoreSavedLayout() {
+        if (EdoTestFlags.isolateUi()) {
+            // Unit tests must not open floating tabs or rewrite the live Preferences layout.
+            layoutSynced = true;
+            return;
+        }
         restoring = true;
         try {
             closeAllFloatsReturningTabs(false);
@@ -155,7 +161,7 @@ public final class TabDockingController {
         // controller holds the default all-on-main layout) and never after retirement (a stale
         // debounce firing post-rebuild captured a torn-down pane). Both overwrote the user's
         // float layout with "everything on main".
-        if (restoring || disposed || !layoutSynced) {
+        if (EdoTestFlags.isolateUi() || restoring || disposed || !layoutSynced) {
             return;
         }
         TabLayoutPreferences.save(captureState());
