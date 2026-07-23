@@ -18,5 +18,17 @@
   "Sensor_LightWeight": {
     "moduleType": "Sensors",
     "blueprintName": "Light Weight Scanner"
+  },
+  "HullReinforcement_Advanced": {
+    "moduleType": "Hull Reinforcement Package",
+    "blueprintName": "Lightweight Hull Reinforcement"
+  },
+  "HullReinforcement_Kinetic": {
+    "moduleType": "Hull Reinforcement Package",
+    "blueprintName": "Kinetic Resistant Hull Reinforcement"
+  },
+  "Armour_Advanced": {
+    "moduleType": "Armour",
+    "blueprintName": "Lightweight"
   }
 }

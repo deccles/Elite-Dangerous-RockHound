@@ -1662,7 +1662,14 @@ public class EngineeringTabPanel extends JPanel {
                     database,
                     passThroughEnabledSupplier,
                     request.existingGoal(),
-                    shipCatalog);
+                    shipCatalog,
+                    new EngineeringGoalDialog.AddPrefill(
+                            request.moduleType(),
+                            request.blueprintName(),
+                            request.moduleType(),
+                            request.experimentalName(),
+                            request.quantity(),
+                            request.preferredTargetGrade()));
             if (updated != null) {
                 int idx = indexOfGoalInstance(request.existingGoal());
                 if (idx >= 0) {

@@ -56,8 +56,8 @@ class ShipEngineeringSummaryTest {
         assertEquals("Med", partial.slotSizeDisplay());
         assertTrue(partial.engineeringDisplay().contains("G3"));
         assertTrue(partial.canUpgrade());
-        assertTrue(partial.levelDisplay().contains("→"),
-                "partial without goal should still show toward max grade: " + partial.levelDisplay());
+        assertEquals("G3", partial.levelDisplay(),
+                "partial without goal should show current grade only");
         assertEquals("G3→G5", partial.levelDisplay(5));
         assertEquals("G3", partial.levelDisplay(3));
         assertEquals("G3", partial.levelDisplay(2));
@@ -96,6 +96,24 @@ class ShipEngineeringSummaryTest {
         assertTrue(text.contains("\nDone\n"));
         assertTrue(text.contains(" — "));
         assertFalse(text.toLowerCase().contains("paintjob"));
+    }
+
+    @Test
+    void hullReinforcementAdvanced_mapsToLightweightPartial() {
+        String loadoutJson =
+                "{\"timestamp\":\"2026-07-23T04:16:12Z\",\"event\":\"Loadout\",\"Ship\":\"anaconda\",\"ShipID\":7,"
+                        + "\"ShipName\":\"Exception Handler\",\"Modules\":["
+                        + "{\"Slot\":\"Slot08_Size4\",\"Item\":\"int_hullreinforcement_size4_class2\",\"On\":true,"
+                        + "\"Engineering\":{\"BlueprintName\":\"HullReinforcement_Advanced\",\"Level\":1,\"Quality\":0.33}}"
+                        + "]}";
+        LoadoutEvent loadout = (LoadoutEvent) new EliteLogParser().parseRecord(loadoutJson);
+        ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, db);
+        assertEquals(1, summary.partialCount());
+        assertEquals(0, summary.doneCount());
+        ShipEngineeringSummary.Row row = summary.rowsInBand(ShipEngineeringSummary.Band.PARTIAL).get(0);
+        assertEquals("Lightweight Hull Reinforcement", row.blueprintLabel());
+        assertEquals("G1", row.levelDisplay());
+        assertEquals("G1→G5", row.levelDisplay(5));
     }
 
     @Test

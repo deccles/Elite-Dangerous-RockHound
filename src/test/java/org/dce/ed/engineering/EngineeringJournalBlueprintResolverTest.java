@@ -91,6 +91,19 @@ class EngineeringJournalBlueprintResolverTest {
     }
 
     @Test
+    void resolve_mapsHullReinforcementAdvancedToLightweight() {
+        Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
+                EngineeringJournalBlueprintResolver.resolve(
+                        "Slot08_Size4",
+                        "int_hullreinforcement_size4_class2",
+                        "HullReinforcement_Advanced",
+                        db);
+        assertTrue(resolved.isPresent());
+        assertEquals("Hull Reinforcement Package", resolved.get().moduleType());
+        assertEquals("Lightweight Hull Reinforcement", resolved.get().blueprintName());
+    }
+
+    @Test
     void displayModuleName_keepsWeaponMountAndHardpointSize() {
         assertEquals("Multi-cannon Gimbal Large",
                 EngineeringJournalBlueprintResolver.displayModuleName("hpt_multicannon_gimbal_large"));

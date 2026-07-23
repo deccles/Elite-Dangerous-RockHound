@@ -202,6 +202,14 @@ public final class EngineeringJournalBlueprintResolver {
         if ("longrange".equals(normSuffix) && normName.contains("increasedfsdrange")) {
             return 90;
         }
+        // Journal {@code HullReinforcement_Advanced} / {@code Armour_Advanced} → Lightweight.
+        if ("advanced".equals(normSuffix) && normName.contains("lightweight")) {
+            return 90;
+        }
+        // Journal truncates {@code HullReinforcement_Kinetic} (not KineticResistant).
+        if ("kinetic".equals(normSuffix) && normName.contains("kineticresistant")) {
+            return 90;
+        }
         return 0;
     }
 

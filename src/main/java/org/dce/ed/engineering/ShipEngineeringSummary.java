@@ -86,15 +86,14 @@ public final class ShipEngineeringSummary {
 
         /**
          * Grade token for the Level column / clipboard.
-         * Partial rows with a higher target (goal grade, else blueprint max) show {@code G3→G5}.
+         * With a higher goal target, Partial rows show {@code G3→G5}; otherwise just {@code G3}.
          */
         public String levelDisplay(int goalTargetGrade) {
             if (band == Band.GAP || level <= 0) {
                 return "—";
             }
-            int target = goalTargetGrade > 0 ? goalTargetGrade : (band == Band.PARTIAL ? maxGrade : 0);
-            if (band == Band.PARTIAL && target > level) {
-                return "G" + level + "→G" + target;
+            if (band == Band.PARTIAL && goalTargetGrade > level) {
+                return "G" + level + "→G" + goalTargetGrade;
             }
             return "G" + level;
         }
@@ -205,21 +204,29 @@ public final class ShipEngineeringSummary {
 
     /**
      * @param goalTargetForRow optional; returns the goal target grade for a row (0 if none)
+     * @param experimentalForRow optional; custom Experimental column text (e.g. {@code +Mass Manager})
      */
     public String toClipboardText(String shipTitle, java.util.function.ToIntFunction<Row> goalTargetForRow) {
+        return toClipboardText(shipTitle, goalTargetForRow, null);
+    }
+
+    public String toClipboardText(String shipTitle,
+            java.util.function.ToIntFunction<Row> goalTargetForRow,
+            java.util.function.Function<Row, String> experimentalForRow) {
         StringBuilder sb = new StringBuilder(512);
         if (shipTitle != null && !shipTitle.isBlank()) {
             sb.append(shipTitle.trim()).append('\n');
         }
         sb.append(countsLine()).append('\n');
-        appendBandSection(sb, Band.GAP, goalTargetForRow);
-        appendBandSection(sb, Band.PARTIAL, goalTargetForRow);
-        appendBandSection(sb, Band.DONE, goalTargetForRow);
+        appendBandSection(sb, Band.GAP, goalTargetForRow, experimentalForRow);
+        appendBandSection(sb, Band.PARTIAL, goalTargetForRow, experimentalForRow);
+        appendBandSection(sb, Band.DONE, goalTargetForRow, experimentalForRow);
         return sb.toString().stripTrailing() + '\n';
     }
 
     private void appendBandSection(StringBuilder sb, Band band,
-            java.util.function.ToIntFunction<Row> goalTargetForRow) {
+            java.util.function.ToIntFunction<Row> goalTargetForRow,
+            java.util.function.Function<Row, String> experimentalForRow) {
         List<Row> section = rowsInBand(band);
         if (section.isEmpty()) {
             return;
@@ -229,8 +236,11 @@ public final class ShipEngineeringSummary {
             sb.append("  ").append(row.moduleDisplay());
             if (band != Band.GAP) {
                 int target = goalTargetForRow != null ? goalTargetForRow.applyAsInt(row) : 0;
+                String experimental = experimentalForRow != null
+                        ? experimentalForRow.apply(row)
+                        : row.experimentalDisplay();
                 sb.append(" — ").append(row.blueprintDisplay())
-                        .append(" · ").append(row.experimentalDisplay())
+                        .append(" · ").append(experimental)
                         .append(" — ").append(row.levelDisplay(target));
             }
             if (row.count() > 1) {
@@ -278,10 +288,12 @@ public final class ShipEngineeringSummary {
             String experimental = friendlyExperimental(engineering, db);
             int level = engineering.getLevel();
             int maxGrade = maxBlueprintGrade(db, moduleType, blueprint);
-            Band band = (maxGrade > 0 && level >= maxGrade) ? Band.DONE : Band.PARTIAL;
-            // Unknown max grade but engineered: treat as done at current level if quality complete.
-            if (maxGrade <= 0) {
-                band = Band.DONE;
+            Band band;
+            if (maxGrade > 0) {
+                band = level >= maxGrade ? Band.DONE : Band.PARTIAL;
+            } else {
+                // Unknown catalog ceiling (unresolved journal name): do not claim Done.
+                band = Band.PARTIAL;
             }
             built.add(new Row(
                     shipId,

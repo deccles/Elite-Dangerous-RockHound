@@ -253,6 +253,19 @@ final class EngineeringGoalDialog extends JDialog {
                                        BooleanSupplier passThroughEnabledSupplier,
                                        EngineeringGoal existing,
                                        EngineeringShipCatalog shipCatalog) {
+        return showForEdit(owner, database, passThroughEnabledSupplier, existing, shipCatalog, AddPrefill.EMPTY);
+    }
+
+    /**
+     * @param prefill optional Loadout context (e.g. fitted experimental) used when the saved goal
+     *                has no experimental yet
+     */
+    static EngineeringGoal showForEdit(Window owner,
+                                       EngineeringDatabase database,
+                                       BooleanSupplier passThroughEnabledSupplier,
+                                       EngineeringGoal existing,
+                                       EngineeringShipCatalog shipCatalog,
+                                       AddPrefill prefill) {
         if (database == null || existing == null) {
             return null;
         }
@@ -266,7 +279,7 @@ final class EngineeringGoalDialog extends JDialog {
             }
         }
         EngineeringGoalDialog dialog = new EngineeringGoalDialog(
-                owner, database, passThroughEnabledSupplier, Mode.EDIT, existing, shipCatalog, def, AddPrefill.EMPTY);
+                owner, database, passThroughEnabledSupplier, Mode.EDIT, existing, shipCatalog, def, prefill);
         activeInstance = dialog;
         try {
             dialog.setVisible(true);
@@ -320,11 +333,16 @@ final class EngineeringGoalDialog extends JDialog {
             experimentalCombo.addItem(exp.getName());
         }
         if (goal.getExperimentalId().isBlank()) {
-            experimentalCombo.setSelectedItem("(none)");
+            // Loadout may pass the fitted experimental when the saved goal has none yet.
+            if (addPrefill != null && !addPrefill.experimentalName().isBlank()) {
+                selectExperimentalFuzzy(addPrefill.experimentalName());
+            } else {
+                experimentalCombo.setSelectedItem("(none)");
+            }
         } else {
             database.findById(goal.getExperimentalId())
                     .ifPresentOrElse(bp -> experimentalCombo.setSelectedItem(bp.getName()),
-                            () -> experimentalCombo.setSelectedItem("(none)"));
+                            () -> selectExperimentalFuzzy(goal.getExperimentalId()));
         }
         populateShipCombo();
         if (goal.hasShip()) {
@@ -1073,7 +1091,7 @@ final class EngineeringGoalDialog extends JDialog {
             }
             if (!addPrefill.experimentalName().isBlank()
                     && !"(none)".equalsIgnoreCase(addPrefill.experimentalName())) {
-                experimentalCombo.setSelectedItem(addPrefill.experimentalName());
+                selectExperimentalFuzzy(addPrefill.experimentalName());
             }
             if (!addPrefill.searchText().isBlank() && selectedBlueprint == null) {
                 suppressBlueprintFieldEvents = true;
@@ -1090,7 +1108,7 @@ final class EngineeringGoalDialog extends JDialog {
             selectPreferredOrMaxGrade();
             if (!addPrefill.experimentalName().isBlank()
                     && !"(none)".equalsIgnoreCase(addPrefill.experimentalName())) {
-                experimentalCombo.setSelectedItem(addPrefill.experimentalName());
+                selectExperimentalFuzzy(addPrefill.experimentalName());
             }
             equalizeGradeQtyWidths();
         });
@@ -1301,6 +1319,56 @@ final class EngineeringGoalDialog extends JDialog {
             }
         }
         return "";
+    }
+
+    /**
+     * Select an experimental by catalog name / journal label / id token.
+     * Handles localization quirks like fitted {@code Super Capacitors} vs catalog {@code Super Capacitor}.
+     */
+    private void selectExperimentalFuzzy(String nameOrId) {
+        if (nameOrId == null || nameOrId.isBlank() || "(none)".equalsIgnoreCase(nameOrId.trim())) {
+            experimentalCombo.setSelectedItem("(none)");
+            return;
+        }
+        String raw = nameOrId.trim();
+        for (int i = 0; i < experimentalCombo.getItemCount(); i++) {
+            String item = experimentalCombo.getItemAt(i);
+            if (item != null && item.equalsIgnoreCase(raw)) {
+                experimentalCombo.setSelectedIndex(i);
+                return;
+            }
+        }
+        String want = EngineeringJournalBlueprintResolver.normalizeToken(raw);
+        if (want.isEmpty()) {
+            experimentalCombo.setSelectedItem("(none)");
+            return;
+        }
+        String best = null;
+        int bestScore = 0;
+        for (int i = 0; i < experimentalCombo.getItemCount(); i++) {
+            String item = experimentalCombo.getItemAt(i);
+            if (item == null || "(none)".equals(item)) {
+                continue;
+            }
+            String n = EngineeringJournalBlueprintResolver.normalizeToken(item);
+            int score = 0;
+            if (n.equals(want)) {
+                score = 100;
+            } else if (n.startsWith(want) || want.startsWith(n)) {
+                score = 90;
+            } else if (want.length() >= 4 && (n.contains(want) || want.contains(n))) {
+                score = 80;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = item;
+            }
+        }
+        if (best != null && bestScore >= 80) {
+            experimentalCombo.setSelectedItem(best);
+        } else {
+            experimentalCombo.setSelectedItem("(none)");
+        }
     }
 
     private void confirmAdd() {

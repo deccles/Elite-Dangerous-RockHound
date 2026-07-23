@@ -753,15 +753,16 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		gbc.fill = GridBagConstraints.HORIZONTAL;
 		panel.add(bpLbl, gbc);
 
-		JLabel expLbl = new JLabel(row.experimentalDisplay());
+		JLabel expLbl = new JLabel(experimentalDisplayFor(row));
 		expLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
 		expLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
 		int expH = Math.max(fontSize + 10, expLbl.getPreferredSize().height);
 		expLbl.setPreferredSize(new Dimension(FIXED_EXPERIMENTAL_COMBO_W, expH));
 		expLbl.setMinimumSize(new Dimension(FIXED_EXPERIMENTAL_COMBO_W, expH));
+		String tipExperimental = experimentalTooltipNameFor(row);
 		expLbl.setToolTipText(database != null
 				? database.experimentalEffectTooltip(
-						row.moduleType(), row.blueprintLabel(), row.experimentalLabel())
+						row.moduleType(), row.blueprintLabel(), tipExperimental)
 				: null);
 		gbc.gridx = 3;
 		gbc.weightx = 0.75;
@@ -987,7 +988,8 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		LoadoutEvent loadout = loadoutsByShip.get(shipId);
 		ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, database);
 		String title = resolveShipTitle(shipId.longValue());
-		StringBuilder text = new StringBuilder(summary.toClipboardText(title, this::goalTargetGradeFor));
+		StringBuilder text = new StringBuilder(summary.toClipboardText(
+				title, this::goalTargetGradeFor, this::experimentalDisplayFor));
 		appendGoalsSection(text, shipId.longValue());
 		copyToClipboard(text.toString());
 		return true;
@@ -1000,6 +1002,69 @@ final class EngineeringBuildProgressDialog extends JDialog {
 	private int goalTargetGradeFor(Row row) {
 		EngineeringGoal goal = findMatchingGoal(row);
 		return goal != null ? goal.getTargetGrade() : 0;
+	}
+
+	/**
+	 * Partial + goal with a pending experimental: {@code +Mass Manager}.
+	 * Once applied (or already fitted), drop the {@code +}.
+	 */
+	private String experimentalDisplayFor(Row row) {
+		if (row == null) {
+			return "—";
+		}
+		if (row.band() != Band.PARTIAL) {
+			return row.experimentalDisplay();
+		}
+		EngineeringGoal goal = findMatchingGoal(row);
+		String goalExp = experimentalNameForGoal(goal);
+		if (goalExp == null || goalExp.isBlank()) {
+			return row.experimentalDisplay();
+		}
+		boolean applied = goal.isExperimentalApplied()
+				|| experimentalMatchesFitted(row.experimentalLabel(), goal, goalExp);
+		return applied ? goalExp : "+" + goalExp;
+	}
+
+	private String experimentalTooltipNameFor(Row row) {
+		String shown = experimentalDisplayFor(row);
+		if (shown != null && shown.startsWith("+")) {
+			return shown.substring(1);
+		}
+		if (shown != null && !shown.isBlank() && !"—".equals(shown)) {
+			return shown;
+		}
+		return row != null ? row.experimentalLabel() : null;
+	}
+
+	private String experimentalNameForGoal(EngineeringGoal goal) {
+		if (goal == null || goal.getExperimentalId() == null || goal.getExperimentalId().isBlank()) {
+			return "";
+		}
+		if (database != null) {
+			return database.findById(goal.getExperimentalId()).map(BlueprintGrade::getName).orElse("");
+		}
+		return "";
+	}
+
+	private static boolean experimentalMatchesFitted(String fittedLabel, EngineeringGoal goal, String goalExpName) {
+		if (fittedLabel == null || fittedLabel.isBlank() || "—".equals(fittedLabel.trim())) {
+			return false;
+		}
+		String fitted = EngineeringJournalBlueprintResolver.normalizeToken(fittedLabel);
+		if (fitted.isEmpty()) {
+			return false;
+		}
+		if (!goalExpName.isBlank()
+				&& fitted.equals(EngineeringJournalBlueprintResolver.normalizeToken(goalExpName))) {
+			return true;
+		}
+		if (goal != null && goal.getExperimentalId() != null) {
+			String id = EngineeringJournalBlueprintResolver.normalizeToken(goal.getExperimentalId());
+			if (!id.isEmpty() && (fitted.contains(id) || id.contains(fitted))) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private void appendGoalsSection(StringBuilder sb, long shipId) {
