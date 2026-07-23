@@ -56,6 +56,11 @@ class ShipEngineeringSummaryTest {
         assertEquals("Med", partial.slotSizeDisplay());
         assertTrue(partial.engineeringDisplay().contains("G3"));
         assertTrue(partial.canUpgrade());
+        assertTrue(partial.levelDisplay().contains("→"),
+                "partial without goal should still show toward max grade: " + partial.levelDisplay());
+        assertEquals("G3→G5", partial.levelDisplay(5));
+        assertEquals("G3", partial.levelDisplay(3));
+        assertEquals("G3", partial.levelDisplay(2));
 
         ShipEngineeringSummary.Row gap = summary.rowsInBand(ShipEngineeringSummary.Band.GAP).get(0);
         assertEquals("—", gap.engineeringDisplay());

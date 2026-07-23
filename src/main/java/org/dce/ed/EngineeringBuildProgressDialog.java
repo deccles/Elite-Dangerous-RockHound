@@ -45,6 +45,7 @@ import org.dce.ed.engineering.EngineeringDatabase;
 import org.dce.ed.engineering.EngineeringGoal;
 import org.dce.ed.engineering.EngineeringGoalProgress;
 import org.dce.ed.engineering.EngineeringGoalProgress.ModuleUnitProgress;
+import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringJournalBlueprintResolver;
 import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
@@ -483,7 +484,10 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 	private int levelColumnWidth() {
 		JLabel probe = headerLabel("Level");
-		return Math.max(probe.getPreferredSize().width + 4, 56);
+		JLabel sample = new JLabel("G3→G5");
+		sample.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		return Math.max(probe.getPreferredSize().width + 4,
+				Math.max(56, sample.getPreferredSize().width + 4));
 	}
 
 	private Dimension actionButtonSize(JButton btn) {
@@ -763,7 +767,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		gbc.weightx = 0.75;
 		panel.add(expLbl, gbc);
 
-		JLabel levelLbl = new JLabel(row.levelDisplay());
+		JLabel levelLbl = new JLabel(levelDisplayFor(row));
 		levelLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
 		levelLbl.setForeground(EdoUi.User.MAIN_TEXT);
 		levelLbl.setPreferredSize(new Dimension(levelColumnWidth(), fontSize + 10));
@@ -983,8 +987,68 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		LoadoutEvent loadout = loadoutsByShip.get(shipId);
 		ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, database);
 		String title = resolveShipTitle(shipId.longValue());
-		copyToClipboard(summary.toClipboardText(title));
+		StringBuilder text = new StringBuilder(summary.toClipboardText(title, this::goalTargetGradeFor));
+		appendGoalsSection(text, shipId.longValue());
+		copyToClipboard(text.toString());
 		return true;
+	}
+
+	private String levelDisplayFor(Row row) {
+		return row.levelDisplay(goalTargetGradeFor(row));
+	}
+
+	private int goalTargetGradeFor(Row row) {
+		EngineeringGoal goal = findMatchingGoal(row);
+		return goal != null ? goal.getTargetGrade() : 0;
+	}
+
+	private void appendGoalsSection(StringBuilder sb, long shipId) {
+		List<EngineeringGoal> goals = new ArrayList<>();
+		for (EngineeringGoal goal : goalsSupplier.get()) {
+			if (goal != null && goal.hasShip() && goal.getShipId() == shipId) {
+				goals.add(goal);
+			}
+		}
+		goals.sort(Comparator
+				.comparingInt((EngineeringGoal g) -> g.getPriority().sortRank())
+				.thenComparing(EngineeringGoal::getModuleType, String.CASE_INSENSITIVE_ORDER)
+				.thenComparing(EngineeringGoal::getBlueprintName, String.CASE_INSENSITIVE_ORDER));
+		sb.append('\n').append("Goals").append('\n');
+		if (goals.isEmpty()) {
+			sb.append("  (none)\n");
+			return;
+		}
+		for (EngineeringGoal goal : goals) {
+			sb.append("  ").append(formatGoalClipboardLine(goal)).append('\n');
+		}
+	}
+
+	private String formatGoalClipboardLine(EngineeringGoal goal) {
+		StringBuilder line = new StringBuilder();
+		line.append(goal.getModuleType())
+				.append(": ")
+				.append(goal.getBlueprintName())
+				.append(" → ")
+				.append(EngineeringGradeProgress.progressLabel(goal));
+		if (goal.getExperimentalId() != null && !goal.getExperimentalId().isBlank()) {
+			String expName = database != null
+					? database.findById(goal.getExperimentalId()).map(BlueprintGrade::getName).orElse("")
+					: "";
+			if (expName.isBlank()) {
+				expName = "experimental";
+			}
+			line.append(" · ").append(expName);
+			if (goal.isExperimentalApplied()) {
+				line.append(" (done)");
+			}
+		}
+		if (goal.getQuantity() > 1) {
+			line.append(" (").append(goal.getCompletedUnits()).append('/').append(goal.getQuantity()).append(')');
+		}
+		if (!goal.isEnabled()) {
+			line.append(" [off]");
+		}
+		return line.toString();
 	}
 
 	private void copyLoadoutJsonAndOpenCoriolis() {

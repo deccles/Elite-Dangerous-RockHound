@@ -81,8 +81,20 @@ public final class ShipEngineeringSummary {
 
         /** Grade token like {@code G5}, or em dash. */
         public String levelDisplay() {
+            return levelDisplay(0);
+        }
+
+        /**
+         * Grade token for the Level column / clipboard.
+         * Partial rows with a higher target (goal grade, else blueprint max) show {@code G3→G5}.
+         */
+        public String levelDisplay(int goalTargetGrade) {
             if (band == Band.GAP || level <= 0) {
                 return "—";
+            }
+            int target = goalTargetGrade > 0 ? goalTargetGrade : (band == Band.PARTIAL ? maxGrade : 0);
+            if (band == Band.PARTIAL && target > level) {
+                return "G" + level + "→G" + target;
             }
             return "G" + level;
         }
@@ -188,18 +200,26 @@ public final class ShipEngineeringSummary {
     }
 
     public String toClipboardText(String shipTitle) {
+        return toClipboardText(shipTitle, null);
+    }
+
+    /**
+     * @param goalTargetForRow optional; returns the goal target grade for a row (0 if none)
+     */
+    public String toClipboardText(String shipTitle, java.util.function.ToIntFunction<Row> goalTargetForRow) {
         StringBuilder sb = new StringBuilder(512);
         if (shipTitle != null && !shipTitle.isBlank()) {
             sb.append(shipTitle.trim()).append('\n');
         }
         sb.append(countsLine()).append('\n');
-        appendBandSection(sb, Band.GAP);
-        appendBandSection(sb, Band.PARTIAL);
-        appendBandSection(sb, Band.DONE);
+        appendBandSection(sb, Band.GAP, goalTargetForRow);
+        appendBandSection(sb, Band.PARTIAL, goalTargetForRow);
+        appendBandSection(sb, Band.DONE, goalTargetForRow);
         return sb.toString().stripTrailing() + '\n';
     }
 
-    private void appendBandSection(StringBuilder sb, Band band) {
+    private void appendBandSection(StringBuilder sb, Band band,
+            java.util.function.ToIntFunction<Row> goalTargetForRow) {
         List<Row> section = rowsInBand(band);
         if (section.isEmpty()) {
             return;
@@ -208,9 +228,10 @@ public final class ShipEngineeringSummary {
         for (Row row : section) {
             sb.append("  ").append(row.moduleDisplay());
             if (band != Band.GAP) {
+                int target = goalTargetForRow != null ? goalTargetForRow.applyAsInt(row) : 0;
                 sb.append(" — ").append(row.blueprintDisplay())
                         .append(" · ").append(row.experimentalDisplay())
-                        .append(" — ").append(row.levelDisplay());
+                        .append(" — ").append(row.levelDisplay(target));
             }
             if (row.count() > 1) {
                 sb.append(" ×").append(row.count());
