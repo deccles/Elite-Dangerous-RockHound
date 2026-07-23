@@ -62,6 +62,7 @@ import org.dce.ed.engineering.BlueprintGrade;
 import org.dce.ed.engineering.EngineeringCraftStore;
 import org.dce.ed.engineering.EngineeringDatabase;
 import org.dce.ed.engineering.EngineeringGoal;
+import org.dce.ed.engineering.EngineeringLoadoutExperimentalPatch;
 import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.EngineeringGoalProgress;
@@ -1691,10 +1692,14 @@ public class EngineeringTabPanel extends JPanel {
                 shipId = latest.getShipId();
             }
             String clientKey = EliteDangerousOverlay.clientKey;
+            boolean loadoutPatched = false;
             if (clientKey != null && !clientKey.isBlank() && shipId >= 0) {
                 EngineeringCraftStore.rememberCraft(clientKey, craft, shipId);
+                // rememberCraft already patches stored loadout; detect for UI refresh.
+                loadoutPatched = EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft);
             }
-            if (EngineeringGoalProgress.applyCraft(goals, craft, database, shipId)) {
+            boolean goalsChanged = EngineeringGoalProgress.applyCraft(goals, craft, database, shipId);
+            if (loadoutPatched || goalsChanged) {
                 fireSessionChanged();
                 scheduleRefresh();
             }

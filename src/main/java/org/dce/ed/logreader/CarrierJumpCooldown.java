@@ -19,8 +19,19 @@ public final class CarrierJumpCooldown {
     @Deprecated
     public static final int COOLDOWN_SECONDS_EFFECTIVE = COOLDOWN_SECONDS_ABOARD_EFFECTIVE;
 
-    /** Restore in-flight countdown after restart for this long past {@code DepartureTime}. */
-    public static final long HYPERSPACE_RESTORE_MAX_AGE_SECONDS = 20L * 60L;
+    /**
+     * Restore in-flight countdown after restart only this long past {@code DepartureTime}.
+     * Real FC jumps finish in about a minute; a long window left "FC jump 0:00" stuck after
+     * restart because journal completion events are not replayed.
+     */
+    public static final long HYPERSPACE_RESTORE_MAX_AGE_SECONDS = 3L * 60L;
+
+    /**
+     * If no {@code CarrierJump} / matching {@code CarrierLocation} arrives within this many seconds
+     * after {@code DepartureTime}, treat the countdown as complete (same-system hops and missed
+     * journal events otherwise leave the title bar on "FC jump" forever).
+     */
+    public static final long COUNTDOWN_FORCE_COMPLETE_SECONDS = 3L * 60L;
 
     /**
      * Start cooldown on {@code CarrierJump} when the journal timestamp is this recent, even if we never had an
@@ -107,6 +118,17 @@ public final class CarrierJumpCooldown {
             return true;
         }
         return departure.plusSeconds(HYPERSPACE_RESTORE_MAX_AGE_SECONDS).isAfter(now);
+    }
+
+    /**
+     * True when the scheduled departure is old enough that a live countdown should be forced into
+     * cooldown even without a journal completion event.
+     */
+    public static boolean shouldForceCompleteCountdown(Instant departure, Instant now) {
+        if (departure == null || now == null) {
+            return false;
+        }
+        return !now.isBefore(departure.plusSeconds(COUNTDOWN_FORCE_COMPLETE_SECONDS));
     }
 
     /**

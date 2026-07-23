@@ -111,4 +111,36 @@ class EngineeringGoalQuantityTest {
         assertEquals(5, g4.getCompletedUnits());
         assertTrue(g4.isComplete());
     }
+
+    @Test
+    void materialsForGoal_multiUnitExperimentalSwapAtG5DoesNotRebuyGrades() {
+        BlueprintGrade autoLoader = db.findById("multi-cannon-auto-loader-experimental").orElseThrow();
+        BlueprintGrade g5 = db.gradesFor("Multi-cannon", "Efficient Weapon").stream()
+                .filter(b -> b.getGrade() == 5 && !b.isExperimental())
+                .findFirst()
+                .orElseThrow();
+
+        EngineeringGoal threeAtG5NeedExp = new EngineeringGoal(
+                g5.getId(),
+                "Multi-cannon",
+                "Efficient Weapon",
+                5,
+                0,
+                5,
+                autoLoader.getId(),
+                true,
+                false,
+                3,
+                0);
+
+        Map<String, Integer> mats = planner.materialsForGoal(threeAtG5NeedExp);
+        assertFalse(mats.isEmpty());
+        for (MaterialRequirement req : autoLoader.getMaterials()) {
+            assertEquals(req.getCount() * 3, mats.getOrDefault(req.getKey(), 0),
+                    () -> "expected 3× " + req.getKey() + " for Auto Loader only");
+        }
+        // No grade-roll mats (e.g. Efficient G1 scrap) should appear.
+        assertEquals(autoLoader.getMaterials().size(), mats.size(),
+                "G5 experimental-only swap must not re-add grade materials for sibling units");
+    }
 }

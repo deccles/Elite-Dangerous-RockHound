@@ -1060,18 +1060,35 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             return;
         }
         try {
+            Instant now = Instant.now();
             String depStr = state.getCarrierJumpDepartureTime();
             if (depStr != null && !depStr.isBlank()) {
                 Instant departure = Instant.parse(depStr);
-                if (CarrierJumpCooldown.isDepartureRestorable(departure, Instant.now())) {
+                if (CarrierJumpCooldown.isDepartureRestorable(departure, now)) {
                     restoreCarrierJumpCountdownFromSession(departure, state.getCarrierJumpTargetSystem(), state);
+                    return;
+                }
+                // Departure is too old to show as an in-flight countdown (avoids stuck "FC jump 0:00"
+                // after restart when journal completion will not be replayed). Prefer a still-active
+                // saved cooldown; otherwise synthesize cooldown from departure if it has not ended.
+                String coolStr = state.getCarrierJumpCooldownEndTime();
+                if (coolStr != null && !coolStr.isBlank()) {
+                    Instant end = Instant.parse(coolStr);
+                    if (end.isAfter(now)) {
+                        resumeCarrierJumpCooldownWithPersistedEnd(end);
+                        return;
+                    }
+                }
+                Instant synthesizedEnd = CarrierJumpCooldown.cooldownEndFromJump(departure, true);
+                if (synthesizedEnd != null && synthesizedEnd.isAfter(now)) {
+                    resumeCarrierJumpCooldownWithPersistedEnd(synthesizedEnd);
                     return;
                 }
             }
             String coolStr = state.getCarrierJumpCooldownEndTime();
             if (coolStr != null && !coolStr.isBlank()) {
                 Instant end = Instant.parse(coolStr);
-                if (end.isAfter(Instant.now())) {
+                if (end.isAfter(now)) {
                     resumeCarrierJumpCooldownWithPersistedEnd(end);
                 }
             }
@@ -1297,6 +1314,10 @@ private boolean acceptOwnedCarrierJumpRequest(CarrierJumpRequestEvent req) {
 }
 
 private void onCarrierJumpCompleted(Instant arrivalTime, boolean offCarrierCompletion) {
+    onCarrierJumpCompleted(arrivalTime, offCarrierCompletion, true);
+}
+
+private void onCarrierJumpCompleted(Instant arrivalTime, boolean offCarrierCompletion, boolean speakJumpComplete) {
     boolean hadPendingCountdown = carrierJumpDepartureTime != null;
     clearCarrierJumpCountdownStateOnly();
     Instant now = Instant.now();
@@ -1305,7 +1326,7 @@ private void onCarrierJumpCompleted(Instant arrivalTime, boolean offCarrierCompl
         return;
     }
     Instant cooldownStart = arrivalTime != null ? arrivalTime : now;
-    startCarrierJumpCooldown(cooldownStart, offCarrierCompletion, true);
+    startCarrierJumpCooldown(cooldownStart, offCarrierCompletion, speakJumpComplete);
 }
 
 /**
@@ -1414,6 +1435,13 @@ private String resolveCarrierJumpTitleTarget() {
 
 private void updateCarrierJumpCountdown() {
     if (carrierJumpDepartureTime == null) {
+        return;
+    }
+    Instant departure = carrierJumpDepartureTime;
+    if (CarrierJumpCooldown.shouldForceCompleteCountdown(departure, Instant.now())) {
+        // Journal missed completion (or same-system hop with no CarrierLocation/CarrierJump).
+        // Do not announce "Jump complete" — this is a stuck-UI recovery path.
+        onCarrierJumpCompleted(departure, !isCommanderAboardFleetCarrier(), false);
         return;
     }
     publishRightStatusText();

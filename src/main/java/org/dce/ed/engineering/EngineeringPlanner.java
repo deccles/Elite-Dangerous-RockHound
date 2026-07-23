@@ -420,9 +420,14 @@ public final class EngineeringPlanner {
             required.merge(e.getKey(), e.getValue(), Integer::sum);
         }
         if (remaining > 1) {
-            EngineeringGoal freshUnit = goal.withProgress(0, 0).withExperimentalApplied(false);
+            // Extra unfinished units: when the tracked unit is already at target grade, siblings are
+            // almost always the same (multi-hardpoint experimental swaps). Only fall back to a
+            // full G0→target buy list when grades are still in progress.
+            EngineeringGoal extraUnit = goal.getFromGrade() >= goal.getTargetGrade()
+                    ? goal.withExperimentalApplied(false)
+                    : goal.withProgress(0, 0).withExperimentalApplied(false);
             Map<String, Integer> fullUnit = new LinkedHashMap<>();
-            accumulateSingleUnitMaterials(freshUnit, fullUnit);
+            accumulateSingleUnitMaterials(extraUnit, fullUnit);
             for (Map.Entry<String, Integer> e : fullUnit.entrySet()) {
                 required.merge(e.getKey(), e.getValue() * (remaining - 1), Integer::sum);
             }

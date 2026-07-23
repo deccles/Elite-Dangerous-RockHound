@@ -77,8 +77,19 @@ class CarrierJumpCooldownTest {
     @Test
     void departureRestorable_inHyperspaceWindow() {
         Instant now = Instant.parse("2026-05-17T12:00:00Z");
-        Instant departure = now.minusSeconds(5 * 60);
+        Instant departure = now.minusSeconds(2 * 60);
         assertTrue(CarrierJumpCooldown.isDepartureRestorable(departure, now));
+        assertFalse(CarrierJumpCooldown.isDepartureRestorable(
+                now.minusSeconds(CarrierJumpCooldown.HYPERSPACE_RESTORE_MAX_AGE_SECONDS + 1), now));
+    }
+
+    @Test
+    void forceCompleteCountdown_afterGracePastDeparture() {
+        Instant departure = Instant.parse("2026-05-17T12:00:00Z");
+        assertFalse(CarrierJumpCooldown.shouldForceCompleteCountdown(
+                departure, departure.plusSeconds(CarrierJumpCooldown.COUNTDOWN_FORCE_COMPLETE_SECONDS - 1)));
+        assertTrue(CarrierJumpCooldown.shouldForceCompleteCountdown(
+                departure, departure.plusSeconds(CarrierJumpCooldown.COUNTDOWN_FORCE_COMPLETE_SECONDS)));
     }
 
     @Test

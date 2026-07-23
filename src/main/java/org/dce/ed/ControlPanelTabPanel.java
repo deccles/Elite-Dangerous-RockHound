@@ -25,6 +25,8 @@ import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 
 import org.dce.ed.exec.ExecBinding;
@@ -32,6 +34,7 @@ import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
+import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.TransparentViewportUI;
 
 /**
@@ -43,7 +46,7 @@ public final class ControlPanelTabPanel extends JPanel {
     private static final int BUTTON_HOVER_DELAY_MS = 500;
 
     private final BooleanSupplier passThroughEnabledSupplier;
-    private final JPanel buttonPanel = new JPanel();
+    private final ViewportWidthButtonPanel buttonPanel = new ViewportWidthButtonPanel();
     private final JLabel emptyLabel = new JLabel(
             "<html>No actions yet. In <b>Preferences → Exec</b>, set a <b>Name</b>, "
                     + "check <b>Control Panel</b>, and configure a program.</html>");
@@ -55,10 +58,11 @@ public final class ControlPanelTabPanel extends JPanel {
     private JScrollPane buttonScroll;
 
     public ControlPanelTabPanel(BooleanSupplier passThroughEnabledSupplier) {
-        super(new BorderLayout(8, 8));
+        super(new BorderLayout(0, 0));
         this.passThroughEnabledSupplier = passThroughEnabledSupplier;
         setOpaque(false);
-        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        // Top/bottom only — side insets become uncleared hybrid gutters (same as System tab).
+        setBorder(BorderFactory.createEmptyBorder(8, 0, 8, 0));
 
         killButton = new JButton("Kill scripts");
         killButton.setToolTipText("Stop running exec programs and cancel scheduled launches");
@@ -67,6 +71,7 @@ public final class ControlPanelTabPanel extends JPanel {
 
         buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.Y_AXIS));
         buttonPanel.setOpaque(false);
+        buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
 
         emptyLabel.setOpaque(false);
         emptyLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -78,6 +83,8 @@ public final class ControlPanelTabPanel extends JPanel {
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
         scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setViewportBorder(BorderFactory.createEmptyBorder());
+        OverlayScrollPaneSupport.installSubtleScrollBars(scroll);
         this.buttonScroll = scroll;
         add(scroll, BorderLayout.CENTER);
 
@@ -149,8 +156,48 @@ public final class ControlPanelTabPanel extends JPanel {
             if (yEnd > yStart) {
                 g2.fillRect(0, yStart, getWidth(), yEnd - yStart);
             }
+            // Side padding on the button stack (and any leftover host insets) must not leave a dark
+            // gutter beside the punched region — same class of bug as System tab.
+            clearSideGutters(g2, 0, Math.max(yStart, getHeight()));
         } finally {
             g2.dispose();
+        }
+    }
+
+    private void clearSideGutters(Graphics2D g2, int yStart, int yEnd) {
+        if (g2 == null || yEnd <= yStart) {
+            return;
+        }
+        int h = yEnd - yStart;
+        int w = getWidth();
+        Insets hostInsets = getInsets();
+        if (hostInsets != null) {
+            if (hostInsets.left > 0) {
+                g2.fillRect(0, yStart, hostInsets.left, h);
+            }
+            if (hostInsets.right > 0) {
+                g2.fillRect(w - hostInsets.right, yStart, hostInsets.right, h);
+            }
+        }
+        if (buttonPanel == null || !buttonPanel.isShowing()) {
+            return;
+        }
+        Insets stackInsets = buttonPanel.getInsets();
+        if (stackInsets == null || (stackInsets.left <= 0 && stackInsets.right <= 0)) {
+            return;
+        }
+        Point origin = SwingUtilities.convertPoint(buttonPanel, 0, 0, this);
+        int stackTop = Math.max(yStart, origin.y);
+        int stackBottom = Math.min(yEnd, origin.y + buttonPanel.getHeight());
+        if (stackBottom <= stackTop) {
+            return;
+        }
+        int stackH = stackBottom - stackTop;
+        if (stackInsets.left > 0) {
+            g2.fillRect(origin.x, stackTop, stackInsets.left, stackH);
+        }
+        if (stackInsets.right > 0) {
+            g2.fillRect(origin.x + buttonPanel.getWidth() - stackInsets.right, stackTop, stackInsets.right, stackH);
         }
     }
 
@@ -364,5 +411,40 @@ public final class ControlPanelTabPanel extends JPanel {
 
     public void applyUiFontPreferences() {
         applyUiFont(OverlayPreferences.getUiFont());
+    }
+
+    /**
+     * Button stack that stretches to the scroll viewport width so action plates are full-bleed
+     * (avoids narrow preferred-width columns with dark hybrid gutters on each side).
+     */
+    private static final class ViewportWidthButtonPanel extends JPanel implements Scrollable {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == SwingConstants.VERTICAL
+                    ? Math.max(16, visibleRect.height - 16)
+                    : Math.max(16, visibleRect.width - 16);
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
     }
 }

@@ -81,6 +81,24 @@ public final class EngineeringCraftStore {
                             craft.getLevel(),
                             craft.getQuality(),
                             raw != null ? raw : ""));
+                    if (EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft)
+                            && currentShipId >= 0) {
+                        LoadoutSnapshot snap = loadouts.get(Long.valueOf(currentShipId));
+                        if (snap != null) {
+                            String patched = EngineeringLoadoutExperimentalPatch.patchLoadoutRawJson(
+                                    snap.rawJson(), craft);
+                            if (patched != null) {
+                                Instant ts = craft.getTimestamp() != null
+                                        ? craft.getTimestamp()
+                                        : snap.timestamp();
+                                if (ts.isBefore(snap.timestamp())) {
+                                    ts = snap.timestamp();
+                                }
+                                loadouts.put(Long.valueOf(currentShipId),
+                                        new LoadoutSnapshot(currentShipId, ts, patched));
+                            }
+                        }
+                    }
                 }
             }
 
@@ -149,6 +167,68 @@ public final class EngineeringCraftStore {
                 craft.getLevel(),
                 craft.getQuality(),
                 raw != null ? raw : ""));
+        patchStoredLoadoutFromExperimentalCraft(clientKey, craft, shipId);
+    }
+
+    /**
+     * Updates the stored Loadout snapshot when an experimental is applied (Elite does not emit a
+     * new Loadout for experimental-only crafts).
+     *
+     * @return true when the stored loadout JSON was changed
+     */
+    public static boolean patchStoredLoadoutFromExperimentalCraft(String clientKey,
+                                                                  EngineerCraftEvent craft,
+                                                                  long shipId) {
+        if (clientKey == null || clientKey.isBlank() || craft == null || shipId < 0
+                || !EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft)) {
+            return false;
+        }
+        Path dbPath = SystemCache.getSqliteCacheDbPath();
+        try {
+            ensureParentDir(dbPath);
+            try (Connection c = open(dbPath)) {
+                ensureTables(c);
+                String existingRaw = null;
+                long existingTs = 0L;
+                try (PreparedStatement ps = c.prepareStatement(
+                        "SELECT raw_json, ts_epoch_ms FROM " + LOADOUTS_TABLE
+                                + " WHERE client_key = ? AND ship_id = ?")) {
+                    ps.setString(1, clientKey);
+                    ps.setLong(2, shipId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            existingRaw = rs.getString(1);
+                            existingTs = rs.getLong(2);
+                        }
+                    }
+                }
+                if (existingRaw == null || existingRaw.isBlank()) {
+                    return false;
+                }
+                String patched = EngineeringLoadoutExperimentalPatch.patchLoadoutRawJson(
+                        existingRaw, craft);
+                if (patched == null) {
+                    return false;
+                }
+                Instant craftTs = craft.getTimestamp() != null ? craft.getTimestamp() : Instant.EPOCH;
+                long tsMs = Math.max(existingTs, craftTs.toEpochMilli());
+                try (PreparedStatement ps = c.prepareStatement(
+                        "INSERT INTO " + LOADOUTS_TABLE + " (client_key, ship_id, ts_epoch_ms, raw_json) "
+                                + "VALUES (?,?,?,?) "
+                                + "ON CONFLICT(client_key, ship_id) DO UPDATE SET "
+                                + "ts_epoch_ms = excluded.ts_epoch_ms, raw_json = excluded.raw_json")) {
+                    ps.setString(1, clientKey);
+                    ps.setLong(2, shipId);
+                    ps.setLong(3, tsMs);
+                    ps.setString(4, patched);
+                    ps.executeUpdate();
+                }
+                return true;
+            }
+        } catch (Exception ex) {
+            System.err.println("[EDO] Engineering loadout experimental patch failed: " + ex.getMessage());
+            return false;
+        }
     }
 
     public static void rememberLoadout(String clientKey, LoadoutEvent loadout) {
@@ -222,9 +302,10 @@ public final class EngineeringCraftStore {
 
     /** Latest loadout per ship, reconstructed from stored journal JSON. */
     public static Map<Long, LoadoutEvent> loadLatestLoadouts(String clientKey) {
-        Map<Long, LoadoutEvent> out = new LinkedHashMap<>();
+        Map<Long, String> rawByShip = new LinkedHashMap<>();
+        Map<Long, Instant> tsByShip = new LinkedHashMap<>();
         if (clientKey == null || clientKey.isBlank()) {
-            return out;
+            return Map.of();
         }
         Path dbPath = SystemCache.getSqliteCacheDbPath();
         EliteLogParser parser = new EliteLogParser();
@@ -233,7 +314,7 @@ public final class EngineeringCraftStore {
             try (Connection c = open(dbPath)) {
                 ensureTables(c);
                 try (PreparedStatement ps = c.prepareStatement(
-                        "SELECT ship_id, raw_json FROM " + LOADOUTS_TABLE
+                        "SELECT ship_id, raw_json, ts_epoch_ms FROM " + LOADOUTS_TABLE
                                 + " WHERE client_key = ? ORDER BY ship_id ASC")) {
                     ps.setString(1, clientKey);
                     try (ResultSet rs = ps.executeQuery()) {
@@ -243,20 +324,59 @@ public final class EngineeringCraftStore {
                             if (raw == null || raw.isBlank()) {
                                 continue;
                             }
-                            try {
-                                EliteLogEvent event = parser.parseRecord(raw);
-                                if (event instanceof LoadoutEvent loadout) {
-                                    out.put(Long.valueOf(shipId), loadout);
-                                }
-                            } catch (Exception ignored) {
-                                // skip corrupt row
-                            }
+                            rawByShip.put(Long.valueOf(shipId), raw);
+                            tsByShip.put(Long.valueOf(shipId), Instant.ofEpochMilli(rs.getLong(3)));
                         }
                     }
                 }
             }
         } catch (Exception ex) {
             System.err.println("[EDO] Engineering loadout list failed: " + ex.getMessage());
+            return Map.of();
+        }
+        // Overlay experimental applies that landed after the last stored Loadout (common: engineer
+        // only emits EngineerCraft until the next board/module-change Loadout).
+        for (EngineeringCraftRecord craftRec : listCrafts(clientKey)) {
+            Instant loadoutTs = tsByShip.get(Long.valueOf(craftRec.getShipId()));
+            String raw = rawByShip.get(Long.valueOf(craftRec.getShipId()));
+            if (raw == null
+                    || !EngineeringLoadoutExperimentalPatch.craftShouldOverlayLoadout(
+                            craftRec.getTimestamp(),
+                            loadoutTs,
+                            craftRec.getShipId(),
+                            craftRec.getShipId())) {
+                continue;
+            }
+            try {
+                EliteLogEvent parsed = parser.parseRecord(craftRec.getRawJson());
+                if (!(parsed instanceof EngineerCraftEvent craft)
+                        || !EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft)) {
+                    continue;
+                }
+                String patched = EngineeringLoadoutExperimentalPatch.patchLoadoutRawJson(raw, craft);
+                if (patched != null) {
+                    rawByShip.put(Long.valueOf(craftRec.getShipId()), patched);
+                    Instant craftTs = craftRec.getTimestamp() != null
+                            ? craftRec.getTimestamp()
+                            : Instant.EPOCH;
+                    Instant prev = loadoutTs != null ? loadoutTs : Instant.EPOCH;
+                    tsByShip.put(Long.valueOf(craftRec.getShipId()),
+                            craftTs.isAfter(prev) ? craftTs : prev);
+                }
+            } catch (Exception ignored) {
+                // skip corrupt craft
+            }
+        }
+        Map<Long, LoadoutEvent> out = new LinkedHashMap<>();
+        for (Map.Entry<Long, String> e : rawByShip.entrySet()) {
+            try {
+                EliteLogEvent event = parser.parseRecord(e.getValue());
+                if (event instanceof LoadoutEvent loadout) {
+                    out.put(e.getKey(), loadout);
+                }
+            } catch (Exception ignored) {
+                // skip corrupt row
+            }
         }
         return out;
     }
