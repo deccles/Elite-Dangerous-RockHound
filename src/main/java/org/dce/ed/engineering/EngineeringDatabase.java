@@ -229,22 +229,54 @@ public final class EngineeringDatabase {
             return null;
         }
         String desc = bp.getDescription() != null ? bp.getDescription().trim() : "";
-        String mods = bp.modifierSummary();
-        if (desc.isBlank() && (mods == null || mods.isBlank())) {
+        List<BlueprintModifier> modifiers = bp.getModifiers();
+        boolean hasMods = modifiers != null && !modifiers.isEmpty();
+        if (desc.isBlank() && !hasMods) {
             return null;
         }
         String title = bp.isExperimental()
                 ? bp.getName()
                 : bp.getName() + " G" + bp.getGrade();
+        // Dark tip + bright semantic colors (readable on EDO / Windows light tooltip chrome).
+        final String tipBg = "#161616";
+        final String tipFg = "#E6E6E6";
+        final String titleFg = "#FF8C00";
+        final String goodFg = "#6DFF6D";
+        final String badFg = "#FF0000";
         StringBuilder body = new StringBuilder();
-        body.append("<b>").append(htmlEscape(title)).append("</b>");
+        body.append("<b><font color='").append(titleFg).append("'>")
+                .append(htmlEscape(title))
+                .append("</font></b>");
         if (!desc.isBlank()) {
-            body.append("<br>").append(htmlEscape(desc));
+            body.append("<br><font color='").append(tipFg).append("'>")
+                    .append(htmlEscape(desc))
+                    .append("</font>");
         }
-        if (mods != null && !mods.isBlank()) {
-            body.append("<br>").append(htmlEscape(mods));
+        if (hasMods) {
+            List<BlueprintModifier> ordered = new ArrayList<>(modifiers.size());
+            for (BlueprintModifier m : modifiers) {
+                if (m != null && !m.isGood()) {
+                    ordered.add(m);
+                }
+            }
+            for (BlueprintModifier m : modifiers) {
+                if (m != null && m.isGood()) {
+                    ordered.add(m);
+                }
+            }
+            for (BlueprintModifier m : ordered) {
+                String line = m.summary();
+                if (line == null || line.isBlank()) {
+                    continue;
+                }
+                String color = m.isGood() ? goodFg : badFg;
+                body.append("<br><font color='").append(color).append("'>")
+                        .append(htmlEscape(line))
+                        .append("</font>");
+            }
         }
-        return "<html><body style='width:300px'>" + body + "</body></html>";
+        return "<html><body style='width:300px;background-color:" + tipBg
+                + ";color:" + tipFg + ";'>" + body + "</body></html>";
     }
 
     private static String htmlEscape(String s) {
