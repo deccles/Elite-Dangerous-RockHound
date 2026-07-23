@@ -13,6 +13,7 @@ import java.awt.Window;
 import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +35,7 @@ import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
@@ -45,6 +47,7 @@ import org.dce.ed.engineering.EngineeringDatabase;
 import org.dce.ed.engineering.EngineeringGoal;
 import org.dce.ed.engineering.EngineeringGoalProgress;
 import org.dce.ed.engineering.EngineeringGoalProgress.ModuleUnitProgress;
+import org.dce.ed.engineering.EngineeringGoalSlotMatcher;
 import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringJournalBlueprintResolver;
 import org.dce.ed.engineering.EngineeringShipCatalog;
@@ -180,17 +183,13 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
 		south.setOpaque(false);
 
-		JButton copyBtn = new JButton("Copy Summary");
-		OverlayOutlineButtonStyle.applyChip(copyBtn, baseFont, false);
-		copyBtn.setToolTipText("Copy a concise Gap / Partial / Done summary");
-		Runnable copyAction = () -> {
-			if (copySummaryToClipboard()) {
-				SystemTableHoverCopyManager.showCopiedToast(copyBtn, "Summary");
-			}
-		};
-		copyBtn.addActionListener(e -> copyAction.run());
-		HoverClickPoller.register(copyBtn, HOVER_CLICK_DELAY_MS, copyAction, passThroughEnabledSupplier);
-		south.add(copyBtn);
+		JButton viewSummaryBtn = new JButton("View Summary");
+		OverlayOutlineButtonStyle.applyChip(viewSummaryBtn, baseFont, false);
+		viewSummaryBtn.setToolTipText("View Gap / Partial / Done summary (with copy)");
+		Runnable viewSummaryAction = this::showSummaryDialog;
+		viewSummaryBtn.addActionListener(e -> viewSummaryAction.run());
+		HoverClickPoller.register(viewSummaryBtn, HOVER_CLICK_DELAY_MS, viewSummaryAction, passThroughEnabledSupplier);
+		south.add(viewSummaryBtn);
 
 		JButton coriolisBtn = new JButton("Coriolis");
 		OverlayOutlineButtonStyle.applyChip(coriolisBtn, baseFont, false);
@@ -510,7 +509,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 		gbc.insets = new Insets(0, 0, 4, 8);
 		int y = 1;
-		if (band == Band.PARTIAL) {
+		if (band == Band.PARTIAL || band == Band.GAP) {
 			List<Row> withoutGoal = new ArrayList<>();
 			List<Row> withGoal = new ArrayList<>();
 			for (Row row : rows) {
@@ -523,7 +522,11 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			for (Row row : withoutGoal) {
 				gbc.gridy = y++;
 				gbc.gridwidth = 1;
-				addEngineeredRow(panel, gbc, row);
+				if (band == Band.GAP) {
+					addNoEngineeringRow(panel, gbc, row);
+				} else {
+					addEngineeredRow(panel, gbc, row);
+				}
 			}
 			if (!withoutGoal.isEmpty() && !withGoal.isEmpty()) {
 				addIntraBandSeparator(panel, gbc, y++);
@@ -532,16 +535,16 @@ final class EngineeringBuildProgressDialog extends JDialog {
 				gbc.gridy = y++;
 				gbc.gridwidth = 1;
 				gbc.insets = new Insets(0, 0, 4, 8);
-				addEngineeredRow(panel, gbc, row);
+				if (band == Band.GAP) {
+					addGapRowWithGoal(panel, gbc, row);
+				} else {
+					addEngineeredRow(panel, gbc, row);
+				}
 			}
 		} else {
 			for (Row row : rows) {
 				gbc.gridy = y++;
-				if (band == Band.GAP) {
-					addNoEngineeringRow(panel, gbc, row);
-				} else {
-					addEngineeredRow(panel, gbc, row);
-				}
+				addEngineeredRow(panel, gbc, row);
 			}
 		}
 		gbc.gridx = 0;
@@ -729,6 +732,70 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		panel.add(addBtn, gbc);
 	}
 
+	/** Gap row that already has a matching goal: show goal blueprint / experimental + Edit goal. */
+	private void addGapRowWithGoal(JPanel panel, GridBagConstraints gbc, Row row) {
+		EngineeringGoal goal = findMatchingGoal(row);
+		JLabel moduleLbl = componentLabel(row);
+		gbc.gridx = 0;
+		gbc.weightx = 0;
+		gbc.fill = GridBagConstraints.NONE;
+		panel.add(moduleLbl, gbc);
+
+		gbc.gridx = 1;
+		panel.add(slotSizeLabel(row), gbc);
+
+		String blueprint = goal != null ? goal.getBlueprintName() : "";
+		JLabel bpLbl = new JLabel(blueprint != null && !blueprint.isBlank() ? blueprint : "—");
+		bpLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		bpLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+		int bpH = Math.max(fontSize + 10, bpLbl.getPreferredSize().height);
+		bpLbl.setPreferredSize(new Dimension(FIXED_BLUEPRINT_COMBO_W, bpH));
+		bpLbl.setMinimumSize(new Dimension(FIXED_BLUEPRINT_COMBO_W, bpH));
+		int tipGrade = goal != null ? Math.max(1, goal.getTargetGrade()) : 1;
+		bpLbl.setToolTipText(database != null && blueprint != null && !blueprint.isBlank()
+				? database.blueprintEffectTooltip(row.moduleType(), blueprint, tipGrade)
+				: null);
+		gbc.gridx = 2;
+		gbc.weightx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		panel.add(bpLbl, gbc);
+
+		String goalExp = experimentalNameForGoal(goal);
+		JLabel expLbl = new JLabel(goalExp != null && !goalExp.isBlank() ? goalExp : "—");
+		expLbl.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		expLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+		int expH = Math.max(fontSize + 10, expLbl.getPreferredSize().height);
+		expLbl.setPreferredSize(new Dimension(FIXED_EXPERIMENTAL_COMBO_W, expH));
+		expLbl.setMinimumSize(new Dimension(FIXED_EXPERIMENTAL_COMBO_W, expH));
+		expLbl.setToolTipText(database != null && goalExp != null && !goalExp.isBlank()
+				? database.experimentalEffectTooltip(row.moduleType(), blueprint, goalExp)
+				: null);
+		gbc.gridx = 3;
+		gbc.weightx = 0.75;
+		panel.add(expLbl, gbc);
+
+		JLabel levelSpacer = new JLabel(" ");
+		levelSpacer.setPreferredSize(new Dimension(levelColumnWidth(), fontSize + 10));
+		gbc.gridx = 4;
+		gbc.weightx = 0;
+		gbc.fill = GridBagConstraints.NONE;
+		panel.add(levelSpacer, gbc);
+
+		JButton goalBtn = new JButton("Edit goal");
+		OverlayOutlineButtonStyle.applyChip(goalBtn, baseFont, false);
+		goalBtn.setEnabled(addGoalHandler != null);
+		goalBtn.setToolTipText("Edit the matching engineering goal (grade / experimental / quantity)");
+		Dimension actionSize = actionButtonSize(goalBtn);
+		goalBtn.setPreferredSize(actionSize);
+		goalBtn.setMinimumSize(actionSize);
+		goalBtn.setMaximumSize(actionSize);
+		Runnable goalAction = () -> openGoalForEngineeredRow(row);
+		goalBtn.addActionListener(e -> goalAction.run());
+		HoverClickPoller.register(goalBtn, HOVER_CLICK_DELAY_MS, goalAction, passThroughEnabledSupplier);
+		gbc.gridx = 5;
+		panel.add(goalBtn, gbc);
+	}
+
 	private void addEngineeredRow(JPanel panel, GridBagConstraints gbc, Row row) {
 		JLabel moduleLbl = componentLabel(row);
 		gbc.gridx = 0;
@@ -841,15 +908,17 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			experimental = null;
 		}
 		EngineeringShipRef ship = shipRefFor(row);
+		String slotKey = row.slotKey() != null ? row.slotKey() : "";
 		EngineeringGoal created = addGoalHandler.apply(new AddGoalRequest(
 				ship,
 				row.moduleType(),
 				row.moduleLabel(),
 				blueprint,
 				experimental,
-				quantityForRow(row),
+				slotKey.isBlank() ? quantityForRow(row) : 1,
 				maxGradeForBlueprint(row.moduleType(), blueprint),
-				null));
+				null,
+				slotKey));
 		if (created != null) {
 			startLoad(goalsSupplier.get(), clientKey, true);
 		}
@@ -865,15 +934,34 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			experimental = null;
 		}
 		EngineeringGoal existing = findMatchingGoal(row);
+		String slotKey = row.slotKey() != null ? row.slotKey() : "";
+		int quantity = existing != null
+				? existing.getQuantity()
+				: (slotKey.isBlank() ? quantityForRow(row) : 1);
+		String blueprintName;
+		String experimentalName;
+		int preferredGrade;
+		if (row.band() == Band.GAP && existing != null) {
+			blueprintName = existing.getBlueprintName();
+			experimentalName = experimentalNameForGoal(existing);
+			preferredGrade = existing.getTargetGrade();
+		} else {
+			blueprintName = row.blueprintLabel();
+			experimentalName = experimental;
+			preferredGrade = row.maxGrade() > 0
+					? row.maxGrade()
+					: maxGradeForBlueprint(row.moduleType(), row.blueprintLabel());
+		}
 		EngineeringGoal result = addGoalHandler.apply(new AddGoalRequest(
 				shipRefFor(row),
 				row.moduleType(),
 				row.moduleLabel(),
-				row.blueprintLabel(),
-				experimental,
-				quantityForRow(row),
-				row.maxGrade() > 0 ? row.maxGrade() : maxGradeForBlueprint(row.moduleType(), row.blueprintLabel()),
-				existing));
+				blueprintName,
+				experimentalName,
+				quantity,
+				preferredGrade,
+				existing,
+				slotKey));
 		if (result != null) {
 			startLoad(goalsSupplier.get(), clientKey, true);
 		}
@@ -940,50 +1028,37 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		if (row == null) {
 			return null;
 		}
+		List<Row> rows = currentSummary != null ? currentSummary.rows() : List.of();
 		List<EngineeringGoal> live = goalsSupplier != null ? goalsSupplier.get() : List.of();
-		String rowBp = EngineeringJournalBlueprintResolver.normalizeToken(row.blueprintLabel());
-		for (EngineeringGoal goal : live) {
-			if (goal == null || !goal.hasShip() || goal.getShipId() != row.shipId()) {
-				continue;
-			}
-			if (!EngineeringJournalBlueprintResolver.sameModuleType(goal.getModuleType(), row.moduleType())) {
-				continue;
-			}
-			if (row.band() == Band.GAP) {
-				return goal;
-			}
-			String goalBp = EngineeringJournalBlueprintResolver.normalizeToken(goal.getBlueprintName());
-			if (!rowBp.isEmpty() && rowBp.equals(goalBp)) {
-				return goal;
-			}
+		EngineeringGoal matched = EngineeringGoalSlotMatcher.forRow(row, rows, live);
+		if (matched != null) {
+			return matched;
 		}
+		if (allUnits == null || allUnits.isEmpty()) {
+			return null;
+		}
+		List<EngineeringGoal> fromUnits = new ArrayList<>();
+		IdentityHashMap<EngineeringGoal, Boolean> seen = new IdentityHashMap<>();
 		for (ModuleUnitProgress unit : allUnits) {
-			if (unit == null || unit.unit() == null || unit.shipId() != row.shipId()) {
+			if (unit == null || unit.unit() == null) {
 				continue;
 			}
-			if (!EngineeringJournalBlueprintResolver.sameModuleType(unit.moduleType(), row.moduleType())) {
-				continue;
-			}
-			if (row.band() == Band.GAP) {
-				return unit.unit();
-			}
-			String goalBp = EngineeringJournalBlueprintResolver.normalizeToken(unit.blueprintName());
-			if (!rowBp.isEmpty() && rowBp.equals(goalBp)) {
-				return unit.unit();
+			if (seen.put(unit.unit(), Boolean.TRUE) == null) {
+				fromUnits.add(unit.unit());
 			}
 		}
-		return null;
+		return EngineeringGoalSlotMatcher.forRow(row, rows, fromUnits);
 	}
 
 	private boolean hasExistingGoalFor(Row row) {
 		return findMatchingGoal(row) != null;
 	}
 
-	private boolean copySummaryToClipboard() {
+	private String buildSummaryText() {
 		ShipFilterItem filter = (ShipFilterItem) shipCombo.getSelectedItem();
 		Long shipId = filter != null ? filter.shipId() : null;
 		if (shipId == null) {
-			return false;
+			return null;
 		}
 		LoadoutEvent loadout = loadoutsByShip.get(shipId);
 		ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, database);
@@ -991,8 +1066,81 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		StringBuilder text = new StringBuilder(summary.toClipboardText(
 				title, this::goalTargetGradeFor, this::experimentalDisplayFor));
 		appendGoalsSection(text, shipId.longValue());
-		copyToClipboard(text.toString());
-		return true;
+		return text.toString();
+	}
+
+	private void showSummaryDialog() {
+		String text = buildSummaryText();
+		if (text == null) {
+			return;
+		}
+		JDialog dlg = new JDialog(this, "Loadout summary", ModalityType.APPLICATION_MODAL);
+		dlg.setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+
+		JPanel root = new JPanel(new BorderLayout(10, 10));
+		root.setBorder(new EmptyBorder(12, 14, 12, 14));
+		root.setBackground(EdoUi.User.BACKGROUND);
+		root.setOpaque(true);
+
+		JLabel heading = new JLabel("Summary");
+		heading.setFont(baseFont.deriveFont(Font.BOLD, fontSize + 2));
+		heading.setForeground(EdoUi.User.MAIN_TEXT);
+		root.add(heading, BorderLayout.NORTH);
+
+		JTextArea area = new JTextArea(text);
+		area.setEditable(false);
+		area.setLineWrap(false);
+		area.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		area.setForeground(EdoUi.User.MAIN_TEXT);
+		area.setBackground(EdoUi.User.PANEL_BG);
+		area.setCaretColor(EdoUi.User.MAIN_TEXT);
+		area.setBorder(new EmptyBorder(8, 10, 8, 10));
+		area.setSelectedTextColor(EdoUi.User.BACKGROUND);
+		area.setSelectionColor(EdoUi.User.MAIN_TEXT);
+		area.setCaretPosition(0);
+
+		JScrollPane scroll = new JScrollPane(area);
+		scroll.setBorder(BorderFactory.createEmptyBorder());
+		scroll.getViewport().setOpaque(false);
+		scroll.setOpaque(false);
+		OverlayScrollPaneSupport.installSubtleScrollBars(scroll);
+		root.add(scroll, BorderLayout.CENTER);
+
+		JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+		south.setOpaque(false);
+
+		JButton copyBtn = new JButton("Copy");
+		OverlayOutlineButtonStyle.applyChip(copyBtn, baseFont, false);
+		copyBtn.setToolTipText("Copy this summary to the clipboard");
+		Runnable copyAction = () -> {
+			copyToClipboard(text);
+			SystemTableHoverCopyManager.showCopiedToast(copyBtn, "Summary");
+		};
+		copyBtn.addActionListener(e -> copyAction.run());
+		HoverClickPoller.register(copyBtn, HOVER_CLICK_DELAY_MS, copyAction, passThroughEnabledSupplier);
+		south.add(copyBtn);
+
+		JButton closeBtn = new JButton("Close");
+		OverlayOutlineButtonStyle.applyChip(closeBtn, baseFont, false);
+		closeBtn.addActionListener(e -> dlg.dispose());
+		HoverClickPoller.register(closeBtn, HOVER_CLICK_DELAY_MS, dlg::dispose, passThroughEnabledSupplier);
+		south.add(closeBtn);
+
+		JPanel southWithRule = new JPanel(new BorderLayout());
+		southWithRule.setOpaque(false);
+		southWithRule.add(sectionSeparator(), BorderLayout.NORTH);
+		southWithRule.add(south, BorderLayout.SOUTH);
+		root.add(southWithRule, BorderLayout.SOUTH);
+
+		dlg.setContentPane(root);
+		dlg.setMinimumSize(new Dimension(420, 360));
+		dlg.setPreferredSize(new Dimension(560, 520));
+		dlg.pack();
+		dlg.setSize(560, 520);
+		dlg.setLocationRelativeTo(this);
+		dlg.setAlwaysOnTop(true);
+		AlwaysOnTopPopupFactory.installWhileShowing(dlg);
+		dlg.setVisible(true);
 	}
 
 	private String levelDisplayFor(Row row) {
@@ -1338,7 +1486,9 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			String experimentalName,
 			int quantity,
 			int preferredTargetGrade,
-			EngineeringGoal existingGoal) {
+			EngineeringGoal existingGoal,
+			/** Journal slot to pin; blank leaves the goal unscoped. */
+			String slotKey) {
 	}
 
 	private record ShipFilterItem(Long shipId, String label, boolean isSeparator) {

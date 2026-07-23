@@ -62,6 +62,7 @@ import org.dce.ed.engineering.BlueprintGrade;
 import org.dce.ed.engineering.EngineeringCraftStore;
 import org.dce.ed.engineering.EngineeringDatabase;
 import org.dce.ed.engineering.EngineeringGoal;
+import org.dce.ed.engineering.EngineeringGoalMerger;
 import org.dce.ed.engineering.EngineeringJournalBlueprintResolver;
 import org.dce.ed.engineering.EngineeringLoadoutExperimentalPatch;
 import org.dce.ed.engineering.EngineeringShipCatalog;
@@ -1656,28 +1657,46 @@ public class EngineeringTabPanel extends JPanel {
             return null;
         }
         Window owner = SwingUtilities.getWindowAncestor(this);
-        if (request.existingGoal() != null) {
+        String slotKey = request.slotKey() != null ? request.slotKey().trim() : "";
+        EngineeringGoal existing = request.existingGoal();
+        if (existing == null) {
+            existing = findReusableLoadoutGoal(request);
+        }
+        if (existing != null) {
+            int prefillQty = request.existingGoal() != null
+                    ? request.quantity()
+                    : Math.max(1, existing.getQuantity()) + 1;
             EngineeringGoal updated = EngineeringGoalDialog.showForEdit(
                     owner,
                     database,
                     passThroughEnabledSupplier,
-                    request.existingGoal(),
+                    existing,
                     shipCatalog,
                     new EngineeringGoalDialog.AddPrefill(
                             request.moduleType(),
                             request.blueprintName(),
                             request.moduleType(),
                             request.experimentalName(),
-                            request.quantity(),
-                            request.preferredTargetGrade()));
+                            prefillQty,
+                            request.preferredTargetGrade() > 0
+                                    ? request.preferredTargetGrade()
+                                    : existing.getTargetGrade()));
             if (updated != null) {
-                int idx = indexOfGoalInstance(request.existingGoal());
+                if (updated.getQuantity() > 1) {
+                    updated = updated.withTargetSlot("");
+                } else if (!slotKey.isBlank()) {
+                    updated = updated.withTargetSlot(slotKey);
+                } else if (existing.hasTargetSlot()) {
+                    updated = updated.withTargetSlot(existing.getTargetSlot());
+                }
+                int idx = indexOfGoalInstance(existing);
                 if (idx >= 0) {
                     goals.set(idx, updated);
                 } else {
                     goals.add(updated);
                 }
                 shipCatalog.rememberGoal(updated);
+                consolidateIdenticalGoals();
                 rebuildShipFilterCombo();
                 refreshGoalProgressFromJournal();
                 fireSessionChanged();
@@ -1699,14 +1718,68 @@ public class EngineeringTabPanel extends JPanel {
                         request.quantity(),
                         request.preferredTargetGrade()));
         if (goal != null) {
+            if (!slotKey.isBlank() && goal.getQuantity() <= 1) {
+                goal = goal.withTargetSlot(slotKey);
+            } else if (goal.getQuantity() > 1) {
+                goal = goal.withTargetSlot("");
+            }
             goals.add(goal);
             shipCatalog.rememberGoal(goal);
+            consolidateIdenticalGoals();
             rebuildShipFilterCombo();
             refreshGoalProgressFromJournal();
             fireSessionChanged();
             refreshUi();
         }
         return goal;
+    }
+
+    /**
+     * When adding from Loadout without an existing row match, reuse a goal that already
+     * plans the same module/blueprint/experimental/target on that ship (bump quantity).
+     */
+    private EngineeringGoal findReusableLoadoutGoal(EngineeringBuildProgressDialog.AddGoalRequest request) {
+        if (request == null || request.ship() == null || !request.ship().isKnown()) {
+            return null;
+        }
+        int targetGrade = request.preferredTargetGrade() > 0 ? request.preferredTargetGrade() : 1;
+        String experimentalId = resolveExperimentalIdForRequest(
+                request.moduleType(), request.blueprintName(), request.experimentalName());
+        return EngineeringGoalMerger.findMatching(
+                goals,
+                request.ship().getShipId(),
+                request.moduleType(),
+                request.blueprintName(),
+                experimentalId,
+                targetGrade);
+    }
+
+    private String resolveExperimentalIdForRequest(String moduleType, String blueprintName, String experimentalName) {
+        if (experimentalName == null || experimentalName.isBlank()
+                || "(none)".equalsIgnoreCase(experimentalName.trim())) {
+            return "";
+        }
+        String want = experimentalName.trim();
+        for (BlueprintGrade exp : database.experimentalsFor(moduleType, blueprintName)) {
+            if (exp.getName().equalsIgnoreCase(want)) {
+                return exp.getId();
+            }
+        }
+        String wantNorm = EngineeringJournalBlueprintResolver.normalizeToken(want);
+        for (BlueprintGrade exp : database.experimentalsFor(moduleType, blueprintName)) {
+            String nameNorm = EngineeringJournalBlueprintResolver.normalizeToken(exp.getName());
+            String idNorm = EngineeringJournalBlueprintResolver.normalizeToken(exp.getId());
+            if (nameNorm.equals(wantNorm) || idNorm.equals(wantNorm)
+                    || nameNorm.contains(wantNorm) || wantNorm.contains(nameNorm)) {
+                return exp.getId();
+            }
+        }
+        return "";
+    }
+
+    /** Collapse duplicate plan identities into quantity; no-op when already unique. */
+    private boolean consolidateIdenticalGoals() {
+        return EngineeringGoalMerger.mergeInPlace(goals);
     }
 
     private int indexOfGoalInstance(EngineeringGoal existing) {
@@ -1718,7 +1791,7 @@ public class EngineeringTabPanel extends JPanel {
                 return i;
             }
         }
-        // Progress replay may have replaced the instance; match by ship + module + blueprint.
+        // Progress replay may have replaced the instance; match by ship + module + blueprint (+ slot).
         for (int i = 0; i < goals.size(); i++) {
             EngineeringGoal g = goals.get(i);
             if (g == null) {
@@ -1730,10 +1803,16 @@ public class EngineeringTabPanel extends JPanel {
             if (!EngineeringJournalBlueprintResolver.sameModuleType(existing.getModuleType(), g.getModuleType())) {
                 continue;
             }
-            if (EngineeringJournalBlueprintResolver.normalizeToken(existing.getBlueprintName())
+            if (!EngineeringJournalBlueprintResolver.normalizeToken(existing.getBlueprintName())
                     .equals(EngineeringJournalBlueprintResolver.normalizeToken(g.getBlueprintName()))) {
-                return i;
+                continue;
             }
+            if (existing.hasTargetSlot() || g.hasTargetSlot()) {
+                if (!existing.getTargetSlot().equalsIgnoreCase(g.getTargetSlot())) {
+                    continue;
+                }
+            }
+            return i;
         }
         return -1;
     }
@@ -1867,6 +1946,9 @@ public class EngineeringTabPanel extends JPanel {
                 p.setShipId(Long.valueOf(g.getShipId()));
                 p.setShipLabel(g.getShipLabel());
             }
+            if (g.hasTargetSlot()) {
+                p.setTargetSlot(g.getTargetSlot());
+            }
             persisted.add(p);
         }
         data.setGoals(persisted);
@@ -1937,11 +2019,13 @@ public class EngineeringTabPanel extends JPanel {
                         p.getCompletedUnits(),
                         p.shipIdOrUnknown(),
                         p.getShipLabel(),
-                        p.includeInPlanningOrDefault()));
+                        p.includeInPlanningOrDefault(),
+                        p.getTargetSlot()));
                 if (!goals.isEmpty()) {
                     shipCatalog.rememberGoal(goals.get(goals.size() - 1));
                 }
             }
+            consolidateIdenticalGoals();
             for (MaterialsGoalPersisted p : eng.materialGoalsOrEmpty()) {
                 if (p == null) {
                     continue;
@@ -2382,6 +2466,7 @@ public class EngineeringTabPanel extends JPanel {
         if (goal != null) {
             goals.add(goal);
             shipCatalog.rememberGoal(goal);
+            consolidateIdenticalGoals();
             rebuildShipFilterCombo();
             // Same as edit: replay crafts/loadouts so G-level + materials match the journal.
             refreshGoalProgressFromJournal();
@@ -2480,7 +2565,14 @@ public class EngineeringTabPanel extends JPanel {
             if (fullIdx >= 0) {
                 goals.set(fullIdx, updated);
             }
+            if (updated.getQuantity() > 1) {
+                updated = updated.withTargetSlot("");
+                if (fullIdx >= 0) {
+                    goals.set(fullIdx, updated);
+                }
+            }
             shipCatalog.rememberGoal(updated);
+            consolidateIdenticalGoals();
             rebuildShipFilterCombo();
             // Recompute craft/unit progress for the new target so Status + materials stay in sync.
             refreshGoalProgressFromJournal();

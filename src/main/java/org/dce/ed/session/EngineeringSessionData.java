@@ -192,6 +192,8 @@ public final class EngineeringSessionData {
         /** null / missing = unset (legacy). */
         private Long shipId;
         private String shipLabel;
+        /** Journal slot pin; null/blank = unscoped (legacy). */
+        private String targetSlot;
 
         public String getBlueprintId() {
             return blueprintId;
@@ -326,6 +328,14 @@ public final class EngineeringSessionData {
 
         public void setShipLabel(String shipLabel) {
             this.shipLabel = shipLabel;
+        }
+
+        public String getTargetSlot() {
+            return targetSlot != null ? targetSlot : "";
+        }
+
+        public void setTargetSlot(String targetSlot) {
+            this.targetSlot = targetSlot != null ? targetSlot : "";
         }
     }
 

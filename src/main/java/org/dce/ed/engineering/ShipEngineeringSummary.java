@@ -29,6 +29,8 @@ public final class ShipEngineeringSummary {
      */
     public record Row(
             long shipId,
+            /** Raw journal slot key (e.g. {@code Slot08_Size4}); used for goal binding. */
+            String slotKey,
             String slotLabel,
             String moduleLabel,
             String moduleType,
@@ -148,7 +150,7 @@ public final class ShipEngineeringSummary {
 
     /**
      * Fitted module that is not engineerable (or not mapped to an engineering catalog type).
-     * Included in Copy Summary only.
+     * Included in View Summary / clipboard text only.
      */
     public record OtherModule(String slotLabel, String label, int count) {
         public String display() {
@@ -327,11 +329,13 @@ public final class ShipEngineeringSummary {
             if (!armourType.isBlank()) {
                 moduleLabel = "Armour · " + armourType;
             }
+            String slotKey = module.getSlot() != null ? module.getSlot().trim() : "";
             String slotLabel = friendlifySlot(module.getSlot());
             LoadoutEvent.Engineering engineering = module.getEngineering();
             if (engineering == null || engineering.getLevel() <= 0) {
                 built.add(new Row(
                         shipId,
+                        slotKey,
                         slotLabel,
                         moduleLabel,
                         moduleType,
@@ -356,6 +360,7 @@ public final class ShipEngineeringSummary {
             }
             built.add(new Row(
                     shipId,
+                    slotKey,
                     slotLabel,
                     moduleLabel,
                     moduleType,
@@ -388,7 +393,7 @@ public final class ShipEngineeringSummary {
                 || m.contains("weaponcustomisation") || m.contains("enginecustomisation");
     }
 
-    /** Cockpit / hatch noise that should not appear in Copy Summary. */
+    /** Cockpit / hatch noise that should not appear in the summary. */
     static boolean isStructuralNoiseItem(String item) {
         if (item == null || item.isBlank()) {
             return true;

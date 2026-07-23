@@ -567,6 +567,12 @@ public final class EngineeringGoalProgress {
                 if (!goalMatchesShip(template, loadout.getShipId())) {
                     continue;
                 }
+                if (template.hasTargetSlot()) {
+                    String modSlot = module.getSlot() != null ? module.getSlot().trim() : "";
+                    if (!template.getTargetSlot().equalsIgnoreCase(modSlot)) {
+                        continue;
+                    }
+                }
                 if (!template.getModuleType().equalsIgnoreCase(resolved.get().moduleType())
                         || !template.getBlueprintName().equalsIgnoreCase(resolved.get().blueprintName())) {
                     continue;
@@ -658,7 +664,9 @@ public final class EngineeringGoalProgress {
                 1,
                 0,
                 template.getShipId(),
-                template.getShipLabel());
+                template.getShipLabel(),
+                template.isIncludeInPlanning(),
+                template.getTargetSlot());
     }
 
     private static EngineeringGoal aggregateInstances(EngineeringGoal template,
@@ -759,6 +767,12 @@ public final class EngineeringGoalProgress {
             LoadoutEvent.Engineering engineering = module.getEngineering();
             if (engineering == null) {
                 continue;
+            }
+            if (goal.hasTargetSlot()) {
+                String modSlot = module.getSlot() != null ? module.getSlot().trim() : "";
+                if (!goal.getTargetSlot().equalsIgnoreCase(modSlot)) {
+                    continue;
+                }
             }
             Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
                     EngineeringJournalBlueprintResolver.resolve(

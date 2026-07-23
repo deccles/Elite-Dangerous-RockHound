@@ -28,6 +28,11 @@ public final class EngineeringGoal {
     private final long shipId;
     /** Cached display label for the ship (name / type). */
     private final String shipLabel;
+    /**
+     * Optional journal slot key this goal is pinned to (e.g. {@code Slot08_Size4}).
+     * Empty = unscoped (best-effort 1:1 match among same module type on the ship).
+     */
+    private final String targetSlot;
 
     public EngineeringGoal(String blueprintId,
                            String moduleType,
@@ -183,6 +188,26 @@ public final class EngineeringGoal {
                            long shipId,
                            String shipLabel,
                            boolean enabled) {
+        this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
+                experimentalId, priority, experimentalApplied, quantity, completedUnits,
+                shipId, shipLabel, enabled, "");
+    }
+
+    public EngineeringGoal(String blueprintId,
+                           String moduleType,
+                           String blueprintName,
+                           int fromGrade,
+                           int craftsAtCurrentGrade,
+                           int targetGrade,
+                           String experimentalId,
+                           GoalPriority priority,
+                           boolean experimentalApplied,
+                           int quantity,
+                           int completedUnits,
+                           long shipId,
+                           String shipLabel,
+                           boolean enabled,
+                           String targetSlot) {
         this.blueprintId = blueprintId != null ? blueprintId : "";
         this.moduleType = moduleType != null ? moduleType : "";
         this.blueprintName = blueprintName != null ? blueprintName : "";
@@ -197,6 +222,7 @@ public final class EngineeringGoal {
         this.completedUnits = Math.max(0, Math.min(completedUnits, this.quantity));
         this.shipId = shipId;
         this.shipLabel = shipLabel != null ? shipLabel : "";
+        this.targetSlot = targetSlot != null ? targetSlot : "";
     }
 
     public String getBlueprintId() {
@@ -260,6 +286,15 @@ public final class EngineeringGoal {
         return shipLabel;
     }
 
+    /** Journal slot key when this goal is pinned to a fitted module; empty if unscoped. */
+    public String getTargetSlot() {
+        return targetSlot;
+    }
+
+    public boolean hasTargetSlot() {
+        return targetSlot != null && !targetSlot.isBlank();
+    }
+
     public boolean hasShip() {
         return shipId >= 0;
     }
@@ -308,7 +343,8 @@ public final class EngineeringGoal {
                 completedUnits,
                 shipId,
                 shipLabel,
-                enabled);
+                enabled,
+                targetSlot);
     }
 
     public EngineeringGoal withExperimentalApplied(boolean applied) {
@@ -329,7 +365,8 @@ public final class EngineeringGoal {
                 completedUnits,
                 shipId,
                 shipLabel,
-                enabled);
+                enabled,
+                targetSlot);
     }
 
     public EngineeringGoal withPriority(GoalPriority newPriority) {
@@ -351,7 +388,8 @@ public final class EngineeringGoal {
                 completedUnits,
                 shipId,
                 shipLabel,
-                enabled);
+                enabled,
+                targetSlot);
     }
 
     public EngineeringGoal withIncludeInPlanning(boolean include) {
@@ -376,7 +414,8 @@ public final class EngineeringGoal {
                 completedUnits,
                 shipId,
                 shipLabel,
-                include);
+                include,
+                targetSlot);
     }
 
     public EngineeringGoal withQuantity(int newQuantity) {
@@ -398,7 +437,8 @@ public final class EngineeringGoal {
                 Math.min(completedUnits, q),
                 shipId,
                 shipLabel,
-                enabled);
+                enabled,
+                targetSlot);
     }
 
     public EngineeringGoal withCompletedUnits(int newCompletedUnits) {
@@ -420,7 +460,8 @@ public final class EngineeringGoal {
                 units,
                 shipId,
                 shipLabel,
-                enabled);
+                enabled,
+                targetSlot);
     }
 
     /**
@@ -464,7 +505,8 @@ public final class EngineeringGoal {
                 units,
                 shipId,
                 shipLabel,
-                enabled);
+                enabled,
+                targetSlot);
     }
 
     public EngineeringGoal withFromGrade(int newFromGrade) {
@@ -487,7 +529,8 @@ public final class EngineeringGoal {
                 0,
                 shipId,
                 shipLabel,
-                enabled);
+                enabled,
+                targetSlot);
     }
 
     public EngineeringGoal withShip(long newShipId, String newShipLabel) {
@@ -509,7 +552,31 @@ public final class EngineeringGoal {
                 completedUnits,
                 newShipId,
                 label,
-                enabled);
+                enabled,
+                targetSlot);
+    }
+
+    public EngineeringGoal withTargetSlot(String newTargetSlot) {
+        String slot = newTargetSlot != null ? newTargetSlot : "";
+        if (targetSlot.equals(slot)) {
+            return this;
+        }
+        return new EngineeringGoal(
+                blueprintId,
+                moduleType,
+                blueprintName,
+                fromGrade,
+                craftsAtCurrentGrade,
+                targetGrade,
+                experimentalId,
+                priority,
+                experimentalApplied,
+                quantity,
+                completedUnits,
+                shipId,
+                shipLabel,
+                enabled,
+                slot);
     }
 
     public EngineeringGoal withUserSettings(int newTargetGrade,
@@ -557,7 +624,8 @@ public final class EngineeringGoal {
                 && quantity == other.quantity
                 && completedUnits == other.completedUnits
                 && shipId == other.shipId
-                && shipLabel.equals(other.shipLabel);
+                && shipLabel.equals(other.shipLabel)
+                && targetSlot.equals(other.targetSlot);
     }
 
     @Override
@@ -576,6 +644,7 @@ public final class EngineeringGoal {
         result = 31 * result + completedUnits;
         result = 31 * result + Long.hashCode(shipId);
         result = 31 * result + shipLabel.hashCode();
+        result = 31 * result + targetSlot.hashCode();
         return result;
     }
 }
