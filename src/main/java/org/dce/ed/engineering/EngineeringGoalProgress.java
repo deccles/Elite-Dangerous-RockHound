@@ -836,6 +836,7 @@ public final class EngineeringGoalProgress {
 
         // When this hull's loadout shows the goal module, it is authoritative for quantity-1 goals
         // (clears sticky session "Complete" / experimentalApplied that invent materials as done).
+        // Journal craft-roll counts that are ahead of Loadout Quality must not regress.
         if (sawMatchingModule && goal.getQuantity() <= 1) {
             if (completeOnShip >= 1) {
                 return goal.withCompletedUnits(1)
@@ -845,7 +846,7 @@ public final class EngineeringGoalProgress {
             EngineeringGoal partial = bestPartial != null
                     ? bestPartial.withCompletedUnits(0)
                     : goal.withCompletedUnits(0).withExperimentalApplied(false);
-            return partial;
+            return mergeProgress(goal.withCompletedUnits(0), partial, true);
         }
 
         // Multi-unit: completed count from fully-done modules. Shared fromGrade must follow the

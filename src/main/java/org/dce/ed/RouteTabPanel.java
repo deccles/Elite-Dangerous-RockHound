@@ -1620,8 +1620,14 @@ public class RouteTabPanel extends JPanel {
 	private void installRouteTablePasteBinding() {
 		InputMap im = table.getInputMap(JComponent.WHEN_FOCUSED);
 		ActionMap am = table.getActionMap();
-		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-				"routePasteSystems");
+		int shortcutMask;
+		try {
+			shortcutMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+		} catch (java.awt.HeadlessException ignored) {
+			// CI / headless tests construct RouteTabPanel without a display.
+			shortcutMask = java.awt.event.InputEvent.CTRL_DOWN_MASK;
+		}
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, shortcutMask), "routePasteSystems");
 		am.put("routePasteSystems", new AbstractAction() {
 			private static final long serialVersionUID = 1L;
 
