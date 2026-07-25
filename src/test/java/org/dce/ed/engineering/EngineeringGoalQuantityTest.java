@@ -114,6 +114,10 @@ class EngineeringGoalQuantityTest {
 
     @Test
     void materialsForGoal_multiUnitExperimentalSwapAtG5DoesNotRebuyGrades() {
+        // Intentional: qty N with completedUnits=0 and fromGrade=target means "all N modules are
+        // already graded; shopping is experimental-only." Loadout apply must set fromGrade from the
+        // *least* progressed incomplete module so one G5 HRP cannot make three G0 siblings look
+        // experimental-only (see EngineeringGoalProgressLoadoutTest).
         BlueprintGrade autoLoader = db.findById("multi-cannon-auto-loader-experimental").orElseThrow();
         BlueprintGrade g5 = db.gradesFor("Multi-cannon", "Efficient Weapon").stream()
                 .filter(b -> b.getGrade() == 5 && !b.isExperimental())

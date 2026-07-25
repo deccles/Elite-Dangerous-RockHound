@@ -83,6 +83,38 @@ class ExecTriggerServiceTest {
     }
 
     @Test
+    void onShipJumpComplete_schedulesEnabledBinding() {
+        ExecTriggerService service = new ExecTriggerService();
+
+        ExecBinding binding = new ExecBinding();
+        binding.setJarPath("");
+        binding.setDelayMs(60_000);
+        binding.setEnabled(true);
+        binding.setTrigger(ExecTriggerId.SHIP_JUMP_COMPLETE);
+
+        ExecBindingsConfig config = new ExecBindingsConfig();
+        config.getBindings().add(binding);
+        service.setConfigSupplier(() -> config);
+
+        service.onShipJumpComplete("Alpha Centauri");
+        assertTrue(service.hasActiveScripts());
+        service.killRunningScripts();
+        assertFalse(service.hasActiveScripts());
+    }
+
+    @Test
+    void configurableTriggers_includeShipJumpComplete() {
+        boolean found = false;
+        for (ExecTriggerId id : ExecTriggerId.configurableValues()) {
+            if (id == ExecTriggerId.SHIP_JUMP_COMPLETE) {
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found);
+    }
+
+    @Test
     void runBindingNow_skipsDelayAndDoesNotSchedule() {
         ExecTriggerService service = new ExecTriggerService();
 

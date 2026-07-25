@@ -136,6 +136,118 @@ class MaterialsGoalPlannerTest {
     }
 
     @Test
+    void planByPriority_tradeSubsetStillRespectsOtherGoalsReservations() {
+        // Hide-other-ship UI: only suggest trades for the selected ship's goal, but still
+        // reserve materials for every ship's goals so we never trade them away.
+        MaterialsGoal otherShipReserve = new MaterialsGoal(
+                "Other ship reserve",
+                List.of(new MaterialRequirement("compoundshielding", 5)),
+                GoalPriority.HIGH);
+        MaterialsGoal selectedShipNeed = new MaterialsGoal(
+                "Selected ship need",
+                List.of(new MaterialRequirement("heatexchangers", 6)),
+                GoalPriority.LOW);
+
+        Map<String, Integer> inv = Map.of("compoundshielding", 5);
+
+        EngineeringPlanner.PriorityPlanResult plan = planner.planByPriority(
+                List.of(),
+                List.of(otherShipReserve, selectedShipNeed),
+                inv,
+                tradePlanner,
+                List.of(),
+                List.of(selectedShipNeed));
+
+        assertTrue(plan.trades().stream().noneMatch(
+                        t -> "compoundshielding".equalsIgnoreCase(t.getFromKey())),
+                "ship-scoped trades must not spend stock reserved for other ships");
+        assertEquals(GoalReadiness.READY, plan.readinessByMaterialsGoal().get(otherShipReserve));
+    }
+
+    @Test
+    void planByPriority_doesNotSpendPhaseAlloysOnlyEarnedByEarlierTradeSuggestion() {
+        // Repro: Need 10 Phase Alloys filled by Proto→Phase (1→3) yields 12; leftover 2 used to
+        // be spent on Conductive Components even though on-hand Phase Alloys is 0.
+        MaterialsGoal needPhase = new MaterialsGoal(
+                "Phase alloys",
+                List.of(new MaterialRequirement("phasealloys", 10)),
+                GoalPriority.HIGH);
+        MaterialsGoal needConductive = new MaterialsGoal(
+                "Conductive components",
+                List.of(new MaterialRequirement("conductivecomponents", 1)),
+                GoalPriority.LOW);
+
+        Map<String, Integer> inv = Map.of(
+                "protolightalloys", 10,
+                "phasealloys", 0,
+                "conductivecomponents", 0);
+
+        EngineeringPlanner.PriorityPlanResult plan = planner.planByPriority(
+                List.of(), List.of(needPhase, needConductive), inv, tradePlanner);
+
+        assertTrue(plan.trades().stream().anyMatch(
+                        t -> "phasealloys".equalsIgnoreCase(t.getToKey())),
+                "should still suggest acquiring Phase Alloys for the high goal");
+        assertTrue(plan.trades().stream().noneMatch(
+                        t -> "phasealloys".equalsIgnoreCase(t.getFromKey())),
+                "must not pay Phase Alloys the commander does not own yet");
+        // Leftover Proto may still cover Conductive via a direct trade; the important
+        // guard is that Phase Alloys themselves are never offered as pay stock.
+        if (plan.readinessByMaterialsGoal().get(needConductive) == GoalReadiness.STILL_SHORT) {
+            assertTrue(plan.shortfallsRemainingAfterPlan().containsKey("conductivecomponents")
+                            || plan.shortfallsRemainingAfterPlan().keySet().stream()
+                            .anyMatch(k -> "conductivecomponents".equalsIgnoreCase(k)),
+                    "Short goals must expose remaining shortfalls for Trade Suggestions");
+        }
+    }
+
+    @Test
+    void planByPriority_doesNotPayWithMaterialsAlreadyClaimedForEarlierGoal() {
+        // High goal claims all iron for crafting. Low goal must not spend that iron on a trade.
+        MaterialsGoal needIron = new MaterialsGoal(
+                "Iron reserve",
+                List.of(new MaterialRequirement("iron", 10)),
+                GoalPriority.HIGH);
+        MaterialsGoal needCadmium = new MaterialsGoal(
+                "Cadmium",
+                List.of(new MaterialRequirement("cadmium", 6)),
+                GoalPriority.LOW);
+
+        Map<String, Integer> inv = Map.of("iron", 10, "cadmium", 0);
+
+        EngineeringPlanner.PriorityPlanResult plan = planner.planByPriority(
+                List.of(), List.of(needIron, needCadmium), inv, tradePlanner);
+
+        assertEquals(GoalReadiness.READY, plan.readinessByMaterialsGoal().get(needIron));
+        assertEquals(GoalReadiness.STILL_SHORT, plan.readinessByMaterialsGoal().get(needCadmium));
+        assertTrue(plan.trades().stream().noneMatch(
+                        t -> "iron".equalsIgnoreCase(t.getFromKey())),
+                "must not pay Iron already claimed by the higher-priority goal");
+        assertFalse(plan.shortfallsRemainingAfterPlan().isEmpty());
+    }
+
+    @Test
+    void planByPriority_stillShortGoalsReportRemainingShortfalls() {
+        MaterialsGoal highReserve = new MaterialsGoal(
+                "Mission request",
+                List.of(new MaterialRequirement("iron", 5)),
+                GoalPriority.HIGH);
+        MaterialsGoal lowReserve = new MaterialsGoal(
+                "More iron",
+                List.of(new MaterialRequirement("iron", 5)),
+                GoalPriority.LOW);
+
+        Map<String, Integer> inv = Map.of("iron", 5);
+
+        EngineeringPlanner.PriorityPlanResult plan = planner.planByPriority(
+                List.of(), List.of(highReserve, lowReserve), inv, tradePlanner);
+
+        assertEquals(GoalReadiness.READY, plan.readinessByMaterialsGoal().get(highReserve));
+        assertEquals(GoalReadiness.STILL_SHORT, plan.readinessByMaterialsGoal().get(lowReserve));
+        assertEquals(5, plan.shortfallsRemainingAfterPlan().getOrDefault("iron", 0).intValue());
+    }
+
+    @Test
     void materialsGoal_multiMaterialShortWhenAnyMissing() {
         MaterialsGoal goal = new MaterialsGoal(
                 "Bundle",

@@ -47,7 +47,7 @@ final class MaterialTradeConfirmDialog extends JDialog {
     private boolean running;
 
     private MaterialTradeConfirmDialog(Window owner, String traderType, String tradeSummary,
-                                       int tradeCount, TradeAction action) {
+                                       int tradeCount, String shipScopeLabel, TradeAction action) {
         super(owner, "Material trade", ModalityType.APPLICATION_MODAL);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setResizable(false);
@@ -79,7 +79,7 @@ final class MaterialTradeConfirmDialog extends JDialog {
 
         JLabel mouseWarning = new JLabel(
                 "<html><body style='text-align:center'>"
-                        + "After hitting OK, DO NOT MOVE THE MOUSE OVER THE GAME"
+                        + "After hitting OK:<br>DO NOT TOUCH THE CONTROLS OR TRADES COULD BE WRONG"
                         + "</body></html>",
                 SwingConstants.CENTER);
         mouseWarning.setFont(base.deriveFont(Font.BOLD, fontSize));
@@ -162,7 +162,32 @@ final class MaterialTradeConfirmDialog extends JDialog {
         JPanel root = new JPanel(new BorderLayout());
         root.setBackground(EdoUi.User.PANEL_BG);
         root.setBorder(BorderFactory.createLineBorder(EdoUi.User.MAIN_TEXT, 1));
-        root.add(message, BorderLayout.CENTER);
+
+        boolean singleShip = shipScopeLabel != null && !shipScopeLabel.isBlank();
+        if (singleShip) {
+            root.add(message, BorderLayout.NORTH);
+            JLabel shipWarning = new JLabel(
+                    "<html><body style='text-align:center;width:300px'>"
+                            + "TRADING FOR "
+                            + escapeHtml(shipScopeLabel.trim())
+                            + " ONLY"
+                            + "</body></html>",
+                    SwingConstants.CENTER);
+            shipWarning.setFont(base.deriveFont(Font.BOLD, Math.max(fontSize + 4f, 18f)));
+            shipWarning.setForeground(EdoUi.User.SUCCESS);
+            shipWarning.setOpaque(false);
+            shipWarning.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(EdoUi.User.SUCCESS, 2),
+                    new EmptyBorder(14, 18, 14, 18)));
+            JPanel shipWrap = new JPanel(new BorderLayout());
+            shipWrap.setOpaque(false);
+            shipWrap.setBorder(new EmptyBorder(4, 24, 12, 24));
+            shipWrap.add(shipWarning, BorderLayout.CENTER);
+            root.add(shipWrap, BorderLayout.CENTER);
+        } else {
+            root.add(message, BorderLayout.CENTER);
+        }
+
         JPanel south = new JPanel(new BorderLayout());
         south.setOpaque(false);
         south.add(status, BorderLayout.NORTH);
@@ -224,15 +249,26 @@ final class MaterialTradeConfirmDialog extends JDialog {
 
     static MaterialTradeExecutor.Result execute(Window owner, TradeSuggestion suggestion,
                                                 TradeAction action) {
+        return execute(owner, suggestion, null, action);
+    }
+
+    static MaterialTradeExecutor.Result execute(Window owner, TradeSuggestion suggestion,
+                                                String shipScopeLabel, TradeAction action) {
         if (suggestion == null) {
             return null;
         }
-        return show(owner, suggestion.getTraderType(), suggestion.summary(), 1, action);
+        return show(owner, suggestion.getTraderType(), suggestion.summary(), 1, shipScopeLabel, action);
     }
 
     static MaterialTradeExecutor.Result executeAll(Window owner, String traderType,
                                                    List<TradeSuggestion> suggestions,
                                                    TradeAction action) {
+        return executeAll(owner, traderType, suggestions, null, action);
+    }
+
+    static MaterialTradeExecutor.Result executeAll(Window owner, String traderType,
+                                                   List<TradeSuggestion> suggestions,
+                                                   String shipScopeLabel, TradeAction action) {
         if (suggestions == null || suggestions.isEmpty()) {
             return null;
         }
@@ -240,13 +276,15 @@ final class MaterialTradeConfirmDialog extends JDialog {
         int received = suggestions.stream().mapToInt(TradeSuggestion::getToCount).sum();
         String summary = suggestions.size() + " trades — give " + paid
                 + " total materials, receive " + received + " total materials";
-        return show(owner, traderType, summary, suggestions.size(), action);
+        return show(owner, traderType, summary, suggestions.size(), shipScopeLabel, action);
     }
 
     private static MaterialTradeExecutor.Result show(Window owner, String traderType, String summary,
-                                                     int tradeCount, TradeAction action) {
+                                                     int tradeCount, String shipScopeLabel,
+                                                     TradeAction action) {
         MaterialTradeConfirmDialog dialog =
-                new MaterialTradeConfirmDialog(owner, traderType, summary, tradeCount, action);
+                new MaterialTradeConfirmDialog(owner, traderType, summary, tradeCount,
+                        shipScopeLabel, action);
         SwingUtilities.invokeLater(() -> {
             if (dialog.isDisplayable()) {
                 dialog.toFront();

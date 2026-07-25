@@ -101,6 +101,7 @@ import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
+import org.dce.ed.ui.WrapLayout;
 import org.dce.ed.ui.OverlayComboBoxStyle;
 import org.dce.ed.ui.OverlayComponentColorAnalyzer;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
@@ -112,6 +113,7 @@ import org.dce.ed.ui.TrashIcon;
 import org.dce.ed.ui.StatusCircleIcon;
 import org.dce.ed.ui.TableCellHoverClickSupport;
 import org.dce.ed.ui.TableCellHoverToggleSupport;
+import org.dce.ed.ui.TableHeaderHoverActionSupport;
 import org.dce.ed.ui.TableCellToolTipSupport;
 import org.dce.ed.ui.TableHeaderSortSupport;
 import org.dce.ed.ui.TransparentTableHeader;
@@ -199,6 +201,12 @@ public class EngineeringTabPanel extends JPanel {
     /** null = show / plan for all ships. */
     private Long goalsShipFilterId;
     private JComboBox<ShipFilterItem> shipFilterCombo;
+    /**
+     * When true and a ship is selected, materials/trades only include that ship's goals.
+     * Goals table filtering is independent (already ship-scoped via the chooser).
+     */
+    private boolean hideMatsFromOtherShips = true;
+    private JCheckBox hideMatsFromOtherShipsCheckBox;
 
     private final List<GoalReadiness> goalReadiness = new ArrayList<>();
     private final List<String> goalStatusText = new ArrayList<>();
@@ -231,6 +239,8 @@ public class EngineeringTabPanel extends JPanel {
     private boolean materialsSectionVisible = OverlayPreferences.isEngineeringMaterialsSectionVisible();
     /** Saved trade/materials divider still needs restoring once the split has a real height. */
     private boolean lowerSplitDividerRestorePending;
+    /** Saved Goals/(trades+mats) divider still needs restoring once the split has a real height. */
+    private boolean mainSplitDividerRestorePending;
 
     public EngineeringTabPanel(BooleanSupplier passThroughEnabledSupplier) {
         super(new BorderLayout(6, 6));
@@ -259,6 +269,34 @@ public class EngineeringTabPanel extends JPanel {
         goalsTable.getColumnModel().getColumn(COL_GOAL_ENABLED).setHeaderRenderer(new GoalEnabledHeaderRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setCellRenderer(new GoalPriorityCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_PRIORITY).setHeaderRenderer(new GoalPriorityHeaderRenderer());
+        goalsTable.getTableHeader().addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                if (passThroughEnabledSupplier != null && passThroughEnabledSupplier.getAsBoolean()) {
+                    return;
+                }
+                JTableHeader header = goalsTable.getTableHeader();
+                int viewCol = header.columnAtPoint(e.getPoint());
+                if (viewCol < 0) {
+                    return;
+                }
+                int modelCol = goalsTable.convertColumnIndexToModel(viewCol);
+                if (modelCol != COL_GOAL_ENABLED) {
+                    return;
+                }
+                e.consume();
+                toggleAllVisibleGoalsEnabled();
+            }
+        });
+        TableHeaderHoverActionSupport.install(
+                goalsTable,
+                COL_GOAL_ENABLED,
+                passThroughEnabledSupplier,
+                INCLUDE_HOVER_DELAY_MS,
+                this::toggleAllVisibleGoalsEnabled);
         int includeW = priorityColumnWidth();
         goalsTable.getColumnModel().getColumn(COL_GOAL_ENABLED).setMinWidth(includeW);
         goalsTable.getColumnModel().getColumn(COL_GOAL_ENABLED).setMaxWidth(includeW);
@@ -421,6 +459,30 @@ public class EngineeringTabPanel extends JPanel {
         configureSplitPane(mainSplit, 0.28);
         mainSplit.setFocusable(false);
         EdoMiningSplitPaneUi.install(mainSplit);
+        mainSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (!mainSplitDividerRestorePending
+                    && mainSplit.getDividerSize() > 0 && mainSplit.isShowing()
+                    && mainSplit.getDividerLocation() > 0) {
+                OverlayPreferences.setEngineeringMainSplitDividerLocation(mainSplit.getDividerLocation());
+            }
+        });
+        mainSplit.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (mainSplit.getHeight() <= 0) {
+                    return;
+                }
+                if (mainSplitDividerRestorePending) {
+                    restoreMainSplitDividerLocation();
+                }
+            }
+        });
+        mainSplitDividerRestorePending = true;
+        SwingUtilities.invokeLater(() -> {
+            if (mainSplitDividerRestorePending && mainSplit.getHeight() > 0) {
+                restoreMainSplitDividerLocation();
+            }
+        });
 
         add(mainSplit, BorderLayout.CENTER);
 
@@ -446,18 +508,44 @@ public class EngineeringTabPanel extends JPanel {
         north.setOpaque(false);
         north.setLayout(new BoxLayout(north, BoxLayout.Y_AXIS));
 
-        JPanel shipRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel shipRow = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 4));
         shipRow.setOpaque(false);
         shipRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        shipRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        shipRow.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                shipRow.revalidate();
+            }
+        });
         JLabel shipLbl = new JLabel("Ship:");
         shipLbl.setFont(base.deriveFont(Font.PLAIN, fontSize));
         shipLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
         shipRow.add(shipLbl);
         shipFilterCombo = new JComboBox<>();
         styleShipFilterCombo(shipFilterCombo, base);
-        shipFilterCombo.setToolTipText("Filter which goals are listed (materials and trades always use all ships)");
+        shipFilterCombo.setToolTipText("Filter which goals are listed");
         shipFilterCombo.addActionListener(e -> onShipFilterChanged());
         shipRow.add(shipFilterCombo);
+        hideMatsFromOtherShipsCheckBox = new JCheckBox("Hide other ship Mats");
+        OverlayCheckBoxStyle.apply(hideMatsFromOtherShipsCheckBox);
+        hideMatsFromOtherShipsCheckBox.setFont(base.deriveFont(Font.PLAIN, fontSize));
+        hideMatsFromOtherShipsCheckBox.setSelected(hideMatsFromOtherShips);
+        hideMatsFromOtherShipsCheckBox.setToolTipText(
+                "When a ship is selected, Materials Required and Trade Suggestions show only that ship's goals — "
+                        + "other ships' priorities still reserve materials so this ship cannot trade them away");
+        hideMatsFromOtherShipsCheckBox.addActionListener(e -> {
+            hideMatsFromOtherShips = hideMatsFromOtherShipsCheckBox.isSelected();
+            fireSessionChanged();
+            refreshUi();
+        });
+        HoverClickPoller.register(hideMatsFromOtherShipsCheckBox, INCLUDE_HOVER_DELAY_MS, () -> {
+            if (hideMatsFromOtherShipsCheckBox.isEnabled()) {
+                hideMatsFromOtherShipsCheckBox.doClick();
+            }
+        }, passThroughEnabledSupplier);
+        shipRow.add(hideMatsFromOtherShipsCheckBox);
+        syncHideMatsCheckboxEnabled();
         north.add(shipRow);
         north.add(Box.createVerticalStrut(4));
 
@@ -633,6 +721,21 @@ public class EngineeringTabPanel extends JPanel {
         int min = lowerSplit.getMinimumDividerLocation();
         int max = lowerSplit.getMaximumDividerLocation();
         lowerSplit.setDividerLocation(Math.max(min, Math.min(saved, max)));
+    }
+
+    private void restoreMainSplitDividerLocation() {
+        mainSplitDividerRestorePending = false;
+        if (mainSplit == null) {
+            return;
+        }
+        int saved = OverlayPreferences.getEngineeringMainSplitDividerLocation();
+        if (saved <= 0) {
+            mainSplit.resetToPreferredSizes();
+            return;
+        }
+        int min = mainSplit.getMinimumDividerLocation();
+        int max = mainSplit.getMaximumDividerLocation();
+        mainSplit.setDividerLocation(Math.max(min, Math.min(saved, max)));
     }
 
     /**
@@ -1984,6 +2087,7 @@ public class EngineeringTabPanel extends JPanel {
         }
         data.setKnownShips(ships);
         data.setGoalsShipFilterId(goalsShipFilterId);
+        data.setHideMatsFromOtherShips(Boolean.valueOf(hideMatsFromOtherShips));
         state.setEngineering(data);
     }
 
@@ -1992,6 +2096,7 @@ public class EngineeringTabPanel extends JPanel {
         materialsGoals.clear();
         shipCatalog.clear();
         goalsShipFilterId = null;
+        hideMatsFromOtherShips = true;
         if (state != null && state.getEngineering() != null) {
             EngineeringSessionData eng = state.getEngineering();
             for (ShipPersisted sp : eng.knownShipsOrEmpty()) {
@@ -2001,6 +2106,7 @@ public class EngineeringTabPanel extends JPanel {
                 }
             }
             goalsShipFilterId = eng.getGoalsShipFilterId();
+            hideMatsFromOtherShips = eng.hideMatsFromOtherShipsOrDefault();
             for (EngineeringGoalPersisted p : eng.goalsOrEmpty()) {
                 if ("__inventory_consolidation__".equals(p.getBlueprintId())) {
                     continue;
@@ -2057,6 +2163,10 @@ public class EngineeringTabPanel extends JPanel {
             }
         }
         rebuildShipFilterCombo();
+        if (hideMatsFromOtherShipsCheckBox != null) {
+            hideMatsFromOtherShipsCheckBox.setSelected(hideMatsFromOtherShips);
+        }
+        syncHideMatsCheckboxEnabled();
         scheduleRefresh();
     }
 
@@ -2217,6 +2327,7 @@ public class EngineeringTabPanel extends JPanel {
         shipFilterCombo.setSelectedItem(select);
         goalsShipFilterId = select.shipId();
         widenShipFilterComboToFitItems();
+        syncHideMatsCheckboxEnabled();
     }
 
     private void widenShipFilterComboToFitItems() {
@@ -2270,8 +2381,21 @@ public class EngineeringTabPanel extends JPanel {
             return;
         }
         goalsShipFilterId = next;
+        syncHideMatsCheckboxEnabled();
         fireSessionChanged();
         refreshUi();
+    }
+
+    private void syncHideMatsCheckboxEnabled() {
+        if (hideMatsFromOtherShipsCheckBox == null) {
+            return;
+        }
+        // Always clickable so the control stays visible; planning only scopes when a ship is selected.
+        hideMatsFromOtherShipsCheckBox.setEnabled(true);
+        hideMatsFromOtherShipsCheckBox.setToolTipText(goalsShipFilterId != null
+                ? "Materials Required and Trade Suggestions show this ship's goals only; "
+                        + "other ships' priorities still reserve materials"
+                : "Select a ship above to scope Materials Required and Trade Suggestions to that ship");
     }
 
     private void styleShipFilterCombo(JComboBox<ShipFilterItem> combo, Font base) {
@@ -2383,6 +2507,64 @@ public class EngineeringTabPanel extends JPanel {
         }
         fireSessionChanged();
         scheduleRefresh();
+    }
+
+    /**
+     * Master toggle for the Goals enabled header: applies only to rows currently shown
+     * (respects the ship filter). If every visible goal is enabled, disable them; otherwise
+     * enable all visible goals.
+     */
+    private void toggleAllVisibleGoalsEnabled() {
+        List<GoalUiRow> visible = goalsForUi();
+        if (visible.isEmpty()) {
+            return;
+        }
+        boolean allEnabled = true;
+        for (GoalUiRow row : visible) {
+            if (!row.isEnabled()) {
+                allEnabled = false;
+                break;
+            }
+        }
+        boolean next = !allEnabled;
+        boolean changed = false;
+        for (GoalUiRow row : visible) {
+            if (row.isEnabled() == next) {
+                continue;
+            }
+            if (row.isMaterials()) {
+                MaterialsGoal goal = row.materials();
+                int fullIdx = materialsGoals.indexOf(goal);
+                if (fullIdx >= 0) {
+                    materialsGoals.set(fullIdx, goal.withEnabled(next));
+                    changed = true;
+                }
+            } else {
+                EngineeringGoal goal = row.blueprint();
+                int fullIdx = goals.indexOf(goal);
+                if (fullIdx >= 0) {
+                    goals.set(fullIdx, goal.withEnabled(next));
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            fireSessionChanged();
+            scheduleRefresh();
+        }
+    }
+
+    private boolean allVisibleGoalsEnabled() {
+        List<GoalUiRow> visible = goalsForUi();
+        if (visible.isEmpty()) {
+            return true;
+        }
+        for (GoalUiRow row : visible) {
+            if (!row.isEnabled()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static Icon iconForGoalPriority(GoalPriority priority) {
@@ -2603,17 +2785,23 @@ public class EngineeringTabPanel extends JPanel {
     private void refreshUi() {
         Map<String, Integer> inv = inventoryTracker.snapshot();
         List<GoalUiRow> visibleGoals = goalsForUi();
-        // Materials / trades / priority claim always use every active goal (all ships).
-        // Ship filter only changes which goals appear in the Goals table.
+        // Always plan against every included goal so priorities / reservations stay global.
         List<EngineeringGoal> planningGoals = activeGoalsForPlanning();
         List<MaterialsGoal> planningMats = activeMaterialsGoalsForPlanning();
-        Map<String, Integer> shortfalls = planner.shortfalls(planningGoals, planningMats, inv);
-        EngineeringPlanner.PriorityPlanResult plan =
-                planner.planByPriority(planningGoals, planningMats, inv, tradePlanner);
+        // Display + trade suggestions may be scoped to one ship without dropping other ships
+        // from the priority/reservation plan.
+        List<EngineeringGoal> displayGoals = displayScopedGoals(planningGoals);
+        List<MaterialsGoal> displayMats = displayScopedMaterialsGoals(planningMats);
+        boolean shipScopedDisplay = planningShipScopeId() != null;
+        Map<String, Integer> shortfalls = planner.shortfalls(displayGoals, displayMats, inv);
+        EngineeringPlanner.PriorityPlanResult plan = shipScopedDisplay
+                ? planner.planByPriority(planningGoals, planningMats, inv, tradePlanner,
+                        displayGoals, displayMats)
+                : planner.planByPriority(planningGoals, planningMats, inv, tradePlanner);
         List<TradeSuggestion> trades = new ArrayList<>(plan.trades());
         Map<String, Integer> invAfterTrades = plan.inventoryAfterTrades();
         List<ShoppingListRow> shopping =
-                planner.buildShoppingList(planningGoals, planningMats, inv, invAfterTrades);
+                planner.buildShoppingList(displayGoals, displayMats, inv, invAfterTrades);
 
         Map<EngineeringGoal, GoalReadiness> readinessByBlueprint = plan.readinessByBlueprintGoal();
         Map<MaterialsGoal, GoalReadiness> readinessByMaterials = plan.readinessByMaterialsGoal();
@@ -2642,13 +2830,17 @@ public class EngineeringTabPanel extends JPanel {
 
         shoppingModel.setRows(shopping);
         Map<String, Integer> shortfallsAfterTrades =
-                planner.shortfalls(planningGoals, planningMats, invAfterTrades);
-        updateTradeTable(trades, shortfalls, shortfallsAfterTrades);
+                planner.shortfalls(displayGoals, displayMats, invAfterTrades);
+        // Prefer remaining Short-goal gaps so Trade Suggestions matches Goals status; fall back
+        // to aggregate post-trade shortfalls for materials that only become short after pays.
+        Map<String, Integer> uncoveredShortfalls =
+                mergeShortfallMaps(plan.shortfallsRemainingAfterPlan(), shortfallsAfterTrades);
+        updateTradeTable(trades, shortfalls, uncoveredShortfalls);
         goalsModel.fireTableDataChanged();
 
         boolean hasVisibleGoals = !visibleGoals.isEmpty();
         boolean hasGoals = !goals.isEmpty() || !materialsGoals.isEmpty();
-        boolean hasActiveGoals = !planningGoals.isEmpty() || !planningMats.isEmpty();
+        boolean hasActiveGoals = !displayGoals.isEmpty() || !displayMats.isEmpty();
         boolean showShopping = hasActiveGoals && !shopping.isEmpty();
         boolean showTrades = !trades.isEmpty();
         materialsEmptyLabel.setVisible(!showShopping);
@@ -2688,7 +2880,9 @@ public class EngineeringTabPanel extends JPanel {
         applyEngineeringTableColumnLayouts();
     }
 
-    /** Active (non-disabled) goals across all ships — used for materials, trades, and priority claim. */
+    /**
+     * All included goals for priority planning and material reservations (every ship).
+     */
     private List<EngineeringGoal> activeGoalsForPlanning() {
         List<EngineeringGoal> out = new ArrayList<>();
         for (EngineeringGoal g : goals) {
@@ -2709,14 +2903,69 @@ public class EngineeringTabPanel extends JPanel {
         return out;
     }
 
+    /**
+     * Goals shown in Materials Required / Trade Suggestions. When Hide other ship Mats is on
+     * with a ship selected, only that ship's goals appear — planning still uses all ships.
+     */
+    private List<EngineeringGoal> displayScopedGoals(List<EngineeringGoal> planningGoals) {
+        Long shipScope = planningShipScopeId();
+        if (shipScope == null) {
+            return planningGoals;
+        }
+        List<EngineeringGoal> out = new ArrayList<>();
+        for (EngineeringGoal g : planningGoals) {
+            if (g != null && g.hasShip() && g.getShipId() == shipScope.longValue()) {
+                out.add(g);
+            }
+        }
+        return out;
+    }
+
+    private List<MaterialsGoal> displayScopedMaterialsGoals(List<MaterialsGoal> planningMats) {
+        Long shipScope = planningShipScopeId();
+        if (shipScope == null) {
+            return planningMats;
+        }
+        List<MaterialsGoal> out = new ArrayList<>();
+        for (MaterialsGoal g : planningMats) {
+            if (isMaterialsGoalVisibleForShipFilter(g, shipScope)) {
+                out.add(g);
+            }
+        }
+        return out;
+    }
+
+    /** Ship id to scope materials/trades display, or null for all ships. */
+    private Long planningShipScopeId() {
+        if (!hideMatsFromOtherShips || goalsShipFilterId == null) {
+            return null;
+        }
+        return goalsShipFilterId;
+    }
+
+    /** Display name when trades are scoped to one ship; null when trading for all ships. */
+    private String singleShipTradeScopeLabel() {
+        if (planningShipScopeId() == null || shipFilterCombo == null) {
+            return null;
+        }
+        Object selected = shipFilterCombo.getSelectedItem();
+        if (selected instanceof ShipFilterItem item
+                && item.shipId() != null
+                && item.label() != null
+                && !item.label().isBlank()) {
+            return item.label();
+        }
+        return null;
+    }
+
     private void updateTradeTable(List<TradeSuggestion> trades,
                                   Map<String, Integer> shortfalls,
-                                  Map<String, Integer> shortfallsAfterTrades) {
+                                  Map<String, Integer> uncoveredShortfalls) {
         List<TradeTableRow> rows = new ArrayList<>();
         Map<String, List<TradeTargetGroup>> grouped =
                 MaterialTradePlanner.groupByTraderTypeAndTarget(trades, shortfalls);
         Map<String, List<TradeTableRow>> untradeable =
-                untradeableShortfallRows(grouped, shortfalls, shortfallsAfterTrades);
+                untradeableShortfallRows(grouped, shortfalls, uncoveredShortfalls);
         for (Map.Entry<String, List<TradeTargetGroup>> entry : grouped.entrySet()) {
             List<TradeTargetGroup> targets = entry.getValue();
             if (targets == null || targets.isEmpty()) {
@@ -2727,15 +2976,21 @@ public class EngineeringTabPanel extends JPanel {
             }
             rows.add(TradeTableRow.section(traderTypeSectionTitle(entry.getKey())));
             for (TradeTargetGroup group : targets) {
-                boolean uncovered = shortfallRemaining(shortfallsAfterTrades, group.getToKey()) > 0;
+                boolean uncovered = shortfallRemaining(uncoveredShortfalls, group.getToKey()) > 0;
                 List<TradeSuggestion> options = group.getOptions();
                 for (int i = 0; i < options.size(); i++) {
                     TradeSuggestion option = options.get(i);
                     boolean firstOption = i == 0;
                     boolean lastOption = i == options.size() - 1;
+                    // Need column: prefer remaining Short amount when still uncovered after the plan.
+                    Integer needDisplay = null;
+                    if (firstOption) {
+                        int remaining = shortfallRemaining(uncoveredShortfalls, group.getToKey());
+                        needDisplay = Integer.valueOf(remaining > 0 ? remaining : group.getShortfall());
+                    }
                     rows.add(TradeTableRow.data(
                             firstOption ? group.getToName() : "",
-                            firstOption ? Integer.valueOf(group.getShortfall()) : null,
+                            needDisplay,
                             formatTradeGive(option),
                             option.getToCount(),
                             uncovered,
@@ -2765,16 +3020,40 @@ public class EngineeringTabPanel extends JPanel {
         tradeModel.setRows(reorderTradeRowsUncoveredFirst(rows));
     }
 
+    /** Union of shortfall maps; when both have a key, keep the larger remaining Need. */
+    private static Map<String, Integer> mergeShortfallMaps(Map<String, Integer> primary,
+                                                           Map<String, Integer> secondary) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        if (primary != null) {
+            for (Map.Entry<String, Integer> e : primary.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null || e.getValue() <= 0) {
+                    continue;
+                }
+                out.put(EngineeringMaterialKeys.canonicalKey(e.getKey()), e.getValue());
+            }
+        }
+        if (secondary != null) {
+            for (Map.Entry<String, Integer> e : secondary.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null || e.getValue() <= 0) {
+                    continue;
+                }
+                String key = EngineeringMaterialKeys.canonicalKey(e.getKey());
+                out.merge(key, e.getValue(), Math::max);
+            }
+        }
+        return out;
+    }
+
     /**
-     * Rows for materials that stay short after all suggested trades and have no trade suggestion
+     * Rows for materials that stay short after the priority plan and have no trade suggestion
      * of their own — rendered red with no Trade action, keyed by trader-type section.
      */
     private Map<String, List<TradeTableRow>> untradeableShortfallRows(
             Map<String, List<TradeTargetGroup>> grouped,
             Map<String, Integer> shortfalls,
-            Map<String, Integer> shortfallsAfterTrades) {
+            Map<String, Integer> uncoveredShortfalls) {
         Map<String, List<TradeTableRow>> out = new LinkedHashMap<>();
-        if (shortfalls == null || shortfalls.isEmpty()) {
+        if (uncoveredShortfalls == null || uncoveredShortfalls.isEmpty()) {
             return out;
         }
         Set<String> suggested = new HashSet<>();
@@ -2783,13 +3062,19 @@ public class EngineeringTabPanel extends JPanel {
                 suggested.add(EngineeringMaterialKeys.canonicalKey(group.getToKey()));
             }
         }
-        for (Map.Entry<String, Integer> e : shortfalls.entrySet()) {
+        // Prefer uncovered (plan remaining / after trades); fall back to initial Need for display.
+        for (Map.Entry<String, Integer> e : uncoveredShortfalls.entrySet()) {
             String key = e.getKey();
             int need = e.getValue() != null ? e.getValue() : 0;
             if (key == null || need <= 0
-                    || suggested.contains(EngineeringMaterialKeys.canonicalKey(key))
-                    || shortfallRemaining(shortfallsAfterTrades, key) <= 0) {
+                    || suggested.contains(EngineeringMaterialKeys.canonicalKey(key))) {
                 continue;
+            }
+            if (shortfalls != null) {
+                int initial = shortfallRemaining(shortfalls, key);
+                if (initial > need) {
+                    need = initial;
+                }
             }
             String traderType = database.material(key)
                     .map(m -> m.getType())
@@ -2934,10 +3219,11 @@ public class EngineeringTabPanel extends JPanel {
                         dialogStatus.accept(msg);
                         SwingUtilities.invokeLater(() -> setTradeStatus(msg, false));
                     });
+            String shipScopeLabel = singleShipTradeScopeLabel();
             result = tradeAll
                     ? MaterialTradeConfirmDialog.executeAll(
-                            owner, suggestion.getTraderType(), toRun, action)
-                    : MaterialTradeConfirmDialog.execute(owner, suggestion, action);
+                            owner, suggestion.getTraderType(), toRun, shipScopeLabel, action)
+                    : MaterialTradeConfirmDialog.execute(owner, suggestion, shipScopeLabel, action);
         } finally {
             tradeAutomationRunning = false;
         }
@@ -3081,7 +3367,7 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
-    private static final class GoalEnabledHeaderRenderer extends DefaultTableCellRenderer {
+    private final class GoalEnabledHeaderRenderer extends DefaultTableCellRenderer {
         GoalEnabledHeaderRenderer() {
             setOpaque(false);
             setHorizontalAlignment(SwingConstants.CENTER);
@@ -3093,10 +3379,15 @@ public class EngineeringTabPanel extends JPanel {
             Component c = super.getTableCellRendererComponent(table, "", false, false, row, column);
             if (c instanceof JLabel label) {
                 label.setOpaque(false);
-                label.setIcon(OverlayCheckBoxStyle.selectedIcon());
+                boolean allOn = allVisibleGoalsEnabled();
+                label.setIcon(allOn
+                        ? OverlayCheckBoxStyle.selectedIcon()
+                        : OverlayCheckBoxStyle.unselectedIcon());
                 label.setText(null);
                 label.setHorizontalAlignment(SwingConstants.CENTER);
-                label.setToolTipText("Enabled — include in materials and trades");
+                label.setToolTipText(allOn
+                        ? "Disable all visible goals (materials / trades)"
+                        : "Enable all visible goals (materials / trades)");
                 label.setBorder(new EmptyBorder(2, 2, 4, 2));
             }
             return c;
@@ -3732,8 +4023,10 @@ public class EngineeringTabPanel extends JPanel {
         }
 
         /**
-         * A data row runs one trade. A trader-type section row runs every displayed
-         * trade below it, in display order, up to the next section/gap.
+         * A data row runs one trade when that shortfall is coverable. A trader-type section row
+         * runs every displayed coverable trade below it, in display order, up to the next
+         * section/gap. Red (uncovered) shortfalls are skipped — there is not enough inventory
+         * to complete those trades.
          */
         List<TradeSuggestion> tradesForActionAt(int rowIndex) {
             if (rowIndex < 0 || rowIndex >= rows.size()) {
@@ -3741,7 +4034,10 @@ public class EngineeringTabPanel extends JPanel {
             }
             TradeTableRow row = rows.get(rowIndex);
             if (!row.section()) {
-                return row.suggestion() != null ? List.of(row.suggestion()) : List.of();
+                if (row.shortfallUncovered() || row.suggestion() == null) {
+                    return List.of();
+                }
+                return List.of(row.suggestion());
             }
             List<TradeSuggestion> trades = new ArrayList<>();
             for (int i = rowIndex + 1; i < rows.size(); i++) {
@@ -3749,9 +4045,10 @@ public class EngineeringTabPanel extends JPanel {
                 if (candidate.section() || candidate.gapRow()) {
                     break;
                 }
-                if (candidate.suggestion() != null) {
-                    trades.add(candidate.suggestion());
+                if (candidate.shortfallUncovered() || candidate.suggestion() == null) {
+                    continue;
                 }
+                trades.add(candidate.suggestion());
             }
             return List.copyOf(trades);
         }
@@ -3823,7 +4120,7 @@ public class EngineeringTabPanel extends JPanel {
                 case COL_TRADE_MATERIAL -> row.materialName();
                 case COL_TRADE_NEED -> row.need();
                 case COL_TRADE_GIVE -> row.give();
-                case COL_TRADE_ACTION -> row.suggestion() != null ? "Trade" : "";
+                case COL_TRADE_ACTION -> tradesForActionAt(rowIndex).isEmpty() ? "" : "Trade";
                 case COL_TRADE_RECEIVE -> row.receive() > 0 ? Integer.valueOf(row.receive()) : null;
                 default -> "";
             };
@@ -3932,8 +4229,6 @@ public class EngineeringTabPanel extends JPanel {
             }
             if (!isSelected && !gap && !section && tradeModel.isShortfallUncovered(modelRow)) {
                 c.setForeground(EdoUi.User.ERROR);
-            } else if (!isSelected && column == COL_TRADE_NEED && value instanceof Integer need && need > 0) {
-                c.setForeground(new Color(255, 160, 120));
             } else if (!isSelected && (column == COL_TRADE_GIVE || column == COL_TRADE_RECEIVE)) {
                 c.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
             }

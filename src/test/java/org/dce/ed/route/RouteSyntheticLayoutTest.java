@@ -33,6 +33,29 @@ class RouteSyntheticLayoutTest {
     }
 
     @Test
+    void syntheticCurrentInsertedBeforeLonePastedHop() {
+        List<RouteEntry> base = new ArrayList<>();
+        base.add(coordRow("Colonia", 2L, 100, 0, 0));
+        RouteCoordsResolver resolver = (name, addr, pref) -> new Double[] { 0.0, 0.0, 0.0 };
+        RouteTargetState ts = new RouteTargetState();
+        List<RouteEntry> out = RouteLayoutEngine.buildDisplayedEntries(
+                base,
+                null,
+                "Sol",
+                1L,
+                null,
+                ts,
+                null,
+                0L,
+                resolver,
+                false);
+        assertEquals(2, out.size());
+        assertEquals("Sol", out.get(0).systemName);
+        assertTrue(out.get(0).isSynthetic);
+        assertEquals("Colonia", out.get(1).systemName);
+    }
+
+    @Test
     void renumberDisplayIndexesSkipsSynthetic() {
         List<RouteEntry> rows = new ArrayList<>();
         rows.add(coordRow("A", 1L, 0, 0, 0));

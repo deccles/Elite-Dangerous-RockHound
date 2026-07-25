@@ -260,6 +260,8 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 		// Create tab content panels
 		this.routeTab = new RouteTabPanel(hoverSwitchEnabled);
+		// Patched Loadouts after EngineerCraft (no fresh journal Loadout) must refresh the fuel gauge.
+		addLoadoutChangeListener(routeTab::refreshShipFuelProfileFromLatestLoadout);
 		this.systemTab = new SystemTabPanel();
 		this.systemTab.setNearBodyChangedListener(this::handleNearBodyChanged);
 		
@@ -697,13 +699,29 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	 * on the visible tab.
 	 */
 	public boolean isPointerOverSelectiveHit(Point screenPoint) {
+		if (isRouteReorderGestureActiveAnywhere()) {
+			return true;
+		}
 		return isPointerOverSelectiveHitForCard(visibleCardName, screenPoint);
+	}
+
+	/** True while a Route / Fleet Carrier row drag is in progress. */
+	public boolean isRouteReorderGestureActiveAnywhere() {
+		return (routeTab != null && routeTab.isRouteReorderGestureActive())
+				|| (fleetCarrierTab != null && fleetCarrierTab.isRouteReorderGestureActive());
 	}
 
 	/** Selective hit-test for a specific card (used by floating docks that host that card). */
 	public boolean isPointerOverSelectiveHitForCard(String cardName, Point screenPoint) {
 		if (screenPoint == null || cardName == null) {
 			return false;
+		}
+		if (CARD_ROUTE.equals(cardName) && routeTab != null && routeTab.isRouteReorderGestureActive()) {
+			return true;
+		}
+		if (CARD_FLEET_CARRIER.equals(cardName) && fleetCarrierTab != null
+				&& fleetCarrierTab.isRouteReorderGestureActive()) {
+			return true;
 		}
 		return switch (cardName) {
 			case CARD_ROUTE -> routeTab != null && routeTab.isPointerOverInteractiveRegion(screenPoint);

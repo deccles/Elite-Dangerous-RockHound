@@ -92,9 +92,10 @@ public final class EngineeringGoalProgress {
         }
         int nextCompleted = goal.getCompletedUnits() + 1;
         if (nextCompleted >= goal.getQuantity()) {
+            // experimentalApplied must already be true when the goal requires one (see
+            // isCurrentUnitComplete); do not invent it from experimentalId alone.
             return goal.withCompletedUnits(goal.getQuantity())
-                    .withProgress(goal.getTargetGrade(), 0)
-                    .withExperimentalApplied(!goal.getExperimentalId().isBlank());
+                    .withProgress(goal.getTargetGrade(), 0);
         }
         return goal.withCompletedUnits(nextCompleted)
                 .withProgress(0, 0)
@@ -581,6 +582,7 @@ public final class EngineeringGoalProgress {
                 EngineeringGoal working = instances.computeIfAbsent(key, k -> blankUnitProgress(template));
                 EngineeringGoal updated = applyPartialLoadoutProgress(working, engineering, db);
                 if (isEngineeringCompleteForGoal(template, engineering, db)) {
+                    // isEngineeringCompleteForGoal already verified the experimental when required.
                     updated = updated.withProgress(template.getTargetGrade(), 0)
                             .withExperimentalApplied(!template.getExperimentalId().isBlank())
                             .withCompletedUnits(1);
@@ -698,14 +700,30 @@ public final class EngineeringGoalProgress {
         completed = Math.min(targetQty, completed);
         EngineeringGoal aggregated = template.withCompletedUnits(completed);
         if (completed >= targetQty) {
+            // Units only count complete when isCurrentUnitComplete (experimental satisfied) or when
+            // loadout/craft marked completedUnits with experimental verified — never invent
+            // experimentalApplied from experimentalId alone.
             return aggregated.withProgress(template.getTargetGrade(), 0)
-                    .withExperimentalApplied(!template.getExperimentalId().isBlank());
+                    .withExperimentalApplied(
+                            template.getExperimentalId().isBlank() || anyExperimentalApplied(instances));
         }
         if (bestPartial != null) {
             return aggregated.withProgress(bestPartial.getFromGrade(), bestPartial.getCraftsAtCurrentGrade())
                     .withExperimentalApplied(bestPartial.isExperimentalApplied());
         }
         return aggregated;
+    }
+
+    private static boolean anyExperimentalApplied(Collection<EngineeringGoal> instances) {
+        if (instances == null) {
+            return false;
+        }
+        for (EngineeringGoal instance : instances) {
+            if (instance != null && instance.isExperimentalApplied()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -760,19 +778,34 @@ public final class EngineeringGoalProgress {
             return goal;
         }
         int completeOnShip = 0;
-        EngineeringGoal bestPartial = goal;
-        int bestPartialLevel = -1;
+        EngineeringGoal bestPartial = null;
+        int bestPartialScore = -1;
+        EngineeringGoal worstIncomplete = null;
+        int worstIncompleteScore = Integer.MAX_VALUE;
+        boolean sawMatchingModule = false;
 
         for (LoadoutEvent.Module module : loadout.getModules()) {
-            LoadoutEvent.Engineering engineering = module.getEngineering();
-            if (engineering == null) {
-                continue;
-            }
             if (goal.hasTargetSlot()) {
                 String modSlot = module.getSlot() != null ? module.getSlot().trim() : "";
                 if (!goal.getTargetSlot().equalsIgnoreCase(modSlot)) {
                     continue;
                 }
+            }
+            LoadoutEvent.Engineering engineering = module.getEngineering();
+            if (engineering == null) {
+                // Stock / unengineered module of this type still counts as an unfinished G0 unit.
+                String itemType = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
+                if (itemType != null && !itemType.isBlank()
+                        && goal.getModuleType().equalsIgnoreCase(itemType)) {
+                    sawMatchingModule = true;
+                    EngineeringGoal stock = goal.withProgress(0, 0).withExperimentalApplied(false);
+                    int score = progressScore(stock);
+                    if (score < worstIncompleteScore) {
+                        worstIncompleteScore = score;
+                        worstIncomplete = stock;
+                    }
+                }
+                continue;
             }
             Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
                     EngineeringJournalBlueprintResolver.resolve(
@@ -784,49 +817,72 @@ public final class EngineeringGoalProgress {
                     || !goal.getBlueprintName().equalsIgnoreCase(resolved.get().blueprintName())) {
                 continue;
             }
+            sawMatchingModule = true;
             if (isEngineeringCompleteForGoal(goal, engineering, db)) {
                 completeOnShip++;
                 continue;
             }
-            int level = engineering.getLevel();
-            if (level > bestPartialLevel) {
-                bestPartialLevel = level;
-                bestPartial = applyPartialLoadoutProgress(goal, engineering, db);
+            EngineeringGoal snapshot = progressSnapshotFromEngineering(goal, engineering, db);
+            int score = progressScore(snapshot);
+            if (score > bestPartialScore) {
+                bestPartialScore = score;
+                bestPartial = snapshot;
+            }
+            if (score < worstIncompleteScore) {
+                worstIncompleteScore = score;
+                worstIncomplete = snapshot;
             }
         }
 
-        // Current Loadout is only one ship. Never regress journal/session progress for modules
-        // parked on other ships (full multi-ship engineering status is a separate follow-up).
+        // When this hull's loadout shows the goal module, it is authoritative for quantity-1 goals
+        // (clears sticky session "Complete" / experimentalApplied that invent materials as done).
+        if (sawMatchingModule && goal.getQuantity() <= 1) {
+            if (completeOnShip >= 1) {
+                return goal.withCompletedUnits(1)
+                        .withProgress(goal.getTargetGrade(), 0)
+                        .withExperimentalApplied(!goal.getExperimentalId().isBlank());
+            }
+            EngineeringGoal partial = bestPartial != null
+                    ? bestPartial.withCompletedUnits(0)
+                    : goal.withCompletedUnits(0).withExperimentalApplied(false);
+            return partial;
+        }
+
+        // Multi-unit: completed count from fully-done modules. Shared fromGrade must follow the
+        // LEAST progressed incomplete module — using the best one made Need treat every sibling as
+        // "experimental only" when a single HRP reached G5.
         int completedUnits = Math.max(
                 goal.getCompletedUnits(),
                 Math.min(goal.getQuantity(), completeOnShip));
         EngineeringGoal updated = goal.withCompletedUnits(completedUnits);
-        if (completedUnits >= goal.getQuantity()) {
+        if (completeOnShip >= goal.getQuantity()) {
             return updated.withProgress(goal.getTargetGrade(), 0)
                     .withExperimentalApplied(!goal.getExperimentalId().isBlank());
         }
-        if (bestPartialLevel >= 0) {
-            updated = bestPartial.withCompletedUnits(completedUnits);
+        if (worstIncomplete != null) {
+            return worstIncomplete.withCompletedUnits(completedUnits);
+        }
+        if (sawMatchingModule && !goal.getExperimentalId().isBlank() && completeOnShip == 0) {
+            updated = updated.withExperimentalApplied(false);
         }
         return updated;
     }
 
-    private static EngineeringGoal applyPartialLoadoutProgress(EngineeringGoal goal,
-                                                                 LoadoutEvent.Engineering engineering,
-                                                                 EngineeringDatabase db) {
-        EngineeringGoal updated = goal;
+    /** Absolute grade/experimental progress for one loadout module (ignores sticky session fromGrade). */
+    private static EngineeringGoal progressSnapshotFromEngineering(EngineeringGoal template,
+                                                                     LoadoutEvent.Engineering engineering,
+                                                                     EngineeringDatabase db) {
+        EngineeringGoal updated = template.withProgress(0, 0).withExperimentalApplied(false);
         int level = engineering.getLevel();
         double quality = engineering.getQuality();
         if (level > 0) {
             int loadoutFrom;
             int loadoutCrafts;
-            // Quality < 1 means the commander is still rolling the current Level grade.
-            // fromGrade = grades fully finished; craftsAtCurrentGrade ≈ Quality * 5.
             if (quality >= 0.999d) {
-                loadoutFrom = Math.min(level, goal.getTargetGrade());
+                loadoutFrom = Math.min(level, template.getTargetGrade());
                 loadoutCrafts = 0;
             } else {
-                loadoutFrom = Math.min(Math.max(0, level - 1), goal.getTargetGrade());
+                loadoutFrom = Math.min(Math.max(0, level - 1), template.getTargetGrade());
                 loadoutCrafts = Math.max(0, Math.min(
                         EngineeringGradeProgress.ROLLS_PER_GRADE - 1,
                         (int) Math.round(quality * EngineeringGradeProgress.ROLLS_PER_GRADE)));
@@ -834,14 +890,10 @@ public final class EngineeringGoalProgress {
                     loadoutCrafts = 1;
                 }
             }
-            if (loadoutFrom > updated.getFromGrade()
-                    || (loadoutFrom == updated.getFromGrade()
-                            && loadoutCrafts > updated.getCraftsAtCurrentGrade())) {
-                updated = updated.withProgress(loadoutFrom, loadoutCrafts);
-            }
+            updated = updated.withProgress(loadoutFrom, loadoutCrafts);
         }
-        if (!goal.getExperimentalId().isBlank() && !updated.isExperimentalApplied()) {
-            Optional<BlueprintGrade> experimental = db.findById(goal.getExperimentalId());
+        if (!template.getExperimentalId().isBlank()) {
+            Optional<BlueprintGrade> experimental = db.findById(template.getExperimentalId());
             if (experimental.isPresent()
                     && experimentalEffectMatches(
                             "",
@@ -850,6 +902,32 @@ public final class EngineeringGoalProgress {
                             experimental.get())) {
                 updated = updated.withExperimentalApplied(true);
             }
+        }
+        return updated;
+    }
+
+    private static int progressScore(EngineeringGoal goal) {
+        if (goal == null) {
+            return -1;
+        }
+        return goal.getFromGrade() * 1000
+                + goal.getCraftsAtCurrentGrade() * 10
+                + (goal.isExperimentalApplied() ? 1 : 0);
+    }
+
+    private static EngineeringGoal applyPartialLoadoutProgress(EngineeringGoal goal,
+                                                                 LoadoutEvent.Engineering engineering,
+                                                                 EngineeringDatabase db) {
+        // Re-evaluate experimental from this module; do not keep a sticky session "applied" flag.
+        EngineeringGoal snapshot = progressSnapshotFromEngineering(goal, engineering, db);
+        EngineeringGoal updated = goal.withExperimentalApplied(snapshot.isExperimentalApplied());
+        if (snapshot.getFromGrade() > updated.getFromGrade()
+                || (snapshot.getFromGrade() == updated.getFromGrade()
+                        && snapshot.getCraftsAtCurrentGrade() > updated.getCraftsAtCurrentGrade())) {
+            updated = updated.withProgress(snapshot.getFromGrade(), snapshot.getCraftsAtCurrentGrade());
+        }
+        if (snapshot.isExperimentalApplied()) {
+            updated = updated.withExperimentalApplied(true);
         }
         return updated;
     }

@@ -118,6 +118,21 @@ public final class ExecTriggerService {
                 .build());
     }
 
+    /**
+     * Ship hyperspace arrival ({@code FSDJump}). Does not fire for fleet carrier jumps.
+     * {@code nextDestination} is the next hop on the ship Route tab (may be blank at end of route).
+     */
+    public void onShipJumpComplete(String nextDestination) {
+        ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.SHIP_JUMP_COMPLETE)
+                .carrierSystemName(carrierSystemName())
+                .carrierCallsign(fuelTracker.getLastKnownCallsign())
+                .carrierName(fuelTracker.getLastKnownCarrierName());
+        if (nextDestination != null && !nextDestination.isBlank()) {
+            builder.destination(nextDestination.trim());
+        }
+        fireTrigger(ExecTriggerId.SHIP_JUMP_COMPLETE, builder.build());
+    }
+
     /** Fires enabled bindings whose shortcut key matches (global F-key hook). */
     public void onShortcutKeyPressed(int keyCode) {
         if (!ExecShortcutKeys.isSupported(keyCode)) {

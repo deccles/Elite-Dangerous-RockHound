@@ -15,9 +15,13 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.io.IOException;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
@@ -31,16 +35,22 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.util.concurrent.ConcurrentHashMap;
 
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 
+import javax.swing.AbstractAction;
+import javax.swing.ActionMap;
 import javax.swing.Icon;
+import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -49,6 +59,7 @@ import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JViewport;
+import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -205,6 +216,15 @@ public class RouteTabPanel extends JPanel {
 	private StatusHoverPopupManager statusHoverPopupManager;
 	private StatusHoverPopupManager fuelHoverPopupManager;
 	private final EdsmClient edsmClient;
+	/** Display-row index being dragged for reorder; {@code -1} when idle. */
+	private int routeDragFromDisplayRow = -1;
+	/** Base-route index captured at press (avoids remapping after display rebuilds). */
+	private int routeDragFromBaseIndex = -1;
+	/** Insertion line as a display-row index ({@code 0..rowCount}); {@code -1} when hidden. */
+	private int routeDropInsertDisplayRow = -1;
+	private boolean routeDragArmed;
+	private boolean routeDragActive;
+	private Point routeDragStartPoint;
 	private final BooleanSupplier passThroughEnabledSupplier;
 	// Caches coordinates we resolved from EDSM (used for inserting synthetic rows).
 	private final java.util.Map<String, Double[]> resolvedCoordsCache = new java.util.concurrent.ConcurrentHashMap<>();
@@ -334,18 +354,26 @@ public class RouteTabPanel extends JPanel {
 		return OverlayScrollPaneSupport.isPointerOverScrollBar(routeScrollPane, screenPoint);
 	}
 
-	/** Selective mouse mode: distance toggles, Copy next destination, and system-name cells (double-click copy). */
+	/** Selective mouse mode: distance toggles, route table (paste / drag reorder / copy), Copy next destination. */
 	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+		if (isRouteReorderGestureActive()) {
+			return true;
+		}
 		if (SelectiveHitSupport.containsScreenPoint(lyModeFromCurrentButton, screenPoint)) {
 			return true;
 		}
 		if (SelectiveHitSupport.containsScreenPoint(lyModePerLegButton, screenPoint)) {
 			return true;
 		}
-		if (SelectiveHitSupport.isOverModelColumnCell(table, screenPoint, COL_SYSTEM)) {
+		if (SelectiveHitSupport.containsScreenPoint(table, screenPoint)) {
 			return true;
 		}
 		return SelectiveHitSupport.containsScreenPoint(copyNextDestinationButton, screenPoint);
+	}
+
+	/** True while a route-row drag is armed or in progress (keeps mouse pass-through disabled). */
+	public boolean isRouteReorderGestureActive() {
+		return routeDragArmed || routeDragActive || routeDropInsertDisplayRow >= 0;
 	}
 
 	public void applySessionState(EdoSessionState state) {
@@ -450,13 +478,14 @@ public class RouteTabPanel extends JPanel {
 			protected void paintComponent(Graphics g) {
 				super.paintComponent(g);
 				TransparentViewportUI.clearBelowTableRowsInSelectiveMode(g, this);
+				paintRouteRowDropLine(g);
 			}
 		};
 		// Belt-and-suspenders: remove editors so nothing can ever enter edit mode.
 		table.setDefaultEditor(Object.class, null);
 		table.setDefaultEditor(String.class, null);
-		// Prevent focus/selection/edit initiation entirely (keeps look identical but stops click weirdness)
-		table.setFocusable(false);
+		// Focusable for Ctrl+V paste; editing stays disabled. Selection stays off (drag uses custom gesture).
+		table.setFocusable(true);
 		table.setRowSelectionAllowed(false);
 		table.setColumnSelectionAllowed(false);
 		table.setCellSelectionEnabled(false);
@@ -723,6 +752,9 @@ public class RouteTabPanel extends JPanel {
 		table.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mouseClicked(MouseEvent e) {
+				if (routeDragActive) {
+					return;
+				}
 				if (e.getClickCount() != 2) {
 					return;
 				}
@@ -737,7 +769,62 @@ public class RouteTabPanel extends JPanel {
 				}
 				systemTableHoverCopyManager.copySystemNameAtViewRow(viewRow);
 			}
+
+			@Override
+			public void mousePressed(MouseEvent e) {
+				if (!SwingUtilities.isLeftMouseButton(e)) {
+					return;
+				}
+				table.requestFocusInWindow();
+				int viewRow = table.rowAtPoint(e.getPoint());
+				int fromBase = baseIndexForDisplayRow(viewRow);
+				if (viewRow < 0 || fromBase < 0) {
+					clearRouteDragState();
+					return;
+				}
+				routeDragArmed = true;
+				routeDragActive = false;
+				routeDragFromDisplayRow = viewRow;
+				routeDragFromBaseIndex = fromBase;
+				routeDragStartPoint = e.getPoint();
+				routeDropInsertDisplayRow = -1;
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e) {
+				boolean wasDragging = routeDragActive && routeDragFromBaseIndex >= 0 && routeDropInsertDisplayRow >= 0;
+				int fromBase = routeDragFromBaseIndex;
+				int insertDisplay = routeDropInsertDisplayRow;
+				clearRouteDragState();
+				table.setCursor(Cursor.getDefaultCursor());
+				table.repaint();
+				if (!wasDragging) {
+					return;
+				}
+				applyRouteRowReorderFromBase(fromBase, insertDisplay);
+			}
 		});
+		table.addMouseMotionListener(new MouseMotionAdapter() {
+			@Override
+			public void mouseDragged(MouseEvent e) {
+				if (!routeDragArmed || routeDragFromBaseIndex < 0 || routeDragStartPoint == null) {
+					return;
+				}
+				int dx = e.getX() - routeDragStartPoint.x;
+				int dy = e.getY() - routeDragStartPoint.y;
+				if (!routeDragActive && (dx * dx + dy * dy) < 25) {
+					return;
+				}
+				routeDragActive = true;
+				table.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+				int insertAt = dropInsertDisplayRowAt(e.getPoint());
+				if (insertAt != routeDropInsertDisplayRow) {
+					routeDropInsertDisplayRow = insertAt;
+					table.repaint();
+				}
+			}
+		});
+		installRouteTablePasteBinding();
 
 		reloadFromNavRouteFile();
 	}
@@ -867,6 +954,31 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		fireSessionStateChanged();
+		if (event instanceof FsdJumpEvent) {
+			notifyShipJumpComplete();
+		}
+	}
+
+	/**
+	 * Fires Exec {@link ExecTriggerId#SHIP_JUMP_COMPLETE} after the ship Route session has
+	 * advanced on {@code FSDJump}. Fleet Carrier jumps use {@code CarrierJump} and do not reach here
+	 * on {@link FleetCarrierTabPanel}.
+	 */
+	private void notifyShipJumpComplete() {
+		if (execTriggerService == null || !firesShipJumpCompleteTrigger()) {
+			return;
+		}
+		execTriggerService.onShipJumpComplete(nextRouteDestinationSystemName(routeSession));
+	}
+
+	/** Ship Route tab only; Fleet Carrier overrides to {@code false}. */
+	protected boolean firesShipJumpCompleteTrigger() {
+		return true;
+	}
+
+	/** Called after paste / drag reorder so subclasses (Fleet Carrier) can latch custom-route state. */
+	protected void onCustomRouteMutated() {
+		// no-op on ship Route tab
 	}
 
 	/**
@@ -928,8 +1040,9 @@ public class RouteTabPanel extends JPanel {
 				double loadGameFuel = lastLoadGame != null ? lastLoadGame.getFuelLevel() : Double.NaN;
 				RouteFuelPrediction.ShipFuelProfile profileFinal = profile;
 				SwingUtilities.invokeLater(() -> {
-					// Live events win: only fill in what hasn't arrived yet.
-					if (shipFuelProfile == null && profileFinal != null) {
+					// Prefer the journal snapshot at startup (includes FSD crafts after the last
+					// Loadout). Live Loadout/EngineerCraft events keep updating afterward.
+					if (profileFinal != null) {
 						shipFuelProfile = profileFinal;
 					}
 					if (Double.isNaN(shipFuelMainTons) && !Double.isNaN(loadGameFuel)) {
@@ -948,13 +1061,18 @@ public class RouteTabPanel extends JPanel {
 	/** Keeps the ship/FSD fuel snapshot current from journal + Status events. */
 	private void trackShipFuelState(EliteLogEvent event) {
 		if (event instanceof LoadoutEvent lo) {
-			shipFuelProfile = RouteFuelPrediction.profileFromLoadout(lo);
-			recomputeRouteFuelPrediction();
+			applyShipFuelProfile(RouteFuelPrediction.profileFromLoadout(lo));
 		} else if (event instanceof EngineerCraftEvent craft
-				&& RouteFuelPrediction.isFsdCraft(craft)
-				&& shipFuelProfile != null) {
-			shipFuelProfile = RouteFuelPrediction.applyFsdCraft(shipFuelProfile, craft);
-			recomputeRouteFuelPrediction();
+				&& RouteFuelPrediction.isFsdCraft(craft)) {
+			// EliteOverlayTabbedPane patches getLatestLoadout() before this runs. Rebuild from that
+			// so UnladenMass + FSDOptimalMass match the craft (not a prior ship's stale profile).
+			RouteFuelPrediction.ShipFuelProfile rebuilt =
+					RouteFuelPrediction.profileFromLoadout(EliteOverlayTabbedPane.getLatestLoadout());
+			if (rebuilt != null) {
+				applyShipFuelProfile(rebuilt);
+			} else if (shipFuelProfile != null) {
+				applyShipFuelProfile(RouteFuelPrediction.applyFsdCraft(shipFuelProfile, craft));
+			}
 		} else if (event instanceof LoadGameEvent lg) {
 			shipFuelMainTons = lg.getFuelLevel();
 			recomputeRouteFuelPrediction();
@@ -971,7 +1089,28 @@ public class RouteTabPanel extends JPanel {
 				shipCargoTons = cargo;
 				recomputeRouteFuelPrediction();
 			}
+			// Lazy Loadout fill (e.g. overlay started mid-session) so FSD crafts aren't ignored.
+			if (shipFuelProfile == null) {
+				refreshShipFuelProfileFromLatestLoadout();
+			}
 		}
+	}
+
+	/**
+	 * Rebuilds the fuel-gauge FSD profile from {@link EliteOverlayTabbedPane#getLatestLoadout()},
+	 * including in-memory patches after {@code EngineerCraft} when Elite omits a fresh Loadout.
+	 */
+	void refreshShipFuelProfileFromLatestLoadout() {
+		applyShipFuelProfile(RouteFuelPrediction.profileFromLoadout(
+				EliteOverlayTabbedPane.getLatestLoadout()));
+	}
+
+	private void applyShipFuelProfile(RouteFuelPrediction.ShipFuelProfile profile) {
+		if (profile == null) {
+			return;
+		}
+		shipFuelProfile = profile;
+		recomputeRouteFuelPrediction();
 	}
 
 	/**
@@ -1053,11 +1192,16 @@ public class RouteTabPanel extends JPanel {
 			}
 			if (scoopable && !hasScoop) {
 				sb.append("<br>Star is scoopable, but this ship has no fuel scoop.");
+			} else if (scoopable && hasScoop && fp != null && !fp.assumesScooping()) {
+				sb.append("<br>Fuel estimate ignores scooping (preference).");
 			}
 			appendSlashLegend(sb, scoopable);
 		} else {
-			if (hasScoop) {
+			if (hasScoop && fp != null && fp.assumesScooping()) {
 				sb.append("Scoopable star — you can refuel here")
+						.append(fuelArrivalHtml(fp, modelRow)).append(".");
+			} else if (hasScoop && fp != null && !fp.assumesScooping()) {
+				sb.append("Scoopable star — fuel estimate ignores scooping (preference)")
 						.append(fuelArrivalHtml(fp, modelRow)).append(".");
 			} else if (shipFuelProfile != null) {
 				sb.append("Scoopable star class — this ship has no fuel scoop.")
@@ -1105,7 +1249,12 @@ public class RouteTabPanel extends JPanel {
 			for (int i = 0; i < n; i++) {
 				rows.add(tableModel.getEntries(i));
 			}
-			next = RouteFuelPrediction.simulate(rows, shipFuelProfile, shipFuelMainTons, shipCargoTons);
+			next = RouteFuelPrediction.simulate(
+					rows,
+					shipFuelProfile,
+					shipFuelMainTons,
+					shipCargoTons,
+					OverlayPreferences.isRouteFuelPredictionConsiderScoop());
 		}
 		routeFuelPrediction = next;
 		if (table != null) {
@@ -1466,6 +1615,250 @@ public class RouteTabPanel extends JPanel {
 			scrollToKeepCurrentRowAtOffset();
 		});
 		updateCopyNextDestinationButton();
+	}
+
+	private void installRouteTablePasteBinding() {
+		InputMap im = table.getInputMap(JComponent.WHEN_FOCUSED);
+		ActionMap am = table.getActionMap();
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+				"routePasteSystems");
+		am.put("routePasteSystems", new AbstractAction() {
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				pasteSystemsFromClipboard();
+			}
+		});
+	}
+
+	private void pasteSystemsFromClipboard() {
+		String text = readClipboardText();
+		if (text == null || text.isBlank()) {
+			setHeaderLabelText("Clipboard is empty.");
+			return;
+		}
+		List<String> names = parsePastedSystemNames(text);
+		if (names.isEmpty()) {
+			setHeaderLabelText("No system names found on clipboard.");
+			return;
+		}
+		setHeaderLabelText("Adding " + names.size() + " system" + (names.size() == 1 ? "" : "s") + "…");
+		final List<String> namesFinal = List.copyOf(names);
+		Thread t = new Thread(() -> {
+			List<RouteEntry> resolved = new ArrayList<>();
+			for (String name : namesFinal) {
+				RouteEntry entry = resolvePastedSystem(name);
+				if (entry != null) {
+					resolved.add(entry);
+				}
+			}
+			SwingUtilities.invokeLater(() -> applyPastedRouteEntries(resolved, namesFinal.size()));
+		}, "RoutePasteSystems");
+		t.setDaemon(true);
+		t.start();
+	}
+
+	private void applyPastedRouteEntries(List<RouteEntry> resolved, int requestedCount) {
+		if (resolved == null || resolved.isEmpty()) {
+			setHeaderLabelText("Could not resolve pasted system name" + (requestedCount == 1 ? "" : "s") + ".");
+			return;
+		}
+		routeSession.ensureCurrentSystemAtStartIfMissing(
+				routeSession.getCurrentSystemName(),
+				routeSession.getCurrentSystemAddress(),
+				routeSession.getCurrentStarPos());
+		for (RouteEntry entry : resolved) {
+			routeSession.appendBaseRouteEntry(entry);
+			if (entry.systemName != null && entry.x != null) {
+				resolvedCoordsCache.put(entry.systemName, new Double[] { entry.x, entry.y, entry.z });
+			}
+		}
+		onCustomRouteMutated();
+		rebuildDisplayedEntries();
+		fireSessionStateChanged();
+		int baseSize = routeSession.getBaseRouteEntries().size();
+		String msg = "Route: " + baseSize + " systems";
+		if (resolved.size() < requestedCount) {
+			msg += " (added " + resolved.size() + " of " + requestedCount + ")";
+		}
+		setHeaderLabelText(msg);
+	}
+
+	private RouteEntry resolvePastedSystem(String rawName) {
+		if (rawName == null || rawName.isBlank()) {
+			return null;
+		}
+		String name = rawName.trim();
+		RouteEntry entry = new RouteEntry();
+		entry.systemName = name;
+		entry.systemAddress = 0L;
+		entry.starClass = "?";
+		entry.status = RouteScanStatus.UNKNOWN;
+		try {
+			org.dce.ed.edsm.SystemResponse sys = edsmClient.getSystem(name);
+			if (sys != null && sys.name != null && !sys.name.isBlank()) {
+				entry.systemName = sys.name;
+				if (sys.id64 != null) {
+					entry.systemAddress = sys.id64.longValue();
+				}
+				if (sys.coords != null) {
+					entry.x = Double.valueOf(sys.coords.x);
+					entry.y = Double.valueOf(sys.coords.y);
+					entry.z = Double.valueOf(sys.coords.z);
+				}
+			}
+		} catch (Exception ignored) {
+			// Keep the pasted name even if EDSM is unreachable.
+		}
+		return entry;
+	}
+
+	/** Splits clipboard text into candidate system names (newlines / commas / semicolons). */
+	static List<String> parsePastedSystemNames(String text) {
+		List<String> out = new ArrayList<>();
+		if (text == null || text.isBlank()) {
+			return out;
+		}
+		String[] parts = text.split("[\\n\\r,;]+");
+		for (String part : parts) {
+			if (part == null) {
+				continue;
+			}
+			String name = part.trim();
+			if (name.isEmpty()) {
+				continue;
+			}
+			// Ignore obvious non-system lines (headers, distances).
+			if (name.equalsIgnoreCase("system") || name.equalsIgnoreCase("star system")) {
+				continue;
+			}
+			out.add(name);
+		}
+		return out;
+	}
+
+	private static String readClipboardText() {
+		try {
+			Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+			Transferable contents = clipboard.getContents(null);
+			if (contents != null && contents.isDataFlavorSupported(DataFlavor.stringFlavor)) {
+				Object data = contents.getTransferData(DataFlavor.stringFlavor);
+				return data != null ? data.toString() : null;
+			}
+		} catch (Exception ignored) {
+			// Clipboard access can fail in locked-down environments.
+		}
+		return null;
+	}
+
+	private void clearRouteDragState() {
+		routeDragArmed = false;
+		routeDragActive = false;
+		routeDragFromDisplayRow = -1;
+		routeDragFromBaseIndex = -1;
+		routeDropInsertDisplayRow = -1;
+		routeDragStartPoint = null;
+	}
+
+	private void paintRouteRowDropLine(Graphics g) {
+		if (routeDropInsertDisplayRow < 0 || table == null) {
+			return;
+		}
+		int y;
+		int rows = table.getRowCount();
+		if (routeDropInsertDisplayRow >= rows) {
+			y = rows <= 0 ? 0 : rows * table.getRowHeight();
+		} else {
+			y = routeDropInsertDisplayRow * table.getRowHeight();
+		}
+		Graphics2D g2 = (Graphics2D) g.create();
+		try {
+			g2.setColor(EdoUi.User.MAIN_TEXT);
+			g2.setStroke(new BasicStroke(2f));
+			g2.drawLine(0, y, table.getWidth(), y);
+		} finally {
+			g2.dispose();
+		}
+	}
+
+	private int dropInsertDisplayRowAt(Point point) {
+		if (table == null || table.getRowCount() == 0) {
+			return 0;
+		}
+		int row = table.rowAtPoint(point);
+		if (row < 0) {
+			return point.y < 0 ? 0 : table.getRowCount();
+		}
+		Rectangle rect = table.getCellRect(row, 0, true);
+		if (point.y >= rect.y + rect.height / 2) {
+			return row + 1;
+		}
+		return row;
+	}
+
+	/**
+	 * Maps a displayed table row to a base-route index, or {@code -1} for synthetic / body rows.
+	 */
+	private int baseIndexForDisplayRow(int displayRow) {
+		if (tableModel == null || displayRow < 0 || displayRow >= tableModel.getRowCount()) {
+			return -1;
+		}
+		RouteEntry displayed = tableModel.getEntries(displayRow);
+		if (displayed == null || displayed.isSynthetic || displayed.isBodyRow) {
+			return -1;
+		}
+		List<RouteEntry> base = routeSession.getBaseRouteEntries();
+		for (int i = 0; i < base.size(); i++) {
+			RouteEntry e = base.get(i);
+			if (e == null || e.isBodyRow) {
+				continue;
+			}
+			if (isSameRouteSystem(e, displayed.systemName, displayed.systemAddress)) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/**
+	 * Converts a display insertion index ({@code 0..displayRowCount}) into a base-list insertion
+	 * index ({@code 0..baseSize}) by counting plotted (non-synthetic) rows before the line.
+	 */
+	private int baseInsertIndexForDisplayInsert(int displayInsertRow) {
+		List<RouteEntry> base = routeSession.getBaseRouteEntries();
+		if (tableModel == null || displayInsertRow <= 0) {
+			return 0;
+		}
+		int plottedBefore = 0;
+		int limit = Math.min(displayInsertRow, tableModel.getRowCount());
+		for (int r = 0; r < limit; r++) {
+			RouteEntry e = tableModel.getEntries(r);
+			if (e == null || e.isSynthetic || e.isBodyRow) {
+				continue;
+			}
+			plottedBefore++;
+		}
+		return Math.min(plottedBefore, base.size());
+	}
+
+	private void applyRouteRowReorder(int fromDisplayRow, int insertDisplayRow) {
+		int fromBase = baseIndexForDisplayRow(fromDisplayRow);
+		applyRouteRowReorderFromBase(fromBase, insertDisplayRow);
+	}
+
+	private void applyRouteRowReorderFromBase(int fromBase, int insertDisplayRow) {
+		if (fromBase < 0) {
+			return;
+		}
+		int toBase = baseInsertIndexForDisplayInsert(insertDisplayRow);
+		if (!routeSession.moveBaseRouteEntry(fromBase, toBase)) {
+			return;
+		}
+		onCustomRouteMutated();
+		rebuildDisplayedEntries();
+		fireSessionStateChanged();
+		setHeaderLabelText("Route: " + routeSession.getBaseRouteEntries().size() + " systems");
 	}
 
 	/**

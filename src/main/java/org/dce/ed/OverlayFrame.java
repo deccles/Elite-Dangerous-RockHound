@@ -46,6 +46,7 @@ import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JPanel;
+import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.Timer;
@@ -2343,7 +2344,10 @@ private void refreshPassThroughUnifiedStatus() {
         if (mouseInteractionMode == MouseInteractionMode.SELECTIVE) {
             return tabs.isPointerOverSelectiveHit(mouse);
         }
-        // Full MPT: Control Panel buttons, tab scrollbars, and the ExoBio map (pan / zoom / favorite).
+        // Full MPT: Control Panel buttons, tab scrollbars, ExoBio map, and in-progress route row drags.
+        if (tabs.isRouteReorderGestureActiveAnywhere()) {
+            return true;
+        }
         if (tabs.isPointerOverControlPanelActionButton(mouse)) {
             return true;
         }
@@ -2740,6 +2744,13 @@ private void refreshPassThroughUnifiedStatus() {
 
         @Override
         public void mousePressed(MouseEvent e) {
+            Component src = e.getComponent();
+            // Tables own their own drag gestures (route reorder, etc.); don't steal for window resize.
+            if (src instanceof JTable) {
+                dragCursor = Cursor.DEFAULT_CURSOR;
+                dragging = false;
+                return;
+            }
             dragCursor = calcCursor(e);
             if (dragCursor != Cursor.DEFAULT_CURSOR && SwingUtilities.isLeftMouseButton(e)) {
                 dragging = true;

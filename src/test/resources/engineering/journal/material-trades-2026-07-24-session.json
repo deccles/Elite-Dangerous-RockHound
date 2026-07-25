@@ -1,0 +1,573 @@
+{
+  "notes": "MaterialTrade events from 2026-07-24 trader session (journal 2026-07-23T232602).",
+  "trades": [
+    {
+      "timestamp": "2026-07-24T13:34:56Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 10,
+      "recvKey": "compoundshielding",
+      "recvQty": 5,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:35:01Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 30,
+      "recvKey": "fedcorecomposites",
+      "recvQty": 5,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:35:06Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 2,
+      "recvKey": "highdensitycomposites",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:35:11Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 10,
+      "recvKey": "fedproprietarycomposites",
+      "recvQty": 5,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:35:16Z",
+      "paidKey": "chemicalprocessors",
+      "paidQty": 6,
+      "recvKey": "shieldemitters",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:35:20Z",
+      "paidKey": "mechanicalcomponents",
+      "paidQty": 2,
+      "recvKey": "shieldemitters",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:35:24Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 2,
+      "recvKey": "shieldemitters",
+      "recvQty": 9,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:35:29Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 4,
+      "recvKey": "shieldingsensors",
+      "recvQty": 6,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:10Z",
+      "paidKey": "chemicalprocessors",
+      "paidQty": 2,
+      "recvKey": "compactcomposites",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:14Z",
+      "paidKey": "filamentcomposites",
+      "paidQty": 1,
+      "recvKey": "compactcomposites",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:18Z",
+      "paidKey": "hybridcapacitors",
+      "paidQty": 4,
+      "recvKey": "compactcomposites",
+      "recvQty": 2,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:21Z",
+      "paidKey": "mechanicalequipment",
+      "paidQty": 2,
+      "recvKey": "compactcomposites",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:26Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 2,
+      "recvKey": "compactcomposites",
+      "recvQty": 27,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:32Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 20,
+      "recvKey": "compoundshielding",
+      "recvQty": 10,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:37Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 48,
+      "recvKey": "fedcorecomposites",
+      "recvQty": 8,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:40Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 12,
+      "recvKey": "fedcorecomposites",
+      "recvQty": 2,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:45Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 6,
+      "recvKey": "highdensitycomposites",
+      "recvQty": 9,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:49Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 2,
+      "recvKey": "highdensitycomposites",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:55Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 20,
+      "recvKey": "fedproprietarycomposites",
+      "recvQty": 10,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:37:59Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 6,
+      "recvKey": "shieldemitters",
+      "recvQty": 27,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:38:03Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 6,
+      "recvKey": "shieldingsensors",
+      "recvQty": 9,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:57:02Z",
+      "paidKey": "chemicaldistillery",
+      "paidQty": 1,
+      "recvKey": "chemicalstorageunits",
+      "recvQty": 9,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T13:57:06Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 2,
+      "recvKey": "electrochemicalarrays",
+      "recvQty": 18,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:00:56Z",
+      "paidKey": "exquisitefocuscrystals",
+      "paidQty": 1,
+      "recvKey": "focuscrystals",
+      "recvQty": 9,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:01:00Z",
+      "paidKey": "electrochemicalarrays",
+      "paidQty": 1,
+      "recvKey": "gridresistors",
+      "recvQty": 9,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:01:03Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 1,
+      "recvKey": "gridresistors",
+      "recvQty": 81,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:01:08Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 8,
+      "recvKey": "precipitatedalloys",
+      "recvQty": 12,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:20:09Z",
+      "paidKey": "gridresistors",
+      "paidQty": 60,
+      "recvKey": "hybridcapacitors",
+      "recvQty": 10,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:20:15Z",
+      "paidKey": "electrochemicalarrays",
+      "paidQty": 4,
+      "recvKey": "hybridcapacitors",
+      "recvQty": 12,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:20:20Z",
+      "paidKey": "gridresistors",
+      "paidQty": 12,
+      "recvKey": "hybridcapacitors",
+      "recvQty": 2,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:20:25Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 1,
+      "recvKey": "hybridcapacitors",
+      "recvQty": 27,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:20:32Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 60,
+      "recvKey": "imperialshielding",
+      "recvQty": 10,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:20:37Z",
+      "paidKey": "electrochemicalarrays",
+      "paidQty": 6,
+      "recvKey": "polymercapacitors",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:20:42Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 1,
+      "recvKey": "polymercapacitors",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:20:48Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 5,
+      "recvKey": "polymercapacitors",
+      "recvQty": 15,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:20:55Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 20,
+      "recvKey": "thermicalloys",
+      "recvQty": 10,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:41:45Z",
+      "paidKey": "protolightalloys",
+      "paidQty": 40,
+      "recvKey": "conductiveceramics",
+      "recvQty": 20,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:41:53Z",
+      "paidKey": "protoheatradiators",
+      "paidQty": 8,
+      "recvKey": "conductiveceramics",
+      "recvQty": 12,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:42:01Z",
+      "paidKey": "protoradiolicalloys",
+      "paidQty": 6,
+      "recvKey": "conductiveceramics",
+      "recvQty": 9,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:42:08Z",
+      "paidKey": "focuscrystals",
+      "paidQty": 4,
+      "recvKey": "conductivecomponents",
+      "recvQty": 2,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:42:15Z",
+      "paidKey": "highdensitycomposites",
+      "paidQty": 2,
+      "recvKey": "conductivecomponents",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:42:21Z",
+      "paidKey": "precipitatedalloys",
+      "paidQty": 2,
+      "recvKey": "conductivecomponents",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:42:28Z",
+      "paidKey": "protolightalloys",
+      "paidQty": 4,
+      "recvKey": "conductivecomponents",
+      "recvQty": 6,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:42:35Z",
+      "paidKey": "shieldemitters",
+      "paidQty": 6,
+      "recvKey": "conductivecomponents",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:42:42Z",
+      "paidKey": "protolightalloys",
+      "paidQty": 2,
+      "recvKey": "conductivecomponents",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:43:21Z",
+      "paidKey": "conductiveceramics",
+      "paidQty": 1,
+      "recvKey": "conductivecomponents",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:49:56Z",
+      "paidKey": "hybridcapacitors",
+      "paidQty": 18,
+      "recvKey": "electrochemicalarrays",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:53:47Z",
+      "paidKey": "conductiveceramics",
+      "paidQty": 1,
+      "recvKey": "conductivecomponents",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:53:52Z",
+      "paidKey": "hybridcapacitors",
+      "paidQty": 12,
+      "recvKey": "electrochemicalarrays",
+      "recvQty": 2,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:53:57Z",
+      "paidKey": "militarysupercapacitors",
+      "paidQty": 1,
+      "recvKey": "electrochemicalarrays",
+      "recvQty": 9,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:03Z",
+      "paidKey": "polymercapacitors",
+      "paidQty": 4,
+      "recvKey": "electrochemicalarrays",
+      "recvQty": 12,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:09Z",
+      "paidKey": "protolightalloys",
+      "paidQty": 1,
+      "recvKey": "phasealloys",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:14Z",
+      "paidKey": "protoradiolicalloys",
+      "paidQty": 1,
+      "recvKey": "phasealloys",
+      "recvQty": 9,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:20Z",
+      "paidKey": "compoundshielding",
+      "paidQty": 12,
+      "recvKey": "refinedfocuscrystals",
+      "recvQty": 2,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:26Z",
+      "paidKey": "polymercapacitors",
+      "paidQty": 12,
+      "recvKey": "refinedfocuscrystals",
+      "recvQty": 2,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:32Z",
+      "paidKey": "fedproprietarycomposites",
+      "paidQty": 6,
+      "recvKey": "refinedfocuscrystals",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:40Z",
+      "paidKey": "protolightalloys",
+      "paidQty": 84,
+      "recvKey": "refinedfocuscrystals",
+      "recvQty": 14,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:46Z",
+      "paidKey": "thermicalloys",
+      "paidQty": 6,
+      "recvKey": "refinedfocuscrystals",
+      "recvQty": 1,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:53Z",
+      "paidKey": "galvanisingalloys",
+      "paidQty": 1,
+      "recvKey": "salvagedalloys",
+      "recvQty": 3,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T14:54:59Z",
+      "paidKey": "protolightalloys",
+      "paidQty": 1,
+      "recvKey": "salvagedalloys",
+      "recvQty": 27,
+      "traderType": "manufactured"
+    },
+    {
+      "timestamp": "2026-07-24T15:18:47Z",
+      "paidKey": "manganese",
+      "paidQty": 6,
+      "recvKey": "cadmium",
+      "recvQty": 1,
+      "traderType": "raw"
+    },
+    {
+      "timestamp": "2026-07-24T15:18:49Z",
+      "paidKey": "ruthenium",
+      "paidQty": 1,
+      "recvKey": "cadmium",
+      "recvQty": 3,
+      "traderType": "raw"
+    },
+    {
+      "timestamp": "2026-07-24T15:18:51Z",
+      "paidKey": "ruthenium",
+      "paidQty": 1,
+      "recvKey": "cadmium",
+      "recvQty": 3,
+      "traderType": "raw"
+    },
+    {
+      "timestamp": "2026-07-24T15:18:54Z",
+      "paidKey": "chromium",
+      "paidQty": 6,
+      "recvKey": "molybdenum",
+      "recvQty": 1,
+      "traderType": "raw"
+    },
+    {
+      "timestamp": "2026-07-24T15:18:58Z",
+      "paidKey": "phosphorus",
+      "paidQty": 180,
+      "recvKey": "molybdenum",
+      "recvQty": 5,
+      "traderType": "raw"
+    },
+    {
+      "timestamp": "2026-07-24T15:19:01Z",
+      "paidKey": "manganese",
+      "paidQty": 7,
+      "recvKey": "sulphur",
+      "recvQty": 21,
+      "traderType": "raw"
+    },
+    {
+      "timestamp": "2026-07-24T15:19:04Z",
+      "paidKey": "iron",
+      "paidQty": 36,
+      "recvKey": "tin",
+      "recvQty": 1,
+      "traderType": "raw"
+    },
+    {
+      "timestamp": "2026-07-24T15:19:09Z",
+      "paidKey": "zinc",
+      "paidQty": 84,
+      "recvKey": "tin",
+      "recvQty": 14,
+      "traderType": "raw"
+    },
+    {
+      "timestamp": "2026-07-24T15:29:32Z",
+      "paidKey": "shieldfrequencydata",
+      "paidQty": 1,
+      "recvKey": "shieldcyclerecordings",
+      "recvQty": 81,
+      "traderType": "encoded"
+    },
+    {
+      "timestamp": "2026-07-24T15:29:38Z",
+      "paidKey": "shieldfrequencydata",
+      "paidQty": 1,
+      "recvKey": "shieldsoakanalysis",
+      "recvQty": 27,
+      "traderType": "encoded"
+    },
+    {
+      "timestamp": "2026-07-24T15:29:44Z",
+      "paidKey": "shieldfrequencydata",
+      "paidQty": 3,
+      "recvKey": "shielddensityreports",
+      "recvQty": 27,
+      "traderType": "encoded"
+    }
+  ]
+}

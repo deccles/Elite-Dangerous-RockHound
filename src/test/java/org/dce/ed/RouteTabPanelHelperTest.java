@@ -83,6 +83,18 @@ class RouteTabPanelHelperTest {
     }
 
     @Test
+    void parsePastedSystemNames_splitsLinesAndCommas() {
+        List<String> names = RouteTabPanel.parsePastedSystemNames("Sol\nAlpha Centauri, Barnard's Star");
+        assertEquals(List.of("Sol", "Alpha Centauri", "Barnard's Star"), names);
+    }
+
+    @Test
+    void parsePastedSystemNames_skipsBlankAndHeader() {
+        List<String> names = RouteTabPanel.parsePastedSystemNames("System\n\n  Sol  \n");
+        assertEquals(List.of("Sol"), names);
+    }
+
+    @Test
     void bestInsertionIndexByCoords_emptyList_returnsZero() {
         assertEquals(0, RouteTabPanel.bestInsertionIndexByCoords(new ArrayList<>(), new Double[]{1.0, 2.0, 3.0}));
     }

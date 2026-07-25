@@ -135,6 +135,55 @@ class RouteSessionTest {
         assertEquals(0L, session.getPendingJumpLockedAddress());
     }
 
+    @Test
+    void appendBaseRouteEntry_addsHopAndRenumbers() {
+        session.appendBaseRouteEntry(sampleEntry("Sol", 1L));
+        session.appendBaseRouteEntry(sampleEntry("Alpha Centauri", 2L));
+        assertEquals(2, session.getBaseRouteEntries().size());
+        assertEquals(0, session.getBaseRouteEntries().get(0).index);
+        assertEquals(1, session.getBaseRouteEntries().get(1).index);
+        assertEquals("Alpha Centauri", session.getBaseRouteEntries().get(1).systemName);
+    }
+
+    @Test
+    void ensureCurrentSystemAtStartIfMissing_seedsBeforePaste() {
+        session.ensureCurrentSystemAtStartIfMissing("Sol", 100L, new double[] { 0, 0, 0 });
+        session.appendBaseRouteEntry(sampleEntry("Colonia", 200L));
+        assertEquals(2, session.getBaseRouteEntries().size());
+        assertEquals("Sol", session.getBaseRouteEntries().get(0).systemName);
+        assertEquals("Colonia", session.getBaseRouteEntries().get(1).systemName);
+    }
+
+    @Test
+    void ensureCurrentSystemAtStartIfMissing_noopWhenAlreadyPresent() {
+        session.appendBaseRouteEntry(sampleEntry("Sol", 100L));
+        session.appendBaseRouteEntry(sampleEntry("Colonia", 200L));
+        session.ensureCurrentSystemAtStartIfMissing("Sol", 100L, null);
+        assertEquals(2, session.getBaseRouteEntries().size());
+        assertEquals("Sol", session.getBaseRouteEntries().get(0).systemName);
+    }
+
+    @Test
+    void moveBaseRouteEntry_reordersHops() {
+        session.appendBaseRouteEntry(sampleEntry("A", 1L));
+        session.appendBaseRouteEntry(sampleEntry("B", 2L));
+        session.appendBaseRouteEntry(sampleEntry("C", 3L));
+        assertTrue(session.moveBaseRouteEntry(2, 0));
+        assertEquals("C", session.getBaseRouteEntries().get(0).systemName);
+        assertEquals("A", session.getBaseRouteEntries().get(1).systemName);
+        assertEquals("B", session.getBaseRouteEntries().get(2).systemName);
+        assertEquals(0, session.getBaseRouteEntries().get(0).index);
+        assertEquals(2, session.getBaseRouteEntries().get(2).index);
+    }
+
+    @Test
+    void moveBaseRouteEntry_noOpWhenAdjacent() {
+        session.appendBaseRouteEntry(sampleEntry("A", 1L));
+        session.appendBaseRouteEntry(sampleEntry("B", 2L));
+        assertFalse(session.moveBaseRouteEntry(0, 1));
+        assertEquals("A", session.getBaseRouteEntries().get(0).systemName);
+    }
+
     private static RouteEntry sampleEntry(String name, long addr) {
         RouteEntry e = new RouteEntry();
         e.systemName = name;

@@ -271,6 +271,26 @@ public final class MaterialTradePlanner {
         return inv;
     }
 
+    /**
+     * Like {@link #inventoryAfterTrades} but only deducts pay materials — does not credit
+     * receives. Used when chaining {@link #suggest} across goals so later goals cannot spend
+     * materials that only exist after earlier suggested trades.
+     */
+    public Map<String, Integer> inventoryAfterPayingTrades(Map<String, Integer> inventory,
+                                                           List<TradeSuggestion> trades) {
+        Map<String, Integer> inv = copyInventory(inventory);
+        if (trades == null) {
+            return inv;
+        }
+        for (TradeSuggestion trade : trades) {
+            if (trade == null) {
+                continue;
+            }
+            applyPlannedPayCost(inv, trade);
+        }
+        return inv;
+    }
+
     private static void applyTradeToInventory(Map<String, Integer> inv, TradeSuggestion trade) {
         if (trade == null) {
             return;

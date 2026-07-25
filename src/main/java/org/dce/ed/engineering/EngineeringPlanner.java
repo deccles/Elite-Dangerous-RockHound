@@ -1,11 +1,14 @@
 package org.dce.ed.engineering;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Aggregates material requirements for active engineering goals vs inventory.
@@ -153,7 +156,14 @@ public final class EngineeringPlanner {
      * spend stock any remaining goal requires, so a plan cannot trade away one goal's materials
      * and then buy the same material back for another goal.
      *
+     * <p>Suggested pays for later goals are limited to materials the commander already owns
+     * (minus prior suggested pays and materials already claimed for earlier goals). Receives
+     * from earlier suggestions still fill shortfalls / readiness, but cannot become pay stock
+     * for a later {@code suggest}.
+     *
      * <p>{@code inventoryAfterTrades} applies suggested trades only (no craft claims), for shopping.
+     * {@code shortfallsRemainingAfterPlan} is what Short goals still lack after their trades —
+     * Trade Suggestions uses this so goal Short status lines up with uncovered / no-trade rows.
      */
     public PriorityPlanResult planByPriority(List<EngineeringGoal> goals,
                                              Map<String, Integer> inventory,
@@ -165,15 +175,39 @@ public final class EngineeringPlanner {
                                              List<MaterialsGoal> materialsGoals,
                                              Map<String, Integer> inventory,
                                              MaterialTradePlanner tradePlanner) {
+        return planByPriority(goals, materialsGoals, inventory, tradePlanner, null, null);
+    }
+
+    /**
+     * Plans trades in priority order while reserving materials for every included goal.
+     *
+     * <p>When {@code tradeForBlueprints} / {@code tradeForMaterials} are non-null, only those
+     * goals receive trade suggestions. Other goals still claim inventory and keep reservations
+     * so a ship-scoped view cannot spend stock another ship's goal still needs.
+     */
+    public PriorityPlanResult planByPriority(List<EngineeringGoal> goals,
+                                             List<MaterialsGoal> materialsGoals,
+                                             Map<String, Integer> inventory,
+                                             MaterialTradePlanner tradePlanner,
+                                             Collection<EngineeringGoal> tradeForBlueprints,
+                                             Collection<MaterialsGoal> tradeForMaterials) {
         List<TradeSuggestion> trades = new ArrayList<>();
         Map<EngineeringGoal, GoalReadiness> blueprintReadiness = new LinkedHashMap<>();
         Map<MaterialsGoal, GoalReadiness> materialsReadiness = new LinkedHashMap<>();
+        Map<String, Integer> shortfallsRemaining = new LinkedHashMap<>();
         Map<String, Integer> planningInv = mutableCopy(inventory);
         Map<String, Integer> shoppingInv = mutableCopy(inventory);
+        // Pay stock for suggest(): on-hand materials, minus suggested pays and craft claims.
+        Map<String, Integer> payInv = mutableCopy(inventory);
         List<ClaimItem> claimOrder = buildClaimOrder(goals, materialsGoals);
         if (claimOrder.isEmpty() || tradePlanner == null) {
-            return new PriorityPlanResult(List.of(), shoppingInv, blueprintReadiness, materialsReadiness);
+            return new PriorityPlanResult(
+                    List.of(), shoppingInv, blueprintReadiness, materialsReadiness, Map.of());
         }
+
+        Set<EngineeringGoal> tradeBlueprintSet = identitySet(tradeForBlueprints);
+        Set<MaterialsGoal> tradeMaterialsSet = identitySet(tradeForMaterials);
+        boolean filterTradeTargets = tradeForBlueprints != null || tradeForMaterials != null;
 
         // Reserve materials for ALL remaining goals, not just the one being planned, so a
         // higher-priority goal never trades away stock a later goal is counting on (which
@@ -193,32 +227,85 @@ public final class EngineeringPlanner {
                 Map<String, Integer> before = mutableCopy(planningInv);
                 Map<String, Integer> shortfalls = goalMaterialShortfalls(goal, planningInv);
                 Map<String, Integer> required = materialsForGoal(goal);
-                List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, remainingReserved);
-                if (!goalTrades.isEmpty()) {
-                    trades.addAll(goalTrades);
-                    planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
-                    shoppingInv = tradePlanner.inventoryAfterTrades(shoppingInv, goalTrades);
+                boolean suggestTrades = !filterTradeTargets || tradeBlueprintSet.contains(goal);
+                if (suggestTrades) {
+                    List<TradeSuggestion> goalTrades =
+                            tradePlanner.suggest(shortfalls, payInv, remainingReserved);
+                    if (!goalTrades.isEmpty()) {
+                        trades.addAll(goalTrades);
+                        planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
+                        shoppingInv = tradePlanner.inventoryAfterTrades(shoppingInv, goalTrades);
+                        payInv = tradePlanner.inventoryAfterPayingTrades(payInv, goalTrades);
+                    }
                 }
-                blueprintReadiness.put(goal, goalReadiness(goal, before, planningInv));
+                GoalReadiness readiness = goalReadiness(goal, before, planningInv);
+                blueprintReadiness.put(goal, readiness);
+                if (suggestTrades && readiness == GoalReadiness.STILL_SHORT) {
+                    mergeShortfallCounts(shortfallsRemaining, goalMaterialShortfalls(goal, planningInv));
+                }
                 claimMaterials(required, planningInv);
+                claimMaterials(required, payInv);
                 adjustReservation(remainingReserved, required, -1);
             } else if (item.materials() != null) {
                 MaterialsGoal goal = item.materials();
                 Map<String, Integer> before = mutableCopy(planningInv);
                 Map<String, Integer> shortfalls = goalMaterialShortfalls(goal, planningInv);
                 Map<String, Integer> required = materialsForGoal(goal);
-                List<TradeSuggestion> goalTrades = tradePlanner.suggest(shortfalls, planningInv, remainingReserved);
-                if (!goalTrades.isEmpty()) {
-                    trades.addAll(goalTrades);
-                    planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
-                    shoppingInv = tradePlanner.inventoryAfterTrades(shoppingInv, goalTrades);
+                boolean suggestTrades = !filterTradeTargets || tradeMaterialsSet.contains(goal);
+                if (suggestTrades) {
+                    List<TradeSuggestion> goalTrades =
+                            tradePlanner.suggest(shortfalls, payInv, remainingReserved);
+                    if (!goalTrades.isEmpty()) {
+                        trades.addAll(goalTrades);
+                        planningInv = tradePlanner.inventoryAfterTrades(planningInv, goalTrades);
+                        shoppingInv = tradePlanner.inventoryAfterTrades(shoppingInv, goalTrades);
+                        payInv = tradePlanner.inventoryAfterPayingTrades(payInv, goalTrades);
+                    }
                 }
-                materialsReadiness.put(goal, goalReadiness(goal, before, planningInv));
+                GoalReadiness readiness = goalReadiness(goal, before, planningInv);
+                materialsReadiness.put(goal, readiness);
+                if (suggestTrades && readiness == GoalReadiness.STILL_SHORT) {
+                    mergeShortfallCounts(shortfallsRemaining, goalMaterialShortfalls(goal, planningInv));
+                }
                 claimMaterials(required, planningInv);
+                claimMaterials(required, payInv);
                 adjustReservation(remainingReserved, required, -1);
             }
         }
-        return new PriorityPlanResult(List.copyOf(trades), shoppingInv, blueprintReadiness, materialsReadiness);
+        return new PriorityPlanResult(
+                List.copyOf(trades),
+                shoppingInv,
+                blueprintReadiness,
+                materialsReadiness,
+                Map.copyOf(shortfallsRemaining));
+    }
+
+    private static <T> Set<T> identitySet(Collection<T> items) {
+        Set<T> set = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        if (items != null) {
+            for (T item : items) {
+                if (item != null) {
+                    set.add(item);
+                }
+            }
+        }
+        return set;
+    }
+
+    private static void mergeShortfallCounts(Map<String, Integer> into, Map<String, Integer> add) {
+        if (into == null || add == null || add.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Integer> e : add.entrySet()) {
+            int count = e.getValue() != null ? e.getValue() : 0;
+            if (count <= 0 || e.getKey() == null) {
+                continue;
+            }
+            String key = EngineeringMaterialKeys.canonicalKey(e.getKey());
+            if (!key.isBlank()) {
+                into.merge(key, count, Integer::sum);
+            }
+        }
     }
 
     private Map<String, Integer> requiredForClaimItem(ClaimItem item) {
@@ -358,7 +445,8 @@ public final class EngineeringPlanner {
             List<TradeSuggestion> trades,
             Map<String, Integer> inventoryAfterTrades,
             Map<EngineeringGoal, GoalReadiness> readinessByBlueprintGoal,
-            Map<MaterialsGoal, GoalReadiness> readinessByMaterialsGoal) {
+            Map<MaterialsGoal, GoalReadiness> readinessByMaterialsGoal,
+            Map<String, Integer> shortfallsRemainingAfterPlan) {
 
         public PriorityPlanResult {
             trades = trades != null ? List.copyOf(trades) : List.of();
@@ -370,6 +458,9 @@ public final class EngineeringPlanner {
                     : Map.of();
             readinessByMaterialsGoal = readinessByMaterialsGoal != null
                     ? Map.copyOf(readinessByMaterialsGoal)
+                    : Map.of();
+            shortfallsRemainingAfterPlan = shortfallsRemainingAfterPlan != null
+                    ? Map.copyOf(shortfallsRemainingAfterPlan)
                     : Map.of();
         }
 
@@ -420,12 +511,17 @@ public final class EngineeringPlanner {
             required.merge(e.getKey(), e.getValue(), Integer::sum);
         }
         if (remaining > 1) {
-            // Extra unfinished units: when the tracked unit is already at target grade, siblings are
-            // almost always the same (multi-hardpoint experimental swaps). Only fall back to a
-            // full G0→target buy list when grades are still in progress.
-            EngineeringGoal extraUnit = goal.getFromGrade() >= goal.getTargetGrade()
-                    ? goal.withExperimentalApplied(false)
-                    : goal.withProgress(0, 0).withExperimentalApplied(false);
+            // Further units are separate physical modules. Only treat them as "experimental-only"
+            // when nothing has been completed yet and the shared progress is already at target
+            // grade (multi-slot experimental apply on modules that are already graded). Once any
+            // unit is finished, remaining siblings still need full G0→target + experimental.
+            EngineeringGoal extraUnit;
+            if (goal.getCompletedUnits() == 0
+                    && goal.getFromGrade() >= goal.getTargetGrade()) {
+                extraUnit = goal.withExperimentalApplied(false);
+            } else {
+                extraUnit = goal.withProgress(0, 0).withExperimentalApplied(false);
+            }
             Map<String, Integer> fullUnit = new LinkedHashMap<>();
             accumulateSingleUnitMaterials(extraUnit, fullUnit);
             for (Map.Entry<String, Integer> e : fullUnit.entrySet()) {

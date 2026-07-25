@@ -1,9 +1,11 @@
 package org.dce.ed.engineering;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.event.LoadoutEvent;
@@ -106,5 +108,126 @@ class EngineeringGoalProgressLoadoutTest {
         assertTrue(EngineeringGoalProgress.applyLoadout(goals, loadout, db));
         assertTrue(goals.get(0).isExperimentalApplied());
         assertTrue(goals.get(0).isComplete());
+    }
+
+    @Test
+    void applyLoadout_g5WithoutExperimental_doesNotMarkDeepPlatingDone() {
+        // Repro: sticky session had experimentalApplied/completedUnits while Armour was only
+        // Heavy Duty G5 with no Deep Plating — Materials Required omitted Mechanical Equipment.
+        String loadoutJson = """
+                {
+                  "timestamp": "2026-07-24T21:49:42Z",
+                  "event": "Loadout",
+                  "Ship": "anaconda",
+                  "ShipID": 7,
+                  "Modules": [
+                    {
+                      "Slot": "Armour",
+                      "Item": "anaconda_armour_reactive",
+                      "On": true,
+                      "Priority": 1,
+                      "Health": 1.0,
+                      "Engineering": {
+                        "Engineer": "Selene Jean",
+                        "BlueprintName": "Armour_HeavyDuty",
+                        "Level": 5,
+                        "Quality": 1.0
+                      }
+                    }
+                  ]
+                }
+                """;
+        LoadoutEvent loadout = (LoadoutEvent) parser.parseRecord(loadoutJson);
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "armour-heavy-duty-g5",
+                "Armour",
+                "Heavy Duty",
+                5,
+                0,
+                5,
+                "armour-deep-plating-experimental",
+                GoalPriority.HIGH,
+                true,
+                1,
+                1,
+                7L,
+                "Anaconda · Exception Handler",
+                true));
+
+        assertTrue(EngineeringGoalProgress.applyLoadout(goals, loadout, db));
+        EngineeringGoal goal = goals.get(0);
+        assertTrue(!goal.isExperimentalApplied(), "Deep Plating must not be sticky-complete");
+        assertTrue(!goal.isComplete(), "goal must stay incomplete until experimental is applied");
+        assertEquals(5, goal.getFromGrade());
+
+        EngineeringPlanner planner = new EngineeringPlanner(db);
+        Map<String, Integer> need = planner.materialsForGoal(goal);
+        assertTrue(need.keySet().stream().anyMatch(k -> k.equalsIgnoreCase("mechanicalequipment")),
+                "Deep Plating materials must appear in Need: " + need);
+    }
+
+    @Test
+    void applyLoadout_multiUnit_usesLeastProgressedIncompleteModuleForSharedGrade() {
+        // Repro: one HRP at G5 + one stock G0 with qty 2 used to set fromGrade=5 from the best
+        // module, so Materials Required dropped to experimental-only for both.
+        String loadoutJson = """
+                {
+                  "timestamp": "2026-07-24T22:00:00Z",
+                  "event": "Loadout",
+                  "Ship": "anaconda",
+                  "ShipID": 7,
+                  "Modules": [
+                    {
+                      "Slot": "Slot07_Size5",
+                      "Item": "int_hullreinforcement_size5_class2",
+                      "On": true,
+                      "Priority": 1,
+                      "Health": 1.0,
+                      "Engineering": {
+                        "Engineer": "Selene Jean",
+                        "BlueprintName": "HullReinforcement_HeavyDuty",
+                        "Level": 5,
+                        "Quality": 1.0
+                      }
+                    },
+                    {
+                      "Slot": "Slot10_Size4",
+                      "Item": "int_hullreinforcement_size4_class2",
+                      "On": true,
+                      "Priority": 1,
+                      "Health": 1.0
+                    }
+                  ]
+                }
+                """;
+        LoadoutEvent loadout = (LoadoutEvent) parser.parseRecord(loadoutJson);
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "hull-reinforcement-package-heavy-duty-hull-reinforcement-g5",
+                "Hull Reinforcement Package",
+                "Heavy Duty Hull Reinforcement",
+                5,
+                0,
+                5,
+                "hull-reinforcement-package-deep-plating-experimental",
+                GoalPriority.MEDIUM,
+                false,
+                2,
+                0,
+                7L,
+                "Anaconda · Exception Handler",
+                true));
+
+        assertTrue(EngineeringGoalProgress.applyLoadout(goals, loadout, db));
+        EngineeringGoal goal = goals.get(0);
+        assertEquals(0, goal.getFromGrade(),
+                "shared progress must follow the least progressed incomplete module");
+        assertEquals(0, goal.getCompletedUnits());
+
+        EngineeringPlanner planner = new EngineeringPlanner(db);
+        Map<String, Integer> need = planner.materialsForGoal(goal);
+        assertTrue(need.getOrDefault("carbon", 0) >= 15,
+                "G0 sibling must keep full grade Need in the estimate: " + need);
     }
 }

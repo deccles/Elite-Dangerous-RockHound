@@ -160,6 +160,18 @@ public final class EngineeringGoalMerger {
                 .withCompletedUnits(completed)
                 .withTargetSlot("");
         if (completed >= quantity) {
+            boolean expDone = template.getExperimentalId().isBlank()
+                    || completedInstancesHaveExperimental(group);
+            if (!expDone) {
+                // Sticky completedUnits without experimental evidence — keep grades, not Ready.
+                EngineeringGoal partial = bestPartial != null
+                        ? aggregated.withProgress(
+                                        bestPartial.getFromGrade(), bestPartial.getCraftsAtCurrentGrade())
+                                .withExperimentalApplied(false)
+                        : aggregated.withProgress(template.getTargetGrade(), 0)
+                                .withExperimentalApplied(false);
+                return partial.withCompletedUnits(Math.max(0, quantity - 1));
+            }
             return aggregated.withProgress(template.getTargetGrade(), 0)
                     .withExperimentalApplied(!template.getExperimentalId().isBlank());
         }
@@ -168,6 +180,19 @@ public final class EngineeringGoalMerger {
                     .withExperimentalApplied(bestPartial.isExperimentalApplied());
         }
         return aggregated.withProgress(0, 0).withExperimentalApplied(false);
+    }
+
+    private static boolean completedInstancesHaveExperimental(
+            Iterable<EngineeringGoal> instances) {
+        if (instances == null) {
+            return false;
+        }
+        for (EngineeringGoal instance : instances) {
+            if (instance != null && instance.isExperimentalApplied()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String planKey(EngineeringGoal goal) {

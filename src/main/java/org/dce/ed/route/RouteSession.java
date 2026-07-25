@@ -175,6 +175,82 @@ public final class RouteSession {
     }
 
     /**
+     * Appends a plotted hop to the end of the base route (e.g. pasted system names).
+     * Synthetic / body flags on the entry are cleared so the hop participates in route advance.
+     */
+    public void appendBaseRouteEntry(RouteEntry entry) {
+        if (entry == null || entry.systemName == null || entry.systemName.isBlank()) {
+            return;
+        }
+        RouteEntry copy = entry.copy();
+        copy.isSynthetic = false;
+        copy.isBodyRow = false;
+        copy.indentLevel = 0;
+        copy.index = baseRouteEntries.size();
+        if (copy.status == null) {
+            copy.status = RouteScanStatus.UNKNOWN;
+        }
+        if (copy.starClass == null || copy.starClass.isBlank()) {
+            copy.starClass = "?";
+        }
+        baseRouteEntries.add(copy);
+        renumberBaseIndexes();
+    }
+
+    /**
+     * Ensures the commander’s current system is the first base hop when missing, so pasted
+     * destinations append after “you are here” instead of appearing as the route origin.
+     */
+    public void ensureCurrentSystemAtStartIfMissing(String systemName, long systemAddress, double[] starPos) {
+        if (systemName == null || systemName.isBlank()) {
+            return;
+        }
+        if (RouteGeometry.findSystemRow(baseRouteEntries, systemName, systemAddress) >= 0) {
+            return;
+        }
+        RouteEntry here = new RouteEntry(0, systemName.trim(), systemAddress, "?", 0.0, RouteScanStatus.UNKNOWN);
+        if (starPos != null && starPos.length == 3) {
+            here.x = Double.valueOf(starPos[0]);
+            here.y = Double.valueOf(starPos[1]);
+            here.z = Double.valueOf(starPos[2]);
+        }
+        baseRouteEntries.add(0, here);
+        renumberBaseIndexes();
+    }
+
+    /**
+     * Moves a base-route hop. {@code toIndex} is the insertion index before the move
+     * ({@code 0..size}); after removing {@code fromIndex}, the entry is inserted at the
+     * adjusted position. Returns {@code false} when the move is a no-op or out of range.
+     */
+    public boolean moveBaseRouteEntry(int fromIndex, int toIndex) {
+        int size = baseRouteEntries.size();
+        if (fromIndex < 0 || fromIndex >= size || toIndex < 0 || toIndex > size) {
+            return false;
+        }
+        if (toIndex == fromIndex || toIndex == fromIndex + 1) {
+            return false;
+        }
+        RouteEntry moved = baseRouteEntries.remove(fromIndex);
+        int insertAt = toIndex;
+        if (insertAt > fromIndex) {
+            insertAt--;
+        }
+        baseRouteEntries.add(insertAt, moved);
+        renumberBaseIndexes();
+        return true;
+    }
+
+    private void renumberBaseIndexes() {
+        for (int i = 0; i < baseRouteEntries.size(); i++) {
+            RouteEntry e = baseRouteEntries.get(i);
+            if (e != null) {
+                e.index = i;
+            }
+        }
+    }
+
+    /**
      * When there is no plotted NavRoute, keep a one-row “you are here” list in sync with arrivals.
      * <p>
      * First arrival seeds the row; later {@code Location}/{@code FSDJump}/carrier arrivals rewrite that

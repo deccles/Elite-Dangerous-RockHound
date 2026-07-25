@@ -24,7 +24,13 @@ public final class RouteLayoutEngine {
         }
         Double[] coords = coordsResolver.resolve(curName, currentSystemAddress, currentStarPos);
         RouteEntry synthetic = RouteEntry.syntheticSystem(curName, currentSystemAddress, coords, RouteMarkerKind.CURRENT);
-        int insertAt = RouteGeometry.bestInsertionIndexByCoords(entries, coords);
+        int insertAt;
+        if (entries.size() <= 1) {
+            // Keep "you are here" ahead of a lone pasted/plotted hop so destinations stay at the end.
+            insertAt = 0;
+        } else {
+            insertAt = RouteGeometry.bestInsertionIndexByCoords(entries, coords);
+        }
         entries.add(insertAt, synthetic);
     }
 

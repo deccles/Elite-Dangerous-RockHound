@@ -103,6 +103,9 @@ public final class OverlayPreferences {
     /** Engineering tab: Materials Required section expanded (true) or collapsed to its Show button. */
     private static final String KEY_ENGINEERING_MATERIALS_SECTION_VISIBLE =
             "overlay.engineering.materials.sectionVisible";
+    /** Engineering tab: Goals / (trades+materials) divider position. */
+    private static final String KEY_ENGINEERING_MAIN_SPLIT_DIVIDER =
+            "overlay.engineering.mainSplit.dividerLocation";
     /** Engineering tab: trade/materials divider position while Materials Required is expanded. */
     private static final String KEY_ENGINEERING_LOWER_SPLIT_DIVIDER =
             "overlay.engineering.lowerSplit.dividerLocation";
@@ -233,6 +236,8 @@ public final class OverlayPreferences {
 
     /** Route tab: predict fuel exhaustion along the plotted route (yellow/red gauge icons). */
     private static final String KEY_ROUTE_FUEL_PREDICTION_ENABLED = "route.fuelPrediction.enabled";
+    private static final String KEY_ROUTE_FUEL_PREDICTION_CONSIDER_SCOOP =
+            "route.fuelPrediction.considerScoop";
 
     // Reuse the same prefs node as OverlayFrame so everything is in one place.
     private static final Preferences PREFS = Preferences.userNodeForPackage(OverlayFrame.class);
@@ -624,6 +629,15 @@ public final class OverlayPreferences {
         PREFS.putBoolean(KEY_ENGINEERING_MATERIALS_SECTION_VISIBLE, visible);
     }
 
+    /** @return saved Goals/(trades+mats) divider location in pixels, or {@code -1} if never saved */
+    public static int getEngineeringMainSplitDividerLocation() {
+        return PREFS.getInt(KEY_ENGINEERING_MAIN_SPLIT_DIVIDER, -1);
+    }
+
+    public static void setEngineeringMainSplitDividerLocation(int location) {
+        PREFS.putInt(KEY_ENGINEERING_MAIN_SPLIT_DIVIDER, location);
+    }
+
     /** @return saved divider location in pixels, or {@code -1} if never saved */
     public static int getEngineeringLowerSplitDividerLocation() {
         return PREFS.getInt(KEY_ENGINEERING_LOWER_SPLIT_DIVIDER, -1);
@@ -724,6 +738,18 @@ public final class OverlayPreferences {
 
     public static void setRouteFuelPredictionEnabled(boolean enabled) {
         PREFS.putBoolean(KEY_ROUTE_FUEL_PREDICTION_ENABLED, enabled);
+    }
+
+    /**
+     * Default on: when predicting fuel, assume a fitted scoop refills the tank at every
+     * scoopable (KGBFOAM) star. Off = drain-only estimate even if a scoop is fitted.
+     */
+    public static boolean isRouteFuelPredictionConsiderScoop() {
+        return PREFS.getBoolean(KEY_ROUTE_FUEL_PREDICTION_CONSIDER_SCOOP, true);
+    }
+
+    public static void setRouteFuelPredictionConsiderScoop(boolean consider) {
+        PREFS.putBoolean(KEY_ROUTE_FUEL_PREDICTION_CONSIDER_SCOOP, consider);
     }
 
     public static boolean isAutoSwitchRouteOnGalaxyMap() {

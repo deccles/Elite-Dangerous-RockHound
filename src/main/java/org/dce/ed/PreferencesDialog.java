@@ -180,6 +180,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox autoSwitchBiologyOnNearBodyCheckBox;
 	private JCheckBox autoSwitchFleetCarrierOnJsonDropCheckBox;
 	private JCheckBox routeFuelPredictionCheckBox;
+	private JCheckBox routeFuelPredictionConsiderScoopCheckBox;
 
 	/** Overlay tab: System tab ship / plan-map reference body mode */
 	private JComboBox<SystemTabShipRefMode> systemTabShipRefModeComboBox;
@@ -748,11 +749,31 @@ public class PreferencesDialog extends JDialog {
 				"Predict fuel along the route (green=scoopable; yellow/red=fuel warning; slash=not scoopable)");
 		routeFuelPredictionCheckBox.setOpaque(false);
 		routeFuelPredictionCheckBox.setSelected(OverlayPreferences.isRouteFuelPredictionEnabled());
+		routeFuelPredictionCheckBox.addActionListener(e -> syncRouteFuelScoopPrefEnabled());
 		routePanel.add(routeFuelPredictionCheckBox, rgc);
+		rgc.gridy++;
+		routeFuelPredictionConsiderScoopCheckBox = new JCheckBox(
+				"Assume fuel scoop refills the tank at scoopable stars");
+		routeFuelPredictionConsiderScoopCheckBox.setOpaque(false);
+		routeFuelPredictionConsiderScoopCheckBox.setSelected(
+				OverlayPreferences.isRouteFuelPredictionConsiderScoop());
+		routeFuelPredictionConsiderScoopCheckBox.setToolTipText(
+				"When off, fuel estimates drain continuously even if a fuel scoop is fitted.");
+		syncRouteFuelScoopPrefEnabled();
+		routePanel.add(routeFuelPredictionConsiderScoopCheckBox, rgc);
 		addLeftStackedSection(panel, routePanel);
 
 		finishLeftSectionStack(panel);
 		return panel;
+	}
+
+	private void syncRouteFuelScoopPrefEnabled() {
+		if (routeFuelPredictionConsiderScoopCheckBox == null) {
+			return;
+		}
+		boolean predictionOn = routeFuelPredictionCheckBox == null
+				|| routeFuelPredictionCheckBox.isSelected();
+		routeFuelPredictionConsiderScoopCheckBox.setEnabled(predictionOn);
 	}
 
 	/**
@@ -2657,6 +2678,10 @@ public class PreferencesDialog extends JDialog {
         }
         if (routeFuelPredictionCheckBox != null) {
             OverlayPreferences.setRouteFuelPredictionEnabled(routeFuelPredictionCheckBox.isSelected());
+        }
+        if (routeFuelPredictionConsiderScoopCheckBox != null) {
+            OverlayPreferences.setRouteFuelPredictionConsiderScoop(
+                    routeFuelPredictionConsiderScoopCheckBox.isSelected());
         }
         if (autoSwitchSystemMapToSystemCheckBox != null) {
             OverlayPreferences.setAutoSwitchSystemOnSystemMap(autoSwitchSystemMapToSystemCheckBox.isSelected());

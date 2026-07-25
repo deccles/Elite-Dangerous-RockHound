@@ -59,4 +59,65 @@ class EngineeringPlannerTest {
                 .orElse(0);
         assertEquals(5, phosphorus);
     }
+
+    @Test
+    void multiUnitHrp_afterFinishingOneAtGrade_siblingsStillNeedFullGradeMats() {
+        // Repro: qty 4 HRPs — finishing the first to G5 (experimental pending) used to cost only
+        // Deep Plating for the other three, so Materials Required looked covered while the game
+        // still needed G1–G5 mats for each remaining package.
+        EngineeringGoal goal = new EngineeringGoal(
+                "hull-reinforcement-package-heavy-duty-hull-reinforcement-g5",
+                "Hull Reinforcement Package",
+                "Heavy Duty Hull Reinforcement",
+                5,
+                0,
+                5,
+                "hull-reinforcement-package-deep-plating-experimental",
+                GoalPriority.MEDIUM,
+                false,
+                4,
+                1,
+                7L,
+                "Anaconda",
+                true);
+
+        EngineeringPlanner planner = new EngineeringPlanner(db);
+        Map<String, Integer> need = planner.materialsForGoal(goal);
+
+        // remainingUnits = 3 (1 in-progress at G5 needing exp + 2 not started).
+        // Current: Deep Plating only. Two siblings: full G0→G5 + exp.
+        assertEquals(5 + 5 * 2, need.getOrDefault("compactcomposites", 0).intValue());
+        // Carbon appears on G1–G3 (5 rolls each) → 15 per full sibling unit.
+        assertEquals(15 * 2, need.getOrDefault("carbon", 0).intValue(),
+                "sibling HRPs must still need full grade materials, not experimental-only");
+        assertEquals(5 * 2, need.getOrDefault("tungsten", 0).intValue());
+    }
+
+    @Test
+    void multiUnit_allAtGradeNoCompletions_experimentalOnlyForEveryUnit() {
+        // Multi-hardpoint case: nothing completed yet, shared progress already at target grade —
+        // remaining units are experimental applies only.
+        EngineeringGoal goal = new EngineeringGoal(
+                "hull-reinforcement-package-heavy-duty-hull-reinforcement-g5",
+                "Hull Reinforcement Package",
+                "Heavy Duty Hull Reinforcement",
+                5,
+                0,
+                5,
+                "hull-reinforcement-package-deep-plating-experimental",
+                GoalPriority.MEDIUM,
+                false,
+                4,
+                0,
+                7L,
+                "Anaconda",
+                true);
+
+        EngineeringPlanner planner = new EngineeringPlanner(db);
+        Map<String, Integer> need = planner.materialsForGoal(goal);
+
+        assertEquals(5 * 4, need.getOrDefault("compactcomposites", 0).intValue());
+        assertEquals(0, need.getOrDefault("carbon", 0).intValue(),
+                "grade-complete batch should not re-buy G1–G5 mats");
+    }
 }

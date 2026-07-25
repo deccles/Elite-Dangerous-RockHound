@@ -11,8 +11,11 @@ public final class EngineeringSessionData {
     private List<EngineeringGoalPersisted> goals = new ArrayList<>();
     private List<MaterialsGoalPersisted> materialGoals = new ArrayList<>();
     private List<ShipPersisted> knownShips = new ArrayList<>();
-    /** null = All ships filter. */
+    /** null = All ships. */
     private Long goalsShipFilterId;
+
+    /** When true and a ship filter is set, materials/trades exclude other ships' goals. */
+    private Boolean hideMatsFromOtherShips;
 
     public List<EngineeringGoalPersisted> getGoals() {
         return goals;
@@ -56,6 +59,19 @@ public final class EngineeringSessionData {
 
     public void setGoalsShipFilterId(Long goalsShipFilterId) {
         this.goalsShipFilterId = goalsShipFilterId;
+    }
+
+    /** null = legacy sessions (treat as true). */
+    public Boolean getHideMatsFromOtherShips() {
+        return hideMatsFromOtherShips;
+    }
+
+    public void setHideMatsFromOtherShips(Boolean hideMatsFromOtherShips) {
+        this.hideMatsFromOtherShips = hideMatsFromOtherShips;
+    }
+
+    public boolean hideMatsFromOtherShipsOrDefault() {
+        return hideMatsFromOtherShips == null || hideMatsFromOtherShips.booleanValue();
     }
 
     public static final class MaterialsGoalPersisted {

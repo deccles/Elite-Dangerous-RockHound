@@ -19,9 +19,9 @@ import com.google.gson.JsonObject;
  * when present. A hop that exceeds {@code maxFuelPerJump} is reported as beyond FSD range
  * (not an empty tank). Elite often upgrades the FSD via {@code EngineerCraft} without emitting a
  * fresh Loadout — call {@link #applyFsdCraft} so those crafts refresh optimal mass / max fuel.
- * Ships with a fuel scoop are assumed to scoop to full at every scoopable (KGBFOAM) star on the
- * route, so tank-empty warnings only appear for unscoopable stretches longer than a tank, or when
- * current fuel can't reach the next scoopable star.
+ * When scooping is considered (default), ships with a fuel scoop refill to full at every
+ * scoopable (KGBFOAM) star, so tank-empty warnings only appear for unscoopable stretches longer
+ * than a tank, or when current fuel can't reach the next scoopable star.
  */
 public final class RouteFuelPrediction {
 
@@ -146,7 +146,7 @@ public final class RouteFuelPrediction {
             return fuelCapacityMain;
         }
 
-        /** True when the simulation refuels at scoopable stars (ship carries a fuel scoop). */
+        /** True when the simulation refuels at scoopable stars. */
         public boolean assumesScooping() {
             return assumesScooping;
         }
@@ -336,8 +336,8 @@ public final class RouteFuelPrediction {
             return current;
         }
         // Loadout MaxJumpRange is stale after crafts; recompute like the journal definition
-        // (unladen + just enough fuel for one max jump). Unladen mass shifts slightly with FSD
-        // module mass, but Loadout already baked that in — ignore Mass modifier deltas here.
+        // (unladen + just enough fuel for one max jump). Prefer rebuilding from a patched
+        // Loadout when available so UnladenMass Mass-modifier deltas are applied once.
         double maxJump = (optMass / (current.unladenMass + maxFuel))
                 * Math.pow(1000.0 * maxFuel / current.linearConstant, 1.0 / current.powerConstant);
         return new ShipFuelProfile(current.unladenMass, current.fuelCapacityMain, current.fuelCapacityReserve,
@@ -376,11 +376,20 @@ public final class RouteFuelPrediction {
      * <p>
      * Hops that leave a neutron ({@code N}) or white dwarf ({@code D}…) assume a jet-cone
      * supercharge (4× / 1.5×), matching the galaxy map plotter when jet-cone boost is enabled.
+     * Scoop refill at KGBFOAM stars is controlled by {@code considerFuelScoop}.
      *
      * @return result, or null when there's nothing to predict (no current row / no fuel reading)
      */
     public static Result simulate(List<RouteEntry> entries, ShipFuelProfile profile,
             double fuelMainTons, double cargoTons) {
+        return simulate(entries, profile, fuelMainTons, cargoTons, true);
+    }
+
+    /**
+     * @param considerFuelScoop when false, never refill at scoopable stars (even if a scoop is fitted)
+     */
+    public static Result simulate(List<RouteEntry> entries, ShipFuelProfile profile,
+            double fuelMainTons, double cargoTons, boolean considerFuelScoop) {
         if (entries == null || entries.isEmpty() || profile == null || Double.isNaN(fuelMainTons)) {
             return null;
         }
@@ -405,6 +414,7 @@ public final class RouteFuelPrediction {
         double baseMass = profile.unladenMass + Math.max(0, cargoTons) + profile.fuelCapacityReserve;
         arrival[currentRow] = fuel;
 
+        boolean scooping = profile.hasFuelScoop && considerFuelScoop;
         RouteEntry prev = entries.get(currentRow);
         int lastReachable = currentRow;
         boolean blocked = false;
@@ -448,12 +458,12 @@ public final class RouteFuelPrediction {
             arrival[i] = fuel;
             states[i] = RowFuelState.REACHABLE;
             lastReachable = i;
-            if (profile.hasFuelScoop && FuelScoopStarClass.isFuelScoopable(e.starClass)) {
+            if (scooping && FuelScoopStarClass.isFuelScoopable(e.starClass)) {
                 fuel = profile.fuelCapacityMain;
             }
             prev = e;
         }
-        return new Result(states, arrival, profile.fuelCapacityMain, profile.hasFuelScoop,
+        return new Result(states, arrival, profile.fuelCapacityMain, scooping,
                 blockReason, profile.maxFuelPerJump, profile.maxJumpRangeLy);
     }
 

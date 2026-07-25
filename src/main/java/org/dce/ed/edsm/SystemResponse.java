@@ -2,6 +2,8 @@ package org.dce.ed.edsm;
 
 public class SystemResponse {
     public long id;
+    /** Elite system address when EDSM returns {@code showId=1}. */
+    public Long id64;
     public String name;
     public Coordinates coords;
     public String permit;

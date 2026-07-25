@@ -67,6 +67,19 @@ class RouteFuelPredictionTest {
     }
 
     @Test
+    void scoopShipIgnoresScoopWhenConsiderFuelScoopFalse() {
+        RouteFuelPrediction.Result withScoop = RouteFuelPrediction.simulate(
+                route("M", "K", "T", "T"), profile(true), 8.0, 0.0, true);
+        RouteFuelPrediction.Result ignoreScoop = RouteFuelPrediction.simulate(
+                route("M", "K", "T", "T"), profile(true), 8.0, 0.0, false);
+        assertTrue(withScoop.assumesScooping());
+        assertTrue(!ignoreScoop.assumesScooping());
+        assertEquals(RouteFuelPrediction.RowFuelState.REACHABLE, withScoop.stateAt(1));
+        assertEquals(RouteFuelPrediction.RowFuelState.LAST_REACHABLE, ignoreScoop.stateAt(1));
+        assertEquals(RouteFuelPrediction.RowFuelState.UNREACHABLE, ignoreScoop.stateAt(2));
+    }
+
+    @Test
     void legLongerThanMaxFuelPerJumpIsBeyondRangeEvenWithFullTank() {
         // maxFuelPerJump 2 t: hop 1 needs ~5.6 t — impossible regardless of the 8 t tank.
         RouteFuelPrediction.ShipFuelProfile p = new RouteFuelPrediction.ShipFuelProfile(

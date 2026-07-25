@@ -70,6 +70,16 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 		return ExecTriggerId.FLEET_CARRIER_COPY_NEXT_DESTINATION;
 	}
 
+	@Override
+	protected boolean firesShipJumpCompleteTrigger() {
+		return false;
+	}
+
+	@Override
+	protected void onCustomRouteMutated() {
+		spanshRouteLoaded = !routeSession.getBaseRouteEntries().isEmpty();
+	}
+
 	private final String defaultStatusText = " ";
 
 	private volatile boolean spanshRouteLoaded = false;
