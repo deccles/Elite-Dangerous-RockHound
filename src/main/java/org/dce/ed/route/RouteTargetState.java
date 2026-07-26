@@ -13,6 +13,8 @@ public final class RouteTargetState {
 
     private String targetSystemName = null;
     private long targetSystemAddress = 0L;
+    /** Star class from the latest {@link FsdTargetEvent}; used for synthetic side-trip rows / fuel scoop. */
+    private String targetStarClass = null;
     private Long destinationSystemAddress = null;
     private Integer destinationBodyId = null;
     private String destinationName = null;
@@ -28,6 +30,10 @@ public final class RouteTargetState {
 
     public long getTargetSystemAddress() {
         return targetSystemAddress;
+    }
+
+    public String getTargetStarClass() {
+        return targetStarClass;
     }
 
     public Long getDestinationSystemAddress() {
@@ -49,6 +55,7 @@ public final class RouteTargetState {
     public void applyNavRouteClear() {
         targetSystemName = null;
         targetSystemAddress = 0L;
+        targetStarClass = null;
         destinationSystemAddress = null;
         destinationBodyId = null;
         destinationName = null;
@@ -68,6 +75,8 @@ public final class RouteTargetState {
         } else {
             targetSystemAddress = 0L;
         }
+        // Journal FsdTarget will refill this; persistence does not store star class.
+        targetStarClass = null;
         destinationSystemAddress = destSystemAddr;
         destinationBodyId = destBodyId;
         destinationName = destName;
@@ -89,6 +98,7 @@ public final class RouteTargetState {
         if (matchByAddr || matchByName) {
             targetSystemName = null;
             targetSystemAddress = 0L;
+            targetStarClass = null;
         }
     }
 
@@ -102,9 +112,12 @@ public final class RouteTargetState {
         if (newName == null || newName.isBlank() || newAddr == 0L) {
             targetSystemName = null;
             targetSystemAddress = 0L;
+            targetStarClass = null;
         } else {
             targetSystemName = newName;
             targetSystemAddress = newAddr;
+            String sc = e.getStarClass();
+            targetStarClass = (sc != null && !sc.isBlank()) ? sc.trim() : null;
         }
     }
 
@@ -126,6 +139,7 @@ public final class RouteTargetState {
             if (targetSystemName != null) {
                 targetSystemName = null;
                 targetSystemAddress = 0L;
+                targetStarClass = null;
                 clearedSideTrip = true;
             }
             return clearedSideTrip;
@@ -160,6 +174,7 @@ public final class RouteTargetState {
         if (statusDestIsOnRoute && targetSystemName != null && !targetIsOnRoute) {
             targetSystemName = null;
             targetSystemAddress = 0L;
+            targetStarClass = null;
             clearedSideTrip = true;
         }
         return clearedSideTrip;

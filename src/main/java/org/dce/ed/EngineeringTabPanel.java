@@ -1702,6 +1702,11 @@ public class EngineeringTabPanel extends JPanel {
         inventoryTracker.bootstrapFromJournal(clientKey);
         reputationTracker.bootstrapFromJournal(clientKey);
         shipCatalog.bootstrapFromJournal(clientKey);
+        // Rebuild craft/loadout store before goal bootstrap so post-craft patches apply when
+        // Elite never emitted a fresh Loadout (common after engineer sessions).
+        if (clientKey != null && !clientKey.isBlank()) {
+            EngineeringCraftStore.reparseFromJournal(clientKey);
+        }
         rememberCurrentShipFromLoadout();
         for (EngineeringGoal g : goals) {
             shipCatalog.rememberGoal(g);

@@ -3278,11 +3278,14 @@ public class RouteTabPanel extends JPanel {
 			int x = ins.left + 4;
 			int contentH = getHeight() - ins.top - ins.bottom;
 			Icon icon = getIcon();
+			int iconSlot = fuelGaugeIconSizePx();
 			if (icon != null) {
 				int iy = ins.top + Math.max(0, (contentH - icon.getIconHeight()) / 2);
 				icon.paintIcon(this, g2, x, iy);
-				x += icon.getIconWidth() + getIconTextGap();
 			}
+			// Always reserve the fuel-pump slot so non-scoopable letters (Y, L, …) line up
+			// under scoopable letters rather than under the pumps.
+			x += iconSlot + ROUTE_COL_CLASS_ICON_TEXT_GAP;
 			String text = getText();
 			if (text != null && !text.isEmpty()) {
 				g2.setColor(getForeground());

@@ -1,0 +1,30 @@
+---
+description: NEVER let JUnit clobber the live Java Preferences store (window layout, mining/Google, overlay prefs)
+globs: "**/src/test/**/*.java,**/EdoTestFlags.java,**/TestEnvironment.java,**/TabLayoutPreferences.java,**/OverlayPreferences.java,**/MiningSheetPrefsTestGuard.java,**/pom.xml"
+alwaysApply: false
+---
+
+# JUnit must not touch live Preferences
+
+`Preferences.userNodeForPackage(...)` is the **same OS user store** the running EDO app uses. Surefire does **not** give tests a private Preferences tree. Writing or clearing prefs in a test **wipes the developer's real settings**.
+
+## What has already been broken by tests
+
+1. **Floating-tab / window layout** — `TabLayoutStateTest` used to call `TabLayoutPreferences.save` then `clear()`, deleting `overlay.tabLayout.json`. Result: all tabs back on main after `mvn test`.
+2. **Mining / Google Sheets URLs** — tests that switch backend/URL without restore (see `MiningSheetPrefsTestGuard`).
+3. **Overlay bounds / docking** — constructing `OverlayContentPanel` / `OverlayFrame` used to restore floats and persist default "everything on main" (mitigated by `edo.test.isolateUi`).
+
+## Hard rules for new tests
+
+1. **Do not** call `Preferences.userNodeForPackage`, `*.clear()`, or preference setters that flush to the live store unless you **snapshot and restore** in `try`/`finally` (or an `AutoCloseable` guard like `MiningSheetPrefsTestGuard`).
+2. **Do not** call `TabLayoutPreferences.save` / `clear` from tests. Round-trip JSON with `TabLayoutPreferences.toJson` / `parse` only.
+3. Prefer **in-memory** fixtures. If you must exercise Preferences APIs, guard writes with `EdoTestFlags.isolateUi()` in production code **and** still restore any keys you mutate for the assertion.
+4. When adding Surefire `systemPropertyVariables`, keep `<edo.test.isolateUi>true</edo.test.isolateUi>`. `TestEnvironment`'s static block sets it for IDE runners — do not remove that.
+5. Constructing `OverlayContentPanel` / `OverlayFrame` / `TabDockingController` is fine only while `isolateUi` stays true; do not temporarily set `edo.test.isolateUi=false` just to make a test green.
+6. New preference write paths in `src/main` that affect window geometry, tab layout, or user-visible settings must no-op when `EdoTestFlags.isolateUi()` is true (same pattern as `OverlayFrame.persist*Bounds*` and `TabLayoutPreferences.save`).
+
+## Checklist before merging test changes
+
+- [ ] Grep the diff for `Preferences.`, `TabLayoutPreferences.save`, `TabLayoutPreferences.clear`, `putInt`, `remove(`, `flush`.
+- [ ] If any live key is written: snapshot → mutate → assert → restore in `finally`.
+- [ ] Run the new test under Surefire with `edo.test.isolateUi=true` and confirm the developer's floating-tab layout / overlay bounds prefs are unchanged afterward.

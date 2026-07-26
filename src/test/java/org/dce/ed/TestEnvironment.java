@@ -6,32 +6,34 @@ import java.nio.file.Path;
 import org.dce.ed.cache.SystemCache;
 
 /**
- * Test isolation: redirect any cache or file output away from user data.
- * Call {@link #ensureTestIsolation()} from a test class so it runs before tests;
- * if any code path touches {@link SystemCache}, it will use a temp SQLite DB instead of the real cache.
+ * Test isolation: redirect cache / file output away from user data, and enable UI prefs isolation.
  * <p>
- * Current unit tests do not trigger cache writes, Preferences, or other persistence:
+ * <b>Preferences are not sandboxed.</b> {@code Preferences.userNodeForPackage} is the same store the running
+ * app uses. Never write window bounds, floating-tab layout ({@code overlay.tabLayout.json}), mining/Google
+ * sheet URLs, or other live prefs from tests without snapshot/restore. Prefer in-memory fixtures.
  * <ul>
- *   <li>{@link org.dce.ed.logreader.EliteLogParserTest} – parser only, no I/O</li>
- *   <li>{@link org.dce.ed.NavRouteParserTest} – static parse method, no cache</li>
- *   <li>{@link org.dce.ed.RouteTargetStateTest} – in-memory state only</li>
- *   <li>{@link org.dce.ed.RouteTabPanelHelperTest} – static helpers, no cache</li>
- *   <li>{@link org.dce.ed.MiningTabPanelTest} – static buildInventoryTonsFromCargo / csvEscape, no files</li>
- *   <li>{@link org.dce.ed.SystemTabTargetLogicTest} – pure logic, no I/O</li>
+ *   <li>{@link EdoTestFlags#ISOLATE_UI_PROPERTY} — skip floating-tab restore/persist and overlay bounds writes
+ *       (set here for IDE runners; Surefire also sets it in {@code pom.xml}).</li>
+ *   <li>{@link #ensureTestIsolation()} — redirect {@link SystemCache} SQLite away from {@code ~/.edo}.</li>
+ *   <li>{@link MiningSheetPrefsTestGuard} — snapshot/restore mining backend + Google Sheets URL when a test
+ *       must temporarily change those keys.</li>
  * </ul>
- * Also sets {@link EdoTestFlags#ISOLATE_UI_PROPERTY} so overlay UI tests do not restore floating tabs
- * or write window bounds into the live Preferences store.
+ * Historical foot-gun: {@code TabLayoutStateTest} used to {@code save} then {@code clear} live tab layout prefs.
+ * Round-trip JSON in memory only ({@code TabLayoutPreferences.toJson}/{@code parse}).
+ * See {@code .cursor/rules/junit-live-preferences.mdc}.
  */
 public final class TestEnvironment {
 
     static {
-        // Surefire sets this in pom.xml; IDE runners often omit it — keep tests quiet (no TTS / console).
+        // Surefire sets these in pom.xml; IDE runners often omit them.
         if (System.getProperty("edo.test.disableSpeech") == null) {
             System.setProperty("edo.test.disableSpeech", "true");
         }
         if (System.getProperty("edo.test.allowSpeechGating") == null) {
             System.setProperty("edo.test.allowSpeechGating", "false");
         }
+        // CRITICAL: without this, OverlayContentPanel / TabDockingController / TabLayoutPreferences can
+        // rewrite or clear the developer's floating-tab layout and window bounds.
         if (System.getProperty(EdoTestFlags.ISOLATE_UI_PROPERTY) == null) {
             System.setProperty(EdoTestFlags.ISOLATE_UI_PROPERTY, "true");
         }
@@ -42,6 +44,7 @@ public final class TestEnvironment {
     /**
      * Call from a test class (e.g. in a {@code static { ... }} block or {@code @BeforeAll}) so that
      * SystemCache, if ever used during tests, writes to a temp directory instead of user home.
+     * Does not isolate Java Preferences — those remain the live OS store.
      */
     public static void ensureTestIsolation() {
         if (initialized) {

@@ -6,6 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
+/**
+ * Layout normalize + JSON helpers only.
+ * <p>
+ * Do <b>not</b> call {@link TabLayoutPreferences#save} / {@link TabLayoutPreferences#clear} here — those hit the
+ * live Preferences store and previously wiped floating-tab layouts after {@code mvn test}.
+ */
 class TabLayoutStateTest {
 
     @Test
@@ -34,7 +40,8 @@ class TabLayoutStateTest {
     }
 
     @Test
-    void preferencesRoundTrip() {
+    void jsonRoundTrip() {
+        // In-memory only — never write Preferences.userNodeForPackage (live OS store).
         TabLayoutState state = TabLayoutState.defaultAllOnMain();
         state.mainTabs.remove("ROUTE");
         state.mainTabs.remove("SYSTEM");
@@ -50,15 +57,12 @@ class TabLayoutStateTest {
         state.floats.add(f);
         state.normalize();
 
-        TabLayoutPreferences.save(state);
-        TabLayoutState loaded = TabLayoutPreferences.load();
+        TabLayoutState loaded = TabLayoutPreferences.parse(TabLayoutPreferences.toJson(state));
         assertEquals(1, loaded.floats.size());
         assertEquals(java.util.List.of("ROUTE", "SYSTEM"), loaded.floats.get(0).tabs);
         assertEquals("SYSTEM", loaded.floats.get(0).selected);
         assertEquals(100, loaded.floats.get(0).x);
         assertEquals(org.dce.ed.MouseInteractionMode.SELECTIVE, loaded.floats.get(0).mouseInteractionMode());
         assertFalse(loaded.mainTabs.contains("ROUTE"));
-
-        TabLayoutPreferences.clear();
     }
 }

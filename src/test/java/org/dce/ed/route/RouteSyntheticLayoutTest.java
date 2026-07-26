@@ -68,6 +68,138 @@ class RouteSyntheticLayoutTest {
         assertEquals(Integer.valueOf(2), rows.get(2).displayIndex);
     }
 
+    @Test
+    void destinationStationShownUnderDestSystemWhileEnRoute() {
+        List<RouteEntry> base = new ArrayList<>();
+        base.add(coordRow("Sol", 1L, 0, 0, 0));
+        base.add(coordRow("Diaguandri", 2L, 10, 0, 0));
+        RouteTargetState ts = new RouteTargetState();
+        ts.restoreFromPersistence(null, null, 2L, 5, "Ray Gateway");
+        List<RouteEntry> out = RouteLayoutEngine.buildDisplayedEntries(
+                base,
+                null,
+                "Sol",
+                1L,
+                null,
+                ts,
+                null,
+                0L,
+                (name, addr, pref) -> null,
+                false);
+        assertEquals(3, out.size());
+        assertEquals("Sol", out.get(0).systemName);
+        assertEquals("Diaguandri", out.get(1).systemName);
+        assertEquals("Ray Gateway", out.get(2).systemName);
+        assertTrue(out.get(2).isBodyRow);
+        assertEquals(1, out.get(2).indentLevel);
+    }
+
+    @Test
+    void destinationStationShownUnderDestSystemWhenInSystem() {
+        List<RouteEntry> base = new ArrayList<>();
+        base.add(coordRow("Diaguandri", 2L, 10, 0, 0));
+        RouteTargetState ts = new RouteTargetState();
+        ts.restoreFromPersistence(null, null, 2L, 5, "Ray Gateway");
+        List<RouteEntry> out = RouteLayoutEngine.buildDisplayedEntries(
+                base,
+                null,
+                "Diaguandri",
+                2L,
+                null,
+                ts,
+                null,
+                0L,
+                (name, addr, pref) -> null,
+                false);
+        assertEquals(2, out.size());
+        assertEquals("Diaguandri", out.get(0).systemName);
+        assertEquals("Ray Gateway", out.get(1).systemName);
+        assertTrue(out.get(1).isBodyRow);
+    }
+
+    @Test
+    void destinationStationOmittedWhenDestSystemNotOnRoute() {
+        List<RouteEntry> base = new ArrayList<>();
+        base.add(coordRow("Sol", 1L, 0, 0, 0));
+        RouteTargetState ts = new RouteTargetState();
+        ts.restoreFromPersistence(null, null, 99L, 5, "Ray Gateway");
+        List<RouteEntry> out = RouteLayoutEngine.buildDisplayedEntries(
+                base,
+                null,
+                "Sol",
+                1L,
+                null,
+                ts,
+                null,
+                0L,
+                (name, addr, pref) -> null,
+                false);
+        assertEquals(1, out.size());
+        assertEquals("Sol", out.get(0).systemName);
+        assertTrue(out.stream().noneMatch(e -> e != null && e.isBodyRow));
+    }
+
+    @Test
+    void destinationBodyOmittedWhenNameMatchesDestinationSystem() {
+        List<RouteEntry> base = new ArrayList<>();
+        base.add(coordRow("Sol", 1L, 0, 0, 0));
+        base.add(coordRow("Diaguandri", 2L, 10, 0, 0));
+        RouteTargetState ts = new RouteTargetState();
+        // Status often sets Body to the primary star when locking a system jump.
+        ts.restoreFromPersistence(null, null, 2L, 1, "Diaguandri");
+        List<RouteEntry> out = RouteLayoutEngine.buildDisplayedEntries(
+                base,
+                null,
+                "Sol",
+                1L,
+                null,
+                ts,
+                null,
+                0L,
+                (name, addr, pref) -> null,
+                false);
+        assertEquals(2, out.size());
+        assertTrue(out.stream().noneMatch(e -> e != null && e.isBodyRow));
+    }
+
+    @Test
+    void syntheticTargetGetsFsdStarClassForFuelScoop() {
+        List<RouteEntry> base = new ArrayList<>();
+        base.add(coordRow("HIP 12099", 1L, 0, 0, 0));
+        base.add(coordRow("Deciat", 5L, 50, 0, 0));
+        RouteTargetState ts = new RouteTargetState();
+        ts.restoreFromPersistence("Arietis Sector KH-V b2-1", 99L, null, null, null);
+        // Simulate FsdTarget star class without constructing a journal event.
+        ts.applyFsdTargetEvent(
+                new org.dce.ed.logreader.event.FsdTargetEvent(
+                        java.time.Instant.EPOCH,
+                        new com.google.gson.JsonObject(),
+                        "Arietis Sector KH-V b2-1",
+                        99L,
+                        "M",
+                        4),
+                false,
+                false);
+        List<RouteEntry> out = RouteLayoutEngine.buildDisplayedEntries(
+                base,
+                null,
+                "HIP 12099",
+                1L,
+                null,
+                ts,
+                null,
+                0L,
+                (name, addr, pref) -> new Double[] { 10.0, 0.0, 0.0 },
+                false);
+        RouteEntry side = out.stream()
+                .filter(e -> e != null && "Arietis Sector KH-V b2-1".equals(e.systemName))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(side.isSynthetic);
+        assertEquals("M", side.starClass);
+        assertTrue(FuelScoopStarClass.isFuelScoopable(side.starClass));
+    }
+
     private static RouteEntry coordRow(String name, long addr, double x, double y, double z) {
         RouteEntry e = new RouteEntry();
         e.systemName = name;

@@ -37,6 +37,7 @@ public final class RouteLayoutEngine {
     public static void applySyntheticTargetRow(List<RouteEntry> entries,
             String targetSystemName,
             long targetSystemAddress,
+            String targetStarClass,
             RouteCoordsResolver coordsResolver) {
         if (entries == null || targetSystemName == null || targetSystemName.isBlank()) {
             return;
@@ -47,6 +48,9 @@ public final class RouteLayoutEngine {
         Double[] coords = coordsResolver.resolve(targetSystemName, targetSystemAddress, null);
         RouteEntry synthetic = RouteEntry.syntheticSystem(targetSystemName, targetSystemAddress, coords,
                 RouteMarkerKind.TARGET);
+        if (targetStarClass != null && !targetStarClass.isBlank()) {
+            synthetic.starClass = targetStarClass.trim();
+        }
         int insertAt = RouteGeometry.bestInsertionIndexByCoords(entries, coords);
         entries.add(insertAt, synthetic);
     }
@@ -78,23 +82,26 @@ public final class RouteLayoutEngine {
                 return;
             }
         }
-        int currentRow = RouteGeometry.findSystemRow(entries, currentSystemName, currentSystemAddress);
-        long resolvedCurrentAddress = 0L;
-        if (currentRow >= 0) {
-            RouteEntry cur = entries.get(currentRow);
-            if (cur != null) {
-                resolvedCurrentAddress = cur.systemAddress;
-            }
+        // Attach under the destination system hop (not only when it is the current system),
+        // so a plotted station like Ray Gateway shows as soon as Status reports it.
+        int destSystemRow = RouteGeometry.findSystemRow(entries, null, destinationSystemAddress.longValue());
+        if (destSystemRow < 0) {
+            return;
         }
-        if (resolvedCurrentAddress == 0L) {
-            resolvedCurrentAddress = currentSystemAddress;
+        RouteEntry parent = entries.get(destSystemRow);
+        // Status often sets Destination.Body to the primary star when locking a system jump;
+        // Destination.Name is then the system name — that is not a station/body row.
+        if (parent != null && parent.systemName != null
+                && destinationName.equalsIgnoreCase(parent.systemName)) {
+            return;
         }
-        if (resolvedCurrentAddress != 0L) {
-            if (destinationSystemAddress.longValue() != resolvedCurrentAddress) {
+        for (RouteEntry e : entries) {
+            if (e != null && !e.isBodyRow && e.systemName != null
+                    && destinationName.equalsIgnoreCase(e.systemName)) {
                 return;
             }
         }
-        int insertAt = (currentRow >= 0) ? currentRow + 1 : 0;
+        int insertAt = destSystemRow + 1;
         RouteEntry body = RouteEntry.syntheticBody(destinationName);
         body.indentLevel = 1;
         body.markerKind = RouteMarkerKind.TARGET;
@@ -121,7 +128,7 @@ public final class RouteLayoutEngine {
         String tgtName = targetState.getTargetSystemName();
         long tgtAddr = targetState.getTargetSystemAddress();
         applySyntheticCurrentRow(working, currentSystemName, currentSystemAddress, currentStarPos, coordsResolver);
-        applySyntheticTargetRow(working, tgtName, tgtAddr, coordsResolver);
+        applySyntheticTargetRow(working, tgtName, tgtAddr, targetState.getTargetStarClass(), coordsResolver);
         applySyntheticDestinationBodyRow(working, currentSystemName, currentSystemAddress,
                 targetState.getDestinationName(),
                 targetState.getDestinationSystemAddress(),

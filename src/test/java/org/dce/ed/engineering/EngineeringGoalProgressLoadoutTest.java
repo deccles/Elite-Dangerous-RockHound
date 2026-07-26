@@ -230,4 +230,73 @@ class EngineeringGoalProgressLoadoutTest {
         assertTrue(need.getOrDefault("carbon", 0) >= 15,
                 "G0 sibling must keep full grade Need in the estimate: " + need);
     }
+
+    @Test
+    void applyLoadout_stockModule_doesNotWipeCraftCompleteProgress() {
+        // Repro: Panther Loadout from before FSD/PD crafts still lists those modules with no
+        // Engineering block. After restart, craft replay marks Complete, then that stale Loadout
+        // must not clear experimentalApplied / completedUnits.
+        String loadoutJson = """
+                {
+                  "timestamp": "2026-07-26T20:25:40Z",
+                  "event": "Loadout",
+                  "Ship": "panthermkii",
+                  "ShipID": 19,
+                  "Modules": [
+                    {
+                      "Slot": "FrameShiftDrive",
+                      "Item": "int_hyperdrive_overcharge_size7_class5",
+                      "On": true,
+                      "Priority": 0,
+                      "Health": 1.0
+                    },
+                    {
+                      "Slot": "PowerDistributor",
+                      "Item": "int_powerdistributor_size7_class5",
+                      "On": true,
+                      "Priority": 0,
+                      "Health": 1.0
+                    }
+                  ]
+                }
+                """;
+        LoadoutEvent loadout = (LoadoutEvent) parser.parseRecord(loadoutJson);
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "frame-shift-drive-increased-fsd-range-g5",
+                "Frame Shift Drive",
+                "Increased FSD Range",
+                5,
+                0,
+                5,
+                "frame-shift-drive-mass-manager-experimental",
+                GoalPriority.MEDIUM,
+                true,
+                1,
+                1,
+                19L,
+                "Panther Mk II",
+                true,
+                "FrameShiftDrive"));
+        goals.add(new EngineeringGoal(
+                "power-distributor-charge-enhanced-g5",
+                "Power Distributor",
+                "Charge Enhanced",
+                5,
+                0,
+                5,
+                "power-distributor-super-conduits-experimental",
+                GoalPriority.MEDIUM,
+                true,
+                1,
+                1,
+                19L,
+                "Panther Mk II",
+                true,
+                "PowerDistributor"));
+
+        EngineeringGoalProgress.applyLoadout(goals, loadout, db);
+        assertTrue(goals.get(0).isComplete(), "stale stock FSD Loadout must not wipe craft Complete");
+        assertTrue(goals.get(1).isComplete(), "stale stock PD Loadout must not wipe craft Complete");
+    }
 }
