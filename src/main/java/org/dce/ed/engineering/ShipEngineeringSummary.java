@@ -34,6 +34,8 @@ public final class ShipEngineeringSummary {
             String slotLabel,
             String moduleLabel,
             String moduleType,
+            /** Journal loadout {@code Item} id (for size/class rating). */
+            String moduleItem,
             String blueprintLabel,
             String experimentalLabel,
             int level,
@@ -64,11 +66,18 @@ public final class ShipEngineeringSummary {
         }
 
         /**
-         * Short slot/size token for its own column: {@code Huge}, {@code Size 4}, or em dash
-         * for core modules without a size (e.g. Armour).
+         * Slot/size token plus module class rating when known: {@code Tiny · A}, {@code Size 4 · B},
+         * or just {@code A} for core internals. Em dash when neither size nor rating applies.
          */
         public String slotSizeDisplay() {
             String shortSize = shortSlotSize(slotLabel);
+            String rating = moduleClassRating(moduleItem);
+            if (!shortSize.isBlank() && !rating.isBlank()) {
+                return shortSize + " · " + rating;
+            }
+            if (!rating.isBlank()) {
+                return rating;
+            }
             return shortSize.isBlank() ? "—" : shortSize;
         }
 
@@ -152,14 +161,28 @@ public final class ShipEngineeringSummary {
      * Fitted module that is not engineerable (or not mapped to an engineering catalog type).
      * Included in View Summary / clipboard text only.
      */
-    public record OtherModule(String slotLabel, String label, int count) {
+    public record OtherModule(String slotLabel, String label, String moduleItem, int count) {
         public String display() {
             String size = shortSlotSize(slotLabel);
+            String rating = moduleClassRating(moduleItem);
             String base = label != null ? label.trim() : "";
-            if (!base.isBlank() && !size.isBlank()) {
-                return base + " · " + size;
+            StringBuilder sb = new StringBuilder();
+            if (!base.isBlank()) {
+                sb.append(base);
             }
-            return !base.isBlank() ? base : size;
+            if (!size.isBlank()) {
+                if (sb.length() > 0) {
+                    sb.append(" · ");
+                }
+                sb.append(size);
+            }
+            if (!rating.isBlank()) {
+                if (sb.length() > 0) {
+                    sb.append(" · ");
+                }
+                sb.append(rating);
+            }
+            return sb.length() > 0 ? sb.toString() : "";
         }
     }
 
@@ -320,6 +343,7 @@ public final class ShipEngineeringSummary {
                     otherBuilt.add(new OtherModule(
                             friendlifySlot(module.getSlot()),
                             label,
+                            module.getItem(),
                             1));
                 }
                 continue;
@@ -339,6 +363,7 @@ public final class ShipEngineeringSummary {
                         slotLabel,
                         moduleLabel,
                         moduleType,
+                        module.getItem(),
                         "",
                         "",
                         0,
@@ -364,6 +389,7 @@ public final class ShipEngineeringSummary {
                     slotLabel,
                     moduleLabel,
                     moduleType,
+                    module.getItem(),
                     blueprint,
                     experimental,
                     level,
@@ -574,18 +600,26 @@ public final class ShipEngineeringSummary {
                 continue;
             }
             String size = shortSlotSize(other.slotLabel());
-            String key = other.label().trim().toLowerCase(Locale.ROOT) + "\0" + size.toLowerCase(Locale.ROOT);
+            String rating = moduleClassRating(other.moduleItem());
+            String key = other.label().trim().toLowerCase(Locale.ROOT)
+                    + "\0" + size.toLowerCase(Locale.ROOT)
+                    + "\0" + rating;
             OtherModule prev = merged.get(key);
             if (prev == null) {
                 merged.put(key, other);
             } else {
-                merged.put(key, new OtherModule(prev.slotLabel(), prev.label(), prev.count() + other.count()));
+                merged.put(key, new OtherModule(
+                        prev.slotLabel(),
+                        prev.label(),
+                        prev.moduleItem(),
+                        prev.count() + other.count()));
             }
         }
         List<OtherModule> out = new ArrayList<>(merged.values());
         out.sort(Comparator
                 .comparing(OtherModule::label, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(o -> shortSlotSize(o.slotLabel()), String.CASE_INSENSITIVE_ORDER));
+                .thenComparing(o -> shortSlotSize(o.slotLabel()), String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(o -> moduleClassRating(o.moduleItem()), String.CASE_INSENSITIVE_ORDER));
         return out;
     }
 
@@ -680,6 +714,31 @@ public final class ShipEngineeringSummary {
             out.append(c);
         }
         return titleCaseWords(out.toString());
+    }
+
+    /**
+     * Module class rating letter from a journal item id ({@code …_class5} → {@code A}).
+     * Elite maps class 1–5 to E–A. Empty when the item has no class token.
+     */
+    static String moduleClassRating(String item) {
+        if (item == null || item.isBlank()) {
+            return "";
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?:^|_)class([1-5])(?:_|$)", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(item.trim());
+        if (!m.find()) {
+            return "";
+        }
+        int clazz = Integer.parseInt(m.group(1));
+        return switch (clazz) {
+            case 1 -> "E";
+            case 2 -> "D";
+            case 3 -> "C";
+            case 4 -> "B";
+            case 5 -> "A";
+            default -> "";
+        };
     }
 
     /**

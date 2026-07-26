@@ -783,6 +783,7 @@ public final class EngineeringGoalProgress {
         EngineeringGoal worstIncomplete = null;
         int worstIncompleteScore = Integer.MAX_VALUE;
         boolean sawMatchingModule = false;
+        boolean incompleteMissingExperimental = false;
 
         for (LoadoutEvent.Module module : loadout.getModules()) {
             if (goal.hasTargetSlot()) {
@@ -798,6 +799,9 @@ public final class EngineeringGoalProgress {
                 if (itemType != null && !itemType.isBlank()
                         && goal.getModuleType().equalsIgnoreCase(itemType)) {
                     sawMatchingModule = true;
+                    if (!goal.getExperimentalId().isBlank()) {
+                        incompleteMissingExperimental = true;
+                    }
                     EngineeringGoal stock = goal.withProgress(0, 0).withExperimentalApplied(false);
                     int score = progressScore(stock);
                     if (score < worstIncompleteScore) {
@@ -823,6 +827,9 @@ public final class EngineeringGoalProgress {
                 continue;
             }
             EngineeringGoal snapshot = progressSnapshotFromEngineering(goal, engineering, db);
+            if (!goal.getExperimentalId().isBlank() && !snapshot.isExperimentalApplied()) {
+                incompleteMissingExperimental = true;
+            }
             int score = progressScore(snapshot);
             if (score > bestPartialScore) {
                 bestPartialScore = score;
@@ -861,7 +868,11 @@ public final class EngineeringGoalProgress {
                     .withExperimentalApplied(!goal.getExperimentalId().isBlank());
         }
         if (worstIncomplete != null) {
-            return worstIncomplete.withCompletedUnits(completedUnits);
+            EngineeringGoal progressed = worstIncomplete.withCompletedUnits(completedUnits);
+            if (incompleteMissingExperimental) {
+                progressed = progressed.withExperimentalApplied(false);
+            }
+            return progressed;
         }
         if (sawMatchingModule && !goal.getExperimentalId().isBlank() && completeOnShip == 0) {
             updated = updated.withExperimentalApplied(false);

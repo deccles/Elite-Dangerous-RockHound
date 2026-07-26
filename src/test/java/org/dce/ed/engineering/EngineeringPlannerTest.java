@@ -94,6 +94,36 @@ class EngineeringPlannerTest {
     }
 
     @Test
+    void multiUnit_currentUnitCompleteButQuantityRemains_stillNeedsFullSiblingMats() {
+        // Repro: Resistance Augmented qty 3 with completedUnits=1 and current sitting at
+        // G5+experimental (Ready) reported Need=0 while two boosters were still unfinished.
+        EngineeringGoal goal = new EngineeringGoal(
+                "shield-booster-resistance-augmented-g5",
+                "Shield Booster",
+                "Resistance Augmented",
+                5,
+                0,
+                5,
+                "shield-booster-super-capacitor-experimental",
+                GoalPriority.MEDIUM,
+                true,
+                3,
+                1,
+                7L,
+                "Anaconda",
+                true);
+        assertTrue(goal.isCurrentUnitComplete());
+        assertEquals(1, goal.remainingUnits());
+
+        EngineeringPlanner planner = new EngineeringPlanner(db);
+        Map<String, Integer> need = planner.materialsForGoal(goal);
+        assertTrue(need.getOrDefault("refinedfocuscrystals", 0) > 0,
+                "must still budget grade mats for remaining units: " + need);
+        assertTrue(need.getOrDefault("manganese", 0) > 0 || need.getOrDefault("phosphorus", 0) > 0,
+                "must include early-grade mats for a fresh sibling unit: " + need);
+    }
+
+    @Test
     void multiUnit_allAtGradeNoCompletions_experimentalOnlyForEveryUnit() {
         // Multi-hardpoint case: nothing completed yet, shared progress already at target grade —
         // remaining units are experimental applies only.

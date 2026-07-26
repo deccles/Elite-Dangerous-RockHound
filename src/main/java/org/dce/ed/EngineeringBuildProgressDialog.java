@@ -466,7 +466,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 	private static final int FIXED_BLUEPRINT_COMBO_W = 230;
 	private static final int FIXED_EXPERIMENTAL_COMBO_W = 190;
-	private static final int FIXED_SLOT_SIZE_COL_W = 56;
+	private static final int FIXED_SLOT_SIZE_COL_W = 88;
 	/** Cap so short names don't leave a huge empty Component column. */
 	private static final int FIXED_COMPONENT_COL_W = 200;
 

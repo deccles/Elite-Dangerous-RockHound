@@ -505,6 +505,18 @@ public final class EngineeringPlanner {
         if (remaining <= 0) {
             return;
         }
+        // Progress can sit on a finished unit (fromGrade/target + experimental done) while
+        // completedUnits has not yet absorbed it. Cost those leftover units as fresh G0→target
+        // work — do not report Need=0 / Ready while quantity remains.
+        if (goal.isCurrentUnitComplete()) {
+            EngineeringGoal freshUnit = goal.withProgress(0, 0).withExperimentalApplied(false);
+            Map<String, Integer> fullUnit = new LinkedHashMap<>();
+            accumulateSingleUnitMaterials(freshUnit, fullUnit);
+            for (Map.Entry<String, Integer> e : fullUnit.entrySet()) {
+                required.merge(e.getKey(), e.getValue() * remaining, Integer::sum);
+            }
+            return;
+        }
         Map<String, Integer> currentUnit = new LinkedHashMap<>();
         accumulateSingleUnitMaterials(goal, currentUnit);
         for (Map.Entry<String, Integer> e : currentUnit.entrySet()) {

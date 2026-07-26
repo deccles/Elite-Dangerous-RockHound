@@ -17,7 +17,7 @@ import com.google.gson.Gson;
 class EngineeringGoalSlotMatcherTest {
 
     private static Row gapRow(long shipId, String slotKey, String moduleType) {
-        return new Row(shipId, slotKey, slotKey, moduleType, moduleType, "", "", 0, 0, 1, Band.GAP);
+        return new Row(shipId, slotKey, slotKey, moduleType, moduleType, "", "", "", 0, 0, 1, Band.GAP);
     }
 
     private static EngineeringGoal hrpGoal(long shipId, String targetSlot, String blueprint) {

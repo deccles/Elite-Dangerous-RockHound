@@ -64,7 +64,8 @@ class ShipEngineeringSummaryTest {
 
         ShipEngineeringSummary.Row gap = summary.rowsInBand(ShipEngineeringSummary.Band.GAP).get(0);
         assertEquals("—", gap.engineeringDisplay());
-        assertEquals("—", gap.slotSizeDisplay());
+        assertEquals("A", gap.slotSizeDisplay(),
+                "core module with class5 item should show A rating");
         assertTrue(gap.moduleType().toLowerCase().contains("power")
                 || gap.moduleLabel().toLowerCase().contains("power")
                 || gap.componentDisplay().toLowerCase().contains("power"));
@@ -81,6 +82,17 @@ class ShipEngineeringSummaryTest {
         assertEquals("Size 6", ShipEngineeringSummary.shortSlotSize("Slot02_Size6"));
         assertEquals("", ShipEngineeringSummary.shortSlotSize("Armour"));
         assertEquals("", ShipEngineeringSummary.shortSlotSize("Power Distributor"));
+    }
+
+    @Test
+    void moduleClassRating_mapsClass1to5() {
+        assertEquals("E", ShipEngineeringSummary.moduleClassRating("int_cargorack_size5_class1"));
+        assertEquals("D", ShipEngineeringSummary.moduleClassRating("int_hullreinforcement_size4_class2"));
+        assertEquals("C", ShipEngineeringSummary.moduleClassRating("hpt_shieldbooster_size0_class3"));
+        assertEquals("B", ShipEngineeringSummary.moduleClassRating("hpt_crimescanner_size0_class4"));
+        assertEquals("A", ShipEngineeringSummary.moduleClassRating("int_powerdistributor_size7_class5"));
+        assertEquals("", ShipEngineeringSummary.moduleClassRating("hpt_multicannon_gimbal_huge"));
+        assertEquals("", ShipEngineeringSummary.moduleClassRating(null));
     }
 
     @Test
@@ -114,6 +126,7 @@ class ShipEngineeringSummaryTest {
         assertEquals("Lightweight Hull Reinforcement", row.blueprintLabel());
         assertEquals("G1", row.levelDisplay());
         assertEquals("G1→G5", row.levelDisplay(5));
+        assertEquals("Size 4 · D", row.slotSizeDisplay());
     }
 
     @Test
