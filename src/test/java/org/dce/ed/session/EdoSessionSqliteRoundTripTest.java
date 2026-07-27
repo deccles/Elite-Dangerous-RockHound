@@ -84,6 +84,30 @@ class EdoSessionSqliteRoundTripTest {
     }
 
     @Test
+    void saveAndLoad_roundTripCustomRouteEntries() {
+        SystemCache cache = SystemCache.getInstance();
+        EdoSessionState written = new EdoSessionState();
+        written.setCurrentSystemName("Here");
+        written.setCurrentSystemAddress(10L);
+        written.setCustomRouteActive(Boolean.TRUE);
+        RouteEntryPersisted hop = new RouteEntryPersisted();
+        hop.setSystemName("There");
+        hop.setSystemAddress(20L);
+        hop.setStarClass("K");
+        hop.setScanStatus(RouteScanStatus.UNKNOWN.name());
+        written.setCustomRouteEntries(List.of(hop));
+
+        cache.saveEdoSessionState(written);
+
+        EdoSessionState read = cache.loadEdoSessionState();
+        assertEquals(Boolean.TRUE, read.getCustomRouteActive());
+        assertEquals(1, read.customRouteEntriesOrEmpty().size());
+        assertEquals("There", read.customRouteEntriesOrEmpty().get(0).getSystemName());
+        assertEquals(20L, read.customRouteEntriesOrEmpty().get(0).getSystemAddress());
+        assertEquals("Here", read.getCurrentSystemName());
+    }
+
+    @Test
     void saveAndLoad_carrierJumpCooldownEndTime() {
         SystemCache cache = SystemCache.getInstance();
         EdoSessionState written = new EdoSessionState();

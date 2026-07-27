@@ -13,6 +13,11 @@ public enum ExecTriggerId {
     FLEET_CARRIER_COPY_NEXT_DESTINATION("Copy next destination (Fleet Carrier)"),
     /** Ship hyperspace arrival ({@code FSDJump}); not fleet carrier jumps. */
     SHIP_JUMP_COMPLETE("Ship jump complete"),
+    /**
+     * Ship {@code FSDJump} while the Route tab has a custom (paste/reorder) list —
+     * not while showing a game-loaded {@code NavRoute}.
+     */
+    CUSTOM_ROUTE_JUMP_COMPLETE("Custom route jump complete"),
     JOURNAL_EVENT("Journal event"),
     SHORTCUT_KEY("Shortcut key");
 
@@ -35,6 +40,7 @@ public enum ExecTriggerId {
                 ROUTE_COPY_NEXT_DESTINATION,
                 FLEET_CARRIER_COPY_NEXT_DESTINATION,
                 SHIP_JUMP_COMPLETE,
+                CUSTOM_ROUTE_JUMP_COMPLETE,
                 JOURNAL_EVENT,
                 SHORTCUT_KEY
         };

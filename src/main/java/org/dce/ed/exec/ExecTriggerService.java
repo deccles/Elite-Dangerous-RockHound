@@ -123,14 +123,26 @@ public final class ExecTriggerService {
      * {@code nextDestination} is the next hop on the ship Route tab (may be blank at end of route).
      */
     public void onShipJumpComplete(String nextDestination) {
-        ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.SHIP_JUMP_COMPLETE)
+        fireShipJumpTrigger(ExecTriggerId.SHIP_JUMP_COMPLETE, nextDestination);
+    }
+
+    /**
+     * Ship hyperspace arrival while a custom Route-tab list is active (paste/reorder).
+     * Does not fire for a game-loaded {@code NavRoute} or for fleet carrier jumps.
+     */
+    public void onCustomRouteJumpComplete(String nextDestination) {
+        fireShipJumpTrigger(ExecTriggerId.CUSTOM_ROUTE_JUMP_COMPLETE, nextDestination);
+    }
+
+    private void fireShipJumpTrigger(ExecTriggerId triggerId, String nextDestination) {
+        ExecLaunchContext.Builder builder = ExecLaunchContext.builder(triggerId)
                 .carrierSystemName(carrierSystemName())
                 .carrierCallsign(fuelTracker.getLastKnownCallsign())
                 .carrierName(fuelTracker.getLastKnownCarrierName());
         if (nextDestination != null && !nextDestination.isBlank()) {
             builder.destination(nextDestination.trim());
         }
-        fireTrigger(ExecTriggerId.SHIP_JUMP_COMPLETE, builder.build());
+        fireTrigger(triggerId, builder.build());
     }
 
     /** Fires enabled bindings whose shortcut key matches (global F-key hook). */

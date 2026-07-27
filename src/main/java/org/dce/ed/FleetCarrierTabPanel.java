@@ -78,6 +78,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	@Override
 	protected void onCustomRouteMutated() {
 		spanshRouteLoaded = !routeSession.getBaseRouteEntries().isEmpty();
+		super.onCustomRouteMutated();
 	}
 
 	private final String defaultStatusText = " ";
@@ -281,6 +282,7 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	private void clearFleetCarrierRoute() {
 		routeSession.clearAfterNavRouteClearEvent();
 		spanshRouteLoaded = false;
+		setCustomRouteActive(false);
 		setHeaderLabelText("Fleet Carrier: (no data)");
 		statusLabel.setText("Route cleared.");
 		rebuildDisplayedEntries();

@@ -62,7 +62,7 @@ public final class OverlayScrollPaneSupport {
             vsb.setOpaque(false);
             vsb.setBackground(EdoUi.Internal.TRANSPARENT);
             vsb.setUI(new SubtleScrollBarUI());
-            vsb.setPreferredSize(new Dimension(12, Integer.MAX_VALUE));
+            vsb.setPreferredSize(new Dimension(9, Integer.MAX_VALUE));
             vsb.setUnitIncrement(16);
         }
         JScrollBar hsb = sp.getHorizontalScrollBar();
@@ -70,7 +70,7 @@ public final class OverlayScrollPaneSupport {
             hsb.setOpaque(false);
             hsb.setBackground(EdoUi.Internal.TRANSPARENT);
             hsb.setUI(new SubtleScrollBarUI());
-            hsb.setPreferredSize(new Dimension(Integer.MAX_VALUE, 12));
+            hsb.setPreferredSize(new Dimension(Integer.MAX_VALUE, 9));
             hsb.setUnitIncrement(16);
         }
     }

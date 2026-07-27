@@ -885,7 +885,9 @@ public final class EngineeringGoalProgress {
         return updated;
     }
 
-    /** Absolute grade/experimental progress for one loadout module (ignores sticky session fromGrade). */
+    /**
+     * Absolute grade/experimental progress for one loadout module (ignores sticky session fromGrade).
+     */
     private static EngineeringGoal progressSnapshotFromEngineering(EngineeringGoal template,
                                                                      LoadoutEvent.Engineering engineering,
                                                                      EngineeringDatabase db) {
@@ -921,6 +923,107 @@ public final class EngineeringGoalProgress {
             }
         }
         return updated;
+    }
+
+    /**
+     * Status-column progress 0..1. Multi-quantity goals average per-module loadout progress —
+     * {@link EngineeringGoal#getFromGrade()} is the <em>worst</em> incomplete unit (for Need),
+     * which would hide a single advanced sibling (e.g. one Shield Booster at G2 among stock).
+     */
+    public static double displayCompletionFraction(EngineeringGoal goal,
+                                                   LoadoutEvent loadout,
+                                                   EngineeringDatabase database,
+                                                   int engineerRank) {
+        if (goal == null) {
+            return 0.0;
+        }
+        if (goal.isComplete()) {
+            return 1.0;
+        }
+        int qty = Math.max(1, goal.getQuantity());
+        if (qty <= 1 || loadout == null || !goalMatchesShip(goal, loadout.getShipId())) {
+            return EngineeringGradeProgress.completionFraction(goal, engineerRank);
+        }
+        EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
+        List<Double> unitFracs = unitDisplayFractionsFromLoadout(goal, loadout, db, engineerRank);
+        if (unitFracs.isEmpty()) {
+            return EngineeringGradeProgress.completionFraction(goal, engineerRank);
+        }
+        unitFracs.sort(java.util.Comparator.reverseOrder());
+        double sum = 0.0;
+        int n = Math.min(qty, unitFracs.size());
+        for (int i = 0; i < n; i++) {
+            sum += unitFracs.get(i);
+        }
+        return Math.min(1.0, sum / qty);
+    }
+
+    /** True when the Status bar should show craft progress (not a blank Ready/Short row). */
+    public static boolean hasDisplayCraftProgress(EngineeringGoal goal,
+                                                  LoadoutEvent loadout,
+                                                  EngineeringDatabase database) {
+        if (goal == null) {
+            return false;
+        }
+        if (goal.getFromGrade() > 0
+                || goal.getCraftsAtCurrentGrade() > 0
+                || goal.isExperimentalApplied()
+                || goal.getCompletedUnits() > 0) {
+            return true;
+        }
+        if (loadout == null || goal.getQuantity() <= 1 || !goalMatchesShip(goal, loadout.getShipId())) {
+            return false;
+        }
+        EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
+        for (Double frac : unitDisplayFractionsFromLoadout(goal, loadout, db, 0)) {
+            if (frac != null && frac > 1e-9) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<Double> unitDisplayFractionsFromLoadout(EngineeringGoal goal,
+                                                                LoadoutEvent loadout,
+                                                                EngineeringDatabase db,
+                                                                int engineerRank) {
+        List<Double> fracs = new ArrayList<>();
+        if (goal == null || loadout == null) {
+            return fracs;
+        }
+        EngineeringGoal unitTemplate = blankUnitProgress(goal);
+        for (LoadoutEvent.Module module : loadout.getModules()) {
+            if (module == null) {
+                continue;
+            }
+            if (goal.hasTargetSlot()) {
+                String modSlot = module.getSlot() != null ? module.getSlot().trim() : "";
+                if (!goal.getTargetSlot().equalsIgnoreCase(modSlot)) {
+                    continue;
+                }
+            }
+            LoadoutEvent.Engineering engineering = module.getEngineering();
+            if (engineering == null) {
+                continue;
+            }
+            Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
+                    EngineeringJournalBlueprintResolver.resolve(
+                            module.getSlot(), module.getItem(), engineering.getBlueprintName(), db);
+            if (resolved.isEmpty()) {
+                continue;
+            }
+            if (!goal.getModuleType().equalsIgnoreCase(resolved.get().moduleType())
+                    || !goal.getBlueprintName().equalsIgnoreCase(resolved.get().blueprintName())) {
+                continue;
+            }
+            if (isEngineeringCompleteForGoal(goal, engineering, db)) {
+                fracs.add(1.0);
+                continue;
+            }
+            EngineeringGoal snap = progressSnapshotFromEngineering(unitTemplate, engineering, db);
+            fracs.add(EngineeringGradeProgress.unitCompletionFraction(snap, engineerRank));
+        }
+        return fracs;
     }
 
     private static int progressScore(EngineeringGoal goal) {
@@ -1048,10 +1151,11 @@ public final class EngineeringGoalProgress {
             return true;
         }
         // Ingredient inference is a last resort for journals predating the experimental-effect
-        // fields. A craft that names any blueprint Level is a grade roll, NOT an experimental
-        // application — inferring from ingredients there marked goals' experimentals done when a
-        // grade roll's materials happened to cover the experimental recipe.
-        if (craft.getLevel() > 0) {
+        // fields, and for ApplyExperimentalEffect crafts that only report Frontier effect codes
+        // (e.g. special_armour_chunky) without a matchable Localised name. A plain grade roll that
+        // names Level but not ApplyExperimentalEffect must NOT infer from ingredients — those
+        // materials can overlap an experimental recipe and falsely mark it done.
+        if (craft.getLevel() > 0 && craft.getApplyExperimentalEffect().isBlank()) {
             return false;
         }
         return ingredientsMatch(expBp.get().getMaterials(), craft.getIngredients(), db);

@@ -1,5 +1,7 @@
 package org.dce.ed.session;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -23,6 +25,12 @@ public final class EdoSessionState {
     private String pendingJumpLockedName;
     private Long pendingJumpLockedAddress;
     private Boolean inHyperspace;
+    /**
+     * Ship Route tab: paste/reorder list (not {@code NavRoute.json}). When true, {@link #customRouteEntries}
+     * is restored on startup instead of the journal NavRoute snapshot.
+     */
+    private Boolean customRouteActive;
+    private List<RouteEntryPersisted> customRouteEntries;
 
     // --- Carrier countdown (OverlayFrame) ---
     /** ISO-8601 instant when carrier jump completes. */
@@ -330,6 +338,27 @@ public final class EdoSessionState {
 
     public void setInHyperspace(Boolean inHyperspace) {
         this.inHyperspace = inHyperspace;
+    }
+
+    public Boolean getCustomRouteActive() {
+        return customRouteActive;
+    }
+
+    public void setCustomRouteActive(Boolean customRouteActive) {
+        this.customRouteActive = customRouteActive;
+    }
+
+    public List<RouteEntryPersisted> getCustomRouteEntries() {
+        return customRouteEntries;
+    }
+
+    public void setCustomRouteEntries(List<RouteEntryPersisted> customRouteEntries) {
+        this.customRouteEntries = customRouteEntries;
+    }
+
+    /** Gson may deserialize null; normalize to mutable list. */
+    public List<RouteEntryPersisted> customRouteEntriesOrEmpty() {
+        return customRouteEntries != null ? customRouteEntries : new ArrayList<>();
     }
 
     public String getCarrierJumpDepartureTime() {

@@ -214,4 +214,35 @@ class EngineeringGradeProgressTest {
         assertEquals(3, firmware.getRequired());
         assertEquals(3, processors.getRequired());
     }
+
+    @Test
+    void completionFraction_zeroUntilCraftsThenRisesTowardOne() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "id", "Power Distributor", "Charge Enhanced", 0, 0, 5, "");
+        assertEquals(0.0, EngineeringGradeProgress.completionFraction(goal, 0), 1e-9);
+
+        goal = EngineeringGradeProgress.afterCraft(goal, 1, 0.2);
+        double midG1 = EngineeringGradeProgress.completionFraction(goal, 0);
+        assertTrue(midG1 > 0.0 && midG1 < 1.0, "partial G1: " + midG1);
+
+        goal = goal.withProgress(5, 0);
+        assertEquals(1.0, EngineeringGradeProgress.completionFraction(goal, 0), 1e-9);
+    }
+
+    @Test
+    void completionFraction_includesExperimentalAsFinalStep() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "id",
+                "Armour",
+                "Heavy Duty",
+                5,
+                0,
+                5,
+                "armour-deep-plating-experimental");
+        double beforeExp = EngineeringGradeProgress.completionFraction(goal, 0);
+        assertTrue(beforeExp > 0.9 && beforeExp < 1.0, "G5 without experimental: " + beforeExp);
+
+        goal = goal.withExperimentalApplied(true);
+        assertEquals(1.0, EngineeringGradeProgress.completionFraction(goal, 0), 1e-9);
+    }
 }

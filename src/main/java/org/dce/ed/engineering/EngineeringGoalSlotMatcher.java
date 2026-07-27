@@ -6,14 +6,16 @@ import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.dce.ed.engineering.ShipEngineeringSummary.Band;
 import org.dce.ed.engineering.ShipEngineeringSummary.Row;
 
 /**
  * Assigns engineering goals to loadout rows using optional {@link EngineeringGoal#getTargetSlot()}
- * pins, then greedy 1:1 matching for unscoped goals.
+ * pins, then greedy matching for unscoped goals.
+ *
+ * <p>An unscoped (or multi-quantity) goal may claim up to {@link EngineeringGoal#getQuantity()}
+ * compatible rows so a qty-2 plan lights up two fitted modules of that type.
  */
 public final class EngineeringGoalSlotMatcher {
 
@@ -30,17 +32,22 @@ public final class EngineeringGoalSlotMatcher {
     }
 
     /**
-     * Maps {@link #rowKey(Row)} → matched goal. Exact slot pins win; remaining unscoped goals
-     * are assigned at most once each in stable slot order.
+     * Maps {@link #rowKey(Row)} → matched goal. Exact slot pins win; remaining capacity is filled
+     * greedily in stable slot order (up to each goal's quantity).
      */
     public static Map<String, EngineeringGoal> assign(List<Row> rows, List<EngineeringGoal> goals) {
         Map<String, EngineeringGoal> out = new HashMap<>();
         if (rows == null || rows.isEmpty() || goals == null || goals.isEmpty()) {
             return out;
         }
-        Set<EngineeringGoal> assigned = CollectionsIdentity.newSet();
+        Map<EngineeringGoal, Integer> remaining = new IdentityHashMap<>();
+        for (EngineeringGoal goal : goals) {
+            if (goal != null) {
+                remaining.put(goal, Math.max(1, goal.getQuantity()));
+            }
+        }
 
-        // Pass 1: exact targetSlot match.
+        // Pass 1: exact targetSlot match (consumes one unit of capacity).
         for (Row row : rows) {
             if (row == null) {
                 continue;
@@ -54,7 +61,7 @@ public final class EngineeringGoalSlotMatcher {
                 continue;
             }
             for (EngineeringGoal goal : goals) {
-                if (goal == null || assigned.contains(goal) || !sameShipAndModule(row, goal)) {
+                if (goal == null || remainingCapacity(remaining, goal) <= 0 || !sameShipAndModule(row, goal)) {
                     continue;
                 }
                 if (!goal.hasTargetSlot() || !slot.equalsIgnoreCase(goal.getTargetSlot().trim())) {
@@ -63,13 +70,14 @@ public final class EngineeringGoalSlotMatcher {
                 if (!blueprintCompatible(row, goal)) {
                     continue;
                 }
-                out.put(key, goal);
-                assigned.add(goal);
+                claim(out, remaining, key, goal);
                 break;
             }
         }
 
-        // Pass 2: unscoped goals, 1:1 by stable slot order.
+        // Pass 2: fill remaining capacity by stable slot order.
+        // Qty-1 pins stay exclusive to their slot; multi-qty goals may claim additional free rows
+        // even if a preferred pin was already consumed.
         List<Row> ordered = new ArrayList<>();
         for (Row row : rows) {
             if (row != null) {
@@ -87,18 +95,17 @@ public final class EngineeringGoalSlotMatcher {
                 continue;
             }
             for (EngineeringGoal goal : goals) {
-                if (goal == null || assigned.contains(goal) || !sameShipAndModule(row, goal)) {
+                if (goal == null || remainingCapacity(remaining, goal) <= 0 || !sameShipAndModule(row, goal)) {
                     continue;
                 }
-                if (goal.hasTargetSlot()) {
-                    // Pinned to a different (or unmatched) slot — never steal for another row.
+                if (goal.hasTargetSlot() && goal.getQuantity() <= 1) {
+                    // Pinned qty-1: never steal for another row.
                     continue;
                 }
                 if (!blueprintCompatible(row, goal)) {
                     continue;
                 }
-                out.put(key, goal);
-                assigned.add(goal);
+                claim(out, remaining, key, goal);
                 break;
             }
         }
@@ -110,6 +117,19 @@ public final class EngineeringGoalSlotMatcher {
             return null;
         }
         return assign(allRows, goals).get(rowKey(row));
+    }
+
+    private static int remainingCapacity(Map<EngineeringGoal, Integer> remaining, EngineeringGoal goal) {
+        Integer left = remaining.get(goal);
+        return left != null ? left : 0;
+    }
+
+    private static void claim(Map<String, EngineeringGoal> out,
+            Map<EngineeringGoal, Integer> remaining,
+            String key,
+            EngineeringGoal goal) {
+        out.put(key, goal);
+        remaining.put(goal, remainingCapacity(remaining, goal) - 1);
     }
 
     private static boolean sameShipAndModule(Row row, EngineeringGoal goal) {
@@ -133,12 +153,5 @@ public final class EngineeringGoalSlotMatcher {
         }
         String goalBp = EngineeringJournalBlueprintResolver.normalizeToken(goal.getBlueprintName());
         return rowBp.equals(goalBp);
-    }
-
-    /** Identity set without requiring equals/hashCode of goals. */
-    private static final class CollectionsIdentity {
-        static Set<EngineeringGoal> newSet() {
-            return java.util.Collections.newSetFromMap(new IdentityHashMap<>());
-        }
     }
 }

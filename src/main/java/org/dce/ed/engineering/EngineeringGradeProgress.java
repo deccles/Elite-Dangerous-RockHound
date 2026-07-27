@@ -201,4 +201,56 @@ public final class EngineeringGradeProgress {
         }
         return "G" + goal.getTargetGrade();
     }
+
+    /**
+     * 0..1 craft completion for UI (grades + optional experimental, averaged across quantity).
+     * Uses the reputation roll schedule when {@code engineerRank} &gt; 0.
+     */
+    public static double completionFraction(EngineeringGoal goal, int engineerRank) {
+        if (goal == null) {
+            return 0.0;
+        }
+        if (goal.isComplete()) {
+            return 1.0;
+        }
+        int qty = Math.max(1, goal.getQuantity());
+        double currentUnit = unitCompletionFraction(goal, engineerRank);
+        return Math.min(1.0, (goal.getCompletedUnits() + currentUnit) / (double) qty);
+    }
+
+    /** 0..1 progress for the in-progress unit only (ignores already-completed quantity). */
+    public static double unitCompletionFraction(EngineeringGoal goal, int engineerRank) {
+        if (goal == null) {
+            return 0.0;
+        }
+        if (goal.isCurrentUnitComplete()) {
+            return 1.0;
+        }
+        int target = Math.max(0, goal.getTargetGrade());
+        if (target <= 0) {
+            return 0.0;
+        }
+        int total = 0;
+        int done = 0;
+        for (int g = 1; g <= target; g++) {
+            int required = rollsRequired(engineerRank, g);
+            total += required;
+            if (g <= goal.getFromGrade()) {
+                done += required;
+            } else if (g == goal.getFromGrade() + 1) {
+                done += Math.min(required, rescaleCrafts(
+                        goal.getCraftsAtCurrentGrade(), ROLLS_PER_GRADE, required));
+            }
+        }
+        if (!goal.getExperimentalId().isBlank()) {
+            total += 1;
+            if (goal.isExperimentalApplied()) {
+                done += 1;
+            }
+        }
+        if (total <= 0) {
+            return 0.0;
+        }
+        return Math.min(1.0, done / (double) total);
+    }
 }

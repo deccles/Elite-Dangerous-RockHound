@@ -18,7 +18,7 @@ public final class SubtleScrollBarUI extends BasicScrollBarUI {
 
     @Override
     protected Dimension getMinimumThumbSize() {
-        return new Dimension(10, 24);
+        return new Dimension(8, 18);
     }
 
     @Override

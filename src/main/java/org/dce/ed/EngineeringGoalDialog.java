@@ -36,6 +36,7 @@ import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
@@ -85,7 +86,8 @@ final class EngineeringGoalDialog extends JDialog {
     private final Mode mode;
     private final EngineeringGoal editSource;
     private final JLabel blueprintSummaryLabel = new JLabel(" ");
-    private final JSpinner quantitySpinner = new JSpinner(new SpinnerNumberModel(1, 1, MAX_QUANTITY, 1));
+    /** Min 0 so Edit can set quantity to 0 and confirm deletion on Save. */
+    private final JSpinner quantitySpinner = new JSpinner(new SpinnerNumberModel(1, 0, MAX_QUANTITY, 1));
     private final JTextField blueprintField = new JTextField(28);
     private final JCheckBox installedOnlyCheck = new JCheckBox("Installed only");
     private final JLabel effectsLabel = new JLabel(" ");
@@ -106,6 +108,8 @@ final class EngineeringGoalDialog extends JDialog {
     private String originalBlueprintFieldText;
 
     private EngineeringGoal result;
+    /** Set when Edit Save with quantity 0 and the user confirms deletion. */
+    private boolean deleted;
 
     private EngineeringGoalDialog(Window owner,
                                   EngineeringDatabase database,
@@ -248,11 +252,32 @@ final class EngineeringGoalDialog extends JDialog {
         }
     }
 
-    static EngineeringGoal showForEdit(Window owner,
-                                       EngineeringDatabase database,
-                                       BooleanSupplier passThroughEnabledSupplier,
-                                       EngineeringGoal existing,
-                                       EngineeringShipCatalog shipCatalog) {
+    /**
+     * Outcome of {@link #showForEdit}: saved goal, confirmed deletion, or cancel/close.
+     */
+    static record EditResult(EngineeringGoal goal, boolean deleted) {
+        static EditResult cancelled() {
+            return new EditResult(null, false);
+        }
+
+        static EditResult saved(EngineeringGoal goal) {
+            return new EditResult(goal, false);
+        }
+
+        static EditResult deleteConfirmed() {
+            return new EditResult(null, true);
+        }
+
+        boolean wasSaved() {
+            return goal != null && !deleted;
+        }
+    }
+
+    static EditResult showForEdit(Window owner,
+                                  EngineeringDatabase database,
+                                  BooleanSupplier passThroughEnabledSupplier,
+                                  EngineeringGoal existing,
+                                  EngineeringShipCatalog shipCatalog) {
         return showForEdit(owner, database, passThroughEnabledSupplier, existing, shipCatalog, AddPrefill.EMPTY);
     }
 
@@ -260,14 +285,14 @@ final class EngineeringGoalDialog extends JDialog {
      * @param prefill optional Loadout context (e.g. fitted experimental) used when the saved goal
      *                has no experimental yet
      */
-    static EngineeringGoal showForEdit(Window owner,
-                                       EngineeringDatabase database,
-                                       BooleanSupplier passThroughEnabledSupplier,
-                                       EngineeringGoal existing,
-                                       EngineeringShipCatalog shipCatalog,
-                                       AddPrefill prefill) {
+    static EditResult showForEdit(Window owner,
+                                  EngineeringDatabase database,
+                                  BooleanSupplier passThroughEnabledSupplier,
+                                  EngineeringGoal existing,
+                                  EngineeringShipCatalog shipCatalog,
+                                  AddPrefill prefill) {
         if (database == null || existing == null) {
-            return null;
+            return EditResult.cancelled();
         }
         EngineeringShipRef def = null;
         if (existing.hasShip()) {
@@ -283,7 +308,13 @@ final class EngineeringGoalDialog extends JDialog {
         activeInstance = dialog;
         try {
             dialog.setVisible(true);
-            return dialog.result;
+            if (dialog.deleted) {
+                return EditResult.deleteConfirmed();
+            }
+            if (dialog.result != null) {
+                return EditResult.saved(dialog.result);
+            }
+            return EditResult.cancelled();
         } finally {
             activeInstance = null;
         }
@@ -298,10 +329,10 @@ final class EngineeringGoalDialog extends JDialog {
     }
 
     /** @deprecated use {@link #showForEdit} with ship catalog */
-    static EngineeringGoal showForEdit(Window owner,
-                                       EngineeringDatabase database,
-                                       BooleanSupplier passThroughEnabledSupplier,
-                                       EngineeringGoal existing) {
+    static EditResult showForEdit(Window owner,
+                                  EngineeringDatabase database,
+                                  BooleanSupplier passThroughEnabledSupplier,
+                                  EngineeringGoal existing) {
         return showForEdit(owner, database, passThroughEnabledSupplier, existing,
                 (EngineeringShipCatalog) null);
     }
@@ -473,7 +504,9 @@ final class EngineeringGoalDialog extends JDialog {
         constrainComboHeight(gradeCombo);
         gradeCombo.addActionListener(e -> updateGradeDetails());
         styleQuantitySpinner(base);
-        quantitySpinner.setToolTipText("How many modules to engineer (e.g. four gimbal weapons)");
+        quantitySpinner.setToolTipText(mode == Mode.EDIT
+                ? "How many modules to engineer. Set to 0 and Save to delete this goal."
+                : "How many modules to engineer (e.g. four gimbal weapons)");
 
         JPanel topSettings = new JPanel(new GridBagLayout());
         topSettings.setOpaque(false);
@@ -1270,6 +1303,14 @@ final class EngineeringGoalDialog extends JDialog {
         }
         int targetGrade = Integer.parseInt(gradeSel.toString().substring(1));
         int quantity = ((Number) quantitySpinner.getValue()).intValue();
+        if (quantity <= 0) {
+            if (mode == Mode.EDIT) {
+                promptDeleteGoal();
+            } else {
+                effectsLabel.setText("<html><body style='color:#ffaa66'>Quantity must be at least 1.</body></html>");
+            }
+            return;
+        }
         String experimentalId = resolveExperimentalId(selected.moduleType(), selected.blueprintName());
         EngineeringShipRef ship = (EngineeringShipRef) shipCombo.getSelectedItem();
         long shipId = ship != null && ship.isKnown() ? ship.getShipId() : EngineeringShipRef.UNKNOWN_SHIP_ID;
@@ -1306,6 +1347,22 @@ final class EngineeringGoalDialog extends JDialog {
                 shipId,
                 shipLabel);
         dispose();
+    }
+
+    /** Quantity 0 on Edit → confirm, then signal deletion to the caller. */
+    private void promptDeleteGoal() {
+        String label = editSource != null ? editSource.displayLabel() : "this goal";
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                "Quantity is 0. Delete engineering goal?\n\n" + label,
+                "Delete goal",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        if (choice == JOptionPane.YES_OPTION) {
+            deleted = true;
+            result = null;
+            dispose();
+        }
     }
 
     private String resolveExperimentalId(String moduleType, String blueprintName) {

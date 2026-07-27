@@ -21,9 +21,14 @@ class EngineeringGoalSlotMatcherTest {
     }
 
     private static EngineeringGoal hrpGoal(long shipId, String targetSlot, String blueprint) {
+        return moduleGoal(shipId, targetSlot, "Hull Reinforcement Package", blueprint, 1);
+    }
+
+    private static EngineeringGoal moduleGoal(
+            long shipId, String targetSlot, String moduleType, String blueprint, int quantity) {
         return new EngineeringGoal(
                 "bp",
-                "Hull Reinforcement Package",
+                moduleType,
                 blueprint,
                 0,
                 0,
@@ -31,7 +36,7 @@ class EngineeringGoalSlotMatcherTest {
                 "",
                 GoalPriority.MEDIUM,
                 false,
-                1,
+                quantity,
                 0,
                 shipId,
                 "Test Ship",
@@ -56,7 +61,7 @@ class EngineeringGoalSlotMatcherTest {
     }
 
     @Test
-    void unscopedGoal_matchesOnlyOneGapRow() {
+    void unscopedGoal_qty1_matchesOnlyOneGapRow() {
         Row size4 = gapRow(7L, "Slot08_Size4", "Hull Reinforcement Package");
         Row size5 = gapRow(7L, "Slot09_Size5", "Hull Reinforcement Package");
         EngineeringGoal unscoped = hrpGoal(7L, "", "Heavy Duty");
@@ -67,6 +72,41 @@ class EngineeringGoalSlotMatcherTest {
         assertEquals(1, assigned.size());
         assertEquals(unscoped, assigned.get(EngineeringGoalSlotMatcher.rowKey(size4)));
         assertNull(assigned.get(EngineeringGoalSlotMatcher.rowKey(size5)));
+    }
+
+    @Test
+    void unscopedGoal_qty2_claimsTwoCompatibleRows() {
+        Row a = gapRow(7L, "TinyHardpoint1", "Shield Booster");
+        Row b = gapRow(7L, "TinyHardpoint2", "Shield Booster");
+        Row c = gapRow(7L, "TinyHardpoint3", "Shield Booster");
+        EngineeringGoal resistance = moduleGoal(7L, "", "Shield Booster", "Resistance Augmented", 2);
+
+        Map<String, EngineeringGoal> assigned =
+                EngineeringGoalSlotMatcher.assign(List.of(a, b, c), List.of(resistance));
+
+        assertEquals(2, assigned.size());
+        assertEquals(resistance, assigned.get(EngineeringGoalSlotMatcher.rowKey(a)));
+        assertEquals(resistance, assigned.get(EngineeringGoalSlotMatcher.rowKey(b)));
+        assertNull(assigned.get(EngineeringGoalSlotMatcher.rowKey(c)));
+    }
+
+    @Test
+    void twoQty2Goals_splitFourShieldBoosters() {
+        Row a = gapRow(7L, "TinyHardpoint1", "Shield Booster");
+        Row b = gapRow(7L, "TinyHardpoint2", "Shield Booster");
+        Row c = gapRow(7L, "TinyHardpoint3", "Shield Booster");
+        Row d = gapRow(7L, "TinyHardpoint4", "Shield Booster");
+        EngineeringGoal resistance = moduleGoal(7L, "", "Shield Booster", "Resistance Augmented", 2);
+        EngineeringGoal heavyDuty = moduleGoal(7L, "", "Shield Booster", "Heavy Duty", 2);
+
+        Map<String, EngineeringGoal> assigned =
+                EngineeringGoalSlotMatcher.assign(List.of(a, b, c, d), List.of(resistance, heavyDuty));
+
+        assertEquals(4, assigned.size());
+        assertEquals(resistance, assigned.get(EngineeringGoalSlotMatcher.rowKey(a)));
+        assertEquals(resistance, assigned.get(EngineeringGoalSlotMatcher.rowKey(b)));
+        assertEquals(heavyDuty, assigned.get(EngineeringGoalSlotMatcher.rowKey(c)));
+        assertEquals(heavyDuty, assigned.get(EngineeringGoalSlotMatcher.rowKey(d)));
     }
 
     @Test

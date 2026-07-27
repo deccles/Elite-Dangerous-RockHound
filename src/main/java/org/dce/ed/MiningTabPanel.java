@@ -3891,7 +3891,7 @@ String getName() {
 			vsb.setOpaque(false);
 			vsb.setBackground(EdoUi.Internal.TRANSPARENT);
 			vsb.setUI(new SubtleScrollBarUI());
-			vsb.setPreferredSize(new Dimension(12, Integer.MAX_VALUE));
+			vsb.setPreferredSize(new Dimension(9, Integer.MAX_VALUE));
 			vsb.setUnitIncrement(16);
 		}
 		JScrollBar hsb = sp.getHorizontalScrollBar();

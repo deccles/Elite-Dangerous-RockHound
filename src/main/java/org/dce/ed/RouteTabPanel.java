@@ -87,6 +87,8 @@ import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.CachedSystemSummary;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.session.FleetCarrierSessionMapper;
+import org.dce.ed.session.RouteEntryPersisted;
 import org.dce.ed.edsm.BodiesResponse;
 import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
@@ -207,6 +209,10 @@ public class RouteTabPanel extends JPanel {
 	/** Holds {@link #routeScrollPane} and the copy strip (same structure on Route and Fleet Carrier tabs). */
 	private final JPanel routeCenterWrapper;
 	private final JPanel routeCopyStrip;
+	/** Red warning under the table when the route was customized (paste / reorder). */
+	private final JLabel customRouteWarningLabel;
+	/** {@code true} after paste/reorder until a game {@code NavRoute} reload or explicit clear. */
+	private boolean customRouteActive;
 	private final JButton copyNextDestinationButton;
 	private final HoverCopyButtonSupport copyNextDestinationHoverCopySupport;
 	private final Timer copyNextDestinationRefreshTimer;
@@ -339,6 +345,20 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		RoutePersistenceAdapter.fillEdoSession(state, routeSession.toPersistenceSnapshot());
+		if (customRouteActive && routeSession != null && !routeSession.getBaseRouteEntries().isEmpty()) {
+			state.setCustomRouteActive(Boolean.TRUE);
+			List<RouteEntryPersisted> rows = new ArrayList<>();
+			for (RouteEntry e : routeSession.getBaseRouteEntries()) {
+				RouteEntryPersisted p = FleetCarrierSessionMapper.toPersisted(e);
+				if (p != null) {
+					rows.add(p);
+				}
+			}
+			state.setCustomRouteEntries(rows);
+		} else {
+			state.setCustomRouteActive(Boolean.FALSE);
+			state.setCustomRouteEntries(null);
+		}
 	}
 
 	/** Apply persisted route state (for restore on startup). */
@@ -383,6 +403,25 @@ public class RouteTabPanel extends JPanel {
 		routeSession.applyPersistenceSnapshot(RoutePersistenceAdapter.fromEdoSession(state));
 		if (state.getCurrentSystemName() != null && !state.getCurrentSystemName().isBlank()) {
 			routeSession.setCurrentSystemName(state.getCurrentSystemName());
+		}
+		if (Boolean.TRUE.equals(state.getCustomRouteActive())
+				&& !state.customRouteEntriesOrEmpty().isEmpty()) {
+			List<RouteEntry> entries = new ArrayList<>();
+			for (RouteEntryPersisted p : state.customRouteEntriesOrEmpty()) {
+				RouteEntry e = FleetCarrierSessionMapper.fromPersisted(p);
+				if (e != null) {
+					entries.add(e);
+				}
+			}
+			if (!entries.isEmpty()) {
+				routeSession.replaceBaseRouteEntries(entries);
+				setCustomRouteActive(true);
+				setHeaderLabelText("Route: " + entries.size() + " systems");
+			} else {
+				setCustomRouteActive(false);
+			}
+		} else {
+			setCustomRouteActive(false);
 		}
 		reconcileRouteCurrentWithPostRescanCache();
 		rebuildDisplayedEntries();
@@ -662,7 +701,7 @@ public class RouteTabPanel extends JPanel {
 			vsb.setOpaque(false);
 			vsb.setBackground(EdoUi.Internal.TRANSPARENT);
 			vsb.setUI(new SubtleScrollBarUI());
-			vsb.setPreferredSize(new Dimension(12, Integer.MAX_VALUE));
+			vsb.setPreferredSize(new Dimension(9, Integer.MAX_VALUE));
 		}
 		routeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
@@ -678,14 +717,15 @@ public class RouteTabPanel extends JPanel {
 			public Dimension getPreferredSize() {
 				Dimension tablePref = preferredRouteTableSize();
 				Dimension stripPref = routeCopyStrip.getPreferredSize();
+				int warnH = preferredCustomRouteWarningHeight();
 				int w = Math.max(tablePref.width, stripPref.width);
-				return new Dimension(w, tablePref.height + stripPref.height);
+				return new Dimension(w, tablePref.height + warnH + stripPref.height);
 			}
 
 			@Override
 			public Dimension getMinimumSize() {
 				Dimension stripPref = routeCopyStrip.getPreferredSize();
-				return new Dimension(120, stripPref.height + 40);
+				return new Dimension(120, stripPref.height + preferredCustomRouteWarningHeight() + 40);
 			}
 
 			@Override
@@ -695,6 +735,13 @@ public class RouteTabPanel extends JPanel {
 		};
 		routeCenterWrapper.setOpaque(false);
 		routeCenterWrapper.setBackground(EdoUi.Internal.TRANSPARENT);
+
+		customRouteWarningLabel = new JLabel("Custom Route");
+		customRouteWarningLabel.setOpaque(false);
+		customRouteWarningLabel.setForeground(EdoUi.User.ERROR);
+		customRouteWarningLabel.setFont(uiFont.deriveFont(Font.BOLD));
+		customRouteWarningLabel.setBorder(new EmptyBorder(4, 4, 0, 4));
+		customRouteWarningLabel.setVisible(false);
 
 		// Right-justified directly under the last table row; docks to the panel bottom only when the table scrolls.
 		routeCopyStrip = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
@@ -711,6 +758,7 @@ public class RouteTabPanel extends JPanel {
 				passThroughEnabledSupplier);
 
 		routeCenterWrapper.add(routeScrollPane);
+		routeCenterWrapper.add(customRouteWarningLabel);
 		routeCopyStrip.add(copyNextDestinationButton);
 		routeCenterWrapper.add(routeCopyStrip);
 
@@ -860,11 +908,49 @@ public class RouteTabPanel extends JPanel {
 		int stripH = Math.max(stripPref.height, copyNextDestinationButton != null
 				? copyNextDestinationButton.getPreferredSize().height + 10
 				: 36);
-		int maxTableH = Math.max(0, h - stripH);
+		int warnH = preferredCustomRouteWarningHeight();
+		int maxTableH = Math.max(0, h - stripH - warnH);
 		int contentH = preferredRouteTableSize().height;
 		int tableH = Math.min(contentH, maxTableH);
 		routeScrollPane.setBounds(0, 0, w, tableH);
-		routeCopyStrip.setBounds(0, tableH, w, stripH);
+		if (customRouteWarningLabel != null) {
+			customRouteWarningLabel.setBounds(0, tableH, w, warnH);
+		}
+		routeCopyStrip.setBounds(0, tableH + warnH, w, stripH);
+	}
+
+	private int preferredCustomRouteWarningHeight() {
+		if (customRouteWarningLabel == null || !customRouteWarningLabel.isVisible()) {
+			return 0;
+		}
+		Dimension pref = customRouteWarningLabel.getPreferredSize();
+		return Math.max(pref != null ? pref.height : 0, 18);
+	}
+
+	/** Shows or hides the red “Custom Route” warning under the table. */
+	protected void setCustomRouteActive(boolean active) {
+		customRouteActive = active;
+		if (customRouteWarningLabel == null) {
+			return;
+		}
+		boolean show = active && routeSession != null && !routeSession.getBaseRouteEntries().isEmpty();
+		if (customRouteWarningLabel.isVisible() == show) {
+			if (routeCenterWrapper != null) {
+				routeCenterWrapper.revalidate();
+				routeCenterWrapper.repaint();
+			}
+			return;
+		}
+		customRouteWarningLabel.setVisible(show);
+		if (routeCenterWrapper != null) {
+			routeCenterWrapper.revalidate();
+			routeCenterWrapper.repaint();
+		}
+	}
+
+	/** {@code true} when the Route tab is showing a paste/reorder custom route. */
+	protected boolean isCustomRouteActive() {
+		return customRouteActive;
 	}
 
 	/**
@@ -933,7 +1019,8 @@ public class RouteTabPanel extends JPanel {
 		trackShipFuelState(event);
 		if (event instanceof NavRouteEvent
 				|| event instanceof NavRouteClearEvent) {
-			reloadFromNavRouteFile();
+			// Galaxy-map plot / clear replaces a paste/reorder custom list.
+			reloadFromNavRouteFile(true);
 		}
 		if (event instanceof NavRouteClearEvent) {
 			routeSession.clearAfterNavRouteClearEvent();
@@ -941,7 +1028,8 @@ public class RouteTabPanel extends JPanel {
 			table.repaint();
 		}
 		if (event instanceof FssAllBodiesFoundEvent) {
-			reloadFromNavRouteFile();
+			// Status refresh only — do not wipe an active custom route.
+			reloadFromNavRouteFile(false);
 		}
 		RouteJournalApplyOutcome outcome = routeSession.applySecondaryJournalEvent(event);
 		if (outcome.refreshDisplayedRows()) {
@@ -961,14 +1049,19 @@ public class RouteTabPanel extends JPanel {
 
 	/**
 	 * Fires Exec {@link ExecTriggerId#SHIP_JUMP_COMPLETE} after the ship Route session has
-	 * advanced on {@code FSDJump}. Fleet Carrier jumps use {@code CarrierJump} and do not reach here
-	 * on {@link FleetCarrierTabPanel}.
+	 * advanced on {@code FSDJump}. When a custom (paste/reorder) route is active, also fires
+	 * {@link ExecTriggerId#CUSTOM_ROUTE_JUMP_COMPLETE}. Fleet Carrier jumps use {@code CarrierJump}
+	 * and do not reach here on {@link FleetCarrierTabPanel}.
 	 */
 	private void notifyShipJumpComplete() {
 		if (execTriggerService == null || !firesShipJumpCompleteTrigger()) {
 			return;
 		}
-		execTriggerService.onShipJumpComplete(nextRouteDestinationSystemName(routeSession));
+		String next = nextRouteDestinationSystemName(routeSession);
+		execTriggerService.onShipJumpComplete(next);
+		if (isCustomRouteActive()) {
+			execTriggerService.onCustomRouteJumpComplete(next);
+		}
 	}
 
 	/** Ship Route tab only; Fleet Carrier overrides to {@code false}. */
@@ -978,7 +1071,7 @@ public class RouteTabPanel extends JPanel {
 
 	/** Called after paste / drag reorder so subclasses (Fleet Carrier) can latch custom-route state. */
 	protected void onCustomRouteMutated() {
-		// no-op on ship Route tab
+		setCustomRouteActive(true);
 	}
 
 	/**
@@ -1460,10 +1553,23 @@ public class RouteTabPanel extends JPanel {
 		lyModePerLegButton.repaint();
 	}
 	private void reloadFromNavRouteFile() {
+		reloadFromNavRouteFile(false);
+	}
+
+	/**
+	 * @param replaceCustomRoute when {@code false}, leave an active paste/reorder custom list alone
+	 *        (e.g. FSS status refresh). When {@code true}, a galaxy-map {@code NavRoute}/{@code NavRouteClear}
+	 *        replaces the custom list.
+	 */
+	private void reloadFromNavRouteFile(boolean replaceCustomRoute) {
+		if (customRouteActive && !replaceCustomRoute) {
+			return;
+		}
 		Path dir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
 		if (dir == null) {
 			headerLabel.setText("No journal directory.");
 			routeSession.applyNavRouteReloadParsed(List.of());
+			setCustomRouteActive(false);
 			rebuildDisplayedEntries();
 			return;
 		}
@@ -1471,6 +1577,7 @@ public class RouteTabPanel extends JPanel {
 		if (!Files.isRegularFile(navRoute)) {
 			headerLabel.setText("No plotted route.");
 			routeSession.applyNavRouteReloadParsed(List.of());
+			setCustomRouteActive(false);
 			rebuildDisplayedEntries();
 			return;
 		}
@@ -1482,6 +1589,7 @@ public class RouteTabPanel extends JPanel {
 			e.printStackTrace();
 			headerLabel.setText("Error reading NavRoute.json");
 			routeSession.applyNavRouteReloadParsed(List.of());
+			setCustomRouteActive(false);
 			rebuildDisplayedEntries();
 			return;
 		}
@@ -1489,6 +1597,7 @@ public class RouteTabPanel extends JPanel {
 				? "No plotted route."
 						: "Route: " + entries.size() + " systems");
 		routeSession.applyNavRouteReloadParsed(entries);
+		setCustomRouteActive(false);
 		rebuildDisplayedEntries();
 	}
 
@@ -3526,6 +3635,10 @@ public class RouteTabPanel extends JPanel {
 		applyFontRecursively(this, uiFont);
 		if (headerLabel != null) {
 			headerLabel.setFont(uiFont.deriveFont(Font.BOLD));
+		}
+		if (customRouteWarningLabel != null) {
+			customRouteWarningLabel.setFont(uiFont.deriveFont(Font.BOLD));
+			customRouteWarningLabel.setForeground(EdoUi.User.ERROR);
 		}
 		if (lyModeFromCurrentButton != null) {
 			lyModeFromCurrentButton.setForeground(EdoUi.User.MAIN_TEXT);

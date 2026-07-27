@@ -299,4 +299,68 @@ class EngineeringGoalProgressLoadoutTest {
         assertTrue(goals.get(0).isComplete(), "stale stock FSD Loadout must not wipe craft Complete");
         assertTrue(goals.get(1).isComplete(), "stale stock PD Loadout must not wipe craft Complete");
     }
+
+    @Test
+    void displayCompletionFraction_multiQty_seesPartialSiblingProgress() {
+        // Goal quantity 4; loadout has one booster at G2 Quality 1.0 and stock siblings omitted.
+        // Shared fromGrade stays 0 (worst incomplete) for Need — Status bar must still show fill.
+        String json = """
+                {
+                  "timestamp": "2026-07-27T18:00:00Z",
+                  "event": "Loadout",
+                  "Ship": "anaconda",
+                  "ShipID": 3,
+                  "Modules": [
+                    {
+                      "Slot": "Slot01_Size1",
+                      "Item": "int_shieldbooster_size1_class5",
+                      "On": true,
+                      "Priority": 0,
+                      "Health": 1.0,
+                      "Engineering": {
+                        "Engineer": "Felicity Farseer",
+                        "BlueprintName": "ShieldBooster_Resistive",
+                        "Level": 2,
+                        "Quality": 1.0
+                      }
+                    },
+                    {
+                      "Slot": "Slot02_Size1",
+                      "Item": "int_shieldbooster_size1_class5",
+                      "On": true,
+                      "Priority": 0,
+                      "Health": 1.0
+                    }
+                  ]
+                }
+                """;
+        LoadoutEvent loadout = (LoadoutEvent) parser.parseRecord(json);
+        EngineeringGoal goal = new EngineeringGoal(
+                "shield-booster-resistance-augmented-g5",
+                "Shield Booster",
+                "Resistance Augmented",
+                0,
+                0,
+                5,
+                "",
+                GoalPriority.MEDIUM,
+                false,
+                4,
+                0,
+                3L,
+                "Anaconda",
+                true,
+                "");
+
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(goal);
+        EngineeringGoalProgress.applyLoadout(goals, loadout, db);
+        // Worst incomplete unit is still G0 (stock booster / remaining qty).
+        assertEquals(0, goals.get(0).getFromGrade(),
+                "Need progress stays on least-complete unit");
+
+        assertTrue(EngineeringGoalProgress.hasDisplayCraftProgress(goals.get(0), loadout, db));
+        double frac = EngineeringGoalProgress.displayCompletionFraction(goals.get(0), loadout, db, 0);
+        assertTrue(frac > 0.05 && frac < 1.0, "expected partial bar fill, got " + frac);
+    }
 }

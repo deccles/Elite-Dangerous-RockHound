@@ -10,6 +10,7 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.Window;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -68,6 +69,7 @@ import org.dce.ed.engineering.EngineeringLoadoutExperimentalPatch;
 import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.EngineeringGoalProgress;
+import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringInventoryTracker;
 import org.dce.ed.engineering.EngineerReputationTracker;
 import org.dce.ed.engineering.EngineeringMaterialKeys;
@@ -982,7 +984,8 @@ public class EngineeringTabPanel extends JPanel {
         Component capCell = cellRenderer.getTableCellRendererComponent(
                 goalsTable, GOAL_STATUS_WIDTH_CAP_TEXT, false, false, 0, COL_GOAL_STATUS);
         int maxWidth = Math.max(header.getPreferredSize().width, capCell.getPreferredSize().width) + 10;
-        int width = header.getPreferredSize().width + 10;
+        // Progress bars need a stable minimum width; text statuses (Complete / Ready) are narrower.
+        int width = Math.max(header.getPreferredSize().width + 10, 72);
         int rows = goalsTable.getRowCount();
         for (int row = 0; row < rows; row++) {
             Object value = goalsTable.getValueAt(row, COL_GOAL_STATUS);
@@ -990,7 +993,7 @@ public class EngineeringTabPanel extends JPanel {
                     goalsTable, value, false, false, row, COL_GOAL_STATUS);
             width = Math.max(width, cell.getPreferredSize().width + 10);
         }
-        return Math.max(header.getPreferredSize().width + 10, Math.min(maxWidth, width));
+        return Math.max(header.getPreferredSize().width + 10, Math.min(Math.max(maxWidth, 80), width));
     }
 
     private void applyShoppingTableColumnLayout() {
@@ -1774,7 +1777,7 @@ public class EngineeringTabPanel extends JPanel {
             int prefillQty = request.existingGoal() != null
                     ? request.quantity()
                     : Math.max(1, existing.getQuantity()) + 1;
-            EngineeringGoal updated = EngineeringGoalDialog.showForEdit(
+            EngineeringGoalDialog.EditResult edit = EngineeringGoalDialog.showForEdit(
                     owner,
                     database,
                     passThroughEnabledSupplier,
@@ -1789,6 +1792,19 @@ public class EngineeringTabPanel extends JPanel {
                             request.preferredTargetGrade() > 0
                                     ? request.preferredTargetGrade()
                                     : existing.getTargetGrade()));
+            if (edit.deleted()) {
+                int idx = indexOfGoalInstance(existing);
+                if (idx >= 0) {
+                    goals.remove(idx);
+                }
+                consolidateIdenticalGoals();
+                rebuildShipFilterCombo();
+                refreshGoalProgressFromJournal();
+                fireSessionChanged();
+                refreshUi();
+                return null;
+            }
+            EngineeringGoal updated = edit.goal();
             if (updated != null) {
                 if (updated.getQuantity() > 1) {
                     updated = updated.withTargetSlot("");
@@ -1964,6 +1980,12 @@ public class EngineeringTabPanel extends JPanel {
                 loadoutPatched = true;
             }
             boolean goalsChanged = EngineeringGoalProgress.applyCraft(goals, craft, database, shipId);
+            // Elite often skips a fresh Loadout after craft; sync goals from the patched snapshot too.
+            LoadoutEvent patchedLoadout = EliteOverlayTabbedPane.getLatestLoadout();
+            if (patchedLoadout != null
+                    && EngineeringGoalProgress.applyLoadout(goals, patchedLoadout, database)) {
+                goalsChanged = true;
+            }
             if (loadoutPatched || goalsChanged) {
                 fireSessionChanged();
                 scheduleRefresh();
@@ -2745,8 +2767,20 @@ public class EngineeringTabPanel extends JPanel {
             return;
         }
         EngineeringGoal existing = row.blueprint();
-        EngineeringGoal updated = EngineeringGoalDialog.showForEdit(
+        EngineeringGoalDialog.EditResult edit = EngineeringGoalDialog.showForEdit(
                 owner, database, passThroughEnabledSupplier, existing, shipCatalog);
+        if (edit.deleted()) {
+            int fullIdx = goals.indexOf(existing);
+            if (fullIdx >= 0) {
+                goals.remove(fullIdx);
+            }
+            rebuildShipFilterCombo();
+            refreshGoalProgressFromJournal();
+            fireSessionChanged();
+            refreshUi();
+            return;
+        }
+        EngineeringGoal updated = edit.goal();
         if (updated != null && !updated.equals(existing)) {
             int fullIdx = goals.indexOf(existing);
             if (fullIdx >= 0) {
@@ -3517,71 +3551,176 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
-    private final class GoalStatusCellRenderer extends EdoTableCellRenderer {
+    private int bestEngineerRankForGoal(EngineeringGoal goal) {
+        if (goal == null || database == null || reputationTracker == null) {
+            return 0;
+        }
+        return database.findById(goal.getBlueprintId())
+                .map(bp -> reputationTracker.bestRank(bp.getEngineers()))
+                .orElse(0);
+    }
+
+    private final class GoalStatusCellRenderer extends JPanel implements javax.swing.table.TableCellRenderer {
+        private static final long serialVersionUID = 1L;
+        private final JLabel label = new JLabel();
+        /** {@code < 0} = text/icon mode; otherwise 0..1 craft fill. */
+        private double barFill = -1.0;
+        private Color barColor = EdoUi.User.MAIN_TEXT;
+
+        GoalStatusCellRenderer() {
+            setLayout(new BorderLayout());
+            setOpaque(false);
+            label.setOpaque(false);
+            label.setBorder(new EmptyBorder(2, 6, 2, 6));
+            label.setHorizontalTextPosition(SwingConstants.RIGHT);
+            label.setVerticalTextPosition(SwingConstants.CENTER);
+            label.setIconTextGap(6);
+            add(label, BorderLayout.CENTER);
+        }
+
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
-            Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
-            if (!(c instanceof JLabel label)) {
-                return c;
-            }
+            barFill = -1.0;
             String text = value != null ? value.toString() : "";
-            label.setIconTextGap(6);
-            label.setHorizontalTextPosition(SwingConstants.RIGHT);
-            label.setVerticalTextPosition(SwingConstants.CENTER);
+            label.setText(text);
+            label.setIcon(null);
+            label.setForeground(EdoUi.User.MAIN_TEXT);
+            setToolTipText(null);
+
+            int modelRow = table != null ? table.convertRowIndexToModel(row) : row;
+            GoalUiRow goalRow = goalRowAtUi(modelRow);
+            GoalReadiness readiness = modelRow >= 0 && modelRow < goalReadiness.size()
+                    ? goalReadiness.get(modelRow)
+                    : null;
+
+            if (goalRow != null && goalRow.blueprint() != null
+                    && !text.isBlank()
+                    && !STATUS_HIDDEN.equals(text)
+                    && !STATUS_COMPLETE.equals(text)
+                    && !goalRow.blueprint().isComplete()) {
+                EngineeringGoal goal = goalRow.blueprint();
+                LoadoutEvent loadout = EliteOverlayTabbedPane.getLatestLoadout();
+                if (EngineeringGoalProgress.hasDisplayCraftProgress(goal, loadout, database)) {
+                    int rank = bestEngineerRankForGoal(goal);
+                    barFill = EngineeringGoalProgress.displayCompletionFraction(
+                            goal, loadout, database, rank);
+                    barColor = readinessColor(readiness, text);
+                    label.setText("");
+                    label.setIcon(null);
+                    String progress = EngineeringGradeProgress.progressLabel(goal, rank);
+                    String tip = text;
+                    if (goal.getQuantity() > 1) {
+                        tip = text + " · " + goal.getCompletedUnits() + "/" + goal.getQuantity()
+                                + " units";
+                        // Shared fromGrade is the worst incomplete unit; tip the bar % instead.
+                        tip += " · " + Math.round(barFill * 100.0) + "%";
+                    } else if (progress != null && !progress.isBlank()) {
+                        tip = text + " · " + progress;
+                    }
+                    setToolTipText(tip);
+                    return this;
+                }
+            }
+
+            if (table != null && table.getFont() != null) {
+                label.setFont(table.getFont());
+            } else {
+                label.setFont(OverlayPreferences.getUiFont());
+            }
 
             if (text.isBlank()) {
-                label.setToolTipText(null);
-                label.setIcon(null);
+                setToolTipText(null);
             } else if (STATUS_TRADES.equals(text)) {
-                label.setToolTipText("Trades available to complete");
+                setToolTipText("Trades available to complete");
             } else {
-                label.setToolTipText(text);
+                setToolTipText(text);
             }
 
-            int modelRow = table.convertRowIndexToModel(row);
-            int modelCol = table.convertColumnIndexToModel(column);
-            if (!isSelected && modelCol == COL_GOAL_STATUS) {
-                if (STATUS_HIDDEN.equals(text) || (modelRow >= 0 && modelRow < goalStatusText.size()
-                        && STATUS_HIDDEN.equals(goalStatusText.get(modelRow)))) {
-                    label.setIcon(null);
-                    label.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-                } else if (STATUS_COMPLETE.equals(text)) {
-                    label.setIcon(STATUS_ICON_OK);
-                    label.setForeground(EdoUi.User.SUCCESS);
-                } else if (STATUS_READY.equals(text)) {
-                    label.setIcon(STATUS_ICON_OK);
-                    label.setForeground(EdoUi.User.SUCCESS);
-                } else if (STATUS_TRADES.equals(text)) {
-                    label.setIcon(STATUS_ICON_TRADES);
-                    label.setForeground(Color.YELLOW);
-                } else if (STATUS_SHORT.equals(text)) {
-                    label.setIcon(STATUS_ICON_SHORT);
-                    label.setForeground(EdoUi.User.ERROR);
-                } else if (modelRow >= 0 && modelRow < goalReadiness.size()) {
-                    // Cap-width / unknown sample text — use readiness when available.
-                    Color color = switch (goalReadiness.get(modelRow)) {
-                        case READY -> EdoUi.User.SUCCESS;
-                        case READY_WITH_TRADES -> Color.YELLOW;
-                        case STILL_SHORT -> EdoUi.User.ERROR;
-                    };
-                    label.setForeground(color);
-                    label.setIcon(switch (goalReadiness.get(modelRow)) {
-                        case READY -> STATUS_ICON_OK;
-                        case READY_WITH_TRADES -> STATUS_ICON_TRADES;
-                        case STILL_SHORT -> STATUS_ICON_SHORT;
-                    });
-                } else if (GOAL_STATUS_WIDTH_CAP_TEXT.equals(text)) {
-                    // Measurement sample for "w/ Trades".
-                    label.setIcon(STATUS_ICON_TRADES);
-                    label.setForeground(Color.YELLOW);
-                } else {
-                    label.setIcon(null);
-                }
-            } else {
+            if (STATUS_HIDDEN.equals(text) || (modelRow >= 0 && modelRow < goalStatusText.size()
+                    && STATUS_HIDDEN.equals(goalStatusText.get(modelRow)))) {
                 label.setIcon(null);
+                label.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+            } else if (STATUS_COMPLETE.equals(text)) {
+                label.setIcon(STATUS_ICON_OK);
+                label.setForeground(EdoUi.User.SUCCESS);
+            } else if (STATUS_READY.equals(text)) {
+                label.setIcon(STATUS_ICON_OK);
+                label.setForeground(EdoUi.User.SUCCESS);
+            } else if (STATUS_TRADES.equals(text)) {
+                label.setIcon(STATUS_ICON_TRADES);
+                label.setForeground(Color.YELLOW);
+            } else if (STATUS_SHORT.equals(text)) {
+                label.setIcon(STATUS_ICON_SHORT);
+                label.setForeground(EdoUi.User.ERROR);
+            } else if (readiness != null) {
+                label.setForeground(readinessColor(readiness, text));
+                label.setIcon(switch (readiness) {
+                    case READY -> STATUS_ICON_OK;
+                    case READY_WITH_TRADES -> STATUS_ICON_TRADES;
+                    case STILL_SHORT -> STATUS_ICON_SHORT;
+                });
+            } else if (GOAL_STATUS_WIDTH_CAP_TEXT.equals(text)) {
+                label.setIcon(STATUS_ICON_TRADES);
+                label.setForeground(Color.YELLOW);
             }
-            return c;
+            return this;
+        }
+
+        private Color readinessColor(GoalReadiness readiness, String text) {
+            if (readiness != null) {
+                return switch (readiness) {
+                    case READY -> EdoUi.User.SUCCESS;
+                    case READY_WITH_TRADES -> Color.YELLOW;
+                    case STILL_SHORT -> EdoUi.User.ERROR;
+                };
+            }
+            if (STATUS_READY.equals(text) || STATUS_COMPLETE.equals(text)) {
+                return EdoUi.User.SUCCESS;
+            }
+            if (STATUS_TRADES.equals(text)) {
+                return Color.YELLOW;
+            }
+            if (STATUS_SHORT.equals(text)) {
+                return EdoUi.User.ERROR;
+            }
+            return EdoUi.User.MAIN_TEXT;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (barFill < 0.0 || !(g instanceof Graphics2D g2)) {
+                return;
+            }
+            int padX = 6;
+            int padY = 8;
+            int w = Math.max(0, getWidth() - padX * 2);
+            int h = Math.max(8, getHeight() - padY * 2);
+            int x = padX;
+            int y = Math.max(0, (getHeight() - h) / 2);
+            Graphics2D gPaint = (Graphics2D) g2.create();
+            try {
+                gPaint.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                gPaint.setColor(EdoUi.Internal.MAIN_TEXT_ALPHA_40);
+                gPaint.fillRoundRect(x, y, w, h, 6, 6);
+                int fillW = (int) Math.round(w * Math.max(0.0, Math.min(1.0, barFill)));
+                if (fillW > 0) {
+                    gPaint.setColor(barColor);
+                    gPaint.fillRoundRect(x, y, Math.max(fillW, Math.min(4, w)), h, 6, 6);
+                }
+            } finally {
+                gPaint.dispose();
+            }
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            if (barFill >= 0.0) {
+                return new Dimension(80, 24);
+            }
+            Dimension labelPref = label.getPreferredSize();
+            return new Dimension(Math.max(48, labelPref.width + 12), Math.max(24, labelPref.height));
         }
     }
 
