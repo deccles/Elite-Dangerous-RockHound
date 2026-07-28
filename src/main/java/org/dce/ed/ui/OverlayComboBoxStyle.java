@@ -31,6 +31,8 @@ public final class OverlayComboBoxStyle {
         combo.setBackground(EdoUi.User.PANEL_BG);
         combo.setOpaque(true);
         combo.setFocusable(false);
+        // Show more choices before the popup scrolls (Swing default is 8).
+        combo.setMaximumRowCount(20);
         combo.setUI(new OverlayComboBoxUI());
         combo.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(EdoUi.Internal.MAIN_TEXT_ALPHA_140, 1),

@@ -1461,7 +1461,7 @@ final class EngineeringGoalDialog extends JDialog {
         combo.setFont(base);
         combo.setForeground(EdoUi.User.MAIN_TEXT);
         combo.setBackground(EdoUi.User.PANEL_BG);
-        combo.setMaximumRowCount(12);
+        combo.setMaximumRowCount(24);
         OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
     }
 

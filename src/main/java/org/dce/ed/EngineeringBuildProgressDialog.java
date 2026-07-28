@@ -1326,7 +1326,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 	private void styleActionCombo(JComboBox<String> combo) {
 		OverlayComboBoxStyle.apply(combo, baseFont.deriveFont(Font.PLAIN, fontSize));
-		combo.setMaximumRowCount(10);
+		combo.setMaximumRowCount(24);
 		OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
 		combo.setRenderer(new DefaultListCellRenderer() {
 			@Override
@@ -1402,6 +1402,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 	private void styleShipCombo(JComboBox<ShipFilterItem> combo) {
 		OverlayComboBoxStyle.apply(combo, baseFont.deriveFont(Font.PLAIN, fontSize));
+		combo.setMaximumRowCount(24);
 		OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
 		combo.setRenderer(new DefaultListCellRenderer() {
 			@Override

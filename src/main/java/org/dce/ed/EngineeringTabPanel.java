@@ -2427,7 +2427,7 @@ public class EngineeringTabPanel extends JPanel {
 
     private void styleShipFilterCombo(JComboBox<ShipFilterItem> combo, Font base) {
         OverlayComboBoxStyle.apply(combo, base);
-        combo.setMaximumRowCount(12);
+        combo.setMaximumRowCount(24);
         Dimension pref = combo.getPreferredSize();
         combo.setPreferredSize(new Dimension(Math.max(260, pref.width), pref.height));
         OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
