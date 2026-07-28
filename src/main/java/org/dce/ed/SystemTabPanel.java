@@ -108,9 +108,9 @@ import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
+import org.dce.ed.ui.OverlayTransparentChrome;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SelectiveHitSupport;
-import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.ui.TransparentViewportUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
@@ -834,40 +834,18 @@ public class SystemTabPanel extends JPanel {
         table.getColumnModel().getColumn(4).setCellRenderer(landRenderer);
 
         systemBodyScrollPane = new JScrollPane(table);
-        systemBodyScrollPane.setBorder(null);
-        systemBodyScrollPane.setOpaque(false);
-        systemBodyScrollPane.getViewport().setOpaque(false);
-        systemBodyScrollPane.getViewport().setBackground(EdoUi.Internal.TRANSPARENT);
-        // Prevent LAF default white corner/scrollbar paints in transparent overlay mode.
-        javax.swing.JPanel upperRightCorner = new javax.swing.JPanel();
-        upperRightCorner.setOpaque(false);
-        upperRightCorner.setBackground(EdoUi.Internal.TRANSPARENT);
-        javax.swing.JPanel lowerRightCorner = new javax.swing.JPanel();
-        lowerRightCorner.setOpaque(false);
-        lowerRightCorner.setBackground(EdoUi.Internal.TRANSPARENT);
-        systemBodyScrollPane.setCorner(ScrollPaneConstants.UPPER_RIGHT_CORNER, upperRightCorner);
-        systemBodyScrollPane.setCorner(ScrollPaneConstants.LOWER_RIGHT_CORNER, lowerRightCorner);
+        OverlayTransparentChrome.configureScrollPane(systemBodyScrollPane);
         if (systemBodyScrollPane.getVerticalScrollBar() != null) {
-            javax.swing.JScrollBar vsb = systemBodyScrollPane.getVerticalScrollBar();
-            vsb.setOpaque(false);
-            vsb.setBackground(EdoUi.Internal.TRANSPARENT);
-            vsb.setUI(new SubtleScrollBarUI());
             // Slightly wider hit area while keeping a subtle visual thumb.
-            vsb.setPreferredSize(new Dimension(9, Integer.MAX_VALUE));
-        }
-        
-        JViewport headerViewport = systemBodyScrollPane.getColumnHeader();
-        if (headerViewport != null) {
-            headerViewport.setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
-            headerViewport.setOpaque(false);
-            headerViewport.setBackground(EdoUi.Internal.TRANSPARENT);
-            headerViewport.setUI(org.dce.ed.ui.TransparentViewportUI.createUI(headerViewport));
+            systemBodyScrollPane.getVerticalScrollBar().setPreferredSize(new Dimension(9, Integer.MAX_VALUE));
         }
 
         systemBodyScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         systemBodyScrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
-        setBorder(new EmptyBorder(4, 4, 4, 4));
+        // Top/bottom only — side EmptyBorder insets become uncleared hybrid gutters
+        // (dark frame around selective CLEAR), same class of bug as Control Panel.
+        setBorder(new EmptyBorder(4, 0, 4, 0));
 
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setOpaque(false);
@@ -976,8 +954,10 @@ public class SystemTabPanel extends JPanel {
         mapToolbarEast.add(systemPlanMapCollapseButton);
         mapToolbarEast.add(systemPlanMapExpandButton);
         JPanel mapToolbar = new JPanel(new BorderLayout());
-        mapToolbar.setOpaque(true);
-        mapToolbar.setBackground(EdoUi.User.PANEL_BG);
+        // Opaque PANEL_BG reads as a black strip under hybrid CLEAR; keep see-through on overlay hosts.
+        boolean mapToolbarOpaque = !OverlayPreferences.overlayChromeRequestsTransparency();
+        mapToolbar.setOpaque(mapToolbarOpaque);
+        mapToolbar.setBackground(mapToolbarOpaque ? EdoUi.User.PANEL_BG : EdoUi.Internal.TRANSPARENT);
         JPanel mapToolbarMain = new JPanel(new FlowLayout(FlowLayout.LEADING, 8, 2));
         mapToolbarMain.setOpaque(false);
         systemPlanMapToolbar = mapToolbar;
@@ -2940,51 +2920,42 @@ public class SystemTabPanel extends JPanel {
 
     /**
      * Selective mode punches the empty table/map area clear, but {@link #setBorder} insets still show
-     * chrome fill on the left/right — clear those gutters for the same vertical span.
+     * chrome fill — clear those gutters so the panel is not framed by a dark border. Uses the hosting
+     * window's mouse mode (floating docks) rather than the main-overlay global.
      */
     @Override
     public void paint(Graphics g) {
         super.paint(g);
-        clearSelectiveSideInsetsBesideTransparentZone(g);
+        clearSelectiveBorderInsetsInTransparentZones(g);
     }
 
-    private void clearSelectiveSideInsetsBesideTransparentZone(Graphics g) {
+    private void clearSelectiveBorderInsetsInTransparentZones(Graphics g) {
         if (g == null
-                || OverlayPreferences.getOverlayMouseInteractionMode() != MouseInteractionMode.SELECTIVE
-                || !OverlayPreferences.isPassThroughWindowActive()
+                || !TransparentViewportUI.isSelectivePassThroughContext(this)
                 || table == null || !table.isShowing()) {
             return;
         }
         Insets in = getInsets();
-        if (in == null || (in.left <= 0 && in.right <= 0)) {
+        if (in == null || (in.left <= 0 && in.right <= 0 && in.top <= 0 && in.bottom <= 0)) {
             return;
         }
-        Point tableOrigin = SwingUtilities.convertPoint(table, 0, 0, this);
-        int rowCount = table.getRowCount();
-        int rowsBottomInTable = 0;
-        if (rowCount > 0) {
-            Rectangle last = table.getCellRect(rowCount - 1, 0, true);
-            rowsBottomInTable = last.y + last.height;
-        }
-        int yStart = Math.max(0, tableOrigin.y + rowsBottomInTable);
-        int yEnd = getHeight() - (in.bottom > 0 ? in.bottom : 0);
-        if (systemPlanMapToolbar != null && systemPlanMapToolbar.isShowing()) {
-            Point tb = SwingUtilities.convertPoint(systemPlanMapToolbar, 0, 0, this);
-            yEnd = Math.min(yEnd, tb.y);
-        }
-        if (yEnd <= yStart) {
-            return;
-        }
-        int h = yEnd - yStart;
         int w = getWidth();
+        int h = getHeight();
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+            // Full-height side gutters + top/bottom insets — partial clears left a dark frame.
             if (in.left > 0) {
-                g2.fillRect(0, yStart, in.left, h);
+                g2.fillRect(0, 0, in.left, h);
             }
             if (in.right > 0) {
-                g2.fillRect(w - in.right, yStart, in.right, h);
+                g2.fillRect(w - in.right, 0, in.right, h);
+            }
+            if (in.top > 0) {
+                g2.fillRect(0, 0, w, in.top);
+            }
+            if (in.bottom > 0) {
+                g2.fillRect(0, h - in.bottom, w, in.bottom);
             }
         } finally {
             g2.dispose();

@@ -55,7 +55,6 @@ import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JViewport;
@@ -78,9 +77,9 @@ import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.exec.FleetCooldownClipboardPrep;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
+import org.dce.ed.ui.OverlayTransparentChrome;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SelectiveHitSupport;
-import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.ui.TransparentViewportUI;
 
 import org.dce.ed.cache.CachedSystem;
@@ -678,30 +677,18 @@ public class RouteTabPanel extends JPanel {
 		configureRouteTableColumnResizePolicy();
 		routeScrollPane = new JScrollPane(table);
 		routeScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-		routeScrollPane.setOpaque(false);
-		routeScrollPane.getViewport().setOpaque(false);
-		routeScrollPane.setBorder(null);
-		routeScrollPane.setViewportBorder(null);
+		// Clears LAF scroll-pane chrome that can read as a dark/black frame on transparent overlays.
+		OverlayTransparentChrome.configureScrollPane(routeScrollPane);
 		if (routeScrollPane.getViewport() != null) {
-			routeScrollPane.getViewport().setBorder(null);
 			installViewportScrollListener(routeScrollPane.getViewport());
 			installRouteTableColumnViewportListener(routeScrollPane.getViewport());
-		}
-		if (routeScrollPane.getColumnHeader() != null) {
-			routeScrollPane.getColumnHeader().setBorder(null);
 		}
 		JTableHeader th = table.getTableHeader();
 		if (th != null) {
 			th.setBorder(null);
 		}
-		th.setBorder(null);
-
 		if (routeScrollPane.getVerticalScrollBar() != null) {
-			JScrollBar vsb = routeScrollPane.getVerticalScrollBar();
-			vsb.setOpaque(false);
-			vsb.setBackground(EdoUi.Internal.TRANSPARENT);
-			vsb.setUI(new SubtleScrollBarUI());
-			vsb.setPreferredSize(new Dimension(9, Integer.MAX_VALUE));
+			routeScrollPane.getVerticalScrollBar().setPreferredSize(new Dimension(9, Integer.MAX_VALUE));
 		}
 		routeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
@@ -3661,6 +3648,18 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	public void applyOverlayBackground(Color bgWithAlpha, boolean treatAsTransparent) {
+		boolean opaque = !treatAsTransparent;
+		setOpaque(opaque);
+		if (opaque && bgWithAlpha != null) {
+			setBackground(bgWithAlpha);
+		}
+		if (routeScrollPane != null) {
+			OverlayTransparentChrome.configureScrollPane(routeScrollPane);
+			if (routeScrollPane.getVerticalScrollBar() != null) {
+				routeScrollPane.getVerticalScrollBar().setPreferredSize(new Dimension(9, Integer.MAX_VALUE));
+			}
+		}
+		OverlayTransparentChrome.applyToSubtree(this);
 		if (copyNextDestinationButton != null) {
 			styleCopyNextDestinationButton(copyNextDestinationButton, uiFont);
 			updateCopyNextDestinationButton();
