@@ -77,6 +77,8 @@ public enum EliteEventType {
     /** Bounty or combat bond voucher redemption at a station or broker. */
     REDEEM_VOUCHER("RedeemVoucher"),
     RECEIVE_TEXT("ReceiveText"),
+    /** Under fire — coincides with the in-game “Under Attack” voice line. */
+    UNDER_ATTACK("UnderAttack"),
     MUSIC("Music"),
     RESERVOIR_REPLENISHED("ReservoirReplenished"),
     PROSPECTED_ASTEROID("ProspectedAsteroid"),

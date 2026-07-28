@@ -26,6 +26,7 @@ import java.util.Objects;
 
 import org.dce.ed.OverlayFrame;
 import org.dce.ed.OverlayPreferences;
+import org.dce.ed.ui.EdoOptionDialog;
 
 import java.awt.Component;
 import javax.swing.JOptionPane;
@@ -536,7 +537,7 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
     public static void renumberRunsAndSortUsingPreferences(Component parent) {
         String url = OverlayPreferences.getMiningGoogleSheetsUrl();
         if (url == null || url.isBlank()) {
-            JOptionPane.showMessageDialog(parent,
+            EdoOptionDialog.showMessage(parent,
                 "Set a Google Sheets URL in the Mining preferences first.",
                 "No Google Sheet configured",
                 JOptionPane.WARNING_MESSAGE);
@@ -1154,20 +1155,20 @@ public final class GoogleSheetsBackend implements ProspectorLogBackend {
             @Override
             protected void done() {
                 if (failure != null) {
-                    JOptionPane.showMessageDialog(parent,
+                    EdoOptionDialog.showMessage(parent,
                         "Unable to fix mining runs:\n" + failure.getMessage(),
                         "Mining Sheet Update Failed",
                         JOptionPane.ERROR_MESSAGE);
                     return;
                 }
                 if (rowsUpdated == 0) {
-                    JOptionPane.showMessageDialog(parent,
+                    EdoOptionDialog.showMessage(parent,
                         "No mining rows were found to update.",
                         "Mining Sheet",
                         JOptionPane.INFORMATION_MESSAGE);
                     return;
                 }
-                JOptionPane.showMessageDialog(parent,
+                EdoOptionDialog.showMessage(parent,
                     String.format(Locale.US,
                         "Updated %d run group(s), %d row(s).\nRuns are now unique and sorted from earliest to latest.",
                         groupsUpdated, rowsUpdated),

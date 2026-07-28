@@ -78,14 +78,16 @@ public final class OverlayTransparentChrome {
         scroll.setUI(TransparentScrollPaneUI.createUI(scroll));
         scroll.setOpaque(false);
         scroll.setBackground(EdoUi.Internal.TRANSPARENT);
-        scroll.setBorder(null);
-        scroll.setViewportBorder(null);
+        // Must be a non-null, non-UIResource border. JTable.configureEnclosingScrollPane()
+        // reinstalls UIManager "Table.scrollPaneBorder" (etched white frame) when border is
+        // null or a UIResource — which is exactly the white boxes on Combat/overlay tables.
+        scroll.setBorder(new EmptyBorder(0, 0, 0, 0));
+        scroll.setViewportBorder(new EmptyBorder(0, 0, 0, 0));
 
         JViewport viewport = scroll.getViewport();
         if (viewport != null) {
             viewport.setOpaque(false);
             viewport.setBackground(EdoUi.Internal.TRANSPARENT);
-            viewport.setBorder(null);
             viewport.setUI(TransparentViewportUI.createUI(viewport));
         }
 
@@ -94,7 +96,6 @@ public final class OverlayTransparentChrome {
             columnHeader.setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
             columnHeader.setOpaque(false);
             columnHeader.setBackground(EdoUi.Internal.TRANSPARENT);
-            columnHeader.setBorder(null);
             columnHeader.setUI(TransparentViewportUI.createUI(columnHeader));
         }
 

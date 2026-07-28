@@ -1429,17 +1429,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		}
 		LoadoutEvent loadout = loadoutsByShip.get(Long.valueOf(shipId));
 		if (loadout != null) {
-			String name = loadout.getShipName() != null ? loadout.getShipName().trim() : "";
-			String ship = loadout.getShip() != null ? loadout.getShip().trim() : "";
-			if (!name.isBlank() && !ship.isBlank()) {
-				return ship + " · " + name;
-			}
-			if (!name.isBlank()) {
-				return name;
-			}
-			if (!ship.isBlank()) {
-				return ship;
-			}
+			return EngineeringShipCatalog.fromLoadout(loadout).baseDisplayLabel();
 		}
 		for (ModuleUnitProgress u : allUnits) {
 			if (u.shipId() == shipId && !u.shipLabel().isBlank()) {

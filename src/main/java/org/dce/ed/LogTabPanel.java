@@ -122,8 +122,13 @@ import org.dce.ed.ui.EdoUi;
  */
 public class LogTabPanel extends JPanel {
 
-    /** Journal viewer uses fixed black text; it does not follow overlay {@link org.dce.ed.ui.EdoUi.User} theme colors. */
+    /**
+     * Journal viewer is a light document UI — not the overlay theme. Explicit colors avoid
+     * dark {@link UIManager} chrome from {@code OverlayPreferences.applySwingChromeDefaults()}.
+     */
     private static final Color JOURNAL_TEXT = Color.BLACK;
+    private static final Color JOURNAL_BG = Color.WHITE;
+    private static final Color JOURNAL_CHROME = new Color(0xF0, 0xF0, 0xF0);
 
     private static final String PREF_KEY_EXCLUDED_EVENT_NAMES = "log.excludedEventNames";
 
@@ -277,6 +282,8 @@ public class LogTabPanel extends JPanel {
 
     public LogTabPanel() {
         super(new BorderLayout());
+        setOpaque(true);
+        setBackground(JOURNAL_CHROME);
         this.prefs = Preferences.userNodeForPackage(LogTabPanel.class);
         this.excludedEventNames = loadExcludedEventNamesFromPreferences();
 
@@ -294,6 +301,8 @@ public class LogTabPanel extends JPanel {
         JToolBar toolBar = new JToolBar();
         toolBar.setFloatable(false);
         toolBar.setBorder(new EmptyBorder(4, 4, 4, 4));
+        toolBar.setOpaque(true);
+        toolBar.setBackground(JOURNAL_CHROME);
 
         JButton prevDayButton = new JButton("<<");
         JButton nextDayButton = new JButton(">>");
@@ -348,6 +357,7 @@ public class LogTabPanel extends JPanel {
 
         searchField = new JTextField(24);
         searchField.setForeground(JOURNAL_TEXT);
+        searchField.setBackground(JOURNAL_BG);
         searchField.setCaretColor(JOURNAL_TEXT);
         searchField.setToolTipText(
                 "Regex search (press Enter). Use & for AND (e.g. ScanBaryCentre&13). | is OR. Empty = show all.");
@@ -395,8 +405,12 @@ public class LogTabPanel extends JPanel {
         rowSorter.setComparator(2, String.CASE_INSENSITIVE_ORDER);
         logTable.setRowSorter(rowSorter);
         logTable.setForeground(JOURNAL_TEXT);
+        logTable.setBackground(JOURNAL_BG);
         logTable.setSelectionForeground(JOURNAL_TEXT);
+        logTable.setSelectionBackground(new Color(0xCC, 0xE8, 0xFF));
         logTable.getTableHeader().setForeground(JOURNAL_TEXT);
+        logTable.getTableHeader().setBackground(JOURNAL_CHROME);
+        logTable.getTableHeader().setOpaque(true);
 
         // Column widths: Date and Event narrow, Details fills the rest
         logTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
@@ -530,6 +544,12 @@ simPlayButton.addActionListener(e -> startSimulation());
         
         JScrollPane scrollPane = new JScrollPane(logTable);
         scrollPane.setPreferredSize(new Dimension(400, 600));
+        scrollPane.setOpaque(true);
+        scrollPane.setBackground(JOURNAL_CHROME);
+        if (scrollPane.getViewport() != null) {
+            scrollPane.getViewport().setOpaque(true);
+            scrollPane.getViewport().setBackground(JOURNAL_BG);
+        }
         add(scrollPane, BorderLayout.CENTER);
 
         // Wire actions
@@ -624,6 +644,7 @@ simPlayButton.addActionListener(e -> startSimulation());
         JTextArea area = new JTextArea(pretty);
         area.setEditable(false);
         area.setForeground(JOURNAL_TEXT);
+        area.setBackground(JOURNAL_BG);
         area.setCaretColor(JOURNAL_TEXT);
         area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         area.setLineWrap(false);
@@ -631,6 +652,12 @@ simPlayButton.addActionListener(e -> startSimulation());
 
         JScrollPane sp = new JScrollPane(area);
         sp.setPreferredSize(new Dimension(900, 600));
+        sp.setOpaque(true);
+        sp.setBackground(JOURNAL_BG);
+        if (sp.getViewport() != null) {
+            sp.getViewport().setOpaque(true);
+            sp.getViewport().setBackground(JOURNAL_BG);
+        }
 
         JButton close = new JButton("Close");
         close.addActionListener(a -> {
@@ -639,10 +666,16 @@ simPlayButton.addActionListener(e -> startSimulation());
         });
 
         JPanel south = new JPanel(new BorderLayout());
+        south.setOpaque(true);
+        south.setBackground(JOURNAL_CHROME);
         south.add(close, BorderLayout.EAST);
 
         JDialog dlg = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "Event JSON", false);
         dlg.getContentPane().setLayout(new BorderLayout());
+        dlg.getContentPane().setBackground(JOURNAL_CHROME);
+        if (dlg.getContentPane() instanceof JComponent jc) {
+            jc.setOpaque(true);
+        }
         dlg.getContentPane().add(sp, BorderLayout.CENTER);
         dlg.getContentPane().add(south, BorderLayout.SOUTH);
 
@@ -1323,6 +1356,7 @@ simPlayButton.addActionListener(e -> startSimulation());
 
             setLayout(new BorderLayout());
             setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+            getContentPane().setBackground(JOURNAL_CHROME);
 
             initModels(initiallyExcluded);
             add(buildContentPanel(), BorderLayout.CENTER);
@@ -1344,6 +1378,8 @@ simPlayButton.addActionListener(e -> startSimulation());
 
         private JPanel buildContentPanel() {
             JPanel panel = new JPanel(new GridBagLayout());
+            panel.setOpaque(true);
+            panel.setBackground(JOURNAL_CHROME);
             panel.setBorder(new EmptyBorder(8, 8, 8, 8));
 
             GridBagConstraints gbc = new GridBagConstraints();
@@ -1366,8 +1402,10 @@ simPlayButton.addActionListener(e -> startSimulation());
             gbc.fill = GridBagConstraints.BOTH;
             gbc.anchor = GridBagConstraints.CENTER;
             excludedList.setForeground(JOURNAL_TEXT);
+            excludedList.setBackground(JOURNAL_BG);
             JScrollPane excludedScroll = new JScrollPane(excludedList);
             excludedScroll.setPreferredSize(new Dimension(260, 120));
+            excludedScroll.getViewport().setBackground(JOURNAL_BG);
             panel.add(excludedScroll, gbc);
 
             // Row 2: "Include Selected" button
@@ -1375,6 +1413,8 @@ simPlayButton.addActionListener(e -> startSimulation());
             gbc.fill = GridBagConstraints.NONE;
             gbc.anchor = GridBagConstraints.EAST;
             JPanel includeSelectedPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+            includeSelectedPanel.setOpaque(true);
+            includeSelectedPanel.setBackground(JOURNAL_CHROME);
             JButton includeSelectedButton = new JButton("Include Selected");
             includeSelectedButton.addActionListener(e ->
                     moveSelected(excludedList, excludedModel, includedModel));
@@ -1394,8 +1434,10 @@ simPlayButton.addActionListener(e -> startSimulation());
             gbc.fill = GridBagConstraints.BOTH;
             gbc.anchor = GridBagConstraints.CENTER;
             includedList.setForeground(JOURNAL_TEXT);
+            includedList.setBackground(JOURNAL_BG);
             JScrollPane includedScroll = new JScrollPane(includedList);
             includedScroll.setPreferredSize(new Dimension(260, 140));
+            includedScroll.getViewport().setBackground(JOURNAL_BG);
             panel.add(includedScroll, gbc);
 
             // Row 5: "Exclude Selected" button
@@ -1403,6 +1445,8 @@ simPlayButton.addActionListener(e -> startSimulation());
             gbc.fill = GridBagConstraints.NONE;
             gbc.anchor = GridBagConstraints.EAST;
             JPanel excludeSelectedPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+            excludeSelectedPanel.setOpaque(true);
+            excludeSelectedPanel.setBackground(JOURNAL_CHROME);
             JButton excludeSelectedButton = new JButton("Exclude Selected");
             excludeSelectedButton.addActionListener(e ->
                     moveSelected(includedList, includedModel, excludedModel));
@@ -1429,6 +1473,8 @@ simPlayButton.addActionListener(e -> startSimulation());
 
         private JPanel buildButtonPanel() {
             JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            buttonPanel.setOpaque(true);
+            buttonPanel.setBackground(JOURNAL_CHROME);
             buttonPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
 
             JButton includeAllButton = new JButton("Include All");

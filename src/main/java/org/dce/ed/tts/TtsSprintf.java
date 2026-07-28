@@ -607,7 +607,8 @@ public class TtsSprintf {
 
     /**
      * Rounds a credit amount for speech so Polly does not read huge exact integers.
-     * At or above one million: nearest million; otherwise nearest 100k / 10k / 1k as appropriate.
+     * At or above one billion: nearest 0.1 billion; at or above one million: nearest 0.1 million
+     * (so {@code {credits}} can say "five point three million"); under one million: nearest 10k.
      */
     public static long roundCreditsForSpeech(long credits) {
         if (credits == 0) {
@@ -616,16 +617,12 @@ public class TtsSprintf {
         long sign = credits < 0 ? -1 : 1;
         long n = Math.abs(credits);
         long rounded;
-        if (n >= 1_000_000L) {
-            rounded = (n + 500_000L) / 1_000_000L * 1_000_000L;
-        } else if (n >= 100_000L) {
+        if (n >= 1_000_000_000L) {
+            rounded = (n + 50_000_000L) / 100_000_000L * 100_000_000L;
+        } else if (n >= 1_000_000L) {
             rounded = (n + 50_000L) / 100_000L * 100_000L;
-        } else if (n >= 10_000L) {
-            rounded = (n + 5_000L) / 10_000L * 10_000L;
-        } else if (n >= 1_000L) {
-            rounded = (n + 500L) / 1_000L * 1_000L;
         } else {
-            rounded = n;
+            rounded = (n + 5_000L) / 10_000L * 10_000L;
         }
         return sign * rounded;
     }
@@ -635,14 +632,13 @@ public class TtsSprintf {
             return expandNumberToWords(0);
         }
 
-        // Prefer compact "X point Y million/billion" when it’s clean to do so:
-        // - exactly one decimal digit (remainder aligns to 0.1 units)
-        // - no rounding (deterministic, cache-friendly)
+        // Prefer compact "X point Y million/billion" with one decimal digit.
         // Whole and fractional parts use English words (reusable clips), not multi-digit strings like "53".
         // Examples:
         //  1,500,000 -> ["one","point","five","million"]
         //  2,000,000 -> ["two","million"]
         //  12,300,000 -> ["twelve","point","three","million"]
+        //  5,349,000 -> ["five","point","three","million"] (rounded to 0.1)
         if (n >= 1_000_000_000L) {
             return compactWithOneDecimal(n, 1_000_000_000L, "billion");
         }
@@ -660,22 +656,19 @@ public class TtsSprintf {
         long whole = n / scale;
         long rem = n % scale;
 
-        // If exact scale, just "<words for whole> scaleWord"
-        if (rem == 0) {
+        // Round remainder to one decimal place of the scale (e.g. 0.1 million).
+        long tenth = scale / 10;
+        long decimalDigit = (rem + tenth / 2) / tenth;
+        if (decimalDigit >= 10) {
+            whole++;
+            decimalDigit = 0;
+        }
+
+        // Exact scale (after rounding): "<words for whole> scaleWord"
+        if (decimalDigit == 0) {
             List<String> out = new ArrayList<>(expandNumberToWords(whole));
             out.add(scaleWord);
             return out;
-        }
-
-        // We only emit one decimal digit when rem is exactly a tenth of the scale (no rounding).
-        long tenth = scale / 10;
-        if (rem % tenth != 0) {
-            return expandNumberToWords(n);
-        }
-
-        long decimalDigit = rem / tenth;
-        if (decimalDigit < 0 || decimalDigit > 9) {
-            return expandNumberToWords(n);
         }
 
         List<String> out = new ArrayList<>(expandNumberToWords(whole));

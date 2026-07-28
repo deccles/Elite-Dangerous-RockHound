@@ -1,6 +1,7 @@
 package org.dce.ed;
 
 import java.awt.AlphaComposite;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -8,6 +9,7 @@ import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -54,6 +56,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
+import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableModel;
@@ -150,12 +153,32 @@ public class EngineeringTabPanel extends JPanel {
 
     private static final int COL_GOAL_ENABLED = 0;
     private static final int COL_GOAL_PRIORITY = 1;
+    /** Module (or stacked Module/Blueprint/Ship when name columns are collapsed). */
     private static final int COL_GOAL_BLUEPRINT = 2;
-    private static final int COL_GOAL_TARGET = 3;
-    private static final int COL_GOAL_EXP = 4;
-    private static final int COL_GOAL_STATUS = 5;
-    private static final int COL_GOAL_EDIT = 6;
-    private static final int COL_GOAL_DELETE = 7;
+    /** Blueprint/component name (e.g. Rapid Charge) — visible only when expanded. */
+    private static final int COL_GOAL_COMPONENT = 3;
+    private static final int COL_GOAL_SHIP = 4;
+    private static final int COL_GOAL_TARGET = 5;
+    private static final int COL_GOAL_EXP = 6;
+    private static final int COL_GOAL_STATUS = 7;
+    private static final int COL_GOAL_EDIT = 8;
+    private static final int COL_GOAL_DELETE = 9;
+    private static final int GOALS_COLUMN_COUNT = 10;
+    private static final int GOAL_MODULE_COL_MIN = 56;
+    private static final int GOAL_COMPONENT_COL_MIN = 56;
+    private static final int GOAL_SHIP_COL_MIN = 48;
+    private static final int GOAL_SHIP_COL_MAX = 140;
+    private static final int GOAL_NAME_CELL_PAD = 16;
+
+    /** Progressive Goals name-column layout. */
+    private enum GoalsNameLayout {
+        /** Module | Blueprint | Ship as separate columns. */
+        FULL,
+        /** Module | Blueprint columns; ship stacked under Module. */
+        SHIP_DOWN,
+        /** Single Blueprint column: Module / Blueprint / Ship as lines. */
+        STACKED
+    }
 
     /** Status column is capped at this width; longer values ellipsize with a tooltip. */
     private static final String GOAL_STATUS_WIDTH_CAP_TEXT = "w/ Trades";
@@ -202,6 +225,8 @@ public class EngineeringTabPanel extends JPanel {
     private final EngineeringShipCatalog shipCatalog = new EngineeringShipCatalog();
     /** null = show / plan for all ships. */
     private Long goalsShipFilterId;
+    /** How Module / Blueprint / Ship are shown in the Goals table. */
+    private GoalsNameLayout goalsNameLayout = GoalsNameLayout.FULL;
     private JComboBox<ShipFilterItem> shipFilterCombo;
     /**
      * When true and a ship is selected, materials/trades only include that ship's goals.
@@ -263,7 +288,9 @@ public class EngineeringTabPanel extends JPanel {
         configureTable(goalsTable, base, new EllipsisTextCellRenderer());
         // Two-line Blueprint cells (module + blueprint name).
         goalsTable.setRowHeight(Math.max(36, fontSize * 2 + 12));
-        goalsTable.getColumnModel().getColumn(COL_GOAL_BLUEPRINT).setCellRenderer(new BlueprintNameCellRenderer());
+        goalsTable.getColumnModel().getColumn(COL_GOAL_BLUEPRINT).setCellRenderer(new GoalModuleColumnRenderer());
+        goalsTable.getColumnModel().getColumn(COL_GOAL_COMPONENT).setCellRenderer(new GoalBlueprintColumnRenderer());
+        goalsTable.getColumnModel().getColumn(COL_GOAL_SHIP).setCellRenderer(new EllipsisTextCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_EXP).setCellRenderer(new ExperimentalEffectCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_TARGET).setCellRenderer(new GoalTargetCellRenderer());
         goalsTable.getColumnModel().getColumn(COL_GOAL_STATUS).setCellRenderer(new GoalStatusCellRenderer());
@@ -703,9 +730,7 @@ public class EngineeringTabPanel extends JPanel {
         // exceed the space the user has given the dialog.
         if (tradeScroll != null && tradeScroll.isVisible()) {
             int scrollPref = tradeScroll.getPreferredSize().height;
-            JTableHeader header = tradeTable.getTableHeader();
-            int contentH = tradeTable.getPreferredSize().height
-                    + (header != null ? header.getPreferredSize().height : 0) + 4;
+            int contentH = tradeTable.getPreferredSize().height + 4;
             pref = pref - scrollPref + contentH;
         }
         int min = lowerSplit.getMinimumDividerLocation();
@@ -796,6 +821,8 @@ public class EngineeringTabPanel extends JPanel {
         tradeEmptyLabel.setBorder(new EmptyBorder(4, 4, 4, 4));
         content.add(tradeEmptyLabel, BorderLayout.NORTH);
         tradeScroll = wrapScroll(tradeTable, 140);
+        // Column titles are repeated under each Raw / Manufactured / Encoded section.
+        tradeScroll.setColumnHeaderView(null);
         content.add(tradeScroll, BorderLayout.CENTER);
         styleMutedLabel(tradeStatusLabel, base, fontSize);
         tradeStatusLabel.setBorder(new EmptyBorder(2, 4, 0, 4));
@@ -944,25 +971,67 @@ public class EngineeringTabPanel extends JPanel {
             goalsTable.putClientProperty(MEASURING_COLUMNS_PROP, null);
         }
         int wStatus = measureGoalStatusColumnWidth();
-        int minBlueprint = 40;
+        boolean includeShip = goalsShipFilterId == null;
         int fixed = wEnabled + wPriority + wEdit + wDelete + wTarget + wExp + wStatus;
-        int wBlueprint = avail - fixed;
-        if (wBlueprint < minBlueprint) {
-            wBlueprint = minBlueprint;
-            int overflow = fixed + wBlueprint - avail;
-            if (overflow > 0) {
-                int take = Math.min(overflow, Math.max(0, wTarget - 28));
-                wTarget -= take;
-                overflow -= take;
-                take = Math.min(overflow, wExp - 76);
-                wExp -= take;
-                wBlueprint = Math.max(minBlueprint,
-                        avail - wEnabled - wPriority - wEdit - wDelete - wTarget - wExp - wStatus);
+        int remaining = Math.max(0, avail - fixed);
+
+        Font uiFont = OverlayPreferences.getUiFont();
+        int fontSize = OverlayPreferences.getUiFontSize();
+        Font bold = uiFont.deriveFont(Font.BOLD, fontSize);
+        Font plain = uiFont.deriveFont(Font.PLAIN, fontSize);
+        int needModule = Math.max(GOAL_MODULE_COL_MIN, measureGoalNamePartWidth(true, false, false, bold, plain));
+        int needComponent = Math.max(GOAL_COMPONENT_COL_MIN, measureGoalNamePartWidth(false, true, false, bold, plain));
+        int needShip = includeShip
+                ? Math.max(GOAL_SHIP_COL_MIN, Math.min(GOAL_SHIP_COL_MAX,
+                        measureGoalNamePartWidth(false, false, true, bold, plain)))
+                : 0;
+
+        // Collapse as soon as allocated width would truncate content — ship first, then merge module into blueprint.
+        if (includeShip && remaining >= needModule + needComponent + needShip) {
+            goalsNameLayout = GoalsNameLayout.FULL;
+        } else if (remaining >= needModule + needComponent) {
+            goalsNameLayout = GoalsNameLayout.SHIP_DOWN;
+        } else {
+            goalsNameLayout = GoalsNameLayout.STACKED;
+        }
+
+        int wModule = 0;
+        int wComponent = 0;
+        int wShip = 0;
+        switch (goalsNameLayout) {
+            case FULL -> {
+                int flex = Math.max(0, remaining - needModule - needComponent - needShip);
+                int parts = includeShip ? 3 : 2;
+                wModule = needModule + flex / parts;
+                wComponent = needComponent + flex / parts;
+                wShip = includeShip ? Math.min(GOAL_SHIP_COL_MAX, needShip + flex / parts) : 0;
+                wModule = Math.max(needModule, remaining - wComponent - wShip);
+                goalsTable.getColumnModel().getColumn(COL_GOAL_BLUEPRINT).setHeaderValue("Module");
+                goalsTable.getColumnModel().getColumn(COL_GOAL_COMPONENT).setHeaderValue("Blueprint");
+                goalsTable.getColumnModel().getColumn(COL_GOAL_SHIP).setHeaderValue("Ship");
+            }
+            case SHIP_DOWN -> {
+                int flex = Math.max(0, remaining - needModule - needComponent);
+                wModule = needModule + flex / 2;
+                wComponent = Math.max(needComponent, remaining - wModule);
+                goalsTable.getColumnModel().getColumn(COL_GOAL_BLUEPRINT).setHeaderValue("Module");
+                goalsTable.getColumnModel().getColumn(COL_GOAL_COMPONENT).setHeaderValue("Blueprint");
+                goalsTable.getColumnModel().getColumn(COL_GOAL_SHIP).setHeaderValue("Ship");
+            }
+            case STACKED -> {
+                // Module moves into the Blueprint column as stacked lines.
+                wComponent = Math.max(GOAL_COMPONENT_COL_MIN, remaining);
+                goalsTable.getColumnModel().getColumn(COL_GOAL_BLUEPRINT).setHeaderValue("Module");
+                goalsTable.getColumnModel().getColumn(COL_GOAL_COMPONENT).setHeaderValue("Blueprint");
+                goalsTable.getColumnModel().getColumn(COL_GOAL_SHIP).setHeaderValue("Ship");
             }
         }
+
         setColumnPixelWidth(goalsTable, COL_GOAL_ENABLED, wEnabled);
         setColumnPixelWidth(goalsTable, COL_GOAL_PRIORITY, wPriority);
-        setColumnPixelWidth(goalsTable, COL_GOAL_BLUEPRINT, wBlueprint);
+        setCollapsibleGoalColumnWidth(COL_GOAL_BLUEPRINT, wModule, GOAL_MODULE_COL_MIN, 400);
+        setCollapsibleGoalColumnWidth(COL_GOAL_COMPONENT, wComponent, GOAL_COMPONENT_COL_MIN, 400);
+        setCollapsibleGoalColumnWidth(COL_GOAL_SHIP, wShip, GOAL_SHIP_COL_MIN, GOAL_SHIP_COL_MAX);
         setColumnPixelWidth(goalsTable, COL_GOAL_TARGET, wTarget);
         setColumnPixelWidth(goalsTable, COL_GOAL_EXP, wExp);
         setColumnPixelWidth(goalsTable, COL_GOAL_STATUS, wStatus);
@@ -970,6 +1039,52 @@ public class EngineeringTabPanel extends JPanel {
         setColumnPixelWidth(goalsTable, COL_GOAL_DELETE, wDelete);
         installCenteredRightNumberColumn(goalsTable, COL_GOAL_TARGET, false, 8);
         pinScrollLeft(goalsScroll);
+        JTableHeader header = goalsTable.getTableHeader();
+        if (header != null) {
+            header.repaint();
+        }
+        syncGoalsRowHeights();
+        goalsTable.revalidate();
+        goalsTable.repaint();
+    }
+
+    /** Preferred pixel width for Module / Blueprint / Ship text in the Goals table. */
+    private int measureGoalNamePartWidth(boolean module, boolean component, boolean ship,
+            Font bold, Font plain) {
+        FontMetrics boldFm = new JLabel().getFontMetrics(bold);
+        FontMetrics plainFm = new JLabel().getFontMetrics(plain);
+        int max = 0;
+        List<GoalUiRow> rows = goalsForUi();
+        for (GoalUiRow row : rows) {
+            GoalNameLines lines = resolveGoalNameLines(row, null);
+            if (module && !lines.moduleLine().isBlank()) {
+                max = Math.max(max, boldFm.stringWidth(lines.moduleLine()));
+            }
+            if (component && !lines.blueprintLine().isBlank()) {
+                max = Math.max(max, plainFm.stringWidth(lines.blueprintLine()));
+            }
+            if (ship && !lines.shipLine().isBlank()) {
+                max = Math.max(max, plainFm.stringWidth(lines.shipLine()));
+            }
+        }
+        return max + GOAL_NAME_CELL_PAD;
+    }
+
+    private void setCollapsibleGoalColumnWidth(int modelCol, int width, int minWhenShown, int maxWhenShown) {
+        TableColumn col = goalsTable.getColumnModel().getColumn(modelCol);
+        if (width <= 0) {
+            col.setMinWidth(0);
+            col.setMaxWidth(0);
+            col.setPreferredWidth(0);
+            col.setWidth(0);
+            col.setResizable(false);
+        } else {
+            col.setResizable(true);
+            col.setMinWidth(Math.min(minWhenShown, width));
+            col.setMaxWidth(maxWhenShown);
+            col.setPreferredWidth(width);
+            col.setWidth(width);
+        }
     }
 
     private int measureGoalStatusColumnWidth() {
@@ -1167,7 +1282,8 @@ public class EngineeringTabPanel extends JPanel {
         int max = fm.stringWidth("0");
         for (int r = 0; r < tradeTable.getRowCount(); r++) {
             int modelRow = tradeTable.convertRowIndexToModel(r);
-            if (tradeModel.isGapRow(modelRow) || tradeModel.isSectionRow(modelRow)) {
+            if (tradeModel.isGapRow(modelRow) || tradeModel.isSectionRow(modelRow)
+                    || tradeModel.isColumnHeaderRow(modelRow)) {
                 continue;
             }
             Object give = tradeTable.getValueAt(r, COL_TRADE_GIVE);
@@ -1349,7 +1465,8 @@ public class EngineeringTabPanel extends JPanel {
         int width = header.getPreferredSize().width + 10;
         int rows = Math.min(sampleRows, tradeModel.getRowCount());
         for (int row = 0; row < rows; row++) {
-            if (tradeModel.isSectionRow(row) || tradeModel.isGapRow(row)) {
+            if (tradeModel.isSectionRow(row) || tradeModel.isGapRow(row)
+                    || tradeModel.isColumnHeaderRow(row)) {
                 continue;
             }
             javax.swing.table.TableCellRenderer renderer = tradeTable.getCellRenderer(row, column);
@@ -1419,17 +1536,48 @@ public class EngineeringTabPanel extends JPanel {
                 if (model.isGapRow(modelRow)) {
                     return TRADE_SECTION_GAP_PX;
                 }
+                // Section titles (Raw / Manufactured / Encoded) need a little extra height so
+                // bold text + outline padding does not clip and sit optically low.
+                if (model.isSectionRow(modelRow)) {
+                    return Math.max(base + 8, 26);
+                }
                 return base;
             }
 
             @Override
             protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
-                // Full-width rule under the last option of each material group (never mid-text).
                 Graphics2D g2 = (Graphics2D) g.create();
                 try {
-                    g2.setColor(EdoUi.ED_ORANGE_LESS_TRANS);
                     int x2 = Math.max(getWidth(), getColumnModel().getTotalColumnWidth()) - 1;
+                    // Full-width outline around Raw / Manufactured / Encoded section titles
+                    // (same chrome language as Combat section headers).
+                    g2.setStroke(new BasicStroke(1f));
+                    g2.setColor(EdoUi.User.MAIN_TEXT);
+                    for (int viewRow = 0; viewRow < getRowCount(); viewRow++) {
+                        int modelRow = convertRowIndexToModel(viewRow);
+                        if (!model.isSectionRow(modelRow)) {
+                            continue;
+                        }
+                        Rectangle r = getCellRect(viewRow, 0, true);
+                        if (r.height <= 1) {
+                            continue;
+                        }
+                        g2.drawRect(0, r.y, x2, r.height - 1);
+                    }
+                    // Orange underline under per-section column titles (Material / Need / …).
+                    g2.setColor(EdoUi.ED_ORANGE_TRANS);
+                    for (int viewRow = 0; viewRow < getRowCount(); viewRow++) {
+                        int modelRow = convertRowIndexToModel(viewRow);
+                        if (!model.isColumnHeaderRow(modelRow)) {
+                            continue;
+                        }
+                        Rectangle r = getCellRect(viewRow, 0, true);
+                        int y = r.y + r.height - 1;
+                        g2.drawLine(0, y, x2, y);
+                    }
+                    // Full-width rule under the last option of each material group (never mid-text).
+                    g2.setColor(EdoUi.ED_ORANGE_LESS_TRANS);
                     for (int viewRow = 0; viewRow < getRowCount(); viewRow++) {
                         int modelRow = convertRowIndexToModel(viewRow);
                         if (!model.hasSeparatorAfter(modelRow)) {
@@ -1508,7 +1656,8 @@ public class EngineeringTabPanel extends JPanel {
                             return "Trades available to complete";
                         }
                     }
-                    if (modelCol == COL_GOAL_BLUEPRINT || modelCol == COL_GOAL_EXP) {
+                    if (modelCol == COL_GOAL_BLUEPRINT || modelCol == COL_GOAL_COMPONENT
+                            || modelCol == COL_GOAL_EXP) {
                         String effectTip = engineeringEffectTipAt(row, modelCol);
                         if (effectTip != null && !effectTip.isBlank()) {
                             return effectTip;
@@ -1536,6 +1685,94 @@ public class EngineeringTabPanel extends JPanel {
                 }
             }
         };
+    }
+
+    /** Tallest name-cell line count for the current {@link #goalsNameLayout}. */
+    private int goalsNameLineCount(int modelRow) {
+        if (modelRow < 0) {
+            return 1;
+        }
+        GoalNameLines nameLines = resolveGoalNameLines(goalRowAtUi(modelRow), null);
+        boolean showShip = goalsShipFilterId == null && !nameLines.shipLine().isBlank();
+        return switch (goalsNameLayout) {
+            case FULL -> 1;
+            case SHIP_DOWN -> {
+                // Ship parks under Module; Blueprint stays one line.
+                int n = 0;
+                if (!nameLines.moduleLine().isBlank()) {
+                    n++;
+                }
+                if (showShip) {
+                    n++;
+                }
+                yield Math.max(1, n);
+            }
+            case STACKED -> goalStackedLineCount(modelRow);
+        };
+    }
+
+    /** Per-row Goals height from layout + font metrics (matches BoxLayout name cells). */
+    private int computeGoalsViewRowHeight(int viewRow) {
+        int fontSize = OverlayPreferences.getUiFontSize();
+        Font bold = OverlayPreferences.getUiFont().deriveFont(Font.BOLD, fontSize);
+        FontMetrics fm = new JLabel().getFontMetrics(bold);
+        // JLabel preferred height is typically getHeight(); BoxLayout stacks that per visible line.
+        int lineH = Math.max(fontSize + 4, fm.getHeight());
+        int borderPad = 6; // EmptyBorder(1,6,1,6) + small gap between stacked labels
+        int modelRow = viewRow >= 0 && goalsTable != null
+                ? goalsTable.convertRowIndexToModel(viewRow)
+                : -1;
+        int lines = goalsNameLineCount(modelRow);
+        int fromLines = lines * lineH + borderPad + Math.max(0, lines - 1);
+        // Keep the older explicit floors so short fonts still leave readable gaps.
+        int floor = switch (lines) {
+            case 1 -> Math.max(24, fontSize + 10);
+            case 2 -> Math.max(36, fontSize * 2 + 12);
+            default -> Math.max(52, fontSize * lines + 16);
+        };
+        int measured = measureGoalsNamePreferredHeight(viewRow);
+        return Math.max(floor, Math.max(fromLines, measured));
+    }
+
+    /**
+     * Preferred height of the multi-line name cell(s) at {@code viewRow}, or 0 if unavailable.
+     * SHIP_DOWN stacks under Module; STACKED stacks in Blueprint.
+     */
+    private int measureGoalsNamePreferredHeight(int viewRow) {
+        if (goalsTable == null || viewRow < 0 || viewRow >= goalsTable.getRowCount()) {
+            return 0;
+        }
+        int modelCol = goalsNameLayout == GoalsNameLayout.SHIP_DOWN
+                ? COL_GOAL_BLUEPRINT
+                : COL_GOAL_COMPONENT;
+        int viewCol = goalsTable.convertColumnIndexToView(modelCol);
+        if (viewCol < 0) {
+            return 0;
+        }
+        try {
+            TableCellRenderer renderer = goalsTable.getCellRenderer(viewRow, viewCol);
+            Component c = goalsTable.prepareRenderer(renderer, viewRow, viewCol);
+            int colW = Math.max(8, goalsTable.getColumnModel().getColumn(viewCol).getWidth());
+            c.setSize(colW, Integer.MAX_VALUE / 4);
+            return Math.max(0, c.getPreferredSize().height);
+        } catch (RuntimeException ignored) {
+            return 0;
+        }
+    }
+
+    private void syncGoalsRowHeights() {
+        if (goalsTable == null) {
+            return;
+        }
+        int fontSize = OverlayPreferences.getUiFontSize();
+        int baseline = Math.max(24, fontSize + 10);
+        // fireTableDataChanged does not resize JTable's per-row SizeSequence when the
+        // row count changes — reset it so setRowHeight(row, h) matches getRowCount().
+        goalsTable.setRowHeight(baseline);
+        int n = goalsTable.getRowCount();
+        for (int viewRow = 0; viewRow < n; viewRow++) {
+            goalsTable.setRowHeight(viewRow, computeGoalsViewRowHeight(viewRow));
+        }
     }
 
     public void applyOverlayBackground(Color bgWithAlpha, boolean treatAsTransparent) {
@@ -2876,6 +3113,8 @@ public class EngineeringTabPanel extends JPanel {
                 mergeShortfallMaps(plan.shortfallsRemainingAfterPlan(), shortfallsAfterTrades);
         updateTradeTable(trades, shortfalls, uncoveredShortfalls);
         goalsModel.fireTableDataChanged();
+        // Row count / name layout may have changed — refresh per-row heights after the model update.
+        syncGoalsRowHeights();
 
         boolean hasVisibleGoals = !visibleGoals.isEmpty();
         boolean hasGoals = !goals.isEmpty() || !materialsGoals.isEmpty();
@@ -3014,6 +3253,7 @@ public class EngineeringTabPanel extends JPanel {
                 rows.add(TradeTableRow.gap());
             }
             rows.add(TradeTableRow.section(traderTypeSectionTitle(entry.getKey())));
+            rows.add(TradeTableRow.columnHeaders());
             for (TradeTargetGroup group : targets) {
                 boolean uncovered = shortfallRemaining(uncoveredShortfalls, group.getToKey()) > 0;
                 List<TradeSuggestion> options = group.getOptions();
@@ -3052,6 +3292,7 @@ public class EngineeringTabPanel extends JPanel {
                 rows.add(TradeTableRow.gap());
             }
             rows.add(TradeTableRow.section(traderTypeSectionTitle(entry.getKey())));
+            rows.add(TradeTableRow.columnHeaders());
             rows.addAll(entry.getValue());
         }
         // Sort red groups to the top within each section already happens in groupByTarget using
@@ -3163,13 +3404,16 @@ public class EngineeringTabPanel extends JPanel {
         int i = 0;
         while (i < rows.size()) {
             TradeTableRow row = rows.get(i);
-            if (row.section() || row.gapRow()) {
+            if (row.section() || row.gapRow() || row.columnHeader()) {
                 out.add(row);
                 i++;
                 continue;
             }
             int start = i;
-            while (i < rows.size() && !rows.get(i).section() && !rows.get(i).gapRow()) {
+            while (i < rows.size()
+                    && !rows.get(i).section()
+                    && !rows.get(i).gapRow()
+                    && !rows.get(i).columnHeader()) {
                 i++;
             }
             List<TradeTableRow> block = new ArrayList<>(rows.subList(start, i));
@@ -3306,6 +3550,7 @@ public class EngineeringTabPanel extends JPanel {
         int fontSize = OverlayPreferences.getUiFontSize();
         if (goalsTable != null) {
             goalsTable.setRowHeight(Math.max(36, fontSize * 2 + 12));
+            syncGoalsRowHeights();
         }
         EdoMiningSplitPaneUi.applyDividerTheme(mainSplit);
         EdoMiningSplitPaneUi.applyDividerTheme(lowerSplit);
@@ -3724,21 +3969,85 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
-    private final class BlueprintNameCellRenderer implements javax.swing.table.TableCellRenderer {
+    private final class GoalModuleColumnRenderer implements javax.swing.table.TableCellRenderer {
+        private final JPanel panel = new JPanel();
+        private final JLabel moduleLine = new JLabel();
+        private final JLabel shipLine = new JLabel();
+
+        GoalModuleColumnRenderer() {
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.setOpaque(false);
+            panel.setBorder(new EmptyBorder(1, 6, 1, 6));
+            moduleLine.setOpaque(false);
+            shipLine.setOpaque(false);
+            moduleLine.setAlignmentX(Component.LEFT_ALIGNMENT);
+            shipLine.setAlignmentX(Component.LEFT_ALIGNMENT);
+            panel.add(moduleLine);
+            panel.add(shipLine);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            Font base = OverlayPreferences.getUiFont();
+            int size = OverlayPreferences.getUiFontSize();
+            moduleLine.setFont(base.deriveFont(Font.BOLD, size));
+            shipLine.setFont(base.deriveFont(Font.PLAIN, size));
+            moduleLine.setForeground(EdoUi.User.MAIN_TEXT);
+            shipLine.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+
+            int modelRow = table.convertRowIndexToModel(row);
+            GoalUiRow goalRow = goalRowAtUi(modelRow);
+            GoalNameLines lines = resolveGoalNameLines(goalRow, value);
+            boolean showShip = goalsNameLayout == GoalsNameLayout.SHIP_DOWN
+                    && goalsShipFilterId == null
+                    && !lines.shipLine().isBlank();
+
+            moduleLine.setText(lines.moduleLine());
+            moduleLine.setVisible(!lines.moduleLine().isBlank());
+            shipLine.setText(showShip ? lines.shipLine() : "");
+            shipLine.setVisible(showShip);
+            if (!moduleLine.isVisible() && !shipLine.isVisible()) {
+                moduleLine.setText(" ");
+                moduleLine.setVisible(true);
+            } else if (!moduleLine.isVisible() && shipLine.isVisible()) {
+                // Materials / empty module: still show ship on the first line.
+                moduleLine.setText(shipLine.getText());
+                moduleLine.setFont(base.deriveFont(Font.PLAIN, size));
+                moduleLine.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+                moduleLine.setVisible(true);
+                shipLine.setText("");
+                shipLine.setVisible(false);
+            }
+
+            String tip = goalNameTooltip(goalRow, lines);
+            panel.setToolTipText(tip != null && !tip.isBlank() ? tip : null);
+            return panel;
+        }
+    }
+
+    /**
+     * Blueprint column: name alone when FULL / SHIP_DOWN; Module/Blueprint/Ship stack when STACKED.
+     */
+    private final class GoalBlueprintColumnRenderer implements javax.swing.table.TableCellRenderer {
         private final JPanel panel = new JPanel();
         private final JLabel topLine = new JLabel();
-        private final JLabel bottomLine = new JLabel();
+        private final JLabel midLine = new JLabel();
+        private final JLabel shipLine = new JLabel();
 
-        BlueprintNameCellRenderer() {
+        GoalBlueprintColumnRenderer() {
             panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
             panel.setOpaque(false);
             panel.setBorder(new EmptyBorder(1, 6, 1, 6));
             topLine.setOpaque(false);
-            bottomLine.setOpaque(false);
+            midLine.setOpaque(false);
+            shipLine.setOpaque(false);
             topLine.setAlignmentX(Component.LEFT_ALIGNMENT);
-            bottomLine.setAlignmentX(Component.LEFT_ALIGNMENT);
+            midLine.setAlignmentX(Component.LEFT_ALIGNMENT);
+            shipLine.setAlignmentX(Component.LEFT_ALIGNMENT);
             panel.add(topLine);
-            panel.add(bottomLine);
+            panel.add(midLine);
+            panel.add(shipLine);
         }
 
         @Override
@@ -3747,40 +4056,66 @@ public class EngineeringTabPanel extends JPanel {
             Font base = OverlayPreferences.getUiFont();
             int size = OverlayPreferences.getUiFontSize();
             topLine.setFont(base.deriveFont(Font.BOLD, size));
-            bottomLine.setFont(base.deriveFont(Font.PLAIN, size));
+            midLine.setFont(base.deriveFont(Font.PLAIN, size));
+            shipLine.setFont(base.deriveFont(Font.PLAIN, size));
             topLine.setForeground(EdoUi.User.MAIN_TEXT);
-            bottomLine.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+            midLine.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+            shipLine.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
 
             int modelRow = table.convertRowIndexToModel(row);
             GoalUiRow goalRow = goalRowAtUi(modelRow);
-            String top = "";
-            String bottom = "";
-            String tip = null;
-            if (goalRow != null && goalRow.isMaterials()) {
-                MaterialsGoal g = goalRow.materials();
-                top = goalPrimaryLine(
-                        g.hasShip() ? g.getShipId() : -1L, g.getShipLabel(), g.getLabel(), 1);
-                bottom = "";
-                tip = g.materialsTooltip(database);
-            } else if (goalRow != null && goalRow.blueprint() != null) {
-                EngineeringGoal g = goalRow.blueprint();
-                top = goalPrimaryLine(g.getShipId(), g.getShipLabel(), g.getModuleType(), g.getQuantity());
-                bottom = g.getBlueprintName() != null ? g.getBlueprintName().trim() : "";
-                String effects = database.blueprintEffectTooltip(
-                        g.getModuleType(), g.getBlueprintName(), g.getTargetGrade());
-                tip = effects != null && !effects.isBlank()
-                        ? effects
-                        : top + (bottom.isBlank() ? "" : " — " + bottom);
-            } else if (value != null) {
-                top = value.toString();
-                tip = top;
+            GoalNameLines lines = resolveGoalNameLines(goalRow, value);
+            boolean showShip = goalsShipFilterId == null && !lines.shipLine().isBlank();
+
+            switch (goalsNameLayout) {
+                case FULL, SHIP_DOWN -> {
+                    // Ship lives under Module when SHIP_DOWN — this column is Blueprint only.
+                    topLine.setFont(base.deriveFont(Font.PLAIN, size));
+                    topLine.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+                    topLine.setText(lines.blueprintLine());
+                    topLine.setVisible(!lines.blueprintLine().isBlank());
+                    midLine.setText("");
+                    midLine.setVisible(false);
+                    shipLine.setText("");
+                    shipLine.setVisible(false);
+                    if (!topLine.isVisible()) {
+                        topLine.setText(" ");
+                        topLine.setVisible(true);
+                    }
+                }
+                case STACKED -> {
+                    topLine.setFont(base.deriveFont(Font.BOLD, size));
+                    topLine.setForeground(EdoUi.User.MAIN_TEXT);
+                    topLine.setText(lines.moduleLine());
+                    topLine.setVisible(!lines.moduleLine().isBlank());
+                    midLine.setText(lines.blueprintLine());
+                    midLine.setVisible(!lines.blueprintLine().isBlank());
+                    shipLine.setText(showShip ? lines.shipLine() : "");
+                    shipLine.setVisible(showShip);
+                    if (!topLine.isVisible() && !midLine.isVisible() && !shipLine.isVisible()) {
+                        topLine.setText(" ");
+                        topLine.setVisible(true);
+                    }
+                }
             }
-            topLine.setText(top);
-            bottomLine.setText(bottom);
-            bottomLine.setVisible(!bottom.isBlank());
+
+            String tip = goalNameTooltip(goalRow, lines);
             panel.setToolTipText(tip != null && !tip.isBlank() ? tip : null);
             return panel;
         }
+    }
+
+    private String goalNameTooltip(GoalUiRow goalRow, GoalNameLines lines) {
+        if (goalRow != null && goalRow.isMaterials()) {
+            return goalRow.materials().materialsTooltip(database);
+        }
+        if (goalRow != null && goalRow.blueprint() != null) {
+            EngineeringGoal g = goalRow.blueprint();
+            String effects = database.blueprintEffectTooltip(
+                    g.getModuleType(), g.getBlueprintName(), g.getTargetGrade());
+            return effects != null && !effects.isBlank() ? effects : lines.tooltipText();
+        }
+        return lines.tooltipText();
     }
 
     /**
@@ -3793,7 +4128,7 @@ public class EngineeringTabPanel extends JPanel {
             return null;
         }
         EngineeringGoal g = goalRow.blueprint();
-        if (modelCol == COL_GOAL_BLUEPRINT) {
+        if (modelCol == COL_GOAL_BLUEPRINT || modelCol == COL_GOAL_COMPONENT) {
             return database.blueprintEffectTooltip(
                     g.getModuleType(), g.getBlueprintName(), g.getTargetGrade());
         }
@@ -3823,20 +4158,84 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     /**
-     * Top line: module/label, and when the ship filter is All, {@code "Thrusters - Anaconda"}.
+     * Module line for a goal (quantity + module type / materials label). Ship and blueprint
+     * names are separate fields — see {@link #resolveGoalNameLines}.
      */
     private String goalPrimaryLine(long shipId, String shipLabel, String moduleOrLabel, int quantity) {
-        String body = moduleOrLabel != null ? moduleOrLabel.trim() : "";
-        if (goalsShipFilterId == null) {
-            String ship = shortShipNameForGoal(shipId, shipLabel);
-            if (!ship.isBlank()) {
-                body = body.isBlank() ? ship : body + " - " + ship;
+        return resolveGoalNameLinesParts(shipId, shipLabel, moduleOrLabel, quantity, "").moduleLine();
+    }
+
+    private int goalStackedLineCount(int modelRow) {
+        GoalNameLines lines = resolveGoalNameLines(goalRowAtUi(modelRow), null);
+        int parts = 0;
+        if (!lines.moduleLine().isBlank()) {
+            parts++;
+        }
+        if (!lines.blueprintLine().isBlank()) {
+            parts++;
+        }
+        if (goalsShipFilterId == null && !lines.shipLine().isBlank()) {
+            parts++;
+        }
+        return Math.max(1, parts);
+    }
+
+    private GoalNameLines resolveGoalNameLines(GoalUiRow goalRow, Object value) {
+        if (goalRow != null && goalRow.isMaterials()) {
+            MaterialsGoal g = goalRow.materials();
+            return resolveGoalNameLinesParts(
+                    g.hasShip() ? g.getShipId() : -1L,
+                    g.getShipLabel(),
+                    g.getLabel(),
+                    1,
+                    "");
+        }
+        if (goalRow != null && goalRow.blueprint() != null) {
+            EngineeringGoal g = goalRow.blueprint();
+            String blueprint = g.getBlueprintName() != null ? g.getBlueprintName().trim() : "";
+            return resolveGoalNameLinesParts(
+                    g.getShipId(),
+                    g.getShipLabel(),
+                    g.getModuleType(),
+                    g.getQuantity(),
+                    blueprint);
+        }
+        String text = value != null ? value.toString() : "";
+        return new GoalNameLines(text, "", "");
+    }
+
+    /** Always returns the three parts separately — layout decides columns vs stacked lines. */
+    private GoalNameLines resolveGoalNameLinesParts(long shipId, String shipLabel, String moduleOrLabel,
+            int quantity, String blueprintName) {
+        String module = moduleOrLabel != null ? moduleOrLabel.trim() : "";
+        if (quantity > 1 && !module.isBlank()) {
+            module = quantity + "x " + module;
+        }
+        String blueprint = blueprintName != null ? blueprintName.trim() : "";
+        String ship = shortShipNameForGoal(shipId, shipLabel);
+        return new GoalNameLines(module, blueprint, ship);
+    }
+
+    private record GoalNameLines(String moduleLine, String blueprintLine, String shipLine) {
+        String tooltipText() {
+            StringBuilder sb = new StringBuilder();
+            if (moduleLine != null && !moduleLine.isBlank()) {
+                sb.append(moduleLine);
             }
+            if (blueprintLine != null && !blueprintLine.isBlank()) {
+                if (sb.length() > 0) {
+                    sb.append(" — ");
+                }
+                sb.append(blueprintLine);
+            }
+            if (shipLine != null && !shipLine.isBlank()) {
+                if (sb.length() > 0) {
+                    sb.append(" — ");
+                }
+                sb.append(shipLine);
+            }
+            return sb.toString();
         }
-        if (quantity > 1 && !body.isBlank()) {
-            return quantity + "x " + body;
-        }
-        return body;
     }
 
     /** Hull type only (e.g. "Anaconda") — not custom name / callsign. */
@@ -3920,7 +4319,7 @@ public class EngineeringTabPanel extends JPanel {
 
         @Override
         public int getColumnCount() {
-            return 8;
+            return GOALS_COLUMN_COUNT;
         }
 
         @Override
@@ -4009,7 +4408,9 @@ public class EngineeringTabPanel extends JPanel {
             return switch (column) {
                 case COL_GOAL_ENABLED -> "";
                 case COL_GOAL_PRIORITY -> "";
-                case COL_GOAL_BLUEPRINT -> "Blueprint";
+                case COL_GOAL_BLUEPRINT -> "Module";
+                case COL_GOAL_COMPONENT -> "Blueprint";
+                case COL_GOAL_SHIP -> "Ship";
                 case COL_GOAL_TARGET -> "Tgt";
                 case COL_GOAL_EXP -> "Experimental";
                 case COL_GOAL_STATUS -> "Status";
@@ -4036,8 +4437,11 @@ public class EngineeringTabPanel extends JPanel {
             }
             if (row.isMaterials()) {
                 MaterialsGoal g = row.materials();
+                GoalNameLines lines = resolveGoalNameLines(row, null);
                 return switch (columnIndex) {
-                    case COL_GOAL_BLUEPRINT -> g.getLabel();
+                    case COL_GOAL_BLUEPRINT -> lines.moduleLine();
+                    case COL_GOAL_COMPONENT -> "";
+                    case COL_GOAL_SHIP -> lines.shipLine();
                     case COL_GOAL_TARGET -> g.targetSummary(database);
                     case COL_GOAL_EXP -> "—";
                     case COL_GOAL_STATUS -> rowIndex < goalStatusText.size() ? goalStatusText.get(rowIndex) : "";
@@ -4045,8 +4449,11 @@ public class EngineeringTabPanel extends JPanel {
                 };
             }
             EngineeringGoal g = row.blueprint();
+            GoalNameLines lines = resolveGoalNameLines(row, null);
             return switch (columnIndex) {
-                case COL_GOAL_BLUEPRINT -> blueprintDisplayName(g);
+                case COL_GOAL_BLUEPRINT -> lines.moduleLine();
+                case COL_GOAL_COMPONENT -> lines.blueprintLine();
+                case COL_GOAL_SHIP -> lines.shipLine();
                 case COL_GOAL_TARGET -> "G" + g.getTargetGrade();
                 case COL_GOAL_EXP -> g.getExperimentalId().isBlank() ? "—" : experimentalName(g.getExperimentalId());
                 case COL_GOAL_STATUS -> rowIndex < goalStatusText.size() ? goalStatusText.get(rowIndex) : "";
@@ -4134,19 +4541,24 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     private record TradeTableRow(String materialName, Integer need, String give, int receive, boolean section,
-                                 boolean gapRow, boolean shortfallUncovered, boolean separatorAfter,
-                                 TradeSuggestion suggestion) {
+                                 boolean gapRow, boolean columnHeader, boolean shortfallUncovered,
+                                 boolean separatorAfter, TradeSuggestion suggestion) {
         static TradeTableRow section(String title) {
-            return new TradeTableRow(title, null, "", 0, true, false, false, false, null);
+            return new TradeTableRow(title, null, "", 0, true, false, false, false, false, null);
         }
 
         static TradeTableRow gap() {
-            return new TradeTableRow("", null, "", 0, false, true, false, false, null);
+            return new TradeTableRow("", null, "", 0, false, true, false, false, false, null);
+        }
+
+        /** Per-section column titles (Material / Need / Give / Receive / Trade). */
+        static TradeTableRow columnHeaders() {
+            return new TradeTableRow("", null, "", 0, false, false, true, false, false, null);
         }
 
         static TradeTableRow data(String materialName, Integer need, String give, int receive,
                 boolean shortfallUncovered, boolean separatorAfter, TradeSuggestion suggestion) {
-            return new TradeTableRow(materialName, need, give, receive, false, false,
+            return new TradeTableRow(materialName, need, give, receive, false, false, false,
                     shortfallUncovered, separatorAfter, suggestion);
         }
     }
@@ -4189,6 +4601,9 @@ public class EngineeringTabPanel extends JPanel {
                 if (candidate.section() || candidate.gapRow()) {
                     break;
                 }
+                if (candidate.columnHeader()) {
+                    continue;
+                }
                 if (candidate.shortfallUncovered() || candidate.suggestion() == null) {
                     continue;
                 }
@@ -4203,6 +4618,10 @@ public class EngineeringTabPanel extends JPanel {
 
         boolean isGapRow(int rowIndex) {
             return rowIndex >= 0 && rowIndex < rows.size() && rows.get(rowIndex).gapRow();
+        }
+
+        boolean isColumnHeaderRow(int rowIndex) {
+            return rowIndex >= 0 && rowIndex < rows.size() && rows.get(rowIndex).columnHeader();
         }
 
         boolean isShortfallUncovered(int rowIndex) {
@@ -4253,6 +4672,16 @@ public class EngineeringTabPanel extends JPanel {
             if (row.gapRow()) {
                 return null;
             }
+            if (row.columnHeader()) {
+                return switch (columnIndex) {
+                    case COL_TRADE_MATERIAL -> "Material";
+                    case COL_TRADE_NEED -> "Need";
+                    case COL_TRADE_GIVE -> "Give";
+                    case COL_TRADE_RECEIVE -> "Receive";
+                    case COL_TRADE_ACTION -> "Trade";
+                    default -> "";
+                };
+            }
             if (row.section()) {
                 return switch (columnIndex) {
                     case COL_TRADE_MATERIAL -> row.materialName();
@@ -4284,9 +4713,20 @@ public class EngineeringTabPanel extends JPanel {
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
+            if (tradeModel.isColumnHeaderRow(modelRow) || tradeModel.isGapRow(modelRow)) {
+                setText(tradeModel.isColumnHeaderRow(modelRow) && value != null ? value.toString() : "");
+                setEnabled(false);
+                setToolTipText(null);
+                setFont(table.getFont().deriveFont(Font.BOLD));
+                setForeground(EdoUi.User.MAIN_TEXT);
+                setVerticalAlignment(SwingConstants.CENTER);
+                setBorder(tradeModel.isColumnHeaderRow(modelRow)
+                        ? new EmptyBorder(2, 4, 4, 4)
+                        : new EmptyBorder(0, 0, 0, 0));
+                return this;
+            }
             boolean section = tradeModel.isSectionRow(modelRow);
-            boolean actionable = !tradeModel.tradesForActionAt(modelRow).isEmpty()
-                    && !tradeModel.isGapRow(modelRow);
+            boolean actionable = !tradeModel.tradesForActionAt(modelRow).isEmpty();
             setText(actionable ? (section ? "Trade All" : "Trade") : "");
             setEnabled(actionable && !tradeAutomationRunning);
             boolean mpt = passThroughEnabledSupplier != null && passThroughEnabledSupplier.getAsBoolean();
@@ -4301,6 +4741,12 @@ public class EngineeringTabPanel extends JPanel {
                     : null);
             setFont(table.getFont().deriveFont(Font.BOLD));
             setForeground(EdoUi.User.MAIN_TEXT);
+            setVerticalAlignment(SwingConstants.CENTER);
+            if (section) {
+                setBorder(new EmptyBorder(2, 4, 4, 4));
+            } else {
+                setBorder(new EmptyBorder(0, 0, 0, 0));
+            }
             return this;
         }
     }
@@ -4312,6 +4758,7 @@ public class EngineeringTabPanel extends JPanel {
             int modelRow = table.convertRowIndexToModel(row);
             boolean gap = tradeModel.isGapRow(modelRow);
             boolean section = tradeModel.isSectionRow(modelRow);
+            boolean columnHeader = tradeModel.isColumnHeaderRow(modelRow);
             Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
             if (c instanceof JLabel label) {
                 if (gap) {
@@ -4320,15 +4767,34 @@ public class EngineeringTabPanel extends JPanel {
                     label.setBorder(new EmptyBorder(0, 0, 0, 0));
                     return c;
                 }
+                if (columnHeader) {
+                    clearCenteredRightNumberPaint(label);
+                    label.setFont(table.getFont().deriveFont(Font.BOLD));
+                    label.setForeground(EdoUi.User.MAIN_TEXT);
+                    label.setVerticalAlignment(SwingConstants.CENTER);
+                    if (column == COL_TRADE_NEED || column == COL_TRADE_RECEIVE) {
+                        label.setHorizontalAlignment(SwingConstants.RIGHT);
+                        label.setBorder(new EmptyBorder(2, NUMBER_COL_EDGE_PAD, 4, NUMBER_COL_EDGE_PAD));
+                    } else if (column == COL_TRADE_ACTION) {
+                        label.setHorizontalAlignment(SwingConstants.CENTER);
+                        label.setBorder(new EmptyBorder(2, 4, 4, 4));
+                    } else {
+                        label.setHorizontalAlignment(SwingConstants.LEFT);
+                        label.setBorder(new EmptyBorder(2, 6, 4, 6));
+                    }
+                    return c;
+                }
                 if (section) {
                     clearCenteredRightNumberPaint(label);
+                    label.setVerticalAlignment(SwingConstants.CENTER);
                     if (column == COL_TRADE_MATERIAL) {
-                        label.setFont(label.getFont().deriveFont(Font.BOLD));
+                        label.setFont(table.getFont().deriveFont(Font.BOLD));
                         label.setForeground(EdoUi.User.MAIN_TEXT);
-                        label.setBorder(new EmptyBorder(8, 6, 2, 6));
+                        // Slightly less top than bottom — bold caps read high in the em box.
+                        label.setBorder(new EmptyBorder(2, 8, 4, 8));
                     } else {
                         label.setText("");
-                        label.setBorder(new EmptyBorder(8, 0, 2, 0));
+                        label.setBorder(new EmptyBorder(2, 0, 4, 0));
                     }
                     return c;
                 }
@@ -4371,9 +4837,11 @@ public class EngineeringTabPanel extends JPanel {
                     label.setBorder(new EmptyBorder(2, 6, 2, 6));
                 }
             }
-            if (!isSelected && !gap && !section && tradeModel.isShortfallUncovered(modelRow)) {
+            if (!isSelected && !gap && !section && !columnHeader
+                    && tradeModel.isShortfallUncovered(modelRow)) {
                 c.setForeground(EdoUi.User.ERROR);
-            } else if (!isSelected && (column == COL_TRADE_GIVE || column == COL_TRADE_RECEIVE)) {
+            } else if (!isSelected && !columnHeader
+                    && (column == COL_TRADE_GIVE || column == COL_TRADE_RECEIVE)) {
                 c.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
             }
             return c;

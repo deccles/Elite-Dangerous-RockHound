@@ -39,6 +39,8 @@ public final class EliteFocusTestGui {
         void SwitchToThisWindow(HWND hWnd, boolean fAltTab);
 
         boolean BringWindowToTop(HWND hWnd);
+
+        boolean IsIconic(HWND hWnd);
     }
 
     private static JTextArea log;
@@ -67,15 +69,17 @@ public final class EliteFocusTestGui {
 
         JPanel buttons = new JPanel(new GridLayout(0, 1, 6, 6));
         buttons.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        buttons.add(button("1: AttachThreadInput (current EDO path)",
+        buttons.add(button("1: Production path (tryBringToForeground)",
                 EliteFocusTestGui::tryAttachThreadInput));
-        buttons.add(button("2: Alt-key tap + SetForegroundWindow",
-                EliteFocusTestGui::tryAltKeyTrick));
+        buttons.add(button("2: Ctrl-key tap + SetForegroundWindow (safe last resort)",
+                EliteFocusTestGui::tryCtrlKeyTrick));
         buttons.add(button("3: SwitchToThisWindow (Alt-Tab style)",
                 EliteFocusTestGui::trySwitchToThisWindow));
         buttons.add(button("4: Minimize + Restore ED window",
                 EliteFocusTestGui::tryMinimizeRestore));
-        buttons.add(button("5: Escalate 1 -> 4 until foreground",
+        buttons.add(button("5: Legacy Alt-key trick (unsafe — can kill ED input)",
+                EliteFocusTestGui::tryAltKeyTrick));
+        buttons.add(button("6: Escalate production techniques until foreground",
                 EliteFocusTestGui::tryEscalate));
 
         frame.setLayout(new BorderLayout());
@@ -120,7 +124,28 @@ public final class EliteFocusTestGui {
         append("tryBringToForeground returned " + ok);
     }
 
-    // --- Technique 2: tap Alt so *we* own the last input, then SetForegroundWindow ----------
+    // --- Technique 2: tap Ctrl so *we* own the last input, then SetForegroundWindow ---------
+
+    private static void tryCtrlKeyTrick() {
+        HWND elite = EliteWindowFocus.findEliteWindow();
+        if (robot == null) {
+            append("Robot unavailable; cannot send Ctrl tap");
+            return;
+        }
+        if (User32Ext.INSTANCE.IsIconic(elite)) {
+            User32.INSTANCE.ShowWindow(elite, WinUser.SW_RESTORE);
+        }
+        // Ctrl (not Alt): defeats foreground lock without leaving Elite in stuck-Alt / dead-input.
+        robot.keyPress(KeyEvent.VK_CONTROL);
+        robot.keyRelease(KeyEvent.VK_CONTROL);
+        boolean set = User32.INSTANCE.SetForegroundWindow(elite);
+        int err = Kernel32.INSTANCE.GetLastError();
+        User32Ext.INSTANCE.BringWindowToTop(elite);
+        EliteWindowFocus.releaseStuckModifiers();
+        append("SetForegroundWindow=" + set + " GetLastError=" + err);
+    }
+
+    // --- Legacy (unsafe): Alt held across SetForegroundWindow can kill ED keyboard/joystick --
 
     private static void tryAltKeyTrick() {
         HWND elite = EliteWindowFocus.findEliteWindow();
@@ -128,14 +153,16 @@ public final class EliteFocusTestGui {
             append("Robot unavailable; cannot send Alt tap");
             return;
         }
-        User32.INSTANCE.ShowWindow(elite, WinUser.SW_RESTORE);
-        // A real Alt keystroke from our process defeats the foreground-lock heuristic:
-        // Windows permits SetForegroundWindow from the process that last generated input.
+        if (User32Ext.INSTANCE.IsIconic(elite)) {
+            User32.INSTANCE.ShowWindow(elite, WinUser.SW_RESTORE);
+        }
+        append("WARNING: Alt trick can leave ED input dead until click-away/back");
         robot.keyPress(KeyEvent.VK_ALT);
         boolean set = User32.INSTANCE.SetForegroundWindow(elite);
         robot.keyRelease(KeyEvent.VK_ALT);
         int err = Kernel32.INSTANCE.GetLastError();
         User32Ext.INSTANCE.BringWindowToTop(elite);
+        EliteWindowFocus.releaseStuckModifiers();
         append("SetForegroundWindow=" + set + " GetLastError=" + err);
     }
 
@@ -143,8 +170,11 @@ public final class EliteFocusTestGui {
 
     private static void trySwitchToThisWindow() {
         HWND elite = EliteWindowFocus.findEliteWindow();
-        User32.INSTANCE.ShowWindow(elite, WinUser.SW_RESTORE);
+        if (User32Ext.INSTANCE.IsIconic(elite)) {
+            User32.INSTANCE.ShowWindow(elite, WinUser.SW_RESTORE);
+        }
         User32Ext.INSTANCE.SwitchToThisWindow(elite, true);
+        EliteWindowFocus.releaseStuckModifiers();
         append("SwitchToThisWindow called");
     }
 
@@ -155,19 +185,20 @@ public final class EliteFocusTestGui {
         User32.INSTANCE.ShowWindow(elite, WinUser.SW_MINIMIZE);
         sleep(150);
         User32.INSTANCE.ShowWindow(elite, WinUser.SW_RESTORE);
+        EliteWindowFocus.releaseStuckModifiers();
         append("Minimize+Restore done");
     }
 
-    // --- Technique 5: escalate --------------------------------------------------------------
+    // --- Technique 6: escalate (production order; Alt omitted) ------------------------------
 
     private static void tryEscalate() {
         Runnable[] steps = {
                 EliteFocusTestGui::tryAttachThreadInput,
-                EliteFocusTestGui::tryAltKeyTrick,
                 EliteFocusTestGui::trySwitchToThisWindow,
+                EliteFocusTestGui::tryCtrlKeyTrick,
                 EliteFocusTestGui::tryMinimizeRestore,
         };
-        String[] names = { "AttachThreadInput", "Alt-key trick", "SwitchToThisWindow", "Minimize+Restore" };
+        String[] names = { "Production path", "SwitchToThisWindow", "Ctrl-key trick", "Minimize+Restore" };
         for (int i = 0; i < steps.length; i++) {
             append("Escalate step " + (i + 1) + ": " + names[i]);
             steps[i].run();

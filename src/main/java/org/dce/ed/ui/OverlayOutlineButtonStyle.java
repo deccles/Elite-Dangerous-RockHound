@@ -1,6 +1,5 @@
 package org.dce.ed.ui;
 
-import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
@@ -34,8 +33,11 @@ public final class OverlayOutlineButtonStyle {
     private static final String THEME_INK_KEY = "edo.outlineButton.themeInk";
     /** True red when scripts are running — not coral/salmon. */
     private static final Color DANGER_ACTIVE = new Color(220, 38, 38);
-    /** Idle / no scripts running. */
-    private static final Color DANGER_IDLE = new Color(130, 130, 130);
+    /**
+     * Idle Kill-scripts gray — also used for disabled primary outline buttons
+     * (Combat fighter/targeting, etc.).
+     */
+    private static final Color OUTLINE_IDLE = new Color(130, 130, 130);
 
     private OverlayOutlineButtonStyle() {
     }
@@ -88,7 +90,7 @@ public final class OverlayOutlineButtonStyle {
         if (b == null || uiFont == null) {
             return;
         }
-        Color ink = active ? DANGER_ACTIVE : DANGER_IDLE;
+        Color ink = active ? DANGER_ACTIVE : OUTLINE_IDLE;
         int size = OverlayPreferences.getUiFontSize();
         b.setFocusable(false);
         b.setFocusPainted(false);
@@ -98,7 +100,7 @@ public final class OverlayOutlineButtonStyle {
         b.setMargin(new Insets(0, 0, 0, 0));
         b.setBorderPainted(true);
         b.putClientProperty(THEME_INK_KEY, Boolean.FALSE);
-        b.putClientProperty(DANGER_DISABLED_TEXT_KEY, DANGER_IDLE);
+        b.putClientProperty(DANGER_DISABLED_TEXT_KEY, OUTLINE_IDLE);
         b.setBorder(BorderFactory.createCompoundBorder(
                 new RoundedLineBorder(ink, 2, DEFAULT_ARC),
                 new EmptyBorder(8, 18, 8, 18)));
@@ -137,15 +139,11 @@ public final class OverlayOutlineButtonStyle {
             if (c instanceof AbstractButton b && b.isOpaque()) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 try {
-                    // Clear the rectangular bounds first so corners outside the rounded plate
-                    // do not keep a black halo from parent chrome / prior fills.
-                    if (OverlayPreferences.overlayChromeRequestsTransparency(b)) {
-                        g2.setComposite(AlphaComposite.Clear);
-                        g2.fillRect(0, 0, b.getWidth(), b.getHeight());
-                        g2.setComposite(AlphaComposite.SrcOver);
-                    }
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    // Full opaque fill first — never AlphaComposite.Clear. Cleared corner pixels
+                    // on layered/transparent hosts show up as white/bright specks (Combat tab).
                     g2.setColor(b.getBackground());
+                    g2.fillRect(0, 0, b.getWidth(), b.getHeight());
                     g2.fillRoundRect(0, 0, b.getWidth(), b.getHeight(), DEFAULT_ARC, DEFAULT_ARC);
                 } finally {
                     g2.dispose();
@@ -155,13 +153,28 @@ public final class OverlayOutlineButtonStyle {
         }
 
         @Override
+        protected void paintButtonPressed(Graphics g, AbstractButton b) {
+            // Pressed shading would reintroduce rectangular/light artifacts on the plate.
+        }
+
+        @Override
         protected void paintText(Graphics g, AbstractButton b, java.awt.Rectangle textRect, String text) {
             if (Boolean.TRUE.equals(b.getClientProperty(THEME_INK_KEY))) {
+                // BasicButtonUI's disabled path derives ink from background.brighter()/darker(),
+                // which is nearly invisible on our dark hit-safe plates (Combat fighter orders).
+                // Disabled look matches Kill scripts idle: solid gray outline + text.
                 Color previous = b.getForeground();
+                boolean enabled = b.isEnabled();
                 try {
-                    b.setForeground(EdoUi.User.MAIN_TEXT);
+                    b.setForeground(enabled ? EdoUi.User.MAIN_TEXT : OUTLINE_IDLE);
+                    if (!enabled) {
+                        b.getModel().setEnabled(true);
+                    }
                     super.paintText(g, b, textRect, text);
                 } finally {
+                    if (!enabled) {
+                        b.getModel().setEnabled(false);
+                    }
                     b.setForeground(previous);
                 }
                 return;
@@ -191,11 +204,11 @@ public final class OverlayOutlineButtonStyle {
      * @param active {@code true} when something is running (red); {@code false} when idle (gray)
      */
     public static void applyDanger(JButton b, Font uiFont, boolean active) {
-        Color ink = active ? DANGER_ACTIVE : DANGER_IDLE;
+        Color ink = active ? DANGER_ACTIVE : OUTLINE_IDLE;
         applyFixed(b, uiFont, true, new Insets(8, 18, 8, 18), ink);
         if (b != null) {
             b.putClientProperty(THEME_INK_KEY, Boolean.FALSE);
-            b.putClientProperty(DANGER_DISABLED_TEXT_KEY, DANGER_IDLE);
+            b.putClientProperty(DANGER_DISABLED_TEXT_KEY, OUTLINE_IDLE);
             b.setUI((ButtonUI) DangerOutlineButtonUI.createUI(b));
         }
     }
@@ -266,7 +279,14 @@ public final class OverlayOutlineButtonStyle {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(strong ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+                Color ink;
+                if (c != null && !c.isEnabled()) {
+                    // Match Kill scripts idle gray for disabled primary outline buttons.
+                    ink = OUTLINE_IDLE;
+                } else {
+                    ink = strong ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.MAIN_TEXT_ALPHA_220;
+                }
+                g2.setColor(ink);
                 g2.setStroke(new BasicStroke(thickness));
                 int inset = thickness / 2;
                 g2.drawRoundRect(x + inset, y + inset, width - thickness - 1, height - thickness - 1, arc, arc);

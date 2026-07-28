@@ -5,6 +5,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import org.dce.ed.ShipTypeNames;
+
 /**
  * A known commander hull for engineering goal association / filtering.
  */
@@ -194,31 +196,6 @@ public final class EngineeringShipRef {
     }
 
     private static String prettyType(String type) {
-        if (type == null || type.isBlank()) {
-            return "";
-        }
-        String t = type.trim();
-        // Already localised / spaced names keep simple title-ish casing for snake_case ids only.
-        if (t.indexOf('_') < 0 && t.indexOf(' ') >= 0) {
-            return t;
-        }
-        if (t.indexOf('_') < 0 && Character.isUpperCase(t.charAt(0))) {
-            return t;
-        }
-        StringBuilder out = new StringBuilder(t.length());
-        boolean cap = true;
-        for (int i = 0; i < t.length(); i++) {
-            char c = t.charAt(i);
-            if (c == '_' || c == ' ') {
-                out.append(' ');
-                cap = true;
-            } else if (cap) {
-                out.append(Character.toUpperCase(c));
-                cap = false;
-            } else {
-                out.append(Character.toLowerCase(c));
-            }
-        }
-        return out.toString().trim();
+        return ShipTypeNames.display(type);
     }
 }

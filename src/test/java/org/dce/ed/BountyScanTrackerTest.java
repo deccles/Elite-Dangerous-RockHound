@@ -25,6 +25,7 @@ class BountyScanTrackerTest {
         BountyScanTracker.getInstance().resetSession();
         OverlayPreferences.setBountyScanFirstAnnouncementEnabled(true);
         OverlayPreferences.setBountyScanAdditionalAnnouncementEnabled(true);
+        OverlayPreferences.setBountyScanValuableThresholdCredits(50_000L);
     }
 
     @Test
@@ -34,6 +35,32 @@ class BountyScanTrackerTest {
         assertTrue(req.isPresent());
         assertEquals(BountyScanTracker.FIRST_BOUNTY_SPEECH, req.get().getTemplate());
         assertEquals(TtsSprintf.roundCreditsForSpeech(242_475L), req.get().getCredits1());
+    }
+
+    @Test
+    void firstBountyBelowValuableThresholdIsSilent() {
+        assertTrue(BountyScanTracker.getInstance()
+                .onShipTargeted(stage3("Small Fry", 49_999L))
+                .isEmpty());
+    }
+
+    @Test
+    void firstBountyAtValuableThresholdAnnounces() {
+        Optional<BountyScanTracker.SpeechRequest> req = BountyScanTracker.getInstance()
+                .onShipTargeted(stage3("Borderline", 50_000L));
+        assertTrue(req.isPresent());
+        assertEquals(BountyScanTracker.FIRST_BOUNTY_SPEECH, req.get().getTemplate());
+    }
+
+    @Test
+    void belowThresholdStillAllowsLaterKwsAnnouncement() {
+        BountyScanTracker tracker = BountyScanTracker.getInstance();
+        assertTrue(tracker.onShipTargeted(stage3("Small Fry", 40_000L)).isEmpty());
+
+        Optional<BountyScanTracker.SpeechRequest> req = tracker
+                .onShipTargeted(stage3("Small Fry", 90_000L));
+        assertTrue(req.isPresent());
+        assertEquals(BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH, req.get().getTemplate());
     }
 
     @Test

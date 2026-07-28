@@ -177,6 +177,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private static final long PASS_THROUGH_TOGGLE_DWELL_MS = 700L;
     private static final long PASS_THROUGH_MENU_DWELL_MS = 900L;
     private long passThroughCloseHoverStartMs = -1L;
+    private long passThroughMinimizeHoverStartMs = -1L;
     private long passThroughToggleHoverStartMs = -1L;
     private long passThroughHammerHoverStartMs = -1L;
     private long passThroughSettingsHoverStartMs = -1L;
@@ -833,6 +834,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         passThroughMenuBar = passThroughMenu.menuBar;
         this.toolsMenu = passThroughMenu.toolsMenu;
         titleBar = new TitleBarPanel(this, "Elite Dangerous RockHound", passThroughMenu.toolsMenu);
+        org.dce.ed.ui.EdoWindowIconify.watch(this);
         passThroughStatusLabel = passThroughMenu.statusLabel;
         fleetCarrierTimeBadgeHost = passThroughMenu.fleetCarrierTimeBadgeHost;
         fleetCarrierTimeLabel = passThroughMenu.fleetCarrierTimeLabel;
@@ -927,6 +929,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getEngineeringTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getBiologyTabPanel().setSessionStateChangeCallback(debouncedSave);
         NpcCrewTracker.getInstance().setSessionStateChangeCallback(debouncedSave);
+        CombatTargetTracker.getInstance().setSessionStateChangeCallback(debouncedSave);
         restoreSessionState();
         tabs.getMissionsTabPanel().hydrateTrackerFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
         tabs.getEngineeringTabPanel().hydrateFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
@@ -1002,6 +1005,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         state.setGeoSurveyCreditsTotal(geoSurveyCreditsTotal);
         state.setBountyCreditsTotalUnclaimed(Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
         NpcCrewTracker.getInstance().fillSessionState(state);
+        CombatTargetTracker.getInstance().fillSessionState(state);
         fillCarrierSessionState(state);
         EdoSessionPersistence.save(state);
     }
@@ -1049,6 +1053,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
             bountyCreditsTracker.setUnclaimedTotal(0L);
         }
         NpcCrewTracker.getInstance().applySessionState(state);
+        CombatTargetTracker.getInstance().applySessionState(state);
         LoadoutEvent loadout = EliteOverlayTabbedPane.getLatestLoadout();
         if (loadout != null) {
             NpcCrewTracker.getInstance().onLoadout(loadout);
@@ -1212,6 +1217,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         execPlaceholderContext.setExobiologyCreditsSupplier(() -> Long.valueOf(exoCreditsTotal));
         execPlaceholderContext.setGeoSurveyCreditsSupplier(() -> Long.valueOf(geoSurveyCreditsTotal));
         execPlaceholderContext.setBountyCreditsSupplier(() -> Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
+        tabs.setCombatUnclaimedBountyCreditsSupplier(() -> bountyCreditsTracker.getUnclaimedTotal());
         execPlaceholderContext.setExecConfigSupplier(() -> {
             ExecBindingsConfig config = execTriggerService.store().load();
             return config;
@@ -1783,6 +1789,11 @@ private void installBountyCreditsTracker() {
             }
             persistExoCreditsTotal();
             updateRightStatusDefault();
+            EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
+            if (tp != null && tp.getCombatTabPanel() != null) {
+                // Force credit line refresh when unclaimed total changes.
+                tp.getCombatTabPanel().handleLogEvent(event);
+            }
         });
     } catch (Exception ex) {
         ex.printStackTrace();
@@ -2965,15 +2976,18 @@ private void refreshPassThroughUnifiedStatus() {
             return;
         }
         java.awt.Rectangle closeRect = titleBar.getCloseButtonScreenBounds();
+        java.awt.Rectangle minimizeRect = titleBar.getMinimizeButtonScreenBounds();
         java.awt.Rectangle toggleRect = titleBar.getToggleButtonScreenBounds();
         java.awt.Rectangle hammerRect = titleBar.getHammerButtonScreenBounds();
         java.awt.Rectangle settingsRect = titleBar.getSettingsButtonScreenBounds();
-        if (closeRect == null || toggleRect == null || hammerRect == null || settingsRect == null) {
+        if (closeRect == null || minimizeRect == null || toggleRect == null
+                || hammerRect == null || settingsRect == null) {
             resetPassThroughCloseHoverState();
             return;
         }
 
         boolean hClose = closeRect.contains(mouseOnScreen);
+        boolean hMinimize = minimizeRect.contains(mouseOnScreen);
         boolean hToggle = toggleRect.contains(mouseOnScreen);
         boolean hHammer = hammerRect.contains(mouseOnScreen);
         boolean hSettings = settingsRect.contains(mouseOnScreen);
@@ -2986,6 +3000,7 @@ private void refreshPassThroughUnifiedStatus() {
         }
 
         titleBar.setCloseHoverProgrammatic(hClose);
+        titleBar.setMinimizeHoverProgrammatic(hMinimize);
         titleBar.setToggleHoverProgrammatic(hToggle);
         titleBar.setHammerHoverProgrammatic(hHammer);
         titleBar.setSettingsHoverProgrammatic(hSettings);
@@ -2994,6 +3009,7 @@ private void refreshPassThroughUnifiedStatus() {
             passThroughToggleHoverStartMs = -1L;
             passThroughHammerHoverStartMs = -1L;
             passThroughSettingsHoverStartMs = -1L;
+            passThroughMinimizeHoverStartMs = -1L;
             if (passThroughCloseHoverStartMs < 0L) {
                 passThroughCloseHoverStartMs = now;
             } else if (now - passThroughCloseHoverStartMs >= PASS_THROUGH_CLOSE_DWELL_MS) {
@@ -3002,6 +3018,20 @@ private void refreshPassThroughUnifiedStatus() {
             return;
         }
         passThroughCloseHoverStartMs = -1L;
+
+        if (hMinimize) {
+            passThroughToggleHoverStartMs = -1L;
+            passThroughHammerHoverStartMs = -1L;
+            passThroughSettingsHoverStartMs = -1L;
+            if (passThroughMinimizeHoverStartMs < 0L) {
+                passThroughMinimizeHoverStartMs = now;
+            } else if (now - passThroughMinimizeHoverStartMs >= PASS_THROUGH_CLOSE_DWELL_MS) {
+                org.dce.ed.ui.EdoWindowIconify.iconifyAll();
+                passThroughMinimizeHoverStartMs = -1L;
+            }
+            return;
+        }
+        passThroughMinimizeHoverStartMs = -1L;
 
         if (hToggle) {
             passThroughHammerHoverStartMs = -1L;
@@ -3048,11 +3078,13 @@ private void refreshPassThroughUnifiedStatus() {
 
     private void resetPassThroughCloseHoverState() {
         passThroughCloseHoverStartMs = -1L;
+        passThroughMinimizeHoverStartMs = -1L;
         passThroughToggleHoverStartMs = -1L;
         passThroughHammerHoverStartMs = -1L;
         passThroughSettingsHoverStartMs = -1L;
         if (titleBar != null) {
             titleBar.setCloseHoverProgrammatic(false);
+            titleBar.setMinimizeHoverProgrammatic(false);
             titleBar.setToggleHoverProgrammatic(false);
             titleBar.setHammerHoverProgrammatic(false);
             titleBar.setSettingsHoverProgrammatic(false);

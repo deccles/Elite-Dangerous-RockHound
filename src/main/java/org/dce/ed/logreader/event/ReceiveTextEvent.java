@@ -9,6 +9,7 @@ import com.google.gson.JsonObject;
 
 public final class ReceiveTextEvent extends EliteLogEvent {
     private final String from;
+    private final String fromLocalised;
     private final String message;
     private final String messageLocalised;
     private final String channel;
@@ -19,8 +20,19 @@ public final class ReceiveTextEvent extends EliteLogEvent {
                             String message,
                             String messageLocalised,
                             String channel) {
+        this(timestamp, rawJson, from, null, message, messageLocalised, channel);
+    }
+
+    public ReceiveTextEvent(Instant timestamp,
+                            JsonObject rawJson,
+                            String from,
+                            String fromLocalised,
+                            String message,
+                            String messageLocalised,
+                            String channel) {
         super(timestamp, EliteEventType.RECEIVE_TEXT, rawJson);
         this.from = from;
+        this.fromLocalised = fromLocalised;
         this.message = message;
         this.messageLocalised = messageLocalised;
         this.channel = channel;
@@ -28,6 +40,11 @@ public final class ReceiveTextEvent extends EliteLogEvent {
 
     public String getFrom() {
         return from;
+    }
+
+    /** Localised sender name when present (preferred for NPC matching). */
+    public String getFromLocalised() {
+        return fromLocalised;
     }
 
     public String getMessage() {

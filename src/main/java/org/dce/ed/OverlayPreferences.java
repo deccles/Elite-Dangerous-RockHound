@@ -81,6 +81,9 @@ public final class OverlayPreferences {
             "speech.announcement.bountyScan.first.enabled";
     private static final String KEY_SPEECH_BOUNTY_SCAN_ADDITIONAL_ENABLED =
             "speech.announcement.bountyScan.additional.enabled";
+    /** Minimum first-scan bounty (credits) for the initial bounty speech announcement. Default 50_000. */
+    private static final String KEY_SPEECH_BOUNTY_SCAN_VALUABLE_THRESHOLD_CREDITS =
+            "speech.announcement.bountyScan.valuableThresholdCredits";
     private static final String KEY_SPEECH_MISSION_PROGRESS_ENABLED =
             "speech.announcement.missionProgress.enabled";
     /** Last {@link org.dce.ed.tts.VoicePackManager#SPEECH_PACK_REVISION} successfully installed while AWS synthesis was off. */
@@ -96,6 +99,9 @@ public final class OverlayPreferences {
     private static final String KEY_OVERLAY_TAB_BIOLOGY_VISIBLE = "overlay.tab.biology.visible";
     private static final String KEY_OVERLAY_TAB_MINING_VISIBLE = "overlay.tab.mining.visible";
     private static final String KEY_OVERLAY_TAB_MISSIONS_VISIBLE = "overlay.tab.missions.visible";
+    private static final String KEY_OVERLAY_TAB_COMBAT_VISIBLE = "overlay.tab.combat.visible";
+    /** Comma-separated Elite bind names hidden on the Combat tab (fighter + targeting). Empty = show all. */
+    private static final String KEY_COMBAT_TAB_HIDDEN_COMMANDS = "combat.tab.commands.hidden";
     private static final String KEY_OVERLAY_TAB_FLEET_CARRIER_VISIBLE = "overlay.tab.fleetCarrier.visible";
     private static final String KEY_OVERLAY_TAB_ENGINEERING_VISIBLE = "overlay.tab.engineering.visible";
     private static final String KEY_ENGINEERING_MATERIALS_SORT_COLUMN = "overlay.engineering.materials.sortColumn";
@@ -547,6 +553,61 @@ public final class OverlayPreferences {
 
     public static void setOverlayTabMissionsVisible(boolean visible) {
         PREFS.putBoolean(KEY_OVERLAY_TAB_MISSIONS_VISIBLE, visible);
+    }
+
+    public static boolean isOverlayTabCombatVisible() {
+        return PREFS.getBoolean(KEY_OVERLAY_TAB_COMBAT_VISIBLE, true);
+    }
+
+    public static void setOverlayTabCombatVisible(boolean visible) {
+        PREFS.putBoolean(KEY_OVERLAY_TAB_COMBAT_VISIBLE, visible);
+    }
+
+    /**
+     * Whether a Combat-tab fighter/targeting command button should be shown.
+     * Defaults to visible when the bind name has never been hidden.
+     */
+    public static boolean isCombatTabCommandVisible(String bindName) {
+        if (bindName == null || bindName.isBlank()) {
+            return false;
+        }
+        return !combatTabHiddenCommands().contains(bindName.trim());
+    }
+
+    public static void setCombatTabCommandVisible(String bindName, boolean visible) {
+        if (bindName == null || bindName.isBlank()) {
+            return;
+        }
+        String key = bindName.trim();
+        java.util.LinkedHashSet<String> hidden = new java.util.LinkedHashSet<>(combatTabHiddenCommands());
+        if (visible) {
+            hidden.remove(key);
+        } else {
+            hidden.add(key);
+        }
+        if (hidden.isEmpty()) {
+            PREFS.remove(KEY_COMBAT_TAB_HIDDEN_COMMANDS);
+        } else {
+            PREFS.put(KEY_COMBAT_TAB_HIDDEN_COMMANDS, String.join(",", hidden));
+        }
+    }
+
+    private static java.util.Set<String> combatTabHiddenCommands() {
+        String raw = PREFS.get(KEY_COMBAT_TAB_HIDDEN_COMMANDS, "");
+        if (raw == null || raw.isBlank()) {
+            return java.util.Set.of();
+        }
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String part : raw.split(",")) {
+            if (part == null) {
+                continue;
+            }
+            String t = part.trim();
+            if (!t.isEmpty()) {
+                out.add(t);
+            }
+        }
+        return out;
     }
 
     public static boolean isOverlayTabFleetCarrierVisible() {
@@ -1126,6 +1187,19 @@ public final class OverlayPreferences {
 
     public static void setBountyScanAdditionalAnnouncementEnabled(boolean enabled) {
         PREFS.putBoolean(KEY_SPEECH_BOUNTY_SCAN_ADDITIONAL_ENABLED, enabled);
+    }
+
+    /**
+     * Minimum bounty credits for the initial (first-scan) speech announcement.
+     * Combat tab / scanned lists still show every bounty. Default {@code 50_000}.
+     */
+    public static long getBountyScanValuableThresholdCredits() {
+        long v = PREFS.getLong(KEY_SPEECH_BOUNTY_SCAN_VALUABLE_THRESHOLD_CREDITS, 50_000L);
+        return Math.max(0L, v);
+    }
+
+    public static void setBountyScanValuableThresholdCredits(long credits) {
+        PREFS.putLong(KEY_SPEECH_BOUNTY_SCAN_VALUABLE_THRESHOLD_CREDITS, Math.max(0L, credits));
     }
 
     public static boolean isMissionProgressAnnouncementEnabled() {

@@ -15,6 +15,7 @@ public enum OverlayTabId {
     BIOLOGY("BIOLOGY", "ExoBio"),
     MINING("MINING", "Mining"),
     MISSIONS("MISSIONS", "Missions"),
+    COMBAT("COMBAT", "Combat"),
     FLEET_CARRIER("FLEET_CARRIER", "Fleet Carrier"),
     ENGINEERING("ENGINEERING", "Engineering"),
     CONTROL_PANEL("CONTROL_PANEL", "Control Panel");

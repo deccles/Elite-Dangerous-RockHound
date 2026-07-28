@@ -24,6 +24,7 @@ public class StandaloneLogViewer {
 
             JFrame frame = new JFrame("Elite Dangerous - Journal Log Viewer");
             frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+            frame.getContentPane().setBackground(new java.awt.Color(0xF0, 0xF0, 0xF0));
             frame.getContentPane().add(panel);
             frame.setPreferredSize(new Dimension(1100, 800));
             frame.pack();

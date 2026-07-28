@@ -26,8 +26,8 @@ import javax.swing.border.EmptyBorder;
 import org.dce.ed.util.AppIconUtil;
 
 /**
- * Custom title bar matching the main overlay ({@code TitleBarPanel}): dark plate, white title, X close.
- * For undecorated dialogs such as Preferences.
+ * Custom title bar matching the main overlay ({@code TitleBarPanel}): dark plate, white title,
+ * minimize (_), and X close. For undecorated dialogs such as Preferences.
  */
 public final class EdoDialogTitleBar extends JPanel {
 
@@ -59,6 +59,26 @@ public final class EdoDialogTitleBar extends JPanel {
         left.add(titleLabel);
         add(left, BorderLayout.WEST);
 
+        MinimizeButton minimize = new MinimizeButton();
+        minimize.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    EdoWindowIconify.iconifyAll();
+                }
+            }
+
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                minimize.setHover(true);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                minimize.setHover(false);
+            }
+        });
+
         CloseButton close = new CloseButton();
         close.addMouseListener(new MouseAdapter() {
             @Override
@@ -87,6 +107,7 @@ public final class EdoDialogTitleBar extends JPanel {
         });
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
         right.setOpaque(false);
+        right.add(minimize);
         right.add(close);
         add(right, BorderLayout.EAST);
 
@@ -139,6 +160,43 @@ public final class EdoDialogTitleBar extends JPanel {
             g2.dispose();
         }
         return out;
+    }
+
+    private static final class MinimizeButton extends JPanel {
+        private static final long serialVersionUID = 1L;
+        private boolean hover;
+
+        MinimizeButton() {
+            setOpaque(false);
+            setPreferredSize(new Dimension(24, 24));
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setToolTipText("Minimize all EDO windows");
+        }
+
+        void setHover(boolean hover) {
+            this.hover = hover;
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int w = getWidth();
+                int h = getHeight();
+                g2.setColor(hover ? EdoUi.Internal.TITLEBAR_BG_ACTIVE : EdoUi.Internal.TITLEBAR_BG_HOVER);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, 6, 6);
+                g2.setColor(Color.WHITE);
+                g2.setStroke(new java.awt.BasicStroke(2f));
+                int y = h / 2 + 1;
+                int pad = 7;
+                g2.drawLine(pad, y, w - pad, y);
+            } finally {
+                g2.dispose();
+            }
+        }
     }
 
     private static final class CloseButton extends JPanel {

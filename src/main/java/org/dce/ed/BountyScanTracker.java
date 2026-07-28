@@ -141,6 +141,10 @@ public final class BountyScanTracker {
             if (!OverlayPreferences.isBountyScanFirstAnnouncementEnabled()) {
                 return Optional.empty();
             }
+            long valuableThreshold = OverlayPreferences.getBountyScanValuableThresholdCredits();
+            if (bounty.longValue() < valuableThreshold) {
+                return Optional.empty();
+            }
             return Optional.of(new SpeechRequest(
                     FIRST_BOUNTY_SPEECH,
                     TtsSprintf.roundCreditsForSpeech(bounty),

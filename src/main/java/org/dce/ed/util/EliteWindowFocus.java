@@ -6,23 +6,52 @@ import java.awt.event.KeyEvent;
 import java.util.Locale;
 
 import com.sun.jna.Native;
+import com.sun.jna.platform.win32.BaseTSD.ULONG_PTR;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef.DWORD;
 import com.sun.jna.platform.win32.WinDef.HWND;
+import com.sun.jna.platform.win32.WinDef.WORD;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinUser;
 import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.win32.StdCallLibrary;
+import com.sun.jna.win32.W32APIOptions;
 
 /**
  * Detects and activates the Elite Dangerous game window on Windows.
  * <p>
  * Technique mirrors RoboHound's proven focus path (AttachThreadInput between the
  * <em>foreground thread</em> and Elite's thread — not process IDs), but is standalone EDO code.
+ * <p>
+ * Avoids the Alt-key SetForeground trick: injecting Alt while stealing focus can leave Elite
+ * looking focused while keyboard/joystick input is dead until a real focus cycle (click away
+ * and back). Prefer {@code SwitchToThisWindow}, then a Ctrl tap as last resort, and always
+ * flush stuck modifiers afterward.
  */
 public final class EliteWindowFocus {
 
     private static final int PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    private static final int VK_LSHIFT = 0xA0;
+    private static final int VK_RSHIFT = 0xA1;
+    private static final int VK_LCONTROL = 0xA2;
+    private static final int VK_RCONTROL = 0xA3;
+    private static final int VK_LMENU = 0xA4;
+    private static final int VK_RMENU = 0xA5;
+    private static final int VK_LWIN = 0x5B;
+    private static final int VK_RWIN = 0x5C;
+
+    /** User32 calls not exposed by JNA's stock {@link User32} mapping. */
+    private interface User32Ext extends StdCallLibrary {
+        User32Ext INSTANCE = Native.load("user32", User32Ext.class, W32APIOptions.DEFAULT_OPTIONS);
+
+        /** Undocumented but stable since XP; activates like Alt-Tab, ignoring foreground lock. */
+        void SwitchToThisWindow(HWND hWnd, boolean fAltTab);
+
+        boolean BringWindowToTop(HWND hWnd);
+
+        boolean IsIconic(HWND hWnd);
+    }
 
     private EliteWindowFocus() {
     }
@@ -83,8 +112,9 @@ public final class EliteWindowFocus {
     }
 
     /**
-     * Same approach as RoboHound: attach the current foreground window's thread to Elite's
-     * thread, then {@code SetForegroundWindow}.
+     * Escalates through activation techniques that avoid leaving Elite in a "visually focused
+     * but dead input" state. Never uses an Alt tap — that can stick menu/modifier state and
+     * break both keyboard and joystick until a real focus cycle.
      */
     public static boolean tryBringToForeground() {
         HWND hwnd = findEliteWindow();
@@ -92,7 +122,10 @@ public final class EliteWindowFocus {
             System.out.println("EDO auto-trade: Elite window not found");
             return false;
         }
-        User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_RESTORE);
+        // Only restore when minimized; unconditional SW_RESTORE can bounce window state.
+        if (User32Ext.INSTANCE.IsIconic(hwnd)) {
+            User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_RESTORE);
+        }
 
         HWND previous = User32.INSTANCE.GetForegroundWindow();
         if (previous != null && !previous.equals(hwnd)) {
@@ -105,46 +138,89 @@ public final class EliteWindowFocus {
                 User32.INSTANCE.AttachThreadInput(previousThreadId, eliteThreadId, true);
                 try {
                     User32.INSTANCE.SetForegroundWindow(hwnd);
+                    User32Ext.INSTANCE.BringWindowToTop(hwnd);
                 } finally {
                     User32.INSTANCE.AttachThreadInput(previousThreadId, eliteThreadId, false);
                 }
-                if (isEliteForeground()) {
-                    System.out.println("EDO auto-trade: focus via AttachThreadInput -> "
-                            + "true; foreground=" + foregroundProcessBaseName());
+                if (finishIfEliteForeground("AttachThreadInput")) {
                     return true;
                 }
             }
         }
         User32.INSTANCE.SetForegroundWindow(hwnd);
-        if (isEliteForeground()) {
-            System.out.println("EDO auto-trade: focus via SetForegroundWindow -> "
-                    + "true; foreground=" + foregroundProcessBaseName());
+        if (finishIfEliteForeground("SetForegroundWindow")) {
             return true;
         }
-        boolean ok = altKeySetForeground(hwnd);
-        System.out.println("EDO auto-trade: focus via Alt-key trick -> "
+
+        // Alt-Tab-style activation tends to deliver a full WM_ACTIVATE cycle games need for
+        // DirectInput/Raw Input — without injecting Alt into the game.
+        User32Ext.INSTANCE.SwitchToThisWindow(hwnd, true);
+        if (finishIfEliteForeground("SwitchToThisWindow")) {
+            return true;
+        }
+
+        boolean ok = ctrlKeySetForeground(hwnd);
+        System.out.println("EDO auto-trade: focus via Ctrl-key trick -> "
                 + ok + "; foreground=" + foregroundProcessBaseName());
+        if (ok) {
+            releaseStuckModifiers();
+        }
         return ok;
     }
 
+    private static boolean finishIfEliteForeground(String technique) {
+        if (!isEliteForeground()) {
+            return false;
+        }
+        releaseStuckModifiers();
+        System.out.println("EDO auto-trade: focus via " + technique + " -> "
+                + "true; foreground=" + foregroundProcessBaseName());
+        return true;
+    }
+
     /**
-     * Taps a real Alt key via {@link Robot} before {@code SetForegroundWindow}. Windows lifts the
-     * foreground lock for the process that generated the last input, so the call is allowed.
+     * Taps Ctrl (not Alt) via {@link Robot} before {@code SetForegroundWindow}. Windows lifts the
+     * foreground lock for the process that generated the last input. Ctrl avoids Elite menu /
+     * stuck-Alt input death that the old Alt trick could leave behind.
      */
-    private static boolean altKeySetForeground(HWND hwnd) {
+    private static boolean ctrlKeySetForeground(HWND hwnd) {
         Robot robot;
         try {
             robot = new Robot();
+            robot.setAutoDelay(0);
         } catch (AWTException e) {
             return false;
         }
-        robot.keyPress(KeyEvent.VK_ALT);
-        try {
-            User32.INSTANCE.SetForegroundWindow(hwnd);
-        } finally {
-            robot.keyRelease(KeyEvent.VK_ALT);
-        }
+        // Press+release Ctrl *before* switching focus so Elite never sees the key held.
+        robot.keyPress(KeyEvent.VK_CONTROL);
+        robot.keyRelease(KeyEvent.VK_CONTROL);
+        User32.INSTANCE.SetForegroundWindow(hwnd);
+        User32Ext.INSTANCE.BringWindowToTop(hwnd);
         return isEliteForeground();
+    }
+
+    /**
+     * Force KEYUP for common modifiers so a prior failed Alt/Ctrl steal (or interrupted chord)
+     * cannot leave the OS or game thinking a modifier is still down.
+     */
+    static void releaseStuckModifiers() {
+        int[] keys = {
+                VK_LMENU, VK_RMENU, KeyEvent.VK_ALT,
+                VK_LCONTROL, VK_RCONTROL, KeyEvent.VK_CONTROL,
+                VK_LSHIFT, VK_RSHIFT, KeyEvent.VK_SHIFT,
+                VK_LWIN, VK_RWIN
+        };
+        WinUser.INPUT[] batch = (WinUser.INPUT[]) new WinUser.INPUT().toArray(keys.length);
+        for (int i = 0; i < keys.length; i++) {
+            batch[i].type = new DWORD(WinUser.INPUT.INPUT_KEYBOARD);
+            batch[i].input.setType("ki");
+            batch[i].input.ki.wVk = new WORD(keys[i]);
+            batch[i].input.ki.wScan = new WORD(0);
+            batch[i].input.ki.dwFlags = new DWORD(WinUser.KEYBDINPUT.KEYEVENTF_KEYUP);
+            batch[i].input.ki.time = new DWORD(0);
+            batch[i].input.ki.dwExtraInfo = new ULONG_PTR(0);
+        }
+        User32.INSTANCE.SendInput(new DWORD(batch.length), batch, batch[0].size());
     }
 
     /**

@@ -60,6 +60,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
     private final JLabel titleLabel;
     private final JPanel titleBar;
     private final TitleBarPanel.PassThroughToggleButton mouseModeButton;
+    private final TitleBarPanel.MinimizeButton minimizeButton;
     private final TitleBarPanel.CloseButton closeButton;
 
     private MouseInteractionMode mouseInteractionMode = MouseInteractionMode.SELECTIVE;
@@ -158,6 +159,26 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
             }
         });
 
+        minimizeButton = new TitleBarPanel.MinimizeButton();
+        minimizeButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    org.dce.ed.ui.EdoWindowIconify.iconifyAll();
+                }
+            }
+
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                minimizeButton.setHover(true);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                minimizeButton.setHover(false);
+            }
+        });
+
         titleBar = new JPanel(new BorderLayout());
         titleBar.setBackground(new Color(28, 28, 34));
         titleBar.setOpaque(true);
@@ -167,6 +188,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 4));
         right.setOpaque(false);
         right.add(mouseModeButton);
+        right.add(minimizeButton);
         right.add(closeButton);
         titleBar.add(left, BorderLayout.CENTER);
         titleBar.add(right, BorderLayout.EAST);
@@ -185,6 +207,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         setSize(480, 720);
         WindowEdgeResizeSupport.install(this);
         applyOverlayBackgroundFromPreferences(mouseInteractionMode.isPassThroughLike());
+        org.dce.ed.ui.EdoWindowIconify.watch(this);
 
         addWindowListener(new WindowAdapter() {
             @Override
@@ -519,8 +542,9 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         if (c == null) {
             return false;
         }
-        return c == mouseModeButton || c == closeButton
+        return c == mouseModeButton || c == minimizeButton || c == closeButton
                 || SwingUtilities.isDescendingFrom(c, mouseModeButton)
+                || SwingUtilities.isDescendingFrom(c, minimizeButton)
                 || SwingUtilities.isDescendingFrom(c, closeButton);
     }
 

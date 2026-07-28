@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import org.dce.ed.logreader.EliteEventType;
+import org.dce.ed.ShipTypeNames;
 import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
@@ -39,10 +39,10 @@ public final class EngineeringShipCatalog {
             byId.put(ref.getShipId(), new EngineeringShipRef(ref.getShipId(), type, name, ident));
             return;
         }
-        // Prefer newer non-blank type/ident. Custom name: take extracted name when present;
-        // if the event carried a name that is only the type/ident, clear previous custom;
-        // if the event omitted name, keep previous custom.
-        type = !type.isBlank() ? type : prev.getShipType();
+        // Prefer journal internal ids over display-name strings so ShipTypeNames can resolve them.
+        // Custom name: take extracted name when present; if the event carried a name that is only
+        // the type/ident, clear previous custom; if the event omitted name, keep previous custom.
+        type = ShipTypeNames.preferType(type, prev.getShipType());
         ident = !ident.isBlank() ? ident : prev.getShipIdent();
         String incomingCustom = EngineeringShipRef.extractCustomName(type, ref.getShipName(), ident);
         String name;
@@ -86,12 +86,11 @@ public final class EngineeringShipCatalog {
             if (ship == null || ship.getShipId() < 0) {
                 continue;
             }
-            String type = !ship.getShipTypeLocalised().isBlank()
-                    ? ship.getShipTypeLocalised()
-                    : ship.getShipType();
+            // Keep the journal internal id in the catalog; learn localised separately for display.
+            ShipTypeNames.learn(ship.getShipType(), ship.getShipTypeLocalised());
             remember(new EngineeringShipRef(
                     ship.getShipId(),
-                    type,
+                    ship.getShipType(),
                     ship.getName(),
                     ""));
         }

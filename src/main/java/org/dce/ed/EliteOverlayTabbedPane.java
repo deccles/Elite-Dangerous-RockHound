@@ -115,6 +115,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	private static final String CARD_BIOLOGY = "BIOLOGY";
 	private static final String CARD_MINING = "MINING";
 	private static final String CARD_MISSIONS = "MISSIONS";
+	private static final String CARD_COMBAT = "COMBAT";
 	private static final String CARD_NEARBY = "NEARBY";
 	private static final String CARD_FLEET_CARRIER = "FLEET_CARRIER";
 	private static final String CARD_ENGINEERING = "ENGINEERING";
@@ -139,6 +140,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	private final BiologyTabPanel biologyTab;
 	private final MiningTabPanel miningTab;
 	private final MissionsTabPanel missionsTab;
+	private final CombatTabPanel combatTab;
 	private final NearbyTabPanel nearbyTab;
 	private final OwnedFleetCarrierTracker ownedFleetCarrierTracker;
 	private final FleetCarrierTabPanel fleetCarrierTab;
@@ -146,6 +148,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	private final EngineeringTabPanel engineeringTab;
 
 	private JButton missionsButton;
+	private JButton combatButton;
 	private JButton engineeringButton;
 	private JButton controlPanelButton;
 
@@ -205,6 +208,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		biologyButton = createTabButton("ExoBio");
 		miningButton = createTabButton("Mining");
 		missionsButton = createTabButton("Missions");
+		combatButton = createTabButton("Combat");
 		nearbyButton = null;
 		fleetCarrierButton = createTabButton("Fleet Carrier");
 		engineeringButton = createTabButton("Engineering");
@@ -215,6 +219,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		tabBar.add(biologyButton);
 		tabBar.add(miningButton);
 		tabBar.add(missionsButton);
+		tabBar.add(combatButton);
 		tabBar.add(fleetCarrierButton);
 		tabBar.add(engineeringButton);
 		tabBar.add(controlPanelButton);
@@ -307,6 +312,8 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 					return state != null ? state.getStarPos() : null;
 				});
 		miningTab.setMissionTracker(missionsTab.getTracker(), hoverSwitchEnabled);
+		this.combatTab = new CombatTabPanel(hoverSwitchEnabled);
+		this.combatTab.setMissionTracker(missionsTab.getTracker());
 		this.ownedFleetCarrierTracker = new OwnedFleetCarrierTracker();
 		this.fleetCarrierTab = new FleetCarrierTabPanel(hoverSwitchEnabled, ownedFleetCarrierTracker);
 		this.controlPanelTab = new ControlPanelTabPanel(hoverSwitchEnabled);
@@ -317,6 +324,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		cardPanel.add(biologyTab, CARD_BIOLOGY);
 		cardPanel.add(miningTab, CARD_MINING);
 		cardPanel.add(missionsTab, CARD_MISSIONS);
+		cardPanel.add(combatTab, CARD_COMBAT);
 		cardPanel.add(nearbyTab, CARD_NEARBY);
 		cardPanel.add(fleetCarrierTab, CARD_FLEET_CARRIER);
 		cardPanel.add(engineeringTab, CARD_ENGINEERING);
@@ -327,6 +335,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		applyTabButtonStyle(biologyButton);
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(missionsButton);
+		applyTabButtonStyle(combatButton);
 		applyTabButtonStyle(fleetCarrierButton);
 		applyTabButtonStyle(engineeringButton);
 		applyTabButtonStyle(controlPanelButton);
@@ -369,6 +378,13 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			}
 		});
 
+		combatButton.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				selectTab(CARD_COMBAT, combatButton);
+			}
+		});
+
 		fleetCarrierButton.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
@@ -396,6 +412,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		installHoverSwitch(biologyButton, TAB_HOVER_DELAY_MS, () -> biologyButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(miningButton, TAB_HOVER_DELAY_MS, () -> miningButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(missionsButton, TAB_HOVER_DELAY_MS, () -> missionsButton.doClick(), hoverSwitchEnabled);
+		installHoverSwitch(combatButton, TAB_HOVER_DELAY_MS, () -> combatButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(fleetCarrierButton, TAB_HOVER_DELAY_MS, () -> fleetCarrierButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(engineeringButton, TAB_HOVER_DELAY_MS, () -> engineeringButton.doClick(), hoverSwitchEnabled);
 		installHoverSwitch(controlPanelButton, TAB_HOVER_DELAY_MS, () -> controlPanelButton.doClick(), hoverSwitchEnabled);
@@ -604,6 +621,10 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		routeTab.handleLogEvent(event);
 		biologyTab.handleLogEvent(event);
 		missionsTab.handleLogEvent(event);
+		CombatTargetTracker.getInstance().applyJournalEvent(event);
+		if (combatTab != null) {
+			combatTab.handleLogEvent(event);
+		}
 		engineeringTab.handleLogEvent(event);
 		if (event instanceof org.dce.ed.logreader.event.MissionAcceptedEvent
 				|| event instanceof org.dce.ed.logreader.event.MissionCompletedEvent
@@ -664,6 +685,16 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 	public MissionsTabPanel getMissionsTabPanel() {
 		return missionsTab;
+	}
+
+	public CombatTabPanel getCombatTabPanel() {
+		return combatTab;
+	}
+
+	public void setCombatUnclaimedBountyCreditsSupplier(java.util.function.LongSupplier supplier) {
+		if (combatTab != null) {
+			combatTab.setUnclaimedBountyCreditsSupplier(supplier);
+		}
 	}
 
 	public EngineeringTabPanel getEngineeringTabPanel() {
@@ -730,6 +761,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			case CARD_BIOLOGY -> biologyTab != null && biologyTab.isPointerOverInteractiveRegion(screenPoint);
 			case CARD_MINING -> miningTab != null && miningTab.isPointerOverInteractiveRegion(screenPoint);
 			case CARD_MISSIONS -> missionsTab != null && missionsTab.isPointerOverInteractiveRegion(screenPoint);
+			case CARD_COMBAT -> combatTab != null && combatTab.isPointerOverInteractiveRegion(screenPoint);
 			case CARD_ENGINEERING -> engineeringTab != null && engineeringTab.isPointerOverInteractiveRegion(screenPoint);
 			case CARD_CONTROL_PANEL -> controlPanelTab != null && controlPanelTab.isPointerOverActionButton(screenPoint);
 			default -> false;
@@ -746,6 +778,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			case CARD_FLEET_CARRIER -> fleetCarrierTab != null && fleetCarrierTab.isPointerOverScrollBar(screenPoint);
 			case CARD_SYSTEM -> systemTab.isPointerOverScrollBar(screenPoint);
 			case CARD_ENGINEERING -> engineeringTab.isPointerOverScrollBar(screenPoint);
+			case CARD_COMBAT -> combatTab != null && combatTab.isPointerOverScrollBar(screenPoint);
 			default -> false;
 		};
 	}
@@ -875,6 +908,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 		NpcCrewTracker.getInstance().applyJournalEvent(event);
 		BountyScanTracker.getInstance().applyJournalEvent(event);
+		// CombatTargetTracker also receives events in processJournalEvent fan-out below.
 
         if (event instanceof org.dce.ed.logreader.event.StatusEvent se) {
         	// Do not tie limpet reminders to Status dock transitions: when Elite exits, Status.json often
@@ -1240,6 +1274,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		applyTabButtonLayoutSize(biologyButton);
 		applyTabButtonLayoutSize(miningButton);
 		applyTabButtonLayoutSize(missionsButton);
+		applyTabButtonLayoutSize(combatButton);
 		applyTabButtonLayoutSize(fleetCarrierButton);
 		applyTabButtonLayoutSize(engineeringButton);
 		applyTabButtonLayoutSize(controlPanelButton);
@@ -1262,6 +1297,9 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 	public void refreshOverlayTabBarFromSavedPreferences() {
 		applyOverlayTabBarVisibility();
+		if (combatTab != null) {
+			combatTab.reloadCombatCommandBindings();
+		}
 		JButton active = tabButtonForCard(visibleCardName);
 		if (active != null && !active.isVisible()) {
 			selectFirstVisibleTab();
@@ -1281,6 +1319,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			case CARD_BIOLOGY -> biologyButton;
 			case CARD_MINING -> miningButton;
 			case CARD_MISSIONS -> missionsButton;
+			case CARD_COMBAT -> combatButton;
 			case CARD_FLEET_CARRIER -> fleetCarrierButton;
 			case CARD_ENGINEERING -> engineeringButton;
 			case CARD_CONTROL_PANEL -> controlPanelButton;
@@ -1294,11 +1333,12 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		boolean b = OverlayPreferences.isOverlayTabBiologyVisible();
 		boolean m = OverlayPreferences.isOverlayTabMiningVisible();
 		boolean ms = OverlayPreferences.isOverlayTabMissionsVisible();
+		boolean combat = OverlayPreferences.isOverlayTabCombatVisible();
 		boolean f = OverlayPreferences.isOverlayTabFleetCarrierVisible();
 		boolean eng = OverlayPreferences.isOverlayTabEngineeringVisible();
 		boolean cp = OverlayPreferences.isOverlayTabControlPanelVisible();
-		if (!r && !s && !b && !m && !ms && !f && !eng && !cp) {
-			r = s = b = m = ms = f = eng = cp = true;
+		if (!r && !s && !b && !m && !ms && !combat && !f && !eng && !cp) {
+			r = s = b = m = ms = combat = f = eng = cp = true;
 		}
 		if (routeButton != null) {
 			routeButton.setVisible(r);
@@ -1314,6 +1354,9 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		}
 		if (missionsButton != null) {
 			missionsButton.setVisible(ms);
+		}
+		if (combatButton != null) {
+			combatButton.setVisible(combat);
 		}
 		if (fleetCarrierButton != null) {
 			fleetCarrierButton.setVisible(f);
@@ -1332,9 +1375,9 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	 */
 	private void selectFirstVisibleTab() {
 		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton,
-				fleetCarrierButton, engineeringButton, controlPanelButton };
+				combatButton, fleetCarrierButton, engineeringButton, controlPanelButton };
 		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_MISSIONS,
-				CARD_FLEET_CARRIER, CARD_ENGINEERING, CARD_CONTROL_PANEL };
+				CARD_COMBAT, CARD_FLEET_CARRIER, CARD_ENGINEERING, CARD_CONTROL_PANEL };
 		for (int i = 0; i < buttons.length; i++) {
 			JButton b = buttons[i];
 			if (b != null && b.isVisible() && b.getParent() == getTabStrip()) {
@@ -1358,8 +1401,11 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			if (CARD_MINING.equals(cardName)) {
 				miningTab.onMiningTabBecameVisible();
 			}
-			if (CARD_CONTROL_PANEL.equals(cardName) && controlPanelTab != null) {
+            if (CARD_CONTROL_PANEL.equals(cardName) && controlPanelTab != null) {
 				controlPanelTab.refreshButtons();
+			}
+			if (CARD_COMBAT.equals(cardName) && combatTab != null) {
+				combatTab.reloadCombatCommandBindings();
 			}
 			return;
 		}
@@ -1381,6 +1427,9 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		if (CARD_CONTROL_PANEL.equals(cardName) && controlPanelTab != null) {
 			controlPanelTab.refreshButtons();
 		}
+		if (CARD_COMBAT.equals(cardName) && combatTab != null) {
+			combatTab.reloadCombatCommandBindings();
+		}
 	}
 
 	/**
@@ -1391,7 +1440,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		JButton selectedButton = tabButtonForCard(cardName);
 		java.awt.Container strip = selectedButton != null ? selectedButton.getParent() : null;
 		JButton[] all = { routeButton, systemButton, biologyButton, miningButton, missionsButton,
-				nearbyButton, fleetCarrierButton, engineeringButton, controlPanelButton };
+				combatButton, nearbyButton, fleetCarrierButton, engineeringButton, controlPanelButton };
 		for (JButton b : all) {
 			if (b == null) {
 				continue;
@@ -1408,6 +1457,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		applyTabButtonStyle(biologyButton);
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(missionsButton);
+		applyTabButtonStyle(combatButton);
 		applyTabButtonStyle(fleetCarrierButton);
 		applyTabButtonStyle(engineeringButton);
 		applyTabButtonStyle(controlPanelButton);
@@ -1443,6 +1493,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			case CARD_BIOLOGY -> biologyTab;
 			case CARD_MINING -> miningTab;
 			case CARD_MISSIONS -> missionsTab;
+			case CARD_COMBAT -> combatTab;
 			case CARD_NEARBY -> nearbyTab;
 			case CARD_FLEET_CARRIER -> fleetCarrierTab;
 			case CARD_ENGINEERING -> engineeringTab;
@@ -1469,6 +1520,9 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		}
 		if (button == missionsButton) {
 			return CARD_MISSIONS;
+		}
+		if (button == combatButton) {
+			return CARD_COMBAT;
 		}
 		if (button == fleetCarrierButton) {
 			return CARD_FLEET_CARRIER;
@@ -1843,9 +1897,9 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	 */
 	public void selectNextVisibleTab() {
 		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton,
-				fleetCarrierButton, engineeringButton, controlPanelButton };
+				combatButton, fleetCarrierButton, engineeringButton, controlPanelButton };
 		String[] cards = { CARD_ROUTE, CARD_SYSTEM, CARD_BIOLOGY, CARD_MINING, CARD_MISSIONS,
-				CARD_FLEET_CARRIER, CARD_ENGINEERING, CARD_CONTROL_PANEL };
+				CARD_COMBAT, CARD_FLEET_CARRIER, CARD_ENGINEERING, CARD_CONTROL_PANEL };
 
 		int selected = -1;
 		for (int i = 0; i < buttons.length; i++) {
@@ -1941,6 +1995,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		applyTabButtonStyle(biologyButton);
 		applyTabButtonStyle(miningButton);
 		applyTabButtonStyle(missionsButton);
+		applyTabButtonStyle(combatButton);
 		applyTabButtonStyle(fleetCarrierButton);
 		applyTabButtonStyle(engineeringButton);
 		applyTabButtonStyle(controlPanelButton);
@@ -1951,6 +2006,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		applyOverlayBackgroundToCard(CARD_CONTROL_PANEL, bgWithAlpha, treatAsTransparent);
 		applyOverlayBackgroundToCard(CARD_ENGINEERING, bgWithAlpha, treatAsTransparent);
 		applyOverlayBackgroundToCard(CARD_MINING, bgWithAlpha, treatAsTransparent);
+		applyOverlayBackgroundToCard(CARD_COMBAT, bgWithAlpha, treatAsTransparent);
 
 		revalidate();
 		repaint();
@@ -1993,6 +2049,11 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			case CARD_MINING -> {
 				if (miningTab != null) {
 					miningTab.applyOverlayBackground(bgWithAlpha);
+				}
+			}
+			case CARD_COMBAT -> {
+				if (combatTab != null) {
+					combatTab.applyOverlayBackground(bgWithAlpha, treatAsTransparent);
 				}
 			}
 			default -> {
@@ -2249,6 +2310,9 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 		engineeringTab.applyUiFontPreferences();
 		missionsTab.refreshFromSavedOverlayPreferences();
 		nearbyTab.applyUiFontPreferences();
+		if (combatTab != null) {
+			combatTab.applyUiFontPreferences();
+		}
 		if (controlPanelTab != null) {
 			controlPanelTab.applyUiFontPreferences();
 		}
@@ -2265,6 +2329,9 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 		engineeringTab.applyUiFont(font);
 		missionsTab.refreshFromSavedOverlayPreferences();
 		nearbyTab.applyUiFont(font);
+		if (combatTab != null) {
+			combatTab.applyUiFont(font);
+		}
 		if (controlPanelTab != null) {
 			controlPanelTab.applyUiFont(font);
 		}

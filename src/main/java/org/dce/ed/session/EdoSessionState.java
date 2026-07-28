@@ -93,6 +93,9 @@ public final class EdoSessionState {
     // --- Missions tab ---
     private MissionSessionData missions;
 
+    // --- Combat tab (scanned wanted / kills until redeem) ---
+    private CombatSessionData combat;
+
     // --- Engineering tab ---
     private EngineeringSessionData engineering;
 
@@ -543,6 +546,14 @@ public final class EdoSessionState {
 
     public void setMissions(MissionSessionData missions) {
         this.missions = missions;
+    }
+
+    public CombatSessionData getCombat() {
+        return combat;
+    }
+
+    public void setCombat(CombatSessionData combat) {
+        this.combat = combat;
     }
 
     public EngineeringSessionData getEngineering() {

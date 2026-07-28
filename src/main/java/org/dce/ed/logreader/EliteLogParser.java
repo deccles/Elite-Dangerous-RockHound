@@ -52,6 +52,7 @@ import org.dce.ed.logreader.event.MaterialsEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.ReceiveTextEvent;
+import org.dce.ed.logreader.event.UnderAttackEvent;
 import org.dce.ed.logreader.event.RedeemVoucherEvent;
 import org.dce.ed.logreader.event.SaasignalsFoundEvent;
 import org.dce.ed.logreader.event.ScanBaryCentreEvent;
@@ -155,6 +156,8 @@ public class EliteLogParser {
                 return new NavRouteClearEvent(ts, obj);
             case RECEIVE_TEXT:
                 return parseReceiveText(ts, obj);
+            case UNDER_ATTACK:
+                return parseUnderAttack(ts, obj);
             case STATUS:
                 return parseStatus(ts, obj);
                 
@@ -235,9 +238,10 @@ public class EliteLogParser {
     private ShipTargetedEvent parseShipTargeted(Instant ts, JsonObject obj) {
         boolean targetLocked = getBoolean(obj, "TargetLocked", false);
         int scanStage = getInt(obj, "ScanStage", 0);
+        String rawPilotName = getString(obj, "PilotName");
         String pilotName = getString(obj, "PilotName_Localised");
         if (pilotName == null || pilotName.isBlank()) {
-            pilotName = getString(obj, "PilotName");
+            pilotName = rawPilotName;
         }
         Long bounty = null;
         if (obj.has("Bounty") && !obj.get("Bounty").isJsonNull()) {
@@ -249,7 +253,18 @@ public class EliteLogParser {
             } catch (RuntimeException ignored) {
             }
         }
-        return new ShipTargetedEvent(ts, obj, targetLocked, scanStage, pilotName, bounty);
+        String ship = getString(obj, "Ship");
+        String shipLocalised = getString(obj, "Ship_Localised");
+        String legalStatus = getString(obj, "LegalStatus");
+        String faction = getString(obj, "Faction");
+        String pilotRank = getString(obj, "PilotRank");
+        Double shieldHealth = optionalJsonDouble(obj, "ShieldHealth");
+        Double hullHealth = optionalJsonDouble(obj, "HullHealth");
+        String squadronId = getString(obj, "SquadronID");
+        boolean player = ShipTargetedEvent.detectPlayer(rawPilotName, squadronId);
+        return new ShipTargetedEvent(ts, obj, targetLocked, scanStage, pilotName, rawPilotName, bounty,
+                ship, shipLocalised, legalStatus, faction, pilotRank, shieldHealth, hullHealth,
+                squadronId, player);
     }
 
     private ProspectedAsteroidEvent parseProspectedAsteroid(Instant ts, JsonObject obj) {
@@ -780,10 +795,15 @@ private LocationEvent parseLocation(Instant ts, JsonObject obj) {
 
     private ReceiveTextEvent parseReceiveText(Instant ts, JsonObject obj) {
         String from = getString(obj, "From");
+        String fromLoc = getString(obj, "From_Localised");
         String msg = getString(obj, "Message");
         String msgLoc = getString(obj, "Message_Localised");
         String channel = getString(obj, "Channel");
-        return new ReceiveTextEvent(ts, obj, from, msg, msgLoc, channel);
+        return new ReceiveTextEvent(ts, obj, from, fromLoc, msg, msgLoc, channel);
+    }
+
+    private UnderAttackEvent parseUnderAttack(Instant ts, JsonObject obj) {
+        return new UnderAttackEvent(ts, obj, getString(obj, "Target"));
     }
 
     private StatusEvent parseStatus(Instant ts, JsonObject obj) {

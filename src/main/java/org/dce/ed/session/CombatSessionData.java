@@ -1,0 +1,161 @@
+package org.dce.ed.session;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Combat tab scanned-wanted / kills snapshot inside {@link EdoSessionState} {@code session_json}.
+ * Survives overlay restart until bounty redeem (or LoadGame for scanned/hostile).
+ */
+public final class CombatSessionData {
+
+    private List<ScannedWantedPersisted> scanned = new ArrayList<>();
+    private List<KillPersisted> kills = new ArrayList<>();
+    private List<String> hostilePilotKeys = new ArrayList<>();
+    private long totalBountiesEarned;
+    private long totalOtherBounties;
+    /** Internal ship id → localised display (helps name kills after restart). */
+    private Map<String, String> shipDisplayById = new LinkedHashMap<>();
+    /** Internal ship id → pilot display name. */
+    private Map<String, String> pilotByShipId = new LinkedHashMap<>();
+
+    public List<ScannedWantedPersisted> getScanned() {
+        return scanned;
+    }
+
+    public void setScanned(List<ScannedWantedPersisted> scanned) {
+        this.scanned = scanned != null ? scanned : new ArrayList<>();
+    }
+
+    public List<KillPersisted> getKills() {
+        return kills;
+    }
+
+    public void setKills(List<KillPersisted> kills) {
+        this.kills = kills != null ? kills : new ArrayList<>();
+    }
+
+    public List<String> getHostilePilotKeys() {
+        return hostilePilotKeys;
+    }
+
+    public void setHostilePilotKeys(List<String> hostilePilotKeys) {
+        this.hostilePilotKeys = hostilePilotKeys != null ? hostilePilotKeys : new ArrayList<>();
+    }
+
+    public long getTotalBountiesEarned() {
+        return totalBountiesEarned;
+    }
+
+    public void setTotalBountiesEarned(long totalBountiesEarned) {
+        this.totalBountiesEarned = totalBountiesEarned;
+    }
+
+    public long getTotalOtherBounties() {
+        return totalOtherBounties;
+    }
+
+    public void setTotalOtherBounties(long totalOtherBounties) {
+        this.totalOtherBounties = totalOtherBounties;
+    }
+
+    public Map<String, String> getShipDisplayById() {
+        return shipDisplayById;
+    }
+
+    public void setShipDisplayById(Map<String, String> shipDisplayById) {
+        this.shipDisplayById = shipDisplayById != null ? shipDisplayById : new LinkedHashMap<>();
+    }
+
+    public Map<String, String> getPilotByShipId() {
+        return pilotByShipId;
+    }
+
+    public void setPilotByShipId(Map<String, String> pilotByShipId) {
+        this.pilotByShipId = pilotByShipId != null ? pilotByShipId : new LinkedHashMap<>();
+    }
+
+    public List<ScannedWantedPersisted> scannedOrEmpty() {
+        return scanned != null ? scanned : List.of();
+    }
+
+    public List<KillPersisted> killsOrEmpty() {
+        return kills != null ? kills : List.of();
+    }
+
+    public List<String> hostilePilotKeysOrEmpty() {
+        return hostilePilotKeys != null ? hostilePilotKeys : List.of();
+    }
+
+    public Map<String, String> shipDisplayByIdOrEmpty() {
+        return shipDisplayById != null ? shipDisplayById : Map.of();
+    }
+
+    public Map<String, String> pilotByShipIdOrEmpty() {
+        return pilotByShipId != null ? pilotByShipId : Map.of();
+    }
+
+    /** Gson-friendly scanned wanted row. */
+    public static final class ScannedWantedPersisted {
+        private String pilotKey;
+        private String pilotName;
+        private String shipDisplay;
+        private String legalStatus;
+        private long firstBounty;
+        private long currentBounty;
+        private boolean warrantScanned;
+        private boolean player;
+        private boolean hostile;
+
+        public String getPilotKey() { return pilotKey; }
+        public void setPilotKey(String pilotKey) { this.pilotKey = pilotKey; }
+        public String getPilotName() { return pilotName; }
+        public void setPilotName(String pilotName) { this.pilotName = pilotName; }
+        public String getShipDisplay() { return shipDisplay; }
+        public void setShipDisplay(String shipDisplay) { this.shipDisplay = shipDisplay; }
+        public String getLegalStatus() { return legalStatus; }
+        public void setLegalStatus(String legalStatus) { this.legalStatus = legalStatus; }
+        public long getFirstBounty() { return firstBounty; }
+        public void setFirstBounty(long firstBounty) { this.firstBounty = firstBounty; }
+        public long getCurrentBounty() { return currentBounty; }
+        public void setCurrentBounty(long currentBounty) { this.currentBounty = currentBounty; }
+        public boolean isWarrantScanned() { return warrantScanned; }
+        public void setWarrantScanned(boolean warrantScanned) { this.warrantScanned = warrantScanned; }
+        public boolean isPlayer() { return player; }
+        public void setPlayer(boolean player) { this.player = player; }
+        public boolean isHostile() { return hostile; }
+        public void setHostile(boolean hostile) { this.hostile = hostile; }
+    }
+
+    /** Gson-friendly kill row. */
+    public static final class KillPersisted {
+        /** ISO-8601 instant. */
+        private String timestamp;
+        private String target;
+        private String shipDisplay;
+        private String pilotName;
+        private String victimFaction;
+        private long totalReward;
+        private long otherReward;
+        private int sharedWithOthers;
+
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+        public String getTarget() { return target; }
+        public void setTarget(String target) { this.target = target; }
+        public String getShipDisplay() { return shipDisplay; }
+        public void setShipDisplay(String shipDisplay) { this.shipDisplay = shipDisplay; }
+        public String getPilotName() { return pilotName; }
+        public void setPilotName(String pilotName) { this.pilotName = pilotName; }
+        public String getVictimFaction() { return victimFaction; }
+        public void setVictimFaction(String victimFaction) { this.victimFaction = victimFaction; }
+        public long getTotalReward() { return totalReward; }
+        public void setTotalReward(long totalReward) { this.totalReward = totalReward; }
+        public long getOtherReward() { return otherReward; }
+        public void setOtherReward(long otherReward) { this.otherReward = otherReward; }
+        public int getSharedWithOthers() { return sharedWithOthers; }
+        public void setSharedWithOthers(int sharedWithOthers) { this.sharedWithOthers = sharedWithOthers; }
+    }
+}

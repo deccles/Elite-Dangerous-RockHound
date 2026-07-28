@@ -3,6 +3,8 @@ package org.dce.ed.util;
 import java.awt.AWTException;
 import java.awt.Robot;
 import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 import com.sun.jna.platform.win32.BaseTSD.ULONG_PTR;
@@ -84,6 +86,40 @@ public final class EliteKeySender {
 
     public void space() throws InterruptedException {
         tap(VK_SPACE);
+    }
+
+    /**
+     * Taps a key chord: modifiers down, main key tap, modifiers up.
+     */
+    public void tapChord(int virtualKey, Iterable<Integer> modifierVirtualKeys) throws InterruptedException {
+        requireEliteForegroundForInput();
+        List<Integer> mods = new ArrayList<>();
+        if (modifierVirtualKeys != null) {
+            for (Integer m : modifierVirtualKeys) {
+                if (m != null) {
+                    mods.add(m);
+                }
+            }
+        }
+        for (Integer mod : mods) {
+            sendGameplayKey(mod.intValue(), true);
+            sleepInterKey();
+        }
+        sendGameplayKey(virtualKey, true);
+        sleepInterKey();
+        sendGameplayKey(virtualKey, false);
+        sleepInterKey();
+        for (int i = mods.size() - 1; i >= 0; i--) {
+            sendGameplayKey(mods.get(i).intValue(), false);
+            sleepInterKey();
+        }
+    }
+
+    public void tapBinding(org.dce.ed.binds.EliteKeyBinding binding) throws InterruptedException {
+        if (binding == null) {
+            return;
+        }
+        tapChord(binding.getVirtualKey(), binding.getModifierVirtualKeys());
     }
 
     private void requireEliteForegroundForInput() throws InterruptedException {
@@ -221,7 +257,15 @@ public final class EliteKeySender {
         return virtualKey == KeyEvent.VK_LEFT
                 || virtualKey == KeyEvent.VK_UP
                 || virtualKey == KeyEvent.VK_RIGHT
-                || virtualKey == KeyEvent.VK_DOWN;
+                || virtualKey == KeyEvent.VK_DOWN
+                || virtualKey == KeyEvent.VK_INSERT
+                || virtualKey == KeyEvent.VK_DELETE
+                || virtualKey == KeyEvent.VK_HOME
+                || virtualKey == KeyEvent.VK_END
+                || virtualKey == KeyEvent.VK_PAGE_UP
+                || virtualKey == KeyEvent.VK_PAGE_DOWN
+                || virtualKey == KeyEvent.VK_NUM_LOCK
+                || virtualKey == KeyEvent.VK_DIVIDE;
     }
 
     private void sendRobotKey(int virtualKey, boolean keyDown) {

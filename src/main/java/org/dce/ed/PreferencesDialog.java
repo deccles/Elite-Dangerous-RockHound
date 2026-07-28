@@ -58,6 +58,7 @@ import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.mining.ProspectorWriteResult;
 import org.dce.ed.mission.MissionSpeechTracker;
 import org.dce.ed.ui.EdoDialogTitleBar;
+import org.dce.ed.ui.EdoOptionDialog;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HelpCircleIcon;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
@@ -77,10 +78,10 @@ import org.dce.ed.tts.VoicePackManager;
  */
 public class PreferencesDialog extends JDialog {
 
-	/** Index of the Mining tab in {@link #PreferencesDialog(Window, String)}'s tabbed pane (Colors, Exobiology, Fonts, Logging, Mining, …). */
-	public static final int MINING_TAB_INDEX = 4;
-	public static final int FONTS_TAB_INDEX = 2;
-	public static final int EXEC_TAB_INDEX = 7;
+	/** Index of the Mining tab in {@link #PreferencesDialog(Window, String)}'s tabbed pane. */
+	public static final int MINING_TAB_INDEX = 5;
+	public static final int FONTS_TAB_INDEX = 3;
+	public static final int EXEC_TAB_INDEX = 8;
 
 	/**
 	 * Shows preferences, or brings the existing modeless window to the front if one is already open.
@@ -195,6 +196,7 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox firstDiscoveredSystemAnnouncementCheckBox;
 	private JCheckBox bountyScanFirstAnnouncementCheckBox;
 	private JCheckBox bountyScanAdditionalAnnouncementCheckBox;
+	private JSpinner bountyScanValuableThresholdSpinner;
 	private JCheckBox missionProgressAnnouncementCheckBox;
 	private JCheckBox miningLowLimpetReminderEnabledCheckBox;
 	private JCheckBox fighterPilotReminderEnabledCheckBox;
@@ -249,9 +251,12 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabBiologyVisibleCheckBox;
 	private JCheckBox overlayTabMiningVisibleCheckBox;
 	private JCheckBox overlayTabMissionsVisibleCheckBox;
+	private JCheckBox overlayTabCombatVisibleCheckBox;
 	private JCheckBox overlayTabFleetCarrierVisibleCheckBox;
 	private JCheckBox overlayTabEngineeringVisibleCheckBox;
 	private JCheckBox overlayTabControlPanelVisibleCheckBox;
+	private final java.util.Map<String, JCheckBox> combatFighterCommandCheckBoxes = new java.util.LinkedHashMap<>();
+	private final java.util.Map<String, JCheckBox> combatTargetingCommandCheckBoxes = new java.util.LinkedHashMap<>();
 
 	private ExecTabPanel execTabPanel;
 	private JButton okButton;
@@ -439,6 +444,7 @@ public class PreferencesDialog extends JDialog {
 
 		this.preferenceTabs = new JTabbedPane();
 		preferenceTabs.addTab("Colors", createColorsPanel());
+		preferenceTabs.addTab("Combat", wrapTabInEdoScroll(createCombatPanel()));
 		preferenceTabs.addTab("Exobiology", wrapTabInEdoScroll(createExobiologyPanel()));
 		preferenceTabs.addTab("Fonts", createFontsPanel());
 		preferenceTabs.addTab("Logging", createLoggingPanel());
@@ -592,6 +598,12 @@ public class PreferencesDialog extends JDialog {
 		overlayTabMissionsVisibleCheckBox.setOpaque(false);
 		overlayTabMissionsVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabMissionsVisible());
 		tabsPanel.add(overlayTabMissionsVisibleCheckBox, tgc);
+
+		tgc.gridy++;
+		overlayTabCombatVisibleCheckBox = new JCheckBox("Combat");
+		overlayTabCombatVisibleCheckBox.setOpaque(false);
+		overlayTabCombatVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabCombatVisible());
+		tabsPanel.add(overlayTabCombatVisibleCheckBox, tgc);
 
 		tgc.gridy++;
 		overlayTabFleetCarrierVisibleCheckBox = new JCheckBox("Fleet Carrier");
@@ -1982,6 +1994,58 @@ public class PreferencesDialog extends JDialog {
 		livePreviewDirty = false;
 	}
 
+	private JPanel createCombatPanel() {
+		JPanel panel = new JPanel();
+		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+		panel.setOpaque(false);
+		initLeftSectionStack(panel);
+
+		JLabel intro = new JLabel(
+				"<html>Choose which Combat-tab command buttons to show. Unchecked commands stay hidden; "
+						+ "all scanned ships and kills still appear.</html>");
+		intro.setOpaque(false);
+		addLeftStackedSection(panel, intro, 6);
+
+		addLeftStackedSection(panel, createCombatCommandCheckboxBox(
+				"Targeting commands",
+				CombatTabCommands.TARGETING,
+				combatTargetingCommandCheckBoxes));
+		addLeftStackedSection(panel, createCombatCommandCheckboxBox(
+				"Fighter commands",
+				CombatTabCommands.FIGHTER,
+				combatFighterCommandCheckBoxes), 0);
+		return panel;
+	}
+
+	private static JPanel createCombatCommandCheckboxBox(
+			String title,
+			java.util.List<CombatTabCommands.Command> commands,
+			java.util.Map<String, JCheckBox> out) {
+		out.clear();
+		JPanel box = new JPanel(new GridBagLayout());
+		box.setOpaque(false);
+		box.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				title));
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.gridx = 0;
+		gbc.gridy = 0;
+		gbc.anchor = GridBagConstraints.WEST;
+		gbc.insets = new Insets(4, 8, 4, 8);
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.weightx = 1.0;
+		for (CombatTabCommands.Command command : commands) {
+			JCheckBox cb = new JCheckBox(command.label() + "  (" + command.bindName() + ")");
+			cb.setOpaque(false);
+			cb.setSelected(OverlayPreferences.isCombatTabCommandVisible(command.bindName()));
+			cb.setToolTipText("Show the \"" + command.label() + "\" button on the Combat tab");
+			out.put(command.bindName(), cb);
+			box.add(cb, gbc);
+			gbc.gridy++;
+		}
+		return box;
+	}
+
 	private JPanel createSpeechPanel() {
 		JPanel panel = new JPanel();
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
@@ -2030,6 +2094,22 @@ public class PreferencesDialog extends JDialog {
 		bountyScanFirstAnnouncementCheckBox.setOpaque(false);
 		bountyScanFirstAnnouncementCheckBox.setSelected(OverlayPreferences.isBountyScanFirstAnnouncementEnabled());
 		content.add(bountyScanFirstAnnouncementCheckBox, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
+		JLabel bountyValuableThresholdLabel = new JLabel("Valuable bounty threshold (credits):");
+		bountyValuableThresholdLabel.setToolTipText(
+				"Initial bounty speech only fires at or above this amount. Combat tab still lists every scanned bounty.");
+		content.add(bountyValuableThresholdLabel, gbc);
+		gbc.gridx = 1;
+		bountyScanValuableThresholdSpinner = new JSpinner(new SpinnerNumberModel(
+				Long.valueOf(OverlayPreferences.getBountyScanValuableThresholdCredits()),
+				Long.valueOf(0L),
+				Long.valueOf(100_000_000L),
+				Long.valueOf(1_000L)));
+		((JSpinner.DefaultEditor) bountyScanValuableThresholdSpinner.getEditor()).getTextField().setColumns(10);
+		bountyScanValuableThresholdSpinner.setToolTipText(bountyValuableThresholdLabel.getToolTipText());
+		content.add(bountyScanValuableThresholdSpinner, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridy++;
@@ -2368,7 +2448,7 @@ public class PreferencesDialog extends JDialog {
 			return true;
 		}
 		String which = bothSelected ? "Both" : "Google Sheets";
-		JOptionPane.showMessageDialog(
+		EdoOptionDialog.showMessage(
 				this,
 				which + " is selected but the Google Sheets URL is empty.\n"
 						+ "Paste your sheet URL first, or switch back to Local CSV.",
@@ -2450,30 +2530,33 @@ public class PreferencesDialog extends JDialog {
 		area.setEditable(false);
 		area.setLineWrap(true);
 		area.setWrapStyleWord(true);
-		JOptionPane.showMessageDialog(this, edoScroll(new JScrollPane(area)), "Google Sheets setup", JOptionPane.INFORMATION_MESSAGE);
+		area.setForeground(EdoUi.User.MAIN_TEXT);
+		area.setBackground(EdoUi.User.BACKGROUND);
+		area.setCaretColor(EdoUi.User.MAIN_TEXT);
+		EdoOptionDialog.showMessage(this, edoScroll(new JScrollPane(area)), "Google Sheets setup", JOptionPane.INFORMATION_MESSAGE);
 	}
 
 	private void connectToGoogleAndStoreToken() {
 		String clientId = miningGoogleClientIdField != null ? miningGoogleClientIdField.getText().trim() : "";
 		String clientSecret = miningGoogleClientSecretField != null ? miningGoogleClientSecretField.getText().trim() : "";
 		if (clientId.isEmpty() || clientSecret.isEmpty()) {
-			JOptionPane.showMessageDialog(this, "Enter Client ID and Client Secret first, then click Connect to Google.", "Setup required", JOptionPane.WARNING_MESSAGE);
+			EdoOptionDialog.showMessage(this, "Enter Client ID and Client Secret first, then click Connect to Google.", "Setup required", JOptionPane.WARNING_MESSAGE);
 			return;
 		}
 		boolean ok = GoogleSheetsAuth.runOAuthFlowAndStoreToken(clientId, clientSecret);
 		if (ok) {
-			JOptionPane.showMessageDialog(this, "Connected. Your prospector log will sync to the selected Google Sheet.", "Success", JOptionPane.INFORMATION_MESSAGE);
+			EdoOptionDialog.showMessage(this, "Connected. Your prospector log will sync to the selected Google Sheet.", "Success", JOptionPane.INFORMATION_MESSAGE);
 		} else {
 			String detail = "Could not complete sign-in. Check Client ID and Secret, and try again.";
 			OverlayFrame frame = OverlayFrame.overlayFrame;
 			if (frame != null) {
 				frame.setMiningSheetsStatusError("Mining preferences: " + detail);
-				JOptionPane.showMessageDialog(this,
+				EdoOptionDialog.showMessage(this,
 						"Could not complete sign-in. Details are shown in the overlay status bar.",
 						"Connection failed",
 						JOptionPane.WARNING_MESSAGE);
 			} else {
-				JOptionPane.showMessageDialog(this, detail, "Connection failed", JOptionPane.ERROR_MESSAGE);
+				EdoOptionDialog.showMessage(this, detail, "Connection failed", JOptionPane.ERROR_MESSAGE);
 			}
 		}
 	}
@@ -2494,10 +2577,10 @@ public class PreferencesDialog extends JDialog {
 	private void runMiningSheetLegacyMigration() {
 		String url = miningGoogleSheetsUrlField != null ? miningGoogleSheetsUrlField.getText().trim() : "";
 		if (url.isEmpty()) {
-			JOptionPane.showMessageDialog(this, "Enter the Google Sheets URL first.", "Mining sheet", JOptionPane.WARNING_MESSAGE);
+			EdoOptionDialog.showMessage(this, "Enter the Google Sheets URL first.", "Mining sheet", JOptionPane.WARNING_MESSAGE);
 			return;
 		}
-		int confirm = JOptionPane.showConfirmDialog(this,
+		int confirm = EdoOptionDialog.showConfirm(this,
 				"This reads the first worksheet, creates one tab per commander with runs renumbered 1…n per tab, "
 						+ "and replaces the first sheet with a short migration note.\n\n"
 						+ "Tip: make a copy in Google Drive first if you want a backup.\n\n"
@@ -2521,7 +2604,7 @@ public class PreferencesDialog extends JDialog {
 				try {
 					ProspectorWriteResult r = get();
 					if (r != null && r.isOk()) {
-						JOptionPane.showMessageDialog(PreferencesDialog.this,
+						EdoOptionDialog.showMessage(PreferencesDialog.this,
 								"Migration finished. Commander tabs should hold your rows; the first sheet shows a migration note.\n\n"
 										+ "Tip: keep a Drive copy of the spreadsheet if you want a backup.",
 								"Mining sheet",
@@ -2532,7 +2615,7 @@ public class PreferencesDialog extends JDialog {
 						}
 					} else {
 						String msg = r != null ? r.getMessage() : "Unknown error";
-						JOptionPane.showMessageDialog(PreferencesDialog.this,
+						EdoOptionDialog.showMessage(PreferencesDialog.this,
 								"Migration failed:\n" + msg,
 								"Mining sheet",
 								JOptionPane.ERROR_MESSAGE);
@@ -2543,7 +2626,7 @@ public class PreferencesDialog extends JDialog {
 					}
 				} catch (Exception ex) {
 					String msg = ex.getMessage() != null ? ex.getMessage() : ex.toString();
-					JOptionPane.showMessageDialog(PreferencesDialog.this,
+					EdoOptionDialog.showMessage(PreferencesDialog.this,
 							"Migration failed:\n" + msg,
 							"Mining sheet",
 							JOptionPane.ERROR_MESSAGE);
@@ -2560,11 +2643,11 @@ public class PreferencesDialog extends JDialog {
 	private void runMiningSheetLayoutRepair() {
 		String url = miningGoogleSheetsUrlField != null ? miningGoogleSheetsUrlField.getText().trim() : "";
 		if (url.isEmpty()) {
-			JOptionPane.showMessageDialog(this, "Enter the Google Sheets URL first.", "Mining sheet",
+			EdoOptionDialog.showMessage(this, "Enter the Google Sheets URL first.", "Mining sheet",
 					JOptionPane.WARNING_MESSAGE);
 			return;
 		}
-		int confirm = JOptionPane.showConfirmDialog(this,
+		int confirm = EdoOptionDialog.showConfirm(this,
 				"This rewrites every worksheet whose name starts with \"CMDR \" (columns A through P).\n"
 						+ "If row 1 is missing the Ship column (Commander then Start time), it is corrected to the standard header.\n"
 						+ "Short rows are padded to 16 columns; Start/End cells that only repeat the ship name (no real date) are cleared.\n\n"
@@ -2595,7 +2678,7 @@ public class PreferencesDialog extends JDialog {
 				try {
 					ProspectorWriteResult r = get();
 					if (r != null && r.isOk()) {
-						JOptionPane.showMessageDialog(PreferencesDialog.this,
+						EdoOptionDialog.showMessage(PreferencesDialog.this,
 								"Repair finished. Open your spreadsheet and confirm CMDR tabs look correct.",
 								"Mining sheet",
 								JOptionPane.INFORMATION_MESSAGE);
@@ -2605,7 +2688,7 @@ public class PreferencesDialog extends JDialog {
 						}
 					} else {
 						String msg = r != null ? r.getMessage() : "Unknown error";
-						JOptionPane.showMessageDialog(PreferencesDialog.this,
+						EdoOptionDialog.showMessage(PreferencesDialog.this,
 								"Repair failed:\n" + msg,
 								"Mining sheet",
 								JOptionPane.ERROR_MESSAGE);
@@ -2616,7 +2699,7 @@ public class PreferencesDialog extends JDialog {
 					}
 				} catch (Exception ex) {
 					String msg = ex.getMessage() != null ? ex.getMessage() : ex.toString();
-					JOptionPane.showMessageDialog(PreferencesDialog.this,
+					EdoOptionDialog.showMessage(PreferencesDialog.this,
 							"Repair failed:\n" + msg,
 							"Mining sheet",
 							JOptionPane.ERROR_MESSAGE);
@@ -2657,20 +2740,33 @@ public class PreferencesDialog extends JDialog {
             boolean b = overlayTabBiologyVisibleCheckBox != null && overlayTabBiologyVisibleCheckBox.isSelected();
             boolean m = overlayTabMiningVisibleCheckBox != null && overlayTabMiningVisibleCheckBox.isSelected();
             boolean ms = overlayTabMissionsVisibleCheckBox != null && overlayTabMissionsVisibleCheckBox.isSelected();
+            boolean combat = overlayTabCombatVisibleCheckBox != null && overlayTabCombatVisibleCheckBox.isSelected();
             boolean f = overlayTabFleetCarrierVisibleCheckBox != null && overlayTabFleetCarrierVisibleCheckBox.isSelected();
             boolean eng = overlayTabEngineeringVisibleCheckBox != null && overlayTabEngineeringVisibleCheckBox.isSelected();
             boolean cp = overlayTabControlPanelVisibleCheckBox != null && overlayTabControlPanelVisibleCheckBox.isSelected();
-            if (!r && !s && !b && !m && !ms && !f && !eng && !cp) {
-                r = s = b = m = ms = f = eng = cp = true;
+            if (!r && !s && !b && !m && !ms && !combat && !f && !eng && !cp) {
+                r = s = b = m = ms = combat = f = eng = cp = true;
             }
             OverlayPreferences.setOverlayTabRouteVisible(r);
             OverlayPreferences.setOverlayTabSystemVisible(s);
             OverlayPreferences.setOverlayTabBiologyVisible(b);
             OverlayPreferences.setOverlayTabMiningVisible(m);
             OverlayPreferences.setOverlayTabMissionsVisible(ms);
+            OverlayPreferences.setOverlayTabCombatVisible(combat);
             OverlayPreferences.setOverlayTabFleetCarrierVisible(f);
             OverlayPreferences.setOverlayTabEngineeringVisible(eng);
             OverlayPreferences.setOverlayTabControlPanelVisible(cp);
+        }
+
+        for (java.util.Map.Entry<String, JCheckBox> e : combatTargetingCommandCheckBoxes.entrySet()) {
+            if (e.getValue() != null) {
+                OverlayPreferences.setCombatTabCommandVisible(e.getKey(), e.getValue().isSelected());
+            }
+        }
+        for (java.util.Map.Entry<String, JCheckBox> e : combatFighterCommandCheckBoxes.entrySet()) {
+            if (e.getValue() != null) {
+                OverlayPreferences.setCombatTabCommandVisible(e.getKey(), e.getValue().isSelected());
+            }
         }
 
         if (autoSwitchGalaxyMapToRouteCheckBox != null) {
@@ -2737,6 +2833,14 @@ public class PreferencesDialog extends JDialog {
         if (bountyScanFirstAnnouncementCheckBox != null) {
             OverlayPreferences.setBountyScanFirstAnnouncementEnabled(
                     bountyScanFirstAnnouncementCheckBox.isSelected());
+        }
+
+        if (bountyScanValuableThresholdSpinner != null) {
+            try {
+                long v = ((Number) bountyScanValuableThresholdSpinner.getValue()).longValue();
+                OverlayPreferences.setBountyScanValuableThresholdCredits(v);
+            } catch (Exception ignored) {
+            }
         }
 
         if (bountyScanAdditionalAnnouncementCheckBox != null) {

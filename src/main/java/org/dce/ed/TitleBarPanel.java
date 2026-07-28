@@ -44,6 +44,7 @@ public class TitleBarPanel extends JPanel {
     public static final String TOOLTIP_HAMMER = "Tools — updates, journal monitor, debug utilities, console…";
     public static final String TOOLTIP_GEAR = "Preferences — theme, overlay transparency, hotkeys…";
     public static final String TOOLTIP_CLOSE = "Close RockHound";
+    public static final String TOOLTIP_MINIMIZE = "Minimize all EDO windows";
     public static final String TOOLTIP_PASS_THROUGH_ON =
             "Full pass-through — clicks go to the game; hover here to use title-bar buttons (click to cycle mode)";
     public static final String TOOLTIP_PASS_THROUGH_SELECTIVE =
@@ -57,6 +58,7 @@ public class TitleBarPanel extends JPanel {
     private final OverlayFrame frame;
     private Point dragOffset;
     private final CloseButton closeButton;
+    private final MinimizeButton minimizeButton;
     private final TitleBarPanel.PassThroughToggleButton passThroughToggleButton;
     private final SettingsButton settingsButton;
     private final HammerButton hammerButton;
@@ -103,6 +105,26 @@ public class TitleBarPanel extends JPanel {
             @Override
             public void mouseExited(MouseEvent e) {
                 closeButton.setHover(false);
+            }
+        });
+
+        minimizeButton = new MinimizeButton();
+        minimizeButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    org.dce.ed.ui.EdoWindowIconify.iconifyAll();
+                }
+            }
+
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                minimizeButton.setHover(true);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                minimizeButton.setHover(false);
             }
         });
 
@@ -171,6 +193,7 @@ public class TitleBarPanel extends JPanel {
         rightPanel.add(hammerButton);
         rightPanel.add(settingsButton);
         rightPanel.add(passThroughToggleButton);
+        rightPanel.add(minimizeButton);
         rightPanel.add(closeButton);
 
         add(leftPanel, BorderLayout.WEST);
@@ -254,7 +277,8 @@ public class TitleBarPanel extends JPanel {
 
         if (c instanceof Container container) {
             for (Component child : container.getComponents()) {
-                if (child instanceof CloseButton || child instanceof SettingsButton || child instanceof HammerButton
+                if (child instanceof CloseButton || child instanceof MinimizeButton
+                        || child instanceof SettingsButton || child instanceof HammerButton
                         || child instanceof TitleBarPanel.PassThroughToggleButton) {
                     continue;
                 }
@@ -277,6 +301,7 @@ public class TitleBarPanel extends JPanel {
      */
     public void setMouseInteractionMode(MouseInteractionMode mode) {
         closeButton.setVisible(true);
+        minimizeButton.setVisible(true);
         passThroughToggleButton.setVisible(true);
         passThroughToggleButton.setMouseInteractionMode(mode);
         hammerButton.setVisible(true);
@@ -300,6 +325,10 @@ public class TitleBarPanel extends JPanel {
         closeButton.setHover(hover);
     }
 
+    public void setMinimizeHoverProgrammatic(boolean hover) {
+        minimizeButton.setHover(hover);
+    }
+
     public void setToggleHoverProgrammatic(boolean hover) {
         passThroughToggleButton.setHover(hover);
     }
@@ -319,6 +348,18 @@ public class TitleBarPanel extends JPanel {
         try {
             Point p = closeButton.getLocationOnScreen();
             return new Rectangle(p.x, p.y, closeButton.getWidth(), closeButton.getHeight());
+        } catch (IllegalComponentStateException ex) {
+            return null;
+        }
+    }
+
+    public Rectangle getMinimizeButtonScreenBounds() {
+        if (!isShowing() || !minimizeButton.isShowing()) {
+            return null;
+        }
+        try {
+            Point p = minimizeButton.getLocationOnScreen();
+            return new Rectangle(p.x, p.y, minimizeButton.getWidth(), minimizeButton.getHeight());
         } catch (IllegalComponentStateException ex) {
             return null;
         }
@@ -473,6 +514,52 @@ public class TitleBarPanel extends JPanel {
                 g2.draw(arrow);
             } finally {
                 g2.setTransform(prev);
+            }
+        }
+    }
+
+    /**
+     * Simple custom minimize button: rounded plate with a white underscore.
+     */
+    public static class MinimizeButton extends JPanel {
+
+        private boolean hover = false;
+
+        public MinimizeButton() {
+            setOpaque(false);
+            setPreferredSize(new Dimension(24, 24));
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setToolTipText(TOOLTIP_MINIMIZE);
+        }
+
+        public void setHover(boolean hover) {
+            this.hover = hover;
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int w = getWidth();
+                int h = getHeight();
+
+                Color base = EdoUi.Internal.TITLEBAR_BG_HOVER;
+                Color hoverColor = EdoUi.Internal.TITLEBAR_BG_ACTIVE;
+                g2.setColor(hover ? hoverColor : base);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, 6, 6);
+
+                g2.setColor(Color.WHITE);
+                g2.setStroke(new java.awt.BasicStroke(2f));
+                int padX = 7;
+                int y = h / 2 + 3;
+                g2.drawLine(padX, y, w - padX, y);
+            } finally {
+                g2.dispose();
             }
         }
     }
