@@ -855,33 +855,34 @@ public final class CombatTabPanel extends JPanel {
         }
     }
 
-    /** Shared row for TARGET and SCANNED tables. */
+    /** Shared row for TARGET, SCANNED, and KILLS tables. */
     private static final class BountyRow {
         private final String pilot;
         private final String ship;
         private final String local;
         private final String remote;
         private final String total;
-        private final boolean hostile;
+        private final long bountyCredits;
         private final boolean player;
 
         BountyRow(String pilot, String ship, String local, String remote, String total,
-                boolean hostile, boolean player) {
+                long bountyCredits, boolean player) {
             this.pilot = pilot;
             this.ship = ship;
             this.local = local;
             this.remote = remote;
             this.total = total;
-            this.hostile = hostile;
+            this.bountyCredits = Math.max(0L, bountyCredits);
             this.player = player;
         }
 
         static BountyRow fromLocked(CombatTargetTracker.LockedTarget t) {
+            long bountyCredits = t.getBounty() != null ? Math.max(0L, t.getBounty().longValue()) : 0L;
             String local = t.getLocalBounty() != null && t.getLocalBounty() > 0L
                     ? formatCompact(t.getLocalBounty())
                     : "—";
-            String total = t.getBounty() != null && t.getBounty() > 0L
-                    ? formatCompact(t.getBounty())
+            String total = bountyCredits > 0L
+                    ? formatCompact(bountyCredits)
                     : "—";
             String remote = (t.getLocalBounty() != null && t.getLocalBounty() > 0L)
                     ? formatRemote(t.getRemoteBounty(), t.isWarrantScanned())
@@ -892,7 +893,7 @@ public final class CombatTabPanel extends JPanel {
                     local,
                     remote,
                     total,
-                    t.isHostile(),
+                    bountyCredits,
                     t.isPlayer());
         }
 
@@ -903,7 +904,7 @@ public final class CombatTabPanel extends JPanel {
                     formatCompact(s.getFirstBounty()),
                     formatRemote(s.getRemoteBounty(), s.isWarrantScanned()),
                     formatCompact(s.getCurrentBounty()),
-                    s.isHostile(),
+                    s.getCurrentBounty(),
                     s.isPlayer());
         }
 
@@ -921,7 +922,7 @@ public final class CombatTabPanel extends JPanel {
                     local > 0L ? formatCompact(local) : "—",
                     remote > 0L ? formatCompact(remote) : "—",
                     total > 0L ? formatCompact(total) : "—",
-                    false,
+                    total,
                     false);
         }
     }
@@ -1036,8 +1037,13 @@ public final class CombatTabPanel extends JPanel {
             setBorder(new EmptyBorder(3, 6, 3, 6));
             setHorizontalAlignment(column >= 2 ? SwingConstants.RIGHT : SwingConstants.LEFT);
             BountyRow bountyRow = model.rowAt(row);
-            if (bountyRow != null && bountyRow.hostile) {
-                setForeground(EdoUi.User.ERROR);
+            if (bountyRow != null && bountyRow.bountyCredits > 0L) {
+                long highValue = OverlayPreferences.getCombatHighValueBountyCredits();
+                if (bountyRow.bountyCredits >= highValue) {
+                    setForeground(EdoUi.User.SECONDARY_HIGHLIGHT);
+                } else {
+                    setForeground(EdoUi.User.PRIMARY_HIGHLIGHT);
+                }
             } else if (bountyRow != null && bountyRow.player) {
                 setForeground(EdoUi.User.CORE_BLUE);
             } else {

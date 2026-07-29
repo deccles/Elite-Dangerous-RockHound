@@ -10,7 +10,6 @@ import java.time.Instant;
 import java.util.List;
 
 import org.dce.ed.logreader.event.BountyEvent;
-import org.dce.ed.logreader.event.ReceiveTextEvent;
 import org.dce.ed.logreader.event.RedeemVoucherEvent;
 import org.dce.ed.logreader.event.ShipTargetedEvent;
 import org.dce.ed.session.EdoSessionState;
@@ -69,10 +68,9 @@ class CombatTargetTrackerTest {
     }
 
     @Test
-    void marksHostileAndClearsOnUnlock() {
-        tracker.applyShipTargeted(stage3("Raider", 50_000L, "Hostile", false));
-        assertTrue(tracker.getLockedTarget().isHostile());
-        assertTrue(tracker.getScannedWantedShips().get(0).isHostile());
+    void clearsLockedTargetOnUnlock() {
+        tracker.applyShipTargeted(stage3("Raider", 50_000L, "Wanted", false));
+        assertNotNull(tracker.getLockedTarget());
 
         tracker.applyShipTargeted(unlock());
         assertNull(tracker.getLockedTarget());
@@ -191,67 +189,9 @@ class CombatTargetTrackerTest {
     }
 
     @Test
-    void isHostileStatusHelper() {
-        assertTrue(CombatTargetTracker.isHostileStatus("Hostile"));
-        assertTrue(CombatTargetTracker.isHostileStatus("hostile"));
-        assertFalse(CombatTargetTracker.isHostileStatus("Wanted"));
-        assertFalse(CombatTargetTracker.isHostileStatus(null));
-    }
-
-    @Test
-    void marksHostileFromAttackChatter() {
-        tracker.applyShipTargeted(stage3("John \"Reaper\" Grimm", 80_000L, "Wanted", false));
-        assertFalse(tracker.getLockedTarget().isHostile());
-
-        tracker.applyReceiveText(attackText(
-                "$npc_name_decorate:#name=John \"Reaper\" Grimm;",
-                "John \"Reaper\" Grimm",
-                "$Pirate_OnDeclarePiracyAttack09;"));
-
-        assertTrue(tracker.getLockedTarget().isHostile());
-        assertTrue(tracker.getScannedWantedShips().get(0).isHostile());
-    }
-
-    @Test
-    void marksHostileFromUnderAttackWhileLocked() {
-        tracker.applyShipTargeted(stage3("Aniara Miman", 120_000L, "Wanted", false));
-        assertFalse(tracker.getLockedTarget().isHostile());
-
-        tracker.applyUnderAttack();
-
-        assertTrue(tracker.getLockedTarget().isHostile());
-        assertTrue(tracker.getScannedWantedShips().get(0).isHostile());
-    }
-
-    @Test
-    void attackChatterRemembersHostileForLaterScan() {
-        tracker.applyReceiveText(attackText(
-                "$npc_name_decorate:#name=Victoria;",
-                "Victoria",
-                "$Pirate_OnDeclarePiracyAttack01;"));
-        tracker.applyShipTargeted(stage3("Victoria", 67_984L, "Wanted", false));
-
-        assertTrue(tracker.getLockedTarget().isHostile());
-        assertTrue(tracker.getScannedWantedShips().get(0).isHostile());
-    }
-
-    @Test
-    void isAttackCommencedMessageHelper() {
-        assertTrue(CombatTargetTracker.isAttackCommencedMessage("$Pirate_OnDeclarePiracyAttack09;"));
-        assertTrue(CombatTargetTracker.isAttackCommencedMessage("$Police_Attack01;"));
-        assertTrue(CombatTargetTracker.isAttackCommencedMessage("$OverwatchAttackRun06;"));
-        assertFalse(CombatTargetTracker.isAttackCommencedMessage("$Pirate_OnStartScanCargo11;"));
-        assertFalse(CombatTargetTracker.isAttackCommencedMessage(null));
-    }
-
-    @Test
     void sessionRoundTripPreservesScannedAndKills() {
         tracker.applyShipTargeted(stage3("Carlos", 242_475L, "Wanted", false));
         tracker.applyShipTargeted(stage3("Carlos", 305_335L, "Wanted", false));
-        tracker.applyReceiveText(attackText(
-                "$npc_name_decorate:#name=Carlos;",
-                "Carlos",
-                "$Pirate_OnDeclarePiracyAttack01;"));
         // Living scan that should survive — kill a different pilot.
         tracker.applyShipTargeted(stage3("Dana", 80_000L, "Wanted", false));
         tracker.applyBounty(bounty(
@@ -277,7 +217,6 @@ class CombatTargetTrackerTest {
         assertEquals(242_475L, scanned.getFirstBounty());
         assertEquals(305_335L, scanned.getCurrentBounty());
         assertTrue(scanned.isWarrantScanned());
-        assertTrue(scanned.isHostile());
         assertEquals(1, tracker.getKills().size());
         assertEquals("Dana", tracker.getKills().get(0).getPilotName());
         assertEquals(10_000L, tracker.getTotalBountiesEarned());
@@ -313,17 +252,6 @@ class CombatTargetTrackerTest {
                 0,
                 null,
                 null);
-    }
-
-    private static ReceiveTextEvent attackText(String from, String fromLocalised, String message) {
-        return new ReceiveTextEvent(
-                Instant.parse("2026-06-22T13:06:00Z"),
-                new JsonObject(),
-                from,
-                fromLocalised,
-                message,
-                null,
-                "npc");
     }
 
     private static BountyEvent bounty(String json, long total) {

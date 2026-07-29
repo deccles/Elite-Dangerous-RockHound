@@ -196,7 +196,6 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox firstDiscoveredSystemAnnouncementCheckBox;
 	private JCheckBox bountyScanFirstAnnouncementCheckBox;
 	private JCheckBox bountyScanAdditionalAnnouncementCheckBox;
-	private JSpinner bountyScanValuableThresholdSpinner;
 	private JCheckBox missionProgressAnnouncementCheckBox;
 	private JCheckBox miningLowLimpetReminderEnabledCheckBox;
 	private JCheckBox fighterPilotReminderEnabledCheckBox;
@@ -257,6 +256,8 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox overlayTabControlPanelVisibleCheckBox;
 	private final java.util.Map<String, JCheckBox> combatFighterCommandCheckBoxes = new java.util.LinkedHashMap<>();
 	private final java.util.Map<String, JCheckBox> combatTargetingCommandCheckBoxes = new java.util.LinkedHashMap<>();
+	private JSpinner bountyScanValuableThresholdSpinner;
+	private JSpinner combatHighValueBountySpinner;
 
 	private ExecTabPanel execTabPanel;
 	private JButton okButton;
@@ -2001,6 +2002,8 @@ public class PreferencesDialog extends JDialog {
 		panel.setOpaque(false);
 		initLeftSectionStack(panel);
 
+		addLeftStackedSection(panel, createCombatBountyValueBox(), 8);
+
 		JLabel intro = new JLabel(
 				"<html>Choose which Combat-tab command buttons to show. Unchecked commands stay hidden; "
 						+ "all scanned ships and kills still appear.</html>");
@@ -2016,6 +2019,60 @@ public class PreferencesDialog extends JDialog {
 				CombatTabCommands.FIGHTER,
 				combatFighterCommandCheckBoxes), 0);
 		return panel;
+	}
+
+	private JPanel createCombatBountyValueBox() {
+		JPanel box = new JPanel(new GridBagLayout());
+		box.setOpaque(false);
+		box.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Bounty values"));
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.gridx = 0;
+		gbc.gridy = 0;
+		gbc.anchor = GridBagConstraints.WEST;
+		gbc.insets = new Insets(4, 8, 4, 8);
+		gbc.fill = GridBagConstraints.NONE;
+
+		JLabel announceMinLabel = new JLabel("Announce bounties min value (credits):");
+		announceMinLabel.setToolTipText(
+				"First-scan speech only at/above this total; KWS additional speech only when the delta is at/above this. "
+						+ "Combat lists still show every scanned bounty.");
+		box.add(announceMinLabel, gbc);
+		gbc.gridx = 1;
+		gbc.weightx = 1.0;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		bountyScanValuableThresholdSpinner = new JSpinner(new SpinnerNumberModel(
+				Long.valueOf(OverlayPreferences.getBountyScanValuableThresholdCredits()),
+				Long.valueOf(0L),
+				Long.valueOf(100_000_000L),
+				Long.valueOf(1_000L)));
+		((JSpinner.DefaultEditor) bountyScanValuableThresholdSpinner.getEditor()).getTextField().setColumns(10);
+		bountyScanValuableThresholdSpinner.setToolTipText(announceMinLabel.getToolTipText());
+		box.add(bountyScanValuableThresholdSpinner, gbc);
+
+		gbc.gridx = 0;
+		gbc.gridy++;
+		gbc.weightx = 0;
+		gbc.fill = GridBagConstraints.NONE;
+		JLabel highValueLabel = new JLabel("High value bounties (credits):");
+		highValueLabel.setToolTipText(
+				"Combat TARGET / SCANNED / KILLS rows at or above this total use the secondary highlight color from Theme prefs. "
+						+ "Lower bounty rows use the primary highlight.");
+		box.add(highValueLabel, gbc);
+		gbc.gridx = 1;
+		gbc.weightx = 1.0;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		combatHighValueBountySpinner = new JSpinner(new SpinnerNumberModel(
+				Long.valueOf(OverlayPreferences.getCombatHighValueBountyCredits()),
+				Long.valueOf(0L),
+				Long.valueOf(100_000_000L),
+				Long.valueOf(1_000L)));
+		((JSpinner.DefaultEditor) combatHighValueBountySpinner.getEditor()).getTextField().setColumns(10);
+		combatHighValueBountySpinner.setToolTipText(highValueLabel.getToolTipText());
+		box.add(combatHighValueBountySpinner, gbc);
+
+		return box;
 	}
 
 	private static JPanel createCombatCommandCheckboxBox(
@@ -2095,22 +2152,6 @@ public class PreferencesDialog extends JDialog {
 		bountyScanFirstAnnouncementCheckBox.setOpaque(false);
 		bountyScanFirstAnnouncementCheckBox.setSelected(OverlayPreferences.isBountyScanFirstAnnouncementEnabled());
 		content.add(bountyScanFirstAnnouncementCheckBox, gbc);
-
-		gbc.gridx = 0;
-		gbc.gridy++;
-		JLabel bountyValuableThresholdLabel = new JLabel("Valuable bounty threshold (credits):");
-		bountyValuableThresholdLabel.setToolTipText(
-				"Initial bounty speech only fires at or above this amount. Combat tab still lists every scanned bounty.");
-		content.add(bountyValuableThresholdLabel, gbc);
-		gbc.gridx = 1;
-		bountyScanValuableThresholdSpinner = new JSpinner(new SpinnerNumberModel(
-				Long.valueOf(OverlayPreferences.getBountyScanValuableThresholdCredits()),
-				Long.valueOf(0L),
-				Long.valueOf(100_000_000L),
-				Long.valueOf(1_000L)));
-		((JSpinner.DefaultEditor) bountyScanValuableThresholdSpinner.getEditor()).getTextField().setColumns(10);
-		bountyScanValuableThresholdSpinner.setToolTipText(bountyValuableThresholdLabel.getToolTipText());
-		content.add(bountyScanValuableThresholdSpinner, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridy++;
@@ -2841,6 +2882,14 @@ public class PreferencesDialog extends JDialog {
             try {
                 long v = ((Number) bountyScanValuableThresholdSpinner.getValue()).longValue();
                 OverlayPreferences.setBountyScanValuableThresholdCredits(v);
+            } catch (Exception ignored) {
+            }
+        }
+
+        if (combatHighValueBountySpinner != null) {
+            try {
+                long v = ((Number) combatHighValueBountySpinner.getValue()).longValue();
+                OverlayPreferences.setCombatHighValueBountyCredits(v);
             } catch (Exception ignored) {
             }
         }

@@ -4,21 +4,17 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
-import org.dce.ed.logreader.event.ReceiveTextEvent;
 import org.dce.ed.logreader.event.RedeemVoucherEvent;
 import org.dce.ed.logreader.event.ShipTargetedEvent;
-import org.dce.ed.logreader.event.UnderAttackEvent;
 import org.dce.ed.session.CombatSessionData;
 import org.dce.ed.session.EdoSessionState;
 
@@ -29,9 +25,6 @@ import com.google.gson.JsonObject;
 /**
  * Combat-tab state: current lock, scanned wanted ships (local vs KWS remote), and kill victims
  * until bounty vouchers are redeemed.
- * <p>
- * “Hostile” (red) is set from journal {@code LegalStatus=Hostile}, NPC attack chatter
- * ({@link ReceiveTextEvent}), or {@link UnderAttackEvent} while a ship is locked.
  */
 public final class CombatTargetTracker {
 
@@ -51,11 +44,10 @@ public final class CombatTargetTracker {
         private final long remoteBounty;
         private final boolean warrantScanned;
         private final boolean player;
-        private final boolean hostile;
 
         public LockedTarget(String pilotName, String shipDisplay, String legalStatus,
                 Long bounty, Long localBounty, long remoteBounty, boolean warrantScanned,
-                boolean player, boolean hostile) {
+                boolean player) {
             this.pilotName = pilotName;
             this.shipDisplay = shipDisplay;
             this.legalStatus = legalStatus;
@@ -64,7 +56,6 @@ public final class CombatTargetTracker {
             this.remoteBounty = remoteBounty;
             this.warrantScanned = warrantScanned;
             this.player = player;
-            this.hostile = hostile;
         }
 
         public String getPilotName() { return pilotName; }
@@ -75,7 +66,6 @@ public final class CombatTargetTracker {
         public long getRemoteBounty() { return remoteBounty; }
         public boolean isWarrantScanned() { return warrantScanned; }
         public boolean isPlayer() { return player; }
-        public boolean isHostile() { return hostile; }
     }
 
     /**
@@ -93,10 +83,9 @@ public final class CombatTargetTracker {
         private long currentBounty;
         private boolean warrantScanned;
         private final boolean player;
-        private boolean hostile;
 
         ScannedWantedShip(String pilotKey, String pilotName, String shipDisplay, String legalStatus,
-                long firstBounty, boolean player, boolean hostile) {
+                long firstBounty, boolean player) {
             this.pilotKey = pilotKey;
             this.pilotName = pilotName;
             this.shipDisplay = shipDisplay;
@@ -105,7 +94,6 @@ public final class CombatTargetTracker {
             this.currentBounty = firstBounty;
             this.warrantScanned = false;
             this.player = player;
-            this.hostile = hostile;
         }
 
         public String getPilotKey() { return pilotKey; }
@@ -117,7 +105,6 @@ public final class CombatTargetTracker {
         public long getRemoteBounty() { return Math.max(0L, currentBounty - firstBounty); }
         public boolean isWarrantScanned() { return warrantScanned; }
         public boolean isPlayer() { return player; }
-        public boolean isHostile() { return hostile; }
     }
 
     /** One kill from a journal {@code Bounty} event. */
@@ -167,11 +154,6 @@ public final class CombatTargetTracker {
     private final Map<String, String> shipDisplayById = new LinkedHashMap<>();
     /** Internal ship id → last known pilot display name. */
     private final Map<String, String> pilotByShipId = new LinkedHashMap<>();
-    /**
-     * Pilots marked hostile via attack chatter / under-fire heuristics (case-folded keys).
-     * Sticky until LoadGame or bounty redeem.
-     */
-    private final Set<String> hostilePilotKeys = new HashSet<>();
     private final List<KillVictim> kills = new ArrayList<>();
 
     private volatile LockedTarget lockedTarget;
@@ -224,7 +206,6 @@ public final class CombatTargetTracker {
         scannedWanted.clear();
         shipDisplayById.clear();
         pilotByShipId.clear();
-        hostilePilotKeys.clear();
         synchronized (kills) {
             kills.clear();
         }
@@ -253,7 +234,6 @@ public final class CombatTargetTracker {
             row.setCurrentBounty(s.currentBounty);
             row.setWarrantScanned(s.warrantScanned);
             row.setPlayer(s.player);
-            row.setHostile(s.hostile);
             scannedOut.add(row);
         }
         combat.setScanned(scannedOut);
@@ -279,7 +259,6 @@ public final class CombatTargetTracker {
             }
         }
         combat.setKills(killsOut);
-        combat.setHostilePilotKeys(new ArrayList<>(hostilePilotKeys));
         combat.setTotalBountiesEarned(totalBountiesEarned);
         combat.setTotalOtherBounties(totalOtherBounties);
         combat.setShipDisplayById(new LinkedHashMap<>(shipDisplayById));
@@ -291,7 +270,6 @@ public final class CombatTargetTracker {
         scannedWanted.clear();
         shipDisplayById.clear();
         pilotByShipId.clear();
-        hostilePilotKeys.clear();
         synchronized (kills) {
             kills.clear();
         }
@@ -316,19 +294,10 @@ public final class CombatTargetTracker {
                     row.getShipDisplay(),
                     row.getLegalStatus(),
                     first,
-                    row.isPlayer(),
-                    row.isHostile());
+                    row.isPlayer());
             scanned.currentBounty = current;
             scanned.warrantScanned = row.isWarrantScanned();
             scannedWanted.put(key, scanned);
-            if (row.isHostile()) {
-                hostilePilotKeys.add(foldPilotKey(key));
-            }
-        }
-        for (String hostileKey : combat.hostilePilotKeysOrEmpty()) {
-            if (hostileKey != null && !hostileKey.isBlank()) {
-                hostilePilotKeys.add(foldPilotKey(hostileKey));
-            }
         }
         synchronized (kills) {
             for (CombatSessionData.KillPersisted row : combat.killsOrEmpty()) {
@@ -374,20 +343,11 @@ public final class CombatTargetTracker {
             scannedWanted.clear();
             shipDisplayById.clear();
             pilotByShipId.clear();
-            hostilePilotKeys.clear();
             notifyListeners();
             return;
         }
         if (event instanceof ShipTargetedEvent st) {
             applyShipTargeted(st);
-            return;
-        }
-        if (event instanceof ReceiveTextEvent rt) {
-            applyReceiveText(rt);
-            return;
-        }
-        if (event instanceof UnderAttackEvent) {
-            applyUnderAttack();
             return;
         }
         if (event instanceof BountyEvent bounty) {
@@ -432,8 +392,7 @@ public final class CombatTargetTracker {
                         event.getShipDisplayName(),
                         event.getLegalStatus(),
                         bounty.longValue(),
-                        event.isPlayer(),
-                        isHostileStatus(event.getLegalStatus()) || isPilotMarkedHostile(pilotKey));
+                        event.isPlayer());
                 scannedWanted.put(pilotKey, scanned);
             } else {
                 // A later stage-3 bounty sighting means a warrant scan completed (KWS),
@@ -442,9 +401,6 @@ public final class CombatTargetTracker {
                 if (bounty.longValue() > scanned.currentBounty) {
                     scanned.currentBounty = bounty.longValue();
                 }
-                scanned.hostile = scanned.hostile
-                        || isHostileStatus(event.getLegalStatus())
-                        || isPilotMarkedHostile(pilotKey);
                 if (event.getShipDisplayName() != null && !event.getShipDisplayName().isBlank()) {
                     scanned.shipDisplay = event.getShipDisplayName();
                 }
@@ -486,9 +442,6 @@ public final class CombatTargetTracker {
             legal = previous.getLegalStatus();
         }
         boolean player = event.isPlayer() || (samePilot && previous.isPlayer());
-        boolean hostile = isHostileStatus(legal)
-                || isPilotMarkedHostile(pilotKey)
-                || (samePilot && previous.isHostile());
 
         lockedTarget = new LockedTarget(
                 pilot,
@@ -498,8 +451,7 @@ public final class CombatTargetTracker {
                 local,
                 remote,
                 warrantScanned,
-                player,
-                hostile);
+                player);
         notifyListeners();
     }
 
@@ -535,7 +487,7 @@ public final class CombatTargetTracker {
     }
 
     /**
-     * Scanned list is living targets only — drop the victim (and clear lock / hostile sticky)
+     * Scanned list is living targets only — drop the victim (and clear lock)
      * when a bounty kill is recorded.
      */
     private void removeScannedVictim(String pilotName) {
@@ -554,7 +506,6 @@ public final class CombatTargetTracker {
         if (mapKey != null) {
             scannedWanted.remove(mapKey);
         }
-        hostilePilotKeys.remove(folded);
         LockedTarget locked = lockedTarget;
         if (locked != null
                 && foldPilotKey(BountyScanTracker.pilotKey(locked.getPilotName())).equals(folded)) {
@@ -574,10 +525,6 @@ public final class CombatTargetTracker {
             scannedWanted.clear();
             changed = true;
         }
-        if (!hostilePilotKeys.isEmpty()) {
-            hostilePilotKeys.clear();
-            changed = true;
-        }
         if (totalBountiesEarned != 0L || totalOtherBounties != 0L) {
             totalBountiesEarned = 0L;
             totalOtherBounties = 0L;
@@ -586,96 +533,6 @@ public final class CombatTargetTracker {
         if (changed) {
             notifyListeners();
         }
-    }
-
-    /**
-     * NPC attack chatter (EDDI-style): message tokens that mean a named ship opened hostilities.
-     */
-    static boolean isAttackCommencedMessage(String message) {
-        if (message == null || message.isBlank()) {
-            return false;
-        }
-        return message.contains("_Attack")
-                || message.contains("_OnAttackStart")
-                || message.contains("AttackRun")
-                || message.contains("OnDeclarePiracyAttack");
-    }
-
-    static boolean isHostileStatus(String legalStatus) {
-        if (legalStatus == null || legalStatus.isBlank()) {
-            return false;
-        }
-        return "hostile".equalsIgnoreCase(legalStatus.trim());
-    }
-
-    void applyReceiveText(ReceiveTextEvent event) {
-        if (event == null || !isAttackCommencedMessage(event.getMessage())) {
-            return;
-        }
-        String from = event.getFromLocalised();
-        if (from == null || from.isBlank()) {
-            from = event.getFrom();
-        }
-        String pilotKey = BountyScanTracker.pilotKey(from);
-        if (pilotKey == null) {
-            return;
-        }
-        markPilotHostile(pilotKey);
-    }
-
-    /**
-     * Under fire without an attacker name — mark the current lock hostile when we have one.
-     */
-    void applyUnderAttack() {
-        LockedTarget locked = lockedTarget;
-        if (locked == null) {
-            return;
-        }
-        String pilot = locked.getPilotName();
-        if (pilot == null || pilot.isBlank() || "Unknown".equals(pilot)) {
-            return;
-        }
-        markPilotHostile(pilot);
-    }
-
-    private void markPilotHostile(String pilotNameOrKey) {
-        String pilotKey = BountyScanTracker.pilotKey(pilotNameOrKey);
-        if (pilotKey == null) {
-            return;
-        }
-        String folded = foldPilotKey(pilotKey);
-        boolean changed = hostilePilotKeys.add(folded);
-        for (ScannedWantedShip scanned : scannedWanted.values()) {
-            if (foldPilotKey(scanned.pilotKey).equals(folded) && !scanned.hostile) {
-                scanned.hostile = true;
-                changed = true;
-            }
-        }
-        LockedTarget locked = lockedTarget;
-        if (locked != null && !locked.isHostile()
-                && foldPilotKey(BountyScanTracker.pilotKey(locked.getPilotName())).equals(folded)) {
-            lockedTarget = new LockedTarget(
-                    locked.getPilotName(),
-                    locked.getShipDisplay(),
-                    locked.getLegalStatus(),
-                    locked.getBounty(),
-                    locked.getLocalBounty(),
-                    locked.getRemoteBounty(),
-                    locked.isWarrantScanned(),
-                    locked.isPlayer(),
-                    true);
-            changed = true;
-        }
-        if (changed) {
-            notifyListeners();
-        }
-    }
-
-    private boolean isPilotMarkedHostile(String pilotKey) {
-        if (pilotKey == null || pilotKey.isBlank()) {
-            return false;
-        }
-        return hostilePilotKeys.contains(foldPilotKey(pilotKey));
     }
 
     private static String foldPilotKey(String pilotKey) {

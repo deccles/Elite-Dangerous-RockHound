@@ -7,13 +7,12 @@ import java.util.Map;
 
 /**
  * Combat tab scanned-wanted / kills snapshot inside {@link EdoSessionState} {@code session_json}.
- * Survives overlay restart until bounty redeem (or LoadGame for scanned/hostile).
+ * Survives overlay restart until bounty redeem (or LoadGame for scanned).
  */
 public final class CombatSessionData {
 
     private List<ScannedWantedPersisted> scanned = new ArrayList<>();
     private List<KillPersisted> kills = new ArrayList<>();
-    private List<String> hostilePilotKeys = new ArrayList<>();
     private long totalBountiesEarned;
     private long totalOtherBounties;
     /** Internal ship id → localised display (helps name kills after restart). */
@@ -35,14 +34,6 @@ public final class CombatSessionData {
 
     public void setKills(List<KillPersisted> kills) {
         this.kills = kills != null ? kills : new ArrayList<>();
-    }
-
-    public List<String> getHostilePilotKeys() {
-        return hostilePilotKeys;
-    }
-
-    public void setHostilePilotKeys(List<String> hostilePilotKeys) {
-        this.hostilePilotKeys = hostilePilotKeys != null ? hostilePilotKeys : new ArrayList<>();
     }
 
     public long getTotalBountiesEarned() {
@@ -85,10 +76,6 @@ public final class CombatSessionData {
         return kills != null ? kills : List.of();
     }
 
-    public List<String> hostilePilotKeysOrEmpty() {
-        return hostilePilotKeys != null ? hostilePilotKeys : List.of();
-    }
-
     public Map<String, String> shipDisplayByIdOrEmpty() {
         return shipDisplayById != null ? shipDisplayById : Map.of();
     }
@@ -107,7 +94,6 @@ public final class CombatSessionData {
         private long currentBounty;
         private boolean warrantScanned;
         private boolean player;
-        private boolean hostile;
 
         public String getPilotKey() { return pilotKey; }
         public void setPilotKey(String pilotKey) { this.pilotKey = pilotKey; }
@@ -125,8 +111,6 @@ public final class CombatSessionData {
         public void setWarrantScanned(boolean warrantScanned) { this.warrantScanned = warrantScanned; }
         public boolean isPlayer() { return player; }
         public void setPlayer(boolean player) { this.player = player; }
-        public boolean isHostile() { return hostile; }
-        public void setHostile(boolean hostile) { this.hostile = hostile; }
     }
 
     /** Gson-friendly kill row. */

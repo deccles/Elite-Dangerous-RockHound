@@ -114,13 +114,13 @@ public final class CombatTabDemoHarness {
                 95_000L,
                 false));
 
-        // Scanned + KWS with remote bounty — also becomes current TARGET (Hostile = red)
+        // Scanned + KWS with remote bounty — also becomes current TARGET
         tracker.applyJournalEvent(shipTargeted(
                 "Rexford",
                 "$npc_name_decorate:#name=Rexford;",
                 "asp",
                 "Asp Scout",
-                "Hostile",
+                "Wanted",
                 231_695L,
                 false));
         tracker.applyJournalEvent(shipTargeted(
@@ -128,11 +128,11 @@ public final class CombatTabDemoHarness {
                 "$npc_name_decorate:#name=Rexford;",
                 "asp",
                 "Asp Scout",
-                "Hostile",
+                "Wanted",
                 365_571L,
                 false));
 
-        // Player pilot (blue) — warrant not scanned
+        // Player pilot (blue when no bounty highlight precedence — still has bounty so primary)
         tracker.applyJournalEvent(shipTargeted(
                 "CMDR Example",
                 "CMDR Example",
@@ -141,13 +141,13 @@ public final class CombatTabDemoHarness {
                 "Wanted",
                 512_000L,
                 true));
-        // Re-lock Rexford so TARGET shows the hostile with remote
+        // Re-lock Rexford so TARGET shows the KWS remote split
         tracker.applyJournalEvent(shipTargeted(
                 "Rexford",
                 "$npc_name_decorate:#name=Rexford;",
                 "asp",
                 "Asp Scout",
-                "Hostile",
+                "Wanted",
                 365_571L,
                 false));
 

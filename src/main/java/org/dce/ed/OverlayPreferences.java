@@ -84,6 +84,8 @@ public final class OverlayPreferences {
     /** Minimum first-scan bounty (credits) for the initial bounty speech announcement. Default 50_000. */
     private static final String KEY_SPEECH_BOUNTY_SCAN_VALUABLE_THRESHOLD_CREDITS =
             "speech.announcement.bountyScan.valuableThresholdCredits";
+    /** Combat tab: bounty total at/above this uses secondary highlight. Credits. */
+    private static final String KEY_COMBAT_HIGH_VALUE_BOUNTY_CREDITS = "combat.highValueBountyCredits";
     private static final String KEY_SPEECH_MISSION_PROGRESS_ENABLED =
             "speech.announcement.missionProgress.enabled";
     /** Last {@link org.dce.ed.tts.VoicePackManager#SPEECH_PACK_REVISION} successfully installed while AWS synthesis was off. */
@@ -1192,6 +1194,7 @@ public final class OverlayPreferences {
     /**
      * Minimum bounty credits for bounty-scan speech: first-scan total, and KWS additional
      * delta only. Combat tab / scanned lists still show every bounty. Default {@code 50_000}.
+     * Edited under Preferences → Combat (“Announce bounties min value”).
      */
     public static long getBountyScanValuableThresholdCredits() {
         long v = PREFS.getLong(KEY_SPEECH_BOUNTY_SCAN_VALUABLE_THRESHOLD_CREDITS, 50_000L);
@@ -1200,6 +1203,20 @@ public final class OverlayPreferences {
 
     public static void setBountyScanValuableThresholdCredits(long credits) {
         PREFS.putLong(KEY_SPEECH_BOUNTY_SCAN_VALUABLE_THRESHOLD_CREDITS, Math.max(0L, credits));
+    }
+
+    /**
+     * Combat tab highlight: ships with bounty at/above this use
+     * {@link org.dce.ed.ui.EdoUi.User#SECONDARY_HIGHLIGHT}; lower bounty uses primary.
+     * Default {@code 500_000}.
+     */
+    public static long getCombatHighValueBountyCredits() {
+        long v = PREFS.getLong(KEY_COMBAT_HIGH_VALUE_BOUNTY_CREDITS, 500_000L);
+        return Math.max(0L, v);
+    }
+
+    public static void setCombatHighValueBountyCredits(long credits) {
+        PREFS.putLong(KEY_COMBAT_HIGH_VALUE_BOUNTY_CREDITS, Math.max(0L, credits));
     }
 
     public static boolean isMissionProgressAnnouncementEnabled() {

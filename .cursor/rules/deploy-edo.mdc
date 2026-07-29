@@ -1,0 +1,25 @@
+---
+description: "deploy EDO" means bump version, run JUnit, commit, and push — never skip tests
+alwaysApply: true
+---
+
+# Deploy EDO
+
+When the user says **deploy EDO** (or equivalent: ship/release/bump+push EDO), treat it as an explicit request to release the current working tree. Do all of the following **in order**; do not skip or reorder.
+
+## Required steps
+
+1. **Bump parent version** in all three POMs together (patch `+1` unless told otherwise):
+   - `reactor/pom.xml` (`elite-dangerous-overlay-parent`)
+   - `pom.xml` (parent version)
+   - `edo-system-model/pom.xml` (parent version)
+   - Do **not** bump `edo-system-model.version` unless system-model code changed and the user asked.
+2. **Run JUnit** from the EDO repo root: `mvn test` (full suite). **Hard gate:** if any test fails, stop — do not commit or push.
+3. **Commit** all intended release changes (including the POM bumps) with a message that matches repo style and mentions the new version.
+4. **Push** to `origin` on the current branch.
+
+## Hard rules
+
+- **Never** commit or push a deploy without a green `mvn test` in that same turn after the final code/POM changes.
+- Do not run RoboHound deploy unless the user also asks for RoboHound.
+- Do not create a GitHub release/tag unless asked; “deploy EDO” = version bump + test + commit + push.
