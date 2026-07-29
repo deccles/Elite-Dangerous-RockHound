@@ -1,8 +1,6 @@
 package org.dce.ed;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -13,7 +11,6 @@ import java.util.function.Supplier;
 
 import javax.swing.SwingUtilities;
 
-import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent.MaterialProportion;
 import org.dce.ed.market.GalacticAveragePrices;

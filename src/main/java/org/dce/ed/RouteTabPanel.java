@@ -13,7 +13,6 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
-import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
@@ -63,7 +62,6 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.BorderFactory;
-import javax.swing.border.AbstractBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
@@ -94,10 +92,8 @@ import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
-import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
-import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.FssAllBodiesFoundEvent;
 import org.dce.ed.logreader.event.IFsdJump;
 import org.dce.ed.logreader.event.LoadGameEvent;
@@ -111,7 +107,6 @@ import org.dce.ed.ui.HoverCopyButtonSupport;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.StatusCircleIcon;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
-import org.dce.ed.ui.EdoUi.User;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.route.FuelScoopStarClass;
 import org.dce.ed.route.RouteEntry;
@@ -1942,11 +1937,6 @@ public class RouteTabPanel extends JPanel {
 			plottedBefore++;
 		}
 		return Math.min(plottedBefore, base.size());
-	}
-
-	private void applyRouteRowReorder(int fromDisplayRow, int insertDisplayRow) {
-		int fromBase = baseIndexForDisplayRow(fromDisplayRow);
-		applyRouteRowReorderFromBase(fromBase, insertDisplayRow);
 	}
 
 	private void applyRouteRowReorderFromBase(int fromBase, int insertDisplayRow) {

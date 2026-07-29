@@ -2835,8 +2835,8 @@ public class EngineeringTabPanel extends JPanel {
         GoalPriority p = GoalPriority.normalize(priority);
         return switch (p) {
             case HIGH -> PriorityArrowIcon.HIGH;
-            case MEDIUM, DISABLED -> PriorityArrowIcon.MEDIUM;
             case LOW -> PriorityArrowIcon.LOW;
+            default -> PriorityArrowIcon.MEDIUM;
         };
     }
 
@@ -4301,18 +4301,6 @@ public class EngineeringTabPanel extends JPanel {
             setIcon(removable ? TrashIcon.DEFAULT : null);
             return this;
         }
-    }
-
-    private String blueprintDisplayName(EngineeringGoal goal) {
-        if (goal == null) {
-            return "";
-        }
-        String top = goalPrimaryLine(goal.getShipId(), goal.getShipLabel(), goal.getModuleType(), goal.getQuantity());
-        String bottom = goal.getBlueprintName() != null ? goal.getBlueprintName().trim() : "";
-        if (bottom.isBlank()) {
-            return top;
-        }
-        return top.isBlank() ? bottom : top + " / " + bottom;
     }
 
     private final class GoalsTableModel extends AbstractTableModel {

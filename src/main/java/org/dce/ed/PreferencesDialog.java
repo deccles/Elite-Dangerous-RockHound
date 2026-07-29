@@ -1681,23 +1681,6 @@ public class PreferencesDialog extends JDialog {
 		}
 	}
 
-	private void applyLivePreviewToOverlay() {
-		if (!(getOwner() instanceof OverlayUiPreviewHost)) {
-			return;
-		}
-
-		String name = (String) uiFontNameCombo.getSelectedItem();
-		int size = 17;
-		try {
-			size = ((Number) uiFontSizeSpinner.getValue()).intValue();
-		} catch (Exception e) {
-			// ignore
-		}
-
-		Font font = new Font(name, Font.PLAIN, size);
-		((OverlayUiPreviewHost) getOwner()).applyUiFontPreview(font);
-	}
-
 	private static TtsSprintf speechPreferencesPreviewTts() {
 		TtsSprintf t = speechPreferencesPreviewTts;
 		if (t == null) {
@@ -1735,10 +1718,6 @@ public class PreferencesDialog extends JDialog {
 		wrapper.setBackground(bg);
 		wrapper.add(scroll, BorderLayout.CENTER);
 		return wrapper;
-	}
-
-	private void applyDialogChrome() {
-		applyDialogChrome(true);
 	}
 
 	/**

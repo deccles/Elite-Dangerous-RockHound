@@ -4,14 +4,11 @@ import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 
 import org.dce.ed.logreader.EliteLogEvent;
-import org.dce.ed.logreader.JournalImportCursor;
 import org.dce.ed.logreader.LiveJournalMonitor;
 
 public class StandaloneLogViewer {

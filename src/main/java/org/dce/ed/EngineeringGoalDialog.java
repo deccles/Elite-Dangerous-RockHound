@@ -203,6 +203,7 @@ final class EngineeringGoalDialog extends JDialog {
         }
     }
 
+@Deprecated
     static EngineeringGoal showForAdd(Window owner,
                                       EngineeringDatabase database,
                                       BooleanSupplier passThroughEnabledSupplier,
@@ -273,6 +274,7 @@ final class EngineeringGoalDialog extends JDialog {
         }
     }
 
+@Deprecated
     static EditResult showForEdit(Window owner,
                                   EngineeringDatabase database,
                                   BooleanSupplier passThroughEnabledSupplier,
@@ -321,6 +323,7 @@ final class EngineeringGoalDialog extends JDialog {
     }
 
     /** @deprecated use {@link #showForAdd} with ship catalog */
+    @Deprecated
     static EngineeringGoal showForAdd(Window owner,
                                       EngineeringDatabase database,
                                       BooleanSupplier passThroughEnabledSupplier) {
@@ -329,6 +332,7 @@ final class EngineeringGoalDialog extends JDialog {
     }
 
     /** @deprecated use {@link #showForEdit} with ship catalog */
+    @Deprecated
     static EditResult showForEdit(Window owner,
                                   EngineeringDatabase database,
                                   BooleanSupplier passThroughEnabledSupplier,
@@ -338,6 +342,7 @@ final class EngineeringGoalDialog extends JDialog {
     }
 
     /** @deprecated use {@link #showForAdd} */
+@Deprecated
     static EngineeringGoal show(Window owner, EngineeringDatabase database, BooleanSupplier passThroughEnabledSupplier) {
         return showForAdd(owner, database, passThroughEnabledSupplier);
     }

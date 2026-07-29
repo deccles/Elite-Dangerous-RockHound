@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.util.Optional;
 
-import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.ShipTargetedEvent;
 import org.dce.ed.tts.TtsSprintf;

@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.util.List;
 
-import org.dce.ed.systemmap.SystemMapSystemLoader.Loaded;
 import org.dce.systemmodel.build.SystemModelBuilder;
 import org.dce.systemmodel.journal.OrbitalElements;
 import org.dce.systemmodel.journal.ParentRef;

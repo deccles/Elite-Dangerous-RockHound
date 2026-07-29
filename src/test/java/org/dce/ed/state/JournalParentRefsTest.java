@@ -1,7 +1,6 @@
 package org.dce.ed.state;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -9,14 +8,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
-import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanEvent.ParentRef;
 import org.dce.ed.systemmap.SystemMapFixture;
 import org.dce.ed.systemmap.SystemMapFixtureLoader;
-import org.dce.ed.systemmap.SystemMapHierarchyBuilder;
 import org.dce.ed.systemmap.SystemMapModel;
 import org.dce.ed.systemmap.SystemMapPipeline;
-import org.dce.ed.systemmap.SystemModelHierarchyBuilder;
 import org.junit.jupiter.api.Test;
 
 class JournalParentRefsTest {

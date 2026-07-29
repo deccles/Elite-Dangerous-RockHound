@@ -1,7 +1,5 @@
 package org.dce.ed.util;
 
-import java.util.ArrayList;
-import java.util.List;
 
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.systemmap.MapViewProjection;

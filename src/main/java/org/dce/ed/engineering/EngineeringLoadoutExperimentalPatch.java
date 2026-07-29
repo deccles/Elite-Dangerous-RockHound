@@ -65,6 +65,7 @@ public final class EngineeringLoadoutExperimentalPatch {
      * @deprecated use {@link #patchLoadoutRawJson(String, EngineerCraftEvent)}; kept for call sites
      *             that patch experimental fields by value.
      */
+@Deprecated
     public static String patchLoadoutRawJson(String loadoutRawJson,
                                             String slot,
                                             String moduleItem,

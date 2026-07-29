@@ -1,6 +1,5 @@
 package org.dce.systemmodel.journal;
 
-import org.dce.systemmodel.journal.ScanRecord;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;

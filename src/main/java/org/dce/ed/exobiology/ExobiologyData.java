@@ -12,8 +12,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import org.dce.ed.exobiology.RegionMapData;
-import org.dce.ed.exobiology.ExobiologyData.SpeciesConstraint;
 
 /**
  * Exobiology prediction helper using rulesets derived from the

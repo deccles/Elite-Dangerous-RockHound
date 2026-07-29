@@ -2,7 +2,6 @@ package org.dce.ed.systemmap;
 
 import java.time.Instant;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,7 +17,6 @@ import org.dce.systemmodel.build.SystemModelBuilder;
 import org.dce.systemmodel.journal.JournalRecord;
 import org.dce.systemmodel.model.HierarchyGraph;
 import org.dce.systemmodel.model.HierarchyKeys;
-import org.dce.systemmodel.model.OrbitRing;
 import org.dce.systemmodel.model.SystemModel;
 
 /**

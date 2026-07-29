@@ -3,7 +3,6 @@ package org.dce.ed.exec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.dce.ed.logreader.OwnedFleetCarrierTracker;
 import org.junit.jupiter.api.Test;
 
 import com.google.gson.JsonObject;

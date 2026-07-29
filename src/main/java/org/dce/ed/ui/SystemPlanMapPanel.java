@@ -13,7 +13,6 @@ import java.awt.HeadlessException;
 import java.awt.MouseInfo;
 import java.awt.Point;
 import java.awt.PointerInfo;
-import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
 import java.awt.Stroke;
 import java.awt.event.InputEvent;
@@ -95,7 +94,7 @@ public final class SystemPlanMapPanel extends JPanel {
      * {@link #inflateLayoutSpansUntilZoomMinFitAtMostOne} during wheel zoom (avoids scale jumping under the pointer).
      * The first scene ever still frames once ({@link #lastSceneBodyIdsSnapshot} empty).
      */
-    private static final boolean MAP_AUTO_VIEW_PAN = false;
+    private static final boolean MAP_AUTO_VIEW_PAN = true;
     /**
      * At {@link #zoomMinFit}, visible world width (and height) along each axis is at most this × {@link #layoutSpanX}
      * (resp. {@link #layoutSpanY}) — larger values allow zooming out farther so an off-centre view can still frame the
@@ -1074,16 +1073,9 @@ public final class SystemPlanMapPanel extends JPanel {
             double robRawY = spans[3];
             double robBlendX = spans[4];
             double robBlendY = spans[5];
-            MapLayoutSpanPick layoutPick;
-            if (true) {
-                layoutSpanX = Math.max(1.0, layoutSpanAxisMetres(bb.minX, bb.maxX));
-                layoutSpanY = Math.max(1.0, layoutSpanAxisMetres(bb.minY, bb.maxY));
-                layoutPick = new MapLayoutSpanPick(layoutSpanX, layoutSpanY, false, 0.0, 0.0);
-            } else {
-                layoutPick = pickMapLayoutSpans(dots, fitSpanX, fitSpanY, robBlendX, robBlendY);
-                layoutSpanX = layoutPick.layoutSpanX();
-                layoutSpanY = layoutPick.layoutSpanY();
-            }
+            layoutSpanX = Math.max(1.0, layoutSpanAxisMetres(bb.minX, bb.maxX));
+            layoutSpanY = Math.max(1.0, layoutSpanAxisMetres(bb.minY, bb.maxY));
+            MapLayoutSpanPick layoutPick = new MapLayoutSpanPick(layoutSpanX, layoutSpanY, false, 0.0, 0.0);
             double dotHullX = layoutHullSpanMetresPreferCluster(dots, true);
             double dotHullY = layoutHullSpanMetresPreferCluster(dots, false);
             boolean hullSpanRaised = false;
@@ -2136,12 +2128,6 @@ public final class SystemPlanMapPanel extends JPanel {
      * the visible span actually covers {@code spanMetres}.
      */
     private double capZoomFactorToVisibleWorldSpan(double zoomCandidate, double spanMetres,
-            double availW, double availH, double spanX, double spanY) {
-        return capZoomFactorToVisibleWorldSpan(zoomCandidate, spanMetres, availW, availH, spanX, spanY,
-                APPROACH_SUBSYSTEM_FIT_MARGIN);
-    }
-
-    private double capZoomFactorToVisibleWorldSpan(double zoomCandidate, double spanMetres,
             double availW, double availH, double spanX, double spanY, double fitMargin) {
         if (!Double.isFinite(zoomCandidate) || !Double.isFinite(spanMetres) || spanMetres <= 0.0) {
             return zoomCandidate;
@@ -2172,11 +2158,6 @@ public final class SystemPlanMapPanel extends JPanel {
      * vertices within a reasonable distance of the cluster are included so map parent rings do not pull the
      * frame to empty space.
      */
-    private void appendOrbitStrokeExtentsAroundFocus(int frameHub, double focusWx, double focusWy,
-            double[] halfExtentsMetres) {
-        appendOrbitStrokeExtentsAroundFocus(frameHub, focusWx, focusWy, halfExtentsMetres, false, null);
-    }
-
     private void appendOrbitStrokeExtentsAroundFocus(int frameHub, double focusWx, double focusWy,
             double[] halfExtentsMetres, boolean broadContext, Set<Integer> members) {
         if (orbitLines == null || orbitLines.isEmpty() || frameHub < 0 || halfExtentsMetres == null
@@ -2511,7 +2492,7 @@ public final class SystemPlanMapPanel extends JPanel {
         } else {
             scBits = Double.doubleToLongBits(Math.scalb(Math.rint(Math.scalb(sc, 18)), -18));
         }
-        long tiltBits = true ? ((long) viewTiltDegrees & 0x7fL) : 0L;
+        long tiltBits = (long) viewTiltDegrees & 0x7fL;
         return ((long) w << 44) ^ ((long) h << 24) ^ (((long) zq & 0xfffffL) << 4) ^ (scBits >>> 1) ^ (tiltBits << 56);
     }
 
@@ -2600,7 +2581,7 @@ public final class SystemPlanMapPanel extends JPanel {
         boolean screenOrbitScale = useScreenChordScaleForSegments;
         double scalePxPerM = screenOrbitScale ? computeScalePixelsPerWorldMetre() : Double.NaN;
         int legacySeg = orbitSegmentsForZoom(zoomFactor);
-        int tiltForRebuild = true ? viewTiltDegrees : 0;
+        int tiltForRebuild = viewTiltDegrees;
         Instant strokeEpoch = orbitPlaybackActive && orbitPlaybackEpoch != null
                 ? orbitPlaybackEpoch
                 : lastSceneOrbitEpoch;
@@ -3528,10 +3509,6 @@ public final class SystemPlanMapPanel extends JPanel {
                         continue;
                     }
                     if (skipOrbitPolylineForSubsystemLump(poly, visibleLsMinAxis, showClusterDetail)) {
-                        continue;
-                    }
-                    if (skipOversizeGuideRingForDetailView(poly, visibleLsMinAxis, vcx, vcy, scale, availW,
-                            availH, detailOrbits)) {
                         continue;
                     }
                     if (skipOrbitPolylineForPlanetaryRingBody(poly)) {
@@ -4665,45 +4642,6 @@ public final class SystemPlanMapPanel extends JPanel {
         }
         BodyInfo b = orbitGeomBodies.get(Integer.valueOf(bodyId));
         return b != null && SystemOrbitGeometry.isMoonSatelliteBody(b, orbitGeomBodies);
-    }
-
-    /**
-     * Drops huge synthetic concentric rings (Null:2 hub, A-branch at star A, system barycentre ~3750 Ls) when the
-     * viewport is zoomed into a subsystem so B+C+D labels and mutual rings stay readable.
-     */
-    private boolean skipOversizeGuideRingForDetailView(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
-            double viewCenterWx, double viewCenterWy, double scale, double availW, double availH,
-            boolean detailOrbits) {
-        if (true) {
-            return false;
-        }
-        if (poly == null || poly.wx == null || poly.wy == null || poly.wx.length < 3) {
-            return false;
-        }
-        /* Per-body and mutual rings always draw — zoom must not hide subsystem orbits. */
-        if (poly.bodyId > 0 || SystemOrbitGeometry.isPlanetBinaryMutualOrbitRingBodyId(poly.bodyId)) {
-            return false;
-        }
-        double rLs = polylineApproxRadiusLs(poly);
-        if (!Double.isFinite(rLs) || rLs < SystemOrbitGeometry.RING_DETAIL_VIEW_MIN_RADIUS_LS) {
-            return false;
-        }
-        /* Only cull legacy heliocentric-scale map strokes; trunk/mutual rings stay visible at all zoom. */
-        final double giantGuideRingMinLs = 10_000.0;
-        if (rLs < giantGuideRingMinLs) {
-            return false;
-        }
-        if (!Double.isFinite(visibleLsMinAxis) || visibleLsMinAxis < 24.0) {
-            return false;
-        }
-        double[] centerM = polylineApproxCenterM(poly);
-        double distCenterLs = Math.hypot(centerM[0] - viewCenterWx, centerM[1] - viewCenterWy)
-                / SystemOrbitGeometry.LIGHT_SECOND_METRES;
-        boolean ringLargerThanViewport = visibleLsMinAxis < rLs * 1.05;
-        boolean centerFarFromView = Double.isFinite(distCenterLs)
-                && distCenterLs > rLs + visibleLsMinAxis * 0.35;
-        boolean detailZoom = visibleLsMinAxis < rLs * SystemOrbitGeometry.LARGE_RING_HIDE_WHEN_VIEW_SPAN_FRAC_OF_RADIUS;
-        return (ringLargerThanViewport || centerFarFromView) && detailZoom;
     }
 
     /**
@@ -6271,14 +6209,10 @@ public final class SystemPlanMapPanel extends JPanel {
         fracFromMin = clamp(fracFromMin, 0.0, 1.0);
         double nearFloor = 1.0 - fracFromMin;
         double expoNorm;
-        if (WHEEL_SYSTEM_OUT_EXPO_K <= 1e-12) {
-            expoNorm = nearFloor;
-        } else {
-            double denom = Math.exp(WHEEL_SYSTEM_OUT_EXPO_K) - 1.0;
-            expoNorm = denom > 1e-15
-                    ? (Math.exp(WHEEL_SYSTEM_OUT_EXPO_K * nearFloor) - 1.0) / denom
-                    : nearFloor;
-        }
+        double denom = Math.exp(WHEEL_SYSTEM_OUT_EXPO_K) - 1.0;
+        expoNorm = denom > 1e-15
+                ? (Math.exp(WHEEL_SYSTEM_OUT_EXPO_K * nearFloor) - 1.0) / denom
+                : nearFloor;
         double boosted = blend * (1.0 + WHEEL_SYSTEM_OUT_EXPO_GAIN * expoNorm);
         blend = clamp(boosted, WHEEL_SYSTEM_OUT_NUDGE_BLEND_MIN, WHEEL_SYSTEM_OUT_EXPO_BLEND_MAX);
         viewCenterWx += dwx * blend;
@@ -7517,10 +7451,6 @@ public final class SystemPlanMapPanel extends JPanel {
             if (skipOrbitPolylineForSubsystemLump(poly, ctx.visibleLsMinAxis, ctx.showClusterDetail)) {
                 continue;
             }
-            if (skipOversizeGuideRingForDetailView(poly, ctx.visibleLsMinAxis, ctx.vcx, ctx.vcy, ctx.scale,
-                    ctx.availW, ctx.availH, detailOrbits)) {
-                continue;
-            }
             if (skipOrbitPolylineForPlanetaryRingBody(poly)) {
                 continue;
             }
@@ -8084,19 +8014,6 @@ public final class SystemPlanMapPanel extends JPanel {
         CompanionBranchLump lump = buildCompanionBranchRevolutionLump(dots, showClusterDetail, visible);
         return bodyDotLabelWouldDraw(dot, showClusterDetail, mapShowMoonLabels(visible),
                 mapShowAllBodyLabels(visible), lump);
-    }
-
-    final boolean skipOversizeGuideRingForTests(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
-            double viewCenterWx, double viewCenterWy) {
-        return skipOversizeGuideRingForTests(poly, visibleLsMinAxis, viewCenterWx, viewCenterWy, 0.02, 876.0, 676.0,
-                true);
-    }
-
-    final boolean skipOversizeGuideRingForTests(OrbitPolylineWorldXY poly, double visibleLsMinAxis,
-            double viewCenterWx, double viewCenterWy, double scale, double availW, double availH,
-            boolean detailOrbits) {
-        return skipOversizeGuideRingForDetailView(poly, visibleLsMinAxis, viewCenterWx, viewCenterWy, scale, availW,
-                availH, detailOrbits);
     }
 
     final int barycentreMarkerCountForTests() {

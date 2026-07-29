@@ -129,6 +129,7 @@ public final class OverlayPreferences {
             "overlay.engineering.addGoal.equippedBaselineId";
     private static final String KEY_OVERLAY_TAB_CONTROL_PANEL_VISIBLE = "overlay.tab.controlPanel.visible";
     /** @deprecated legacy key; migrated on read */
+@Deprecated
     private static final String KEY_OVERLAY_TAB_EXEC_VISIBLE = "overlay.tab.exec.visible";
 
     // --- Auto-switching / tab behavior ---
@@ -291,6 +292,7 @@ public final class OverlayPreferences {
     }
 
     /** @deprecated Prefer {@link #setOverlayMouseInteractionMode(MouseInteractionMode)}; kept for call-site migration. */
+@Deprecated
     public static void setOverlayMousePassThroughToGame(boolean enabled) {
         setOverlayMouseInteractionMode(enabled ? MouseInteractionMode.FULL_PASS_THROUGH : MouseInteractionMode.NORMAL);
     }
@@ -344,6 +346,7 @@ public final class OverlayPreferences {
      *                       legacy “overlay on ⇒ clicks pass through” behavior)
      * @deprecated Prefer {@link #getOverlayMouseInteractionModePersisted(MouseInteractionMode)}
      */
+@Deprecated
     public static boolean getOverlayMousePassThroughToGamePersisted(boolean defaultIfUnset) {
         MouseInteractionMode def = defaultIfUnset
                 ? MouseInteractionMode.FULL_PASS_THROUGH
@@ -352,6 +355,7 @@ public final class OverlayPreferences {
     }
 
     /** @deprecated Prefer {@link #putOverlayMouseInteractionModePersisted(MouseInteractionMode)} */
+@Deprecated
     public static void putOverlayMousePassThroughToGamePersisted(boolean enabled) {
         putOverlayMouseInteractionModePersisted(
                 enabled ? MouseInteractionMode.FULL_PASS_THROUGH : MouseInteractionMode.NORMAL);
@@ -753,11 +757,13 @@ public final class OverlayPreferences {
     }
 
     /** @deprecated use {@link #isOverlayTabControlPanelVisible()} */
+@Deprecated
     public static boolean isOverlayTabExecVisible() {
         return isOverlayTabControlPanelVisible();
     }
 
     /** @deprecated use {@link #setOverlayTabControlPanelVisible(boolean)} */
+@Deprecated
     public static void setOverlayTabExecVisible(boolean visible) {
         setOverlayTabControlPanelVisible(visible);
     }
@@ -1618,6 +1624,7 @@ public static Engine getSpeechEngine() {
     }
 
     /** @deprecated Mining run counter is now derived from sheet data. This method is a no-op wrapper. */
+@Deprecated
     public static int incrementMiningLogRunCounter() {
         return getMiningLogRunCounter();
     }

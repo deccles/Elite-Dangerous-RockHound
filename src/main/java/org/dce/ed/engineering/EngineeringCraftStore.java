@@ -236,6 +236,7 @@ public final class EngineeringCraftStore {
     }
 
     /** @deprecated use {@link #patchStoredLoadoutFromCraft} */
+@Deprecated
     public static boolean patchStoredLoadoutFromExperimentalCraft(String clientKey,
                                                                   EngineerCraftEvent craft,
                                                                   long shipId) {

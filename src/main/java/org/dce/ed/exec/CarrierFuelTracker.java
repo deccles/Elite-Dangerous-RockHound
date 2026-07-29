@@ -43,6 +43,7 @@ public final class CarrierFuelTracker {
     }
 
     /** @deprecated use {@link #ingestCarrierStats}; kept for bootstrap call sites */
+@Deprecated
     public boolean recordFuelFromCarrierStats(JsonObject raw, long ownedCarrierId) {
         return ingestCarrierStats(raw, ownedCarrierId);
     }

@@ -4,8 +4,6 @@ import org.dce.systemmodel.journal.OrbitalElements;
 import org.dce.systemmodel.journal.ParentRef;
 import org.dce.systemmodel.journal.ScanRecord;
 import org.dce.systemmodel.build.SystemModelBuilder;
-import org.dce.systemmodel.model.OrbitRing;
-import org.dce.systemmodel.model.Position3d;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

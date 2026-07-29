@@ -2,7 +2,6 @@ package org.dce.ed.logreader;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 import org.dce.ed.logreader.event.FssAllBodiesFoundEvent;
 import org.dce.ed.logreader.event.FssBodySignalsEvent;

@@ -311,6 +311,7 @@ public class TitleBarPanel extends JPanel {
     }
 
     /** @deprecated Prefer {@link #setMouseInteractionMode(MouseInteractionMode)} */
+@Deprecated
     public void setPassThrough(boolean passThrough) {
         setMouseInteractionMode(passThrough
                 ? MouseInteractionMode.FULL_PASS_THROUGH
@@ -449,6 +450,7 @@ public class TitleBarPanel extends JPanel {
         }
 
         /** @deprecated Prefer {@link #setMouseInteractionMode(MouseInteractionMode)} */
+@Deprecated
         public void setPassThroughActive(boolean passThroughActive) {
             setMouseInteractionMode(passThroughActive
                     ? MouseInteractionMode.FULL_PASS_THROUGH

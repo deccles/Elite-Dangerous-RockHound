@@ -6,7 +6,6 @@ import org.dce.ed.exobiology.ExobiologyData.AtmosphereType;
 import org.dce.ed.exobiology.ExobiologyData.PlanetType;
 import org.dce.ed.exobiology.ExobiologyData.SpeciesConstraint;
 import org.dce.ed.exobiology.ExobiologyData.SpeciesRule.SpeciesRuleBuilder;
-import org.dce.ed.exobiology.ExobiologyData.VolcanismRequirement;
 
 public final class ExobiologyDataConstraints {
 

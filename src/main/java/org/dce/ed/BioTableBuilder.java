@@ -18,7 +18,6 @@ import org.dce.ed.ui.EdoUi;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.RingSummaryFormatter;
 import org.dce.ed.util.SpanshBodyExobiologyInfo;
-import org.dce.ed.util.SpanshLandmark;
 import org.dce.ed.util.SpanshLandmarkCache;
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
 
@@ -953,13 +952,6 @@ final class BioTableBuilder {
             }
         }
         return max;
-    }
-
-    private static boolean isGenusObserved(List<String> confirmedForGenus) {
-        if (confirmedForGenus == null) {
-            return false;
-        }
-        return !confirmedForGenus.isEmpty();
     }
 
     private static long genusMaxValue(String genusKey,

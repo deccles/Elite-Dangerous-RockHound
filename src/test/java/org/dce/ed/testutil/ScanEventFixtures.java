@@ -3,7 +3,6 @@ package org.dce.ed.testutil;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanEvent.ParentRef;

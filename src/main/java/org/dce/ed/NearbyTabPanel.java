@@ -80,7 +80,6 @@ import org.dce.ed.util.SpanshBodyExobiologyInfo;
 import org.dce.ed.util.SpanshLandmark;
 import org.dce.ed.util.SpanshLandmarkCache;
 
-import com.google.gson.Gson;
 
 /**
  * Nearby tab: sphere search around current system, exobiology prediction on landable planets,

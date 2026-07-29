@@ -1,6 +1,5 @@
 package org.dce.systemmodel.journal;
 
-import org.dce.systemmodel.journal.ParentRef;
 
 import org.junit.jupiter.api.Test;
 

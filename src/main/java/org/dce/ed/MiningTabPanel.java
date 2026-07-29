@@ -32,10 +32,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -100,7 +98,6 @@ import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.logreader.event.SupercruiseExitEvent;
 import org.dce.ed.market.GalacticAveragePrices;
 import org.dce.ed.market.MaterialNameMatcher;
-import org.dce.ed.OverlayFrame;
 import org.dce.ed.mining.CompositeProspectorLogBackend;
 import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.mining.GoogleSheetsReconnectDialog;
@@ -2874,10 +2871,6 @@ return EdoUi.User.MAIN_TEXT;
 		} else {
 			SwingUtilities.invokeLater(apply);
 		}
-	}
-
-	private void clearProspectorSourceStatus() {
-		setProspectorSourceStatus("", EdoUi.User.MAIN_TEXT);
 	}
 
 	/** Format a backend write failure for the global mining-status bar: "<displayName>: <message>". */
@@ -5723,7 +5716,7 @@ String getName() {
 			g2.drawString(xLabel, plotX + plotW / 2 - fm.stringWidth(xLabel) / 2, xLabelY);
 			// X tick labels (slightly above the axis label to avoid overlap)
 			for (int i = 0; i < TICK_LABELS; i++) {
-				double frac = (TICK_LABELS <= 1) ? 0.5 : (double) i / (TICK_LABELS - 1);
+					double frac = (double) i / (TICK_LABELS - 1);
 				double val = minPct + frac * (maxPct - minPct);
 				String tick = (val == (long) val) ? String.valueOf((long) val) : String.format(Locale.US, "%.1f", val);
 				int tx = plotX + (int) (frac * plotW);
@@ -5741,7 +5734,7 @@ String getName() {
 			g2.setTransform(oldTx);
 			// Y tick labels (left of plot)
 			for (int i = 0; i < TICK_LABELS; i++) {
-				double frac = (TICK_LABELS <= 1) ? 0.5 : (double) i / (TICK_LABELS - 1);
+					double frac = (double) i / (TICK_LABELS - 1);
 				double val = minAct + (1.0 - frac) * (maxAct - minAct); // bottom = min, top = max
 				String tick = (val >= 100 || val == (long) val) ? String.valueOf((long) val) : String.format(Locale.US, "%.1f", val);
 				int ty = plotY + (int) (frac * plotH);

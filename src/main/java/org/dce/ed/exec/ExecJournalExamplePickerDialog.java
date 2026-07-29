@@ -8,7 +8,6 @@ import java.awt.Font;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -36,7 +35,6 @@ import javax.swing.tree.TreeSelectionModel;
 
 import org.dce.ed.exec.ExecJournalAttributeFilter.MatchMode;
 import org.dce.ed.exec.ExecJournalHistoryScanner.JournalExample;
-import org.dce.ed.exec.placeholder.ExecPlaceholderFieldSupport;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
 

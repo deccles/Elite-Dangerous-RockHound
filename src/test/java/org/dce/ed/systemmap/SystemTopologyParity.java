@@ -6,13 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Map;
 import java.util.Set;
 
-import org.dce.ed.state.BodyInfo;
 import org.dce.ed.systemmap.SystemMapHierarchyBuilder.Graph;
 import org.dce.ed.systemmap.SystemMapHierarchyBuilder.Node;
 import org.dce.systemmodel.model.BodyKind;
 import org.dce.systemmodel.model.BodyNode;
 import org.dce.systemmodel.model.HierarchyKeys;
-import org.dce.systemmodel.model.SystemModel;
 
 /**
  * Shared assertions: hierarchy graph, {@link ModelMapTranscriber}, and {@link SystemMapModel} parent edges align.

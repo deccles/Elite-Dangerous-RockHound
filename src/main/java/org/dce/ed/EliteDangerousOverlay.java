@@ -46,7 +46,6 @@ import com.github.kwhat.jnativehook.NativeInputEvent;
 import com.github.kwhat.jnativehook.keyboard.NativeKeyListener;
 import com.github.kwhat.jnativehook.mouse.NativeMouseWheelEvent;
 import com.github.kwhat.jnativehook.mouse.NativeMouseWheelListener;
-import org.dce.ed.ui.EdoUi;
 
 public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWheelListener {
 

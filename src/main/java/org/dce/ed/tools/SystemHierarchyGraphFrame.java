@@ -14,8 +14,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.io.IOException;
-import java.time.Instant;
-import java.util.Map;
 import java.util.prefs.Preferences;
 
 import javax.swing.AbstractAction;
@@ -33,8 +31,6 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
-import org.dce.ed.cache.CachedSystem;
-import org.dce.ed.cache.SystemCache;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.systemmap.JournalSystemMapLoader;
 import org.dce.ed.systemmap.JournalSystemVisitHistory;

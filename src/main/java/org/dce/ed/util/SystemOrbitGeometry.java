@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -3214,6 +3213,7 @@ public final class SystemOrbitGeometry {
     }
 
     /** @deprecated use {@link #isCompactDigitLetterDesignation} / {@link #isPlanetBinaryCoMajorAtNull} */
+@Deprecated
     private static boolean isPlanetBinaryMajorDesignation(BodyInfo b) {
         return isCompactDigitLetterDesignation(b);
     }
@@ -7164,6 +7164,7 @@ public final class SystemOrbitGeometry {
      * @deprecated Prefer {@link #orbitStrokePolylinePhaseSeparationFraction(int, int, int, int)} with a polyline
      *             anchor from the body's map position — model rings place the current phase at vertex {@code 0}.
      */
+@Deprecated
     public static double orbitStrokeTimeSeparationFraction(BodyInfo body, double vertexMeanAnomalyRad, Instant epoch) {
         if (!orbitStrokeSupportsTimeColoring(body)) {
             return 0.0;

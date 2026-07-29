@@ -142,6 +142,7 @@ public final class ProspectorLogRow {
     }
 
     /** @deprecated Use {@link #getCommanderName()}. */
+@Deprecated
     public String getEmailAddress() {
         return commanderName;
     }

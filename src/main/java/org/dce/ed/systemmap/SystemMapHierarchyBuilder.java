@@ -602,10 +602,6 @@ public final class SystemMapHierarchyBuilder {
         layoutSubtree(root, 0.0, 0.0, DEFAULT_SIBLING_GAP);
     }
 
-    private static void measureTree(Node node, java.awt.FontMetrics fm, int padX, int minW, int minH) {
-        measureTree(node, fm, padX, minW, minH, null);
-    }
-
     private static void measureTree(Node node, java.awt.FontMetrics fm, int padX, int minW, int minH,
             Set<Integer> collapsedKeys) {
         int labelW = fm.stringWidth(node.label);

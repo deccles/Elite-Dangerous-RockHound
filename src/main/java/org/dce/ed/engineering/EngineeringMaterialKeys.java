@@ -1,6 +1,5 @@
 package org.dce.ed.engineering;
 
-import java.util.Locale;
 import java.util.Map;
 
 import org.dce.ed.market.GalacticAveragePrices;

@@ -6,7 +6,6 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -32,7 +31,6 @@ import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.state.BodyInfo;
-import org.dce.ed.state.SystemEventProcessor;
 import org.dce.ed.state.SystemState;
 
 public class ExoPredictionDebuggerMain {
@@ -212,14 +210,6 @@ public class ExoPredictionDebuggerMain {
         return s == null ? "" : s.trim();
     }
 
-    private static int parseIntOrDefault(String s, int def) {
-        try {
-            return Integer.parseInt(s.trim());
-        } catch (Exception ex) {
-            return def;
-        }
-    }
-
     /**
      * Prefer cache for body-loading. Fall back to journal replay if the system isn't cached.
      */
@@ -245,20 +235,6 @@ public class ExoPredictionDebuggerMain {
         SystemState state = new SystemState();
         cache.loadInto(state, cs);
         return state;
-    }
-
-    private static boolean isSystemChangeEvent(EliteLogEvent ev) {
-        return (ev instanceof LocationEvent) || (ev instanceof FsdJumpEvent);
-    }
-
-    private static String getSystemNameFromSystemChange(EliteLogEvent ev) {
-        if (ev instanceof LocationEvent) {
-            return ((LocationEvent) ev).getStarSystem();
-        }
-        if (ev instanceof FsdJumpEvent) {
-            return ((FsdJumpEvent) ev).getStarSystem();
-        }
-        return null;
     }
 
     private static BodyInfo findBodyByName(SystemState state, String bodyName) {

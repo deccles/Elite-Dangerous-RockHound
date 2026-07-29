@@ -3,7 +3,6 @@ package org.dce.ed.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.dce.ed.route.RouteSession;
-import org.dce.ed.route.RouteJumpFlashHandle;
 import org.junit.jupiter.api.Test;
 
 class FleetCarrierSessionMapperTest {

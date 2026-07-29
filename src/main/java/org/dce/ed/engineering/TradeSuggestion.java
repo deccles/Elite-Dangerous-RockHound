@@ -13,6 +13,7 @@ public final class TradeSuggestion {
     private final boolean sameGroup;
     private final String traderType;
 
+@Deprecated
     public TradeSuggestion(String fromKey,
                            String fromName,
                            int fromCount,
@@ -32,6 +33,7 @@ public final class TradeSuggestion {
     }
 
     /** @deprecated use constructor with {@code traderType} */
+    @Deprecated
     public TradeSuggestion(String fromKey,
                            String fromName,
                            int fromCount,

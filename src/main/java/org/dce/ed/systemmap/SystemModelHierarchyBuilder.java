@@ -13,7 +13,6 @@ import org.dce.ed.util.SystemOrbitGeometry;
 import org.dce.ed.systemmap.SystemMapSystemLoader.Loaded;
 import org.dce.ed.systemmodel.SystemModelService;
 import org.dce.systemmodel.journal.JournalRecord;
-import org.dce.systemmodel.journal.ScanRecord;
 import org.dce.systemmodel.journal.ParentRef;
 import org.dce.systemmodel.hierarchy.BarycentreHubPolicy;
 import org.dce.systemmodel.journal.JournalEventLogUtil;

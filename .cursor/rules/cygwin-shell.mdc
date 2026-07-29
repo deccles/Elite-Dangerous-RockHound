@@ -1,0 +1,10 @@
+---
+description: "Use Cygwin Bash for EDO shell commands"
+alwaysApply: true
+---
+
+# Shell Convention
+
+Run shell commands for this repository through Cygwin Bash. This includes Git,
+Maven, and file-inspection commands. Use Windows-native PowerShell only when a
+task specifically requires Windows-only tooling.

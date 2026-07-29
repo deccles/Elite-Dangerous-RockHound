@@ -657,10 +657,6 @@ final class EngineeringMaterialsGoalDialog extends JDialog {
             fireTableRowsInserted(rows.size() - 1, rows.size() - 1);
         }
 
-        void addOrMerge(String key, String name, int qty) {
-            setCount(key, name, countForKey(key) + qty);
-        }
-
         void removeAt(int index) {
             if (index < 0 || index >= rows.size()) {
                 return;

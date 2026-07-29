@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.dce.ed.route.RouteEntry;
-import org.dce.ed.route.RouteGeometry;
 import org.dce.ed.route.RouteMarkerKind;
 import org.dce.ed.route.RoutePersistenceSnapshot;
 import org.dce.ed.route.RouteScanStatus;

@@ -33,7 +33,6 @@ import java.awt.geom.Point2D;
 import java.text.NumberFormat;
 import java.time.Instant;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -74,7 +73,6 @@ import org.dce.ed.state.SystemState;
 import org.dce.ed.util.ExplorationBodyCredits;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.SpanshBodyExobiologyInfo;
-import org.dce.ed.util.SpanshLandmark;
 import org.dce.ed.util.SpanshLandmarkCache;
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
 import org.dce.ed.mining.GoogleSheetsBackend;
@@ -82,7 +80,6 @@ import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 
 import com.google.gson.JsonObject;
-import com.sun.jna.Native;
 import org.dce.ed.util.WindowsNativeMousePassThrough;
 
 import org.dce.ed.exec.ExecBindingsConfig;
@@ -1513,20 +1510,6 @@ private void updateCarrierJumpCooldown() {
     }
 }
 
-private void clearCarrierJumpCountdown() {
-    clearCarrierJumpCountdownStateOnly();
-    if (carrierJumpCooldownTimer != null) {
-        carrierJumpCooldownTimer.stop();
-        carrierJumpCooldownTimer = null;
-    }
-    carrierJumpCooldownEndTime = null;
-    carrierJumpCompleteSpokenForCurrentJump = false;
-
-    setTitleBarText(DEFAULT_TITLE_BAR_TITLE);
-    updateRightStatusDefault();
-    saveSessionState();
-}
-
 private void updateRightStatusDefault() {
     publishRightStatusText();
 }
@@ -2131,6 +2114,7 @@ private void refreshPassThroughUnifiedStatus() {
     }
 
     /** @deprecated Prefer {@link #cycleMouseInteractionMode()} */
+@Deprecated
     public void togglePassThrough() {
         cycleMouseInteractionMode();
     }
@@ -3155,18 +3139,10 @@ private void refreshPassThroughUnifiedStatus() {
         }
     }
 
-    private long getLong(JsonObject obj, String field) {
-        return getLong(obj, field, 0L);
-    }
-
     private long getLong(JsonObject obj, String field, long defaultValue) {
         return obj.has(field) && !obj.get(field).isJsonNull()
                 ? obj.get(field).getAsLong()
                 : defaultValue;
-    }
-
-    private int getInt(JsonObject obj, String field) {
-        return getInt(obj, field, 0);
     }
 
     private int getInt(JsonObject obj, String field, int defaultValue) {

@@ -1,7 +1,6 @@
 package org.dce.ed.logreader;
 
 import java.time.Instant;
-import java.util.List;
 
 import com.google.gson.JsonObject;
 

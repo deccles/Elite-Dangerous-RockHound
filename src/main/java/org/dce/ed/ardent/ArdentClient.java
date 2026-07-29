@@ -3,7 +3,7 @@ package org.dce.ed.ardent;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 
 import com.google.gson.JsonElement;
@@ -40,7 +40,7 @@ public final class ArdentClient {
 
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL(urlString).openConnection();
+            conn = (HttpURLConnection) URI.create(urlString).toURL().openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(15_000);
             conn.setReadTimeout(30_000);
