@@ -130,8 +130,9 @@ public final class CombatTabPanel extends JPanel {
         summary.setBorder(new EmptyBorder(0, 0, 6, 0));
         summary.add(earnedChip);
         summary.add(creditsPerHourChip);
-        // BoxLayout otherwise stretches GridLayout rows vertically.
-        summary.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
+        // BoxLayout needs an explicit cap, but it must accommodate scaled two-line metric text.
+        summary.setMaximumSize(new Dimension(Integer.MAX_VALUE,
+                summaryHeightForPreferredContent(summary.getPreferredSize().height)));
 
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         content.setOpaque(false);
@@ -418,6 +419,10 @@ public final class CombatTabPanel extends JPanel {
 
     static boolean shouldRunCreditsRateTimer(boolean combatTabVisible, boolean activeSession) {
         return combatTabVisible && activeSession;
+    }
+
+    static int summaryHeightForPreferredContent(int preferredHeight) {
+        return Math.max(56, Math.max(0, preferredHeight) + 6);
     }
 
     private void updateTargetTable(CombatTargetTracker.LockedTarget target) {
