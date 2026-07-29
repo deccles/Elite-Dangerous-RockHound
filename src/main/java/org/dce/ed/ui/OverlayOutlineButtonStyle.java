@@ -61,10 +61,23 @@ public final class OverlayOutlineButtonStyle {
      *        (e.g. muted “Copy next destination” when there is nothing to copy)
      */
     public static void applyPrimaryHitSafe(JButton b, Font uiFont, boolean forceThemeInk) {
+        applyPrimaryHitSafe(b, uiFont, forceThemeInk, new Insets(8, 18, 8, 18), 1f);
+    }
+
+    /**
+     * Compact hit-safe primary (~70% font/padding) for dense grids such as Combat commands.
+     */
+    public static void applyPrimaryHitSafeCompact(JButton b, Font uiFont) {
+        applyPrimaryHitSafe(b, uiFont, true, new Insets(5, 12, 5, 12), 0.7f);
+    }
+
+    private static void applyPrimaryHitSafe(
+            JButton b, Font uiFont, boolean forceThemeInk, Insets padding, float fontScale) {
         if (b == null || uiFont == null) {
             return;
         }
-        int size = OverlayPreferences.getUiFontSize();
+        float scale = fontScale > 0f ? fontScale : 1f;
+        int size = Math.max(9, Math.round(OverlayPreferences.getUiFontSize() * scale));
         b.setFocusable(false);
         b.setFocusPainted(false);
         b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -76,7 +89,7 @@ public final class OverlayOutlineButtonStyle {
         b.putClientProperty(DANGER_DISABLED_TEXT_KEY, null);
         b.setBorder(BorderFactory.createCompoundBorder(
                 new ThemeRoundedLineBorder(true, 2, DEFAULT_ARC),
-                new EmptyBorder(8, 18, 8, 18)));
+                new EmptyBorder(padding.top, padding.left, padding.bottom, padding.right)));
         applyOverlayHitPlate(b);
         b.setUI(HitSafeButtonUI.INSTANCE);
     }

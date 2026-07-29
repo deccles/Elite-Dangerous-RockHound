@@ -780,7 +780,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         getRootPane().setBorder(overlayBorder);
 
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        setAlwaysOnTop(true);
+        setAlwaysOnTop(org.dce.ed.util.EliteWindowFocus.isEliteForeground());
         backgroundPanel.setLayout(new BorderLayout());
         setResizable(true);
         setMinimumSize(new Dimension(MIN_WIDTH, MIN_HEIGHT));

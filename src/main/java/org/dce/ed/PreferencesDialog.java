@@ -550,7 +550,8 @@ public class PreferencesDialog extends JDialog {
 		gbc.gridy++;
 		gbc.gridwidth = 2;
 
-		nonOverlayAlwaysOnTopCheckBox = new JCheckBox("Always on top (non-overlay mode)");
+		nonOverlayAlwaysOnTopCheckBox = new JCheckBox(
+				"Always on top when Elite has focus (non-overlay mode)");
 		nonOverlayAlwaysOnTopCheckBox.setOpaque(false);
 		nonOverlayAlwaysOnTopCheckBox.setSelected(OverlayPreferences.isNonOverlayAlwaysOnTop());
 		hotkeyPanel.add(nonOverlayAlwaysOnTopCheckBox, gbc);
@@ -2387,7 +2388,8 @@ public class PreferencesDialog extends JDialog {
 				if (!f.isPassThroughEnabled()) {
 					if (getOwner() instanceof Window) {
 						Window w = (Window) getOwner();
-						w.setAlwaysOnTop(OverlayPreferences.isNonOverlayAlwaysOnTop());
+						w.setAlwaysOnTop(OverlayPreferences.isNonOverlayAlwaysOnTop()
+								&& org.dce.ed.util.EliteWindowFocus.isEliteForeground());
 					}
 				}
 			}

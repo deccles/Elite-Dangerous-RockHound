@@ -18,14 +18,20 @@ class TtsSprintfCreditsSpeechTest {
     }
 
     @Test
-    void roundCreditsForSpeech_underOneMillionUsesNearestTenThousand() {
+    void roundCreditsForSpeech_scalesByMagnitude() {
+        // Tens/hundreds of thousands → nearest 10k
         assertEquals(240_000L, TtsSprintf.roundCreditsForSpeech(242_475L));
         assertEquals(310_000L, TtsSprintf.roundCreditsForSpeech(305_335L));
         assertEquals(60_000L, TtsSprintf.roundCreditsForSpeech(62_860L));
         assertEquals(70_000L, TtsSprintf.roundCreditsForSpeech(67_984L));
-        assertEquals(10_000L, TtsSprintf.roundCreditsForSpeech(5_000L));
-        assertEquals(0L, TtsSprintf.roundCreditsForSpeech(4_999L));
         assertEquals(990_000L, TtsSprintf.roundCreditsForSpeech(994_999L));
+        // Thousands → nearest 1k (KWS deltas must not become zero)
+        assertEquals(3_000L, TtsSprintf.roundCreditsForSpeech(3_200L));
+        assertEquals(5_000L, TtsSprintf.roundCreditsForSpeech(4_999L));
+        assertEquals(1_000L, TtsSprintf.roundCreditsForSpeech(1_499L));
+        // Below 1k → exact
+        assertEquals(750L, TtsSprintf.roundCreditsForSpeech(750L));
+        assertEquals(1L, TtsSprintf.roundCreditsForSpeech(1L));
     }
 
     @Test

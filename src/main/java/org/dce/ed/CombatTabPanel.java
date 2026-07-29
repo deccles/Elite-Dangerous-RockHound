@@ -191,9 +191,9 @@ public final class CombatTabPanel extends JPanel {
         targetingBlock.add(targetingHeader, BorderLayout.NORTH);
         targetingBlock.add(targetingButtonsRow, BorderLayout.CENTER);
 
+        content.add(summary);
         content.add(targetHeader);
         content.add(Box.createVerticalStrut(2));
-        content.add(summary);
         content.add(targetScroll);
         content.add(Box.createVerticalStrut(SECTION_GAP));
         content.add(scannedHeader);
@@ -352,10 +352,10 @@ public final class CombatTabPanel extends JPanel {
             OverlayTransparentChrome.configureScrollPane(missionsScroll);
         }
         for (JButton button : fighterButtons) {
-            OverlayOutlineButtonStyle.applyPrimaryHitSafe(button, tiny);
+            OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(button, tiny);
         }
         for (JButton button : targetingButtons) {
-            OverlayOutlineButtonStyle.applyPrimaryHitSafe(button, tiny);
+            OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(button, tiny);
         }
         relayoutAllCommandGrids();
         revalidate();
@@ -540,7 +540,7 @@ public final class CombatTabPanel extends JPanel {
             boolean enabled = binding != null && (!requirePilot || NpcCrewTracker.getInstance().hasActiveNpcCrew());
             button.setEnabled(enabled);
             button.setToolTipText(tooltipForCommandButton(binding, command.bindName(), requirePilot, enabled));
-            OverlayOutlineButtonStyle.applyPrimaryHitSafe(button, tiny);
+            OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(button, tiny);
             button.addActionListener(e -> sendCombatBinding(binding));
             HoverClickPoller.register(
                     button,
@@ -580,7 +580,8 @@ public final class CombatTabPanel extends JPanel {
         int cols = commandGridColumns(available, maxPref, buttons.size(), COMMAND_GRID_HGAP);
         row.setLayout(new GridLayout(0, cols, COMMAND_GRID_HGAP, COMMAND_GRID_VGAP));
         int rows = Math.max(1, (buttons.size() + cols - 1) / cols);
-        int rowH = Math.max(28, OverlayPreferences.getUiFontSize() + 18);
+        // Match compact hit-safe button height (~70% of full primary).
+        int rowH = Math.max(20, Math.round((OverlayPreferences.getUiFontSize() + 18) * 0.7f));
         row.setMaximumSize(new Dimension(
                 Integer.MAX_VALUE,
                 rows * rowH + Math.max(0, rows - 1) * COMMAND_GRID_VGAP));

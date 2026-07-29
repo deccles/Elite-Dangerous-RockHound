@@ -1190,8 +1190,8 @@ public final class OverlayPreferences {
     }
 
     /**
-     * Minimum bounty credits for the initial (first-scan) speech announcement.
-     * Combat tab / scanned lists still show every bounty. Default {@code 50_000}.
+     * Minimum bounty credits for bounty-scan speech: first-scan total, and KWS additional
+     * delta only. Combat tab / scanned lists still show every bounty. Default {@code 50_000}.
      */
     public static long getBountyScanValuableThresholdCredits() {
         long v = PREFS.getLong(KEY_SPEECH_BOUNTY_SCAN_VALUABLE_THRESHOLD_CREDITS, 50_000L);

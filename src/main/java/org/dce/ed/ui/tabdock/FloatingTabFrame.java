@@ -41,6 +41,7 @@ import org.dce.ed.ui.OverlayBackgroundPanel;
 import org.dce.ed.ui.ScrollableTabBar;
 import org.dce.ed.ui.WindowEdgeResizeSupport;
 import org.dce.ed.util.AppIconUtil;
+import org.dce.ed.util.EliteWindowFocus;
 import org.dce.ed.util.WindowsNativeMousePassThrough;
 
 /**
@@ -85,7 +86,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
 
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         setUndecorated(true);
-        setAlwaysOnTop(true);
+        setAlwaysOnTop(EliteWindowFocus.isEliteForeground());
         // Required for per-pixel alpha (same as OverlayFrame).
         setBackground(new Color(0, 0, 0, 0));
         java.awt.image.BufferedImage icon = AppIconUtil.loadPreparedWindowIcon();

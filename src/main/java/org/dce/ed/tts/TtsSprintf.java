@@ -607,8 +607,13 @@ public class TtsSprintf {
 
     /**
      * Rounds a credit amount for speech so Polly does not read huge exact integers.
-     * At or above one billion: nearest 0.1 billion; at or above one million: nearest 0.1 million
-     * (so {@code {credits}} can say "five point three million"); under one million: nearest 10k.
+     * <ul>
+     *   <li>≥ 1 billion → nearest 0.1 billion</li>
+     *   <li>≥ 1 million → nearest 0.1 million</li>
+     *   <li>≥ 10 thousand → nearest 10 thousand</li>
+     *   <li>≥ 1 thousand → nearest 1 thousand</li>
+     *   <li>below 1 thousand → unchanged (avoids “zero credits” for small KWS deltas)</li>
+     * </ul>
      */
     public static long roundCreditsForSpeech(long credits) {
         if (credits == 0) {
@@ -621,8 +626,12 @@ public class TtsSprintf {
             rounded = (n + 50_000_000L) / 100_000_000L * 100_000_000L;
         } else if (n >= 1_000_000L) {
             rounded = (n + 50_000L) / 100_000L * 100_000L;
-        } else {
+        } else if (n >= 10_000L) {
             rounded = (n + 5_000L) / 10_000L * 10_000L;
+        } else if (n >= 1_000L) {
+            rounded = (n + 500L) / 1_000L * 1_000L;
+        } else {
+            rounded = n;
         }
         return sign * rounded;
     }

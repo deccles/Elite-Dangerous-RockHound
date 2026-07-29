@@ -64,6 +64,30 @@ class BountyScanTrackerTest {
     }
 
     @Test
+    void additionalBountyBelowValuableThresholdIsSilent() {
+        BountyScanTracker tracker = BountyScanTracker.getInstance();
+        tracker.onShipTargeted(stage3("Carlos", 100_000L));
+
+        assertTrue(tracker.onShipTargeted(stage3("Carlos", 103_000L)).isEmpty(),
+                "KWS delta under min valuable should not announce");
+    }
+
+    @Test
+    void smallKwsBumpThenValuableBumpStillAnnounces() {
+        BountyScanTracker tracker = BountyScanTracker.getInstance();
+        tracker.onShipTargeted(stage3("Carlos", 100_000L));
+        assertTrue(tracker.onShipTargeted(stage3("Carlos", 103_000L)).isEmpty());
+
+        Optional<BountyScanTracker.SpeechRequest> req = tracker
+                .onShipTargeted(stage3("Carlos", 160_000L));
+        assertTrue(req.isPresent());
+        assertEquals(BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH, req.get().getTemplate());
+        // Delta is from last seen bounty (103k), not the original first scan.
+        assertEquals(TtsSprintf.roundCreditsForSpeech(57_000L), req.get().getCredits1());
+        assertEquals(TtsSprintf.roundCreditsForSpeech(160_000L), req.get().getCredits2());
+    }
+
+    @Test
     void additionalBountyAnnouncesDeltaAndTotal() {
         BountyScanTracker tracker = BountyScanTracker.getInstance();
         tracker.onShipTargeted(stage3("Carlos SpicyWeiner", 242_475L));

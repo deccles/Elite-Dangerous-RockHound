@@ -7,8 +7,10 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Frame;
+import java.awt.Graphics;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
@@ -25,7 +27,6 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -36,9 +37,6 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.prefs.Preferences;
 import java.util.stream.Collectors;
 
@@ -55,7 +53,7 @@ import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JSeparator;
+import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
@@ -67,10 +65,12 @@ import javax.swing.PopupFactory;
 import javax.swing.Timer;
 import javax.swing.UIManager;
 import javax.swing.RowFilter;
-import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.event.ListSelectionEvent;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
+import javax.swing.plaf.basic.BasicArrowButton;
+import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
@@ -92,15 +92,11 @@ import org.dce.ed.logreader.event.ReceiveTextEvent;
 import org.dce.ed.logreader.event.SaasignalsFoundEvent;
 import org.dce.ed.logreader.event.StartJumpEvent;
 import org.dce.ed.logreader.event.StatusEvent;
-import org.dce.ed.logreader.sim.JournalSimulator;
-import org.dce.ed.logreader.sim.JournalSimulatorPreferences;
 
-import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.dce.ed.ui.EdoUi;
 
 /**
  * Tab that displays Elite Dangerous journal events in a table:
@@ -155,24 +151,11 @@ public class LogTabPanel extends JPanel {
     private JButton rescanSelectedFileToCacheButton;
 
     private JTextField searchField;
+    private JTextArea jsonDetailArea;
     private TableRowSorter<LogTableModel> rowSorter;
 
     private RowFilter<TableModel, Integer> baseRowFilter;   // whatever your existing "Filter..." button sets
     private RowFilter<LogTableModel, Integer> searchRowFilter; // regex search filter
-
- // --- Simulator ---
-    private JournalSimulator simulator;
-
-    private JButton simSetStartButton;
-    private JButton simStepButton;
-    private JButton simPlayButton;
-    private JButton simPauseButton;
-
-    private int simCurrentViewRow = -1;
-
-    
-    private ScheduledExecutorService simExecutor;
-    private volatile boolean simRunning;
 
     /** A single row in the table: either an event or a message row (event == null). */
     private static class LogRow {
@@ -266,9 +249,6 @@ public class LogTabPanel extends JPanel {
             rows.add(row);
             fireTableRowsInserted(idx, idx);
         }
-    	public String getRawLineAt(int modelRow) {
-    	    return extractRawJournalLine(rows.get(modelRow).event);
-    	}
     }
 
     private final LogTableModel tableModel;
@@ -322,9 +302,22 @@ public class LogTabPanel extends JPanel {
             public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                     boolean isSelected, boolean cellHasFocus) {
                 Object label = (value instanceof Path p) ? p.getFileName().toString() : value;
-                return super.getListCellRendererComponent(list, label, index, isSelected, cellHasFocus);
+                Component c = super.getListCellRendererComponent(list, label, index, isSelected, cellHasFocus);
+                // Keep light document colors even when overlay UIManager ComboBox defaults are dark.
+                if (isSelected) {
+                    c.setForeground(JOURNAL_TEXT);
+                    c.setBackground(new Color(0xCC, 0xE8, 0xFF));
+                } else {
+                    c.setForeground(JOURNAL_TEXT);
+                    c.setBackground(JOURNAL_BG);
+                }
+                if (c instanceof JComponent jc) {
+                    jc.setOpaque(true);
+                }
+                return c;
             }
         });
+        applyJournalLightComboStyle(journalFileCombo);
 
         JButton reloadButton = new JButton("Reload");
         JButton copyJournalPathButton = new JButton("Copy Journal File");
@@ -355,39 +348,17 @@ public class LogTabPanel extends JPanel {
         toolBar.add(filterButton);
         toolBar.add(Box.createHorizontalStrut(8));
 
-        searchField = new JTextField(24);
+        searchField = new JTextField(48);
         searchField.setForeground(JOURNAL_TEXT);
         searchField.setBackground(JOURNAL_BG);
         searchField.setCaretColor(JOURNAL_TEXT);
         searchField.setToolTipText(
                 "Regex search (press Enter). Use & for AND (e.g. ScanBaryCentre&13). | is OR. Empty = show all.");
-        searchField.setMaximumSize(searchField.getPreferredSize()); // keeps toolbar height sane
+        Dimension searchPref = searchField.getPreferredSize();
+        searchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, searchPref.height));
         searchField.addActionListener(e -> applySearchFromField());
         toolBar.add(searchField);
 
-        
-        toolBar.add(Box.createHorizontalStrut(16));
-        toolBar.add(new JSeparator(SwingConstants.VERTICAL));
-        toolBar.add(Box.createHorizontalStrut(8));
-
-        simSetStartButton = new JButton("Set Start");
-        simStepButton = new JButton("Step");
-        simPlayButton = new JButton("Play");
-        simPauseButton = new JButton("Pause");
-
-        simPauseButton.setEnabled(false);
-
-        toolBar.add(simSetStartButton);
-        toolBar.add(Box.createHorizontalStrut(4));
-        toolBar.add(simStepButton);
-        toolBar.add(Box.createHorizontalStrut(4));
-        toolBar.add(simPlayButton);
-        toolBar.add(Box.createHorizontalStrut(4));
-        toolBar.add(simPauseButton);
-
-        
-        
-        
         add(toolBar, BorderLayout.NORTH);
 
 
@@ -504,44 +475,13 @@ public class LogTabPanel extends JPanel {
                 c.setForeground(isSelected ? table.getSelectionForeground() : JOURNAL_TEXT);
 
                 if (!isSelected) {
-                    if (row == simCurrentViewRow) {
-                        c.setBackground(EdoUi.Internal.LOG_LIGHT_ORANGE); // simulator cursor
-                    } else {
-                        c.setBackground(Color.WHITE);
-                    }
+                    c.setBackground(Color.WHITE);
                 }
 
                 return c;
             }
         });
 
-        
-        simSetStartButton.addActionListener(e -> {
-            buildSimulatorFromView();
-
-            int viewRow = logTable.getSelectedRow();
-            if (viewRow < 0)
-                return;
-
-            simulator.setCurrentIndex(viewRow);
-            syncCursorToSimulator();
-        });
-
-simStepButton.addActionListener(e -> {
-            try {
-                if (simulator.emitNext()) {
-                    syncCursorToSimulator();
-                }
-            } catch (Exception ex) {
-                ex.printStackTrace();
-                stopSimulation();
-            }
-        });
-
-simPlayButton.addActionListener(e -> startSimulation());
-        simPauseButton.addActionListener(e -> stopSimulation());
-
-        
         JScrollPane scrollPane = new JScrollPane(logTable);
         scrollPane.setPreferredSize(new Dimension(400, 600));
         scrollPane.setOpaque(true);
@@ -550,7 +490,36 @@ simPlayButton.addActionListener(e -> startSimulation());
             scrollPane.getViewport().setOpaque(true);
             scrollPane.getViewport().setBackground(JOURNAL_BG);
         }
-        add(scrollPane, BorderLayout.CENTER);
+
+        jsonDetailArea = new JTextArea();
+        jsonDetailArea.setEditable(false);
+        jsonDetailArea.setForeground(JOURNAL_TEXT);
+        jsonDetailArea.setBackground(JOURNAL_BG);
+        jsonDetailArea.setCaretColor(JOURNAL_TEXT);
+        jsonDetailArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        jsonDetailArea.setLineWrap(false);
+        jsonDetailArea.setWrapStyleWord(false);
+        jsonDetailArea.setText("");
+        jsonDetailArea.setToolTipText("Pretty-printed JSON for the selected journal event.");
+
+        JScrollPane jsonScrollPane = new JScrollPane(jsonDetailArea);
+        jsonScrollPane.setPreferredSize(new Dimension(420, 600));
+        jsonScrollPane.setOpaque(true);
+        jsonScrollPane.setBackground(JOURNAL_CHROME);
+        if (jsonScrollPane.getViewport() != null) {
+            jsonScrollPane.getViewport().setOpaque(true);
+            jsonScrollPane.getViewport().setBackground(JOURNAL_BG);
+        }
+
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, scrollPane, jsonScrollPane);
+        splitPane.setResizeWeight(0.62);
+        splitPane.setContinuousLayout(true);
+        splitPane.setBorder(null);
+        splitPane.setOpaque(true);
+        splitPane.setBackground(JOURNAL_CHROME);
+        add(splitPane, BorderLayout.CENTER);
+
+        logTable.getSelectionModel().addListSelectionListener(this::onLogTableSelectionChanged);
 
         // Wire actions
         reloadButton.addActionListener(e -> reloadLogs());
@@ -562,82 +531,114 @@ simPlayButton.addActionListener(e -> startSimulation());
         nextDayButton.addActionListener(e -> moveToRelativeDate(+1));
 
         lockFirstTwoColumnsAndStretchLast(logTable, scrollPane);
-        
-        buildSimulatorFromView();
-        
+
         // Initial date setup & load
         initAvailableDates();
         reloadLogs();
     }
-    private void buildSimulatorFromView() {
-        List<String> lines = new ArrayList<>();
 
-        int viewRowCount = logTable.getRowCount();
-        for (int viewRow = 0; viewRow < viewRowCount; viewRow++) {
-            int modelRow = logTable.convertRowIndexToModel(viewRow);
-            LogRow row = tableModel.getRow(modelRow);
-
-            if (row == null || row.event == null)
-                continue;
-
-            lines.add(extractRawJournalLine(row.event));
-        }
-
-        simulator = new JournalSimulator(lines);
-
-        try {
-            Path outDir = Paths.get(JournalSimulatorPreferences.getSimulatorOutputDir());
-            simulator.setOutputDirectory(outDir);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        simCurrentViewRow = -1;
-        logTable.repaint();
-    }
-
-    private void startSimulation() {
-        if (simRunning)
+    private void onLogTableSelectionChanged(ListSelectionEvent e) {
+        if (e.getValueIsAdjusting()) {
             return;
-
-        simRunning = true;
-
-        simPlayButton.setEnabled(false);
-        simPauseButton.setEnabled(true);
-        simStepButton.setEnabled(false);
-
-        double seconds = JournalSimulatorPreferences.getSimulatorIntervalSeconds();
-        long delayMs = Math.max(1L, (long) (seconds * 1000.0));
-
-        simExecutor = Executors.newSingleThreadScheduledExecutor();
-        simExecutor.scheduleAtFixedRate(() -> {
-            try {
-                if (simulator.emitNext()) {
-                    SwingUtilities.invokeLater(this::syncCursorToSimulator);
-                } else {
-                    SwingUtilities.invokeLater(this::stopSimulation);
-                }
-            } catch (Exception ex) {
-                ex.printStackTrace();
-                SwingUtilities.invokeLater(this::stopSimulation);
-            }
-        }, 0, delayMs, TimeUnit.MILLISECONDS);
-
-}
-
-    private void stopSimulation() {
-        simRunning = false;
-
-        if (simExecutor != null) {
-            simExecutor.shutdownNow();
-            simExecutor = null;
         }
-
-        simPlayButton.setEnabled(true);
-        simPauseButton.setEnabled(false);
-        simStepButton.setEnabled(true);
+        updateJsonDetailFromSelection();
     }
 
-    
+    private void updateJsonDetailFromSelection() {
+        if (jsonDetailArea == null) {
+            return;
+        }
+        int viewRow = logTable.getSelectedRow();
+        if (viewRow < 0) {
+            jsonDetailArea.setText("");
+            return;
+        }
+        int modelRow = logTable.convertRowIndexToModel(viewRow);
+        LogRow row = tableModel.getRow(modelRow);
+        if (row == null || row.event == null) {
+            jsonDetailArea.setText(row != null && row.detailsText != null ? row.detailsText : "");
+            jsonDetailArea.setCaretPosition(0);
+            return;
+        }
+        jsonDetailArea.setText(toPrettyJson(row.event));
+        jsonDetailArea.setCaretPosition(0);
+    }
+
+    /**
+     * Journal viewer is light chrome; overlay {@code UIManager} ComboBox defaults are dark.
+     * Windows L&amp;F ignores {@code setBackground} on combos, so paint the plate explicitly.
+     */
+    private static void applyJournalLightComboStyle(JComboBox<?> combo) {
+        combo.setForeground(JOURNAL_TEXT);
+        combo.setBackground(JOURNAL_BG);
+        combo.setOpaque(true);
+        combo.setUI(new BasicComboBoxUI() {
+            @Override
+            protected JButton createArrowButton() {
+                JButton button = new BasicArrowButton(
+                        BasicArrowButton.SOUTH, JOURNAL_BG, JOURNAL_TEXT, JOURNAL_TEXT, JOURNAL_BG) {
+                    @Override
+                    public void setBackground(Color color) {
+                        super.setBackground(JOURNAL_BG);
+                    }
+                };
+                button.setBorder(BorderFactory.createEmptyBorder(1, 4, 1, 4));
+                button.setOpaque(true);
+                button.setBackground(JOURNAL_BG);
+                button.setForeground(JOURNAL_TEXT);
+                button.setMargin(new Insets(0, 0, 0, 0));
+                return button;
+            }
+
+            @Override
+            public void paint(Graphics g, JComponent c) {
+                g.setColor(JOURNAL_BG);
+                g.fillRect(0, 0, c.getWidth(), c.getHeight());
+                super.paint(g, c);
+            }
+
+            @Override
+            public void paintCurrentValueBackground(Graphics g, Rectangle bounds, boolean hasFocus) {
+                g.setColor(JOURNAL_BG);
+                g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            }
+
+            @Override
+            public void paintCurrentValue(Graphics g, Rectangle bounds, boolean hasFocus) {
+                @SuppressWarnings("unchecked")
+                javax.swing.ListCellRenderer<Object> renderer =
+                        (javax.swing.ListCellRenderer<Object>) comboBox.getRenderer();
+                if (renderer == null) {
+                    return;
+                }
+                boolean selected = hasFocus && !isPopupVisible(comboBox);
+                Component c = renderer.getListCellRendererComponent(
+                        listBox, comboBox.getSelectedItem(), -1, selected, false);
+                c.setFont(comboBox.getFont());
+                c.setForeground(JOURNAL_TEXT);
+                c.setBackground(selected ? new Color(0xCC, 0xE8, 0xFF) : JOURNAL_BG);
+                if (c instanceof JComponent jc) {
+                    jc.setOpaque(true);
+                }
+                int x = bounds.x;
+                int y = bounds.y;
+                int w = bounds.width;
+                int h = bounds.height;
+                if (padding != null) {
+                    x += padding.left;
+                    y += padding.top;
+                    w -= padding.left + padding.right;
+                    h -= padding.top + padding.bottom;
+                }
+                boolean shouldValidate = c instanceof JPanel;
+                currentValuePane.paintComponent(g, c, comboBox, x, y, w, h, shouldValidate);
+            }
+        });
+        combo.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(0xA0, 0xA0, 0xA0), 1),
+                new EmptyBorder(2, 6, 2, 4)));
+    }
+
     private void showJsonPopup(EliteLogEvent event) {
         String pretty = toPrettyJson(event);
 
@@ -707,8 +708,7 @@ simPlayButton.addActionListener(e -> startSimulation());
 
         try {
             JsonElement el = JsonParser.parseString(raw);
-            Gson gson = new GsonBuilder().setPrettyPrinting().create();
-            return gson.toJson(el);
+            return new GsonBuilder().setPrettyPrinting().create().toJson(el);
         } catch (Exception ex) {
             // raw wasn't valid JSON; show it as a string payload so the popup is still useful
             return "{\n  \"raw\": " + new GsonBuilder().setPrettyPrinting().create().toJson(raw) + "\n}";
@@ -1131,9 +1131,9 @@ simPlayButton.addActionListener(e -> startSimulation());
             if (last >= 0) {
                 logTable.scrollRectToVisible(logTable.getCellRect(last, 0, true));
             }
+            updateJsonDetailFromSelection();
         });
-        buildSimulatorFromView();
-        
+
     }
 
     /**
@@ -1633,7 +1633,6 @@ simPlayButton.addActionListener(e -> startSimulation());
 	    if (text.isEmpty()) {
             searchRowFilter = null;
             rowSorter.setRowFilter(null);
-            buildSimulatorFromView();
             return;
         }
 
@@ -1663,54 +1662,7 @@ simPlayButton.addActionListener(e -> startSimulation());
 	    };
 
 	    rowSorter.setRowFilter(searchRowFilter);
-        buildSimulatorFromView();
     }
-	
-	private static final Gson GSON = new Gson();
-	private static String extractRawJournalLine(EliteLogEvent event) {
-		return GSON.toJson(event.getRawJson());
-	}
-	private void syncCursorToSimulator() {
-        if (simulator == null)
-            return;
-
-        int idx = simulator.getCurrentIndex();
-        if (idx < 0 || idx >= logTable.getRowCount()) {
-            simCurrentViewRow = -1;
-            logTable.repaint();
-            return;
-        }
-
-        setSimulatorCursor(idx);
-    }
-
-    private void setSimulatorCursor(int viewRow) {
-	    simCurrentViewRow = viewRow;
-	    repaintSimulatorCursor();
-	}
-
-	private void advanceSimulatorCursor() {
-	    if (simCurrentViewRow < 0)
-	        return;
-
-	    simCurrentViewRow++;
-
-	    if (simCurrentViewRow >= logTable.getRowCount()) {
-	        stopSimulation();
-	        return;
-	    }
-
-	    repaintSimulatorCursor();
-	}
-
-	private void repaintSimulatorCursor() {
-	    logTable.repaint();
-
-	    if (simCurrentViewRow >= 0 && simCurrentViewRow < logTable.getRowCount()) {
-	        Rectangle r = logTable.getCellRect(simCurrentViewRow, 0, true);
-	        logTable.scrollRectToVisible(r);
-	    }
-	}
 
     /**
      * Clipboard payload for one journal file: absolute path as text and, when possible,

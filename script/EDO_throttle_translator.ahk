@@ -1,7 +1,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 #UseHook
-
+A_MaxHotkeysPerInterval := 1000
 ; ============================================================
 ; Elite Dangerous throttle translator (AHK v2)
 ; - Reads Status.json: GuiFocus + OnFoot

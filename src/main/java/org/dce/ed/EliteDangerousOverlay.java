@@ -39,6 +39,7 @@ import org.dce.ed.ui.StartupSplashOverlay;
 import org.dce.ed.util.AppIconUtil;
 import org.dce.ed.util.EliteWindowFocus;
 import org.dce.ed.util.GithubMsiUpdater;
+import org.dce.ed.util.OverlayFocusAlwaysOnTop;
 
 import com.github.kwhat.jnativehook.GlobalScreen;
 import com.github.kwhat.jnativehook.NativeHookException;
@@ -71,6 +72,8 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     private boolean overlayWindowMaximized;
 
     private static final String PREF_START_IN_PASSTHROUGH = "overlay.startInPassThrough";
+
+    private OverlayFocusAlwaysOnTop focusAlwaysOnTop;
 
     
     public EliteDangerousOverlay() {
@@ -238,6 +241,9 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
             @Override
             public void windowClosing(WindowEvent e) {
                 try {
+                    if (focusAlwaysOnTop != null) {
+                        focusAlwaysOnTop.stop();
+                    }
                     if (contentPanel != null) {
                         contentPanel.disposeTabDocking();
                     }
@@ -278,6 +284,38 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
 //                Long.valueOf(12_300_000L));
         
         SwingUtilities.invokeLater(() -> VoicePackManager.checkAutoVoicePackOnStartup(voicePackHost));
+
+        focusAlwaysOnTop = new OverlayFocusAlwaysOnTop(this::syncFocusAlwaysOnTop);
+        focusAlwaysOnTop.start();
+    }
+
+    /**
+     * Overlay / float windows stay always-on-top only while Elite is foreground.
+     * Decorated (non-overlay) mode additionally requires the always-on-top preference.
+     */
+    private void syncFocusAlwaysOnTop() {
+        boolean eliteFg = EliteWindowFocus.isEliteForeground();
+        applyAlwaysOnTop(passThroughFrame, eliteFg);
+        applyAlwaysOnTop(decoratedDialog, eliteFg && OverlayPreferences.isNonOverlayAlwaysOnTop());
+        var docking = contentPanel != null ? contentPanel.getTabDockingController() : null;
+        if (docking != null) {
+            docking.setFloatingAlwaysOnTop(eliteFg);
+        }
+    }
+
+    private static void applyAlwaysOnTop(Window w, boolean alwaysOnTop) {
+        if (w == null || !w.isDisplayable()) {
+            return;
+        }
+        try {
+            if (w.isAlwaysOnTop() == alwaysOnTop) {
+                return;
+            }
+            // setAlwaysOnTop alone raises/lowers the topmost band; avoid toFront/requestFocus
+            // so we do not steal keyboard focus back from Elite when it regains the foreground.
+            w.setAlwaysOnTop(alwaysOnTop);
+        } catch (Exception ignored) {
+        }
     }
 
     private void setPassThroughMode(boolean enablePassThrough) {
@@ -391,6 +429,10 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
     		passThroughFrame.setPassThroughEnabled(false);
     	    forceWindowToFront(toWindow);
     	}
+
+        if (focusAlwaysOnTop != null) {
+            focusAlwaysOnTop.refresh();
+        }
 
         PollyTtsCached.setSpeechDialogParentWindow(toWindow);
     }

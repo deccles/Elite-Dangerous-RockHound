@@ -33,6 +33,7 @@ import org.dce.ed.EliteOverlayTabbedPane;
 import org.dce.ed.EdoTestFlags;
 import org.dce.ed.MouseInteractionMode;
 import org.dce.ed.OverlayFrame;
+import org.dce.ed.util.EliteWindowFocus;
 import org.dce.ed.ui.tabdock.OverlayTabTransferable.OverlayTabTransferData;
 
 /**
@@ -98,7 +99,8 @@ public final class TabDockingController {
             for (TabLayoutState.FloatDockState f : state.floats) {
                 FloatingTabFrame frame = ensureFloat(f.id);
                 frame.setBounds(f.x, f.y, f.width, f.height);
-                frame.setAlwaysOnTop(f.alwaysOnTop);
+                // Runtime AOT is gated by Elite focus; persisted flag is desired-when-ED-focused.
+                frame.setAlwaysOnTop(f.alwaysOnTop && EliteWindowFocus.isEliteForeground());
                 frame.setMouseInteractionMode(f.mouseInteractionMode());
                 for (String card : f.tabs) {
                     moveTab(card, f.id, -1, false);
@@ -213,7 +215,8 @@ public final class TabDockingController {
             f.y = b.y;
             f.width = b.width;
             f.height = b.height;
-            f.alwaysOnTop = frame.isAlwaysOnTop();
+            // Do not persist temporary AOT-off while Elite is not focused.
+            f.alwaysOnTop = true;
             f.setMouseInteractionMode(frame.getMouseInteractionMode());
             state.floats.add(f);
         }
@@ -509,6 +512,21 @@ public final class TabDockingController {
             return tabbedPane;
         }
         return floats.get(dockId);
+    }
+
+    /** Apply always-on-top to all floating tab windows (Elite-focus gated by caller). */
+    public void setFloatingAlwaysOnTop(boolean alwaysOnTop) {
+        for (FloatingTabFrame frame : floats.values()) {
+            if (frame == null || !frame.isDisplayable()) {
+                continue;
+            }
+            try {
+                if (frame.isAlwaysOnTop() != alwaysOnTop) {
+                    frame.setAlwaysOnTop(alwaysOnTop);
+                }
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /**

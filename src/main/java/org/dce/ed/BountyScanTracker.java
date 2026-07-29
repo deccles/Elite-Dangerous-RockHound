@@ -145,22 +145,33 @@ public final class BountyScanTracker {
             if (bounty.longValue() < valuableThreshold) {
                 return Optional.empty();
             }
-            return Optional.of(new SpeechRequest(
-                    FIRST_BOUNTY_SPEECH,
-                    TtsSprintf.roundCreditsForSpeech(bounty),
-                    0L));
+            long rounded = TtsSprintf.roundCreditsForSpeech(bounty);
+            if (rounded <= 0L) {
+                return Optional.empty();
+            }
+            return Optional.of(new SpeechRequest(FIRST_BOUNTY_SPEECH, rounded, 0L));
         }
 
         if (state == ScanState.FIRST_ANNOUNCED
                 && previous != null
                 && bounty > previous
                 && OverlayPreferences.isBountyScanAdditionalAnnouncementEnabled()) {
-            stateByPilot.put(pilotKey, ScanState.ADDITIONAL_ANNOUNCED);
             long delta = bounty - previous;
+            long valuableThreshold = OverlayPreferences.getBountyScanValuableThresholdCredits();
+            // Additional speech is gated on the KWS delta alone, not the running total.
+            if (delta < valuableThreshold) {
+                return Optional.empty();
+            }
+            long roundedDelta = TtsSprintf.roundCreditsForSpeech(delta);
+            long roundedTotal = TtsSprintf.roundCreditsForSpeech(bounty);
+            if (roundedDelta <= 0L) {
+                return Optional.empty();
+            }
+            stateByPilot.put(pilotKey, ScanState.ADDITIONAL_ANNOUNCED);
             return Optional.of(new SpeechRequest(
                     ADDITIONAL_BOUNTY_SPEECH,
-                    TtsSprintf.roundCreditsForSpeech(delta),
-                    TtsSprintf.roundCreditsForSpeech(bounty)));
+                    roundedDelta,
+                    roundedTotal));
         }
 
         return Optional.empty();

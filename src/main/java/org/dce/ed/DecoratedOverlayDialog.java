@@ -166,7 +166,8 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
 
 		applyOverlayBackgroundFromPreferences(false);
 		applyUiFontPreferences();
-		setAlwaysOnTop(OverlayPreferences.isNonOverlayAlwaysOnTop());
+		setAlwaysOnTop(OverlayPreferences.isNonOverlayAlwaysOnTop()
+				&& org.dce.ed.util.EliteWindowFocus.isEliteForeground());
 
 		installStatusArea();
 
