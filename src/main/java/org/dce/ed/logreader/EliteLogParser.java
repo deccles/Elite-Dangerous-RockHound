@@ -19,6 +19,7 @@ import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.BountyCreditsTracker;
 import org.dce.ed.logreader.event.ApproachBodyEvent;
 import org.dce.ed.logreader.event.BountyEvent;
+import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.TouchdownEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
@@ -203,6 +204,8 @@ public class EliteLogParser {
                 return new CargoDepotEvent(ts, obj);
             case BOUNTY:
                 return parseBounty(ts, obj);
+            case FACTION_KILL_BOND:
+                return parseFactionKillBond(ts, obj);
             case REDEEM_VOUCHER:
                 return parseRedeemVoucher(ts, obj);
             case MATERIALS:
@@ -227,6 +230,10 @@ public class EliteLogParser {
 
     private BountyEvent parseBounty(Instant ts, JsonObject obj) {
         return new BountyEvent(ts, obj, BountyCreditsTracker.earnedAmountFromJson(obj));
+    }
+
+    private FactionKillBondEvent parseFactionKillBond(Instant ts, JsonObject obj) {
+        return new FactionKillBondEvent(ts, obj, FactionKillBondEvent.rewardFromJson(obj));
     }
 
     private RedeemVoucherEvent parseRedeemVoucher(Instant ts, JsonObject obj) {

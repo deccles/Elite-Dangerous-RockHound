@@ -10,7 +10,7 @@ import com.google.gson.JsonObject;
 /**
  * Bounty – written when the commander is awarded a bounty for a kill.
  */
-public final class BountyEvent extends EliteLogEvent {
+public final class BountyEvent extends EliteLogEvent implements CombatRewardEvent {
 
     private final long totalReward;
     private final String victimFaction;
@@ -24,6 +24,11 @@ public final class BountyEvent extends EliteLogEvent {
     }
 
     public long getTotalReward() {
+        return totalReward;
+    }
+
+    @Override
+    public long getCombatReward() {
         return totalReward;
     }
 

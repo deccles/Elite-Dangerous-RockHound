@@ -74,6 +74,8 @@ public enum EliteEventType {
     SELL_EXPLORATION_DATA("SellExplorationData"),
     /** Combat bounty awarded for a kill. */
     BOUNTY("Bounty"),
+    /** Combat bond awarded for a conflict-zone ship kill. */
+    FACTION_KILL_BOND("FactionKillBond"),
     /** Bounty or combat bond voucher redemption at a station or broker. */
     REDEEM_VOUCHER("RedeemVoucher"),
     RECEIVE_TEXT("ReceiveText"),
@@ -128,6 +130,7 @@ public enum EliteEventType {
         return switch (this) {
             case APPROACH_BODY -> "Commander approaching a planet/moon surface body.";
             case BOUNTY -> "Combat bounty awarded for a kill.";
+            case FACTION_KILL_BOND -> "Combat bond awarded for a conflict-zone ship kill.";
             case CARGO -> "Cargo manifest updated.";
             case CARGO_DEPOT -> "Mission cargo depot progress updated.";
             case CARRIER_JUMP -> "Fleet carrier arrived in a new system.";
