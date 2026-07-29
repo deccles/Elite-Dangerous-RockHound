@@ -7,6 +7,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.CombatRewardEvent;
+import org.dce.ed.session.CombatSessionData;
+import org.dce.ed.session.EdoSessionState;
 
 /**
  * Tracks combat credits earned after dropping from supercruise until returning to it.
@@ -110,6 +112,41 @@ public final class CombatSessionTracker {
         return new Snapshot(candidateExitAt, startedAt, end, earnedCredits, rate, active, displayed);
     }
 
+    /** Adds this tracker’s restart-safe state to the shared combat session data. */
+    public synchronized void fillSessionState(EdoSessionState state) {
+        if (state == null) {
+            return;
+        }
+        CombatSessionData combat = state.getCombat();
+        if (combat == null) {
+            combat = new CombatSessionData();
+            state.setCombat(combat);
+        }
+        combat.setCreditsSessionCandidateExitAt(formatInstant(candidateExitAt));
+        combat.setCreditsSessionStartedAt(formatInstant(startedAt));
+        combat.setCreditsSessionEndedAt(formatInstant(endedAt));
+        combat.setCreditsSessionEarnedCredits(earnedCredits);
+        combat.setCreditsSessionActive(active);
+    }
+
+    /** Restores this tracker from the shared combat session data, tolerating older or malformed data. */
+    public synchronized void applySessionState(EdoSessionState state) {
+        clear();
+        if (state == null || state.getCombat() == null) {
+            return;
+        }
+        CombatSessionData combat = state.getCombat();
+        candidateExitAt = parseInstant(combat.getCreditsSessionCandidateExitAt());
+        startedAt = parseInstant(combat.getCreditsSessionStartedAt());
+        endedAt = parseInstant(combat.getCreditsSessionEndedAt());
+        earnedCredits = Math.max(0L, combat.getCreditsSessionEarnedCredits());
+        active = combat.isCreditsSessionActive() && startedAt != null;
+        if (active) {
+            endedAt = null;
+        }
+        notifyListeners();
+    }
+
     private boolean hasDisplayedSessionInternal() {
         return startedAt != null;
     }
@@ -138,6 +175,21 @@ public final class CombatSessionTracker {
 
     private static long saturatedAdd(long left, long right) {
         return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
+    }
+
+    private static String formatInstant(Instant instant) {
+        return instant != null ? instant.toString() : null;
+    }
+
+    private static Instant parseInstant(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(value.trim());
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private void notifyListeners() {

@@ -15,6 +15,14 @@ public final class CombatSessionData {
     private List<KillPersisted> kills = new ArrayList<>();
     private long totalBountiesEarned;
     private long totalOtherBounties;
+    /** ISO-8601 supercruise-exit timestamp awaiting the first qualifying reward. */
+    private String creditsSessionCandidateExitAt;
+    /** ISO-8601 timestamp at which the displayed credits session started. */
+    private String creditsSessionStartedAt;
+    /** ISO-8601 timestamp at which the displayed credits session ended. */
+    private String creditsSessionEndedAt;
+    private long creditsSessionEarnedCredits;
+    private boolean creditsSessionActive;
     /** Internal ship id → localised display (helps name kills after restart). */
     private Map<String, String> shipDisplayById = new LinkedHashMap<>();
     /** Internal ship id → pilot display name. */
@@ -50,6 +58,46 @@ public final class CombatSessionData {
 
     public void setTotalOtherBounties(long totalOtherBounties) {
         this.totalOtherBounties = totalOtherBounties;
+    }
+
+    public String getCreditsSessionCandidateExitAt() {
+        return creditsSessionCandidateExitAt;
+    }
+
+    public void setCreditsSessionCandidateExitAt(String creditsSessionCandidateExitAt) {
+        this.creditsSessionCandidateExitAt = creditsSessionCandidateExitAt;
+    }
+
+    public String getCreditsSessionStartedAt() {
+        return creditsSessionStartedAt;
+    }
+
+    public void setCreditsSessionStartedAt(String creditsSessionStartedAt) {
+        this.creditsSessionStartedAt = creditsSessionStartedAt;
+    }
+
+    public String getCreditsSessionEndedAt() {
+        return creditsSessionEndedAt;
+    }
+
+    public void setCreditsSessionEndedAt(String creditsSessionEndedAt) {
+        this.creditsSessionEndedAt = creditsSessionEndedAt;
+    }
+
+    public long getCreditsSessionEarnedCredits() {
+        return creditsSessionEarnedCredits;
+    }
+
+    public void setCreditsSessionEarnedCredits(long creditsSessionEarnedCredits) {
+        this.creditsSessionEarnedCredits = creditsSessionEarnedCredits;
+    }
+
+    public boolean isCreditsSessionActive() {
+        return creditsSessionActive;
+    }
+
+    public void setCreditsSessionActive(boolean creditsSessionActive) {
+        this.creditsSessionActive = creditsSessionActive;
     }
 
     public Map<String, String> getShipDisplayById() {

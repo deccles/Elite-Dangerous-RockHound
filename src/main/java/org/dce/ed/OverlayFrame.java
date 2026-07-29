@@ -160,6 +160,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 	private final OverlayBackgroundPanel backgroundPanel;
     private final ExecTriggerService execTriggerService = new ExecTriggerService();
     private final ExecPlaceholderContext execPlaceholderContext = new ExecPlaceholderContext();
+    private final CombatSessionTracker combatSessionTracker = new CombatSessionTracker();
+    private boolean combatSessionPersistenceListenerInstalled;
 
     /** When non-null+not expired, overrides Low Limpet Warning red status. */
     private volatile String exceptionLeftStatusText;
@@ -927,6 +929,10 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         NpcCrewTracker.getInstance().setSessionStateChangeCallback(debouncedSave);
         CombatTargetTracker.getInstance().setSessionStateChangeCallback(debouncedSave);
         restoreSessionState();
+        if (!combatSessionPersistenceListenerInstalled) {
+            combatSessionTracker.addListener(debouncedSave);
+            combatSessionPersistenceListenerInstalled = true;
+        }
         tabs.getMissionsTabPanel().hydrateTrackerFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
         tabs.getEngineeringTabPanel().hydrateFromJournalIfNeeded(EliteDangerousOverlay.clientKey);
     }
@@ -1002,6 +1008,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         state.setBountyCreditsTotalUnclaimed(Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
         NpcCrewTracker.getInstance().fillSessionState(state);
         CombatTargetTracker.getInstance().fillSessionState(state);
+        combatSessionTracker.fillSessionState(state);
         fillCarrierSessionState(state);
         EdoSessionPersistence.save(state);
     }
@@ -1050,6 +1057,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         }
         NpcCrewTracker.getInstance().applySessionState(state);
         CombatTargetTracker.getInstance().applySessionState(state);
+        combatSessionTracker.applySessionState(state);
         LoadoutEvent loadout = EliteOverlayTabbedPane.getLatestLoadout();
         if (loadout != null) {
             NpcCrewTracker.getInstance().onLoadout(loadout);
@@ -1166,6 +1174,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         try {
             LiveJournalMonitor monitor = LiveJournalMonitor.getInstance(EliteDangerousOverlay.clientKey);
             monitor.addListener(event -> {
+                combatSessionTracker.applyJournalEvent(event);
                 EliteOverlayTabbedPane pane = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
                 if (pane != null) {
                     pane.processJournalEvent(event);

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 
 import org.dce.ed.logreader.EliteLogParser;
+import org.dce.ed.session.EdoSessionState;
 import org.junit.jupiter.api.Test;
 
 class CombatSessionTrackerTest {
@@ -107,6 +108,42 @@ class CombatSessionTrackerTest {
         assertEquals(80_000L, ((org.dce.ed.logreader.event.FactionKillBondEvent) parser.parseRecord(
                 "{\"timestamp\":\"2026-07-29T12:00:00Z\",\"event\":\"FactionKillBond\",\"Reward\":80000}"))
                 .getCombatReward());
+    }
+
+    @Test
+    void restoresPendingSupercruiseExitFromSessionState() {
+        Instant exit = Instant.parse("2026-07-29T12:00:00Z");
+        CombatSessionTracker tracker = new CombatSessionTracker();
+        tracker.applyJournalEvent(event(exit, "SupercruiseExit", ""));
+        EdoSessionState state = new EdoSessionState();
+
+        tracker.fillSessionState(state);
+
+        CombatSessionTracker restored = new CombatSessionTracker();
+        restored.applySessionState(state);
+        CombatSessionTracker.Snapshot snapshot = restored.snapshot(exit.plusSeconds(60));
+        assertEquals(exit, snapshot.candidateExitAt());
+        assertFalse(snapshot.active());
+        assertFalse(snapshot.hasDisplayedSession());
+    }
+
+    @Test
+    void restoresActiveSessionCreditsAndStartTimeFromSessionState() {
+        Instant exit = Instant.parse("2026-07-29T12:00:00Z");
+        CombatSessionTracker tracker = activeTracker();
+        tracker.applyJournalEvent(event(exit.plusSeconds(90), "FactionKillBond", "\"Reward\":80000"));
+        EdoSessionState state = new EdoSessionState();
+
+        tracker.fillSessionState(state);
+
+        CombatSessionTracker restored = new CombatSessionTracker();
+        restored.applySessionState(state);
+        CombatSessionTracker.Snapshot snapshot = restored.snapshot(exit.plusSeconds(120));
+        assertEquals(exit, snapshot.startedAt());
+        assertTrue(snapshot.active());
+        assertTrue(snapshot.hasDisplayedSession());
+        assertEquals(200_000L, snapshot.earnedCredits());
+        assertEquals(6_000_000L, snapshot.creditsPerHour());
     }
 
     private CombatSessionTracker activeTracker() {
