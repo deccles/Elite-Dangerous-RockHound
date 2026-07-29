@@ -72,6 +72,7 @@ public final class CombatTabPanel extends JPanel {
     private final BooleanSupplier passThroughEnabledSupplier;
     private final ContentPanel content = new ContentPanel();
     private final JScrollPane scroll;
+    private final JPanel summary = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
 
     private final StatChip earnedChip = new StatChip("EARNED");
     private final StatChip creditsPerHourChip = new StatChip("CREDITS/HOUR");
@@ -124,15 +125,12 @@ public final class CombatTabPanel extends JPanel {
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
 
-        JPanel summary = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         summary.setOpaque(false);
         summary.setAlignmentX(Component.LEFT_ALIGNMENT);
         summary.setBorder(new EmptyBorder(0, 0, 6, 0));
         summary.add(earnedChip);
         summary.add(creditsPerHourChip);
-        // BoxLayout needs an explicit cap, but it must accommodate scaled two-line metric text.
-        summary.setMaximumSize(new Dimension(Integer.MAX_VALUE,
-                summaryHeightForPreferredContent(summary.getPreferredSize().height)));
+        syncSummaryHeight();
 
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         content.setOpaque(false);
@@ -342,6 +340,7 @@ public final class CombatTabPanel extends JPanel {
         syncSectionHeaderBarSize(fighterTop);
         earnedChip.applyFont(font);
         creditsPerHourChip.applyFont(font);
+        syncSummaryHeight();
         styleCombatTable(targetTable);
         styleCombatTable(scannedTable);
         styleCombatTable(killsTable);
@@ -423,6 +422,12 @@ public final class CombatTabPanel extends JPanel {
 
     static int summaryHeightForPreferredContent(int preferredHeight) {
         return Math.max(56, Math.max(0, preferredHeight) + 6);
+    }
+
+    private void syncSummaryHeight() {
+        int height = summaryHeightForPreferredContent(summary.getPreferredSize().height);
+        summary.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
+        summary.setMinimumSize(new Dimension(0, height));
     }
 
     private void updateTargetTable(CombatTargetTracker.LockedTarget target) {
