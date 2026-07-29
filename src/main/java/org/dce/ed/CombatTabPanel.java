@@ -7,6 +7,7 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.GridLayout;
+import java.awt.FlowLayout;
 import java.awt.IllegalComponentStateException;
 import java.awt.Insets;
 import java.awt.Point;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
+import java.time.Instant;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -31,6 +33,7 @@ import javax.swing.JTable;
 import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -70,9 +73,10 @@ public final class CombatTabPanel extends JPanel {
     private final ContentPanel content = new ContentPanel();
     private final JScrollPane scroll;
 
-    private final StatChip unclaimedChip = new StatChip("UNCLAIMED");
     private final StatChip earnedChip = new StatChip("EARNED");
-    private final StatChip otherChip = new StatChip("OTHER");
+    private final StatChip creditsPerHourChip = new StatChip("CREDITS/HOUR");
+    private CombatSessionTracker combatSessionTracker;
+    private final Timer creditsRateTimer = new Timer(1_000, e -> refreshFromTrackers());
 
     private final BountyRowTableModel targetModel = new BountyRowTableModel();
     private final JTable targetTable = new JTable(targetModel);
@@ -120,13 +124,12 @@ public final class CombatTabPanel extends JPanel {
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
 
-        JPanel summary = new JPanel(new GridLayout(1, 3, 8, 0));
+        JPanel summary = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         summary.setOpaque(false);
         summary.setAlignmentX(Component.LEFT_ALIGNMENT);
         summary.setBorder(new EmptyBorder(0, 0, 6, 0));
-        summary.add(unclaimedChip);
         summary.add(earnedChip);
-        summary.add(otherChip);
+        summary.add(creditsPerHourChip);
         // BoxLayout otherwise stretches GridLayout rows vertically.
         summary.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
 
@@ -241,6 +244,14 @@ public final class CombatTabPanel extends JPanel {
         requestRefresh();
     }
 
+    public void setCombatSessionTracker(CombatSessionTracker tracker) {
+        this.combatSessionTracker = tracker;
+        if (tracker != null) {
+            tracker.addListener(this::requestRefresh);
+        }
+        requestRefresh();
+    }
+
     public void reloadFighterBindings() {
         reloadCombatCommandBindings();
     }
@@ -328,9 +339,8 @@ public final class CombatTabPanel extends JPanel {
         fighterPilotLabel.setFont(font);
         fighterTop.setBorder(sectionHeaderBorder());
         syncSectionHeaderBarSize(fighterTop);
-        unclaimedChip.applyFont(font);
         earnedChip.applyFont(font);
-        otherChip.applyFont(font);
+        creditsPerHourChip.applyFont(font);
         styleCombatTable(targetTable);
         styleCombatTable(scannedTable);
         styleCombatTable(killsTable);
@@ -376,12 +386,13 @@ public final class CombatTabPanel extends JPanel {
 
     private void refreshFromTrackers() {
         CombatTargetTracker tracker = CombatTargetTracker.getInstance();
-        long unclaimed = unclaimedBountyCreditsSupplier != null
-                ? Math.max(0L, unclaimedBountyCreditsSupplier.getAsLong())
-                : 0L;
-        unclaimedChip.setValue(formatCompact(unclaimed));
-        earnedChip.setValue(formatCompact(tracker.getTotalBountiesEarned()));
-        otherChip.setValue(formatCompact(tracker.getTotalOtherBounties()));
+        CombatSessionTracker.Snapshot session = combatSessionTracker != null
+                ? combatSessionTracker.snapshot(Instant.now()) : null;
+        earnedChip.setValue(session != null && session.hasDisplayedSession()
+                ? formatCompact(session.earnedCredits()) : "—");
+        creditsPerHourChip.setValue(session != null && session.hasDisplayedSession()
+                ? formatCompact(session.creditsPerHour()) : "—");
+        syncCreditsRateTimer(session != null && session.active());
 
         updateTargetTable(tracker.getLockedTarget());
         updateScannedTable(tracker.getScannedWantedShips());
@@ -394,6 +405,19 @@ public final class CombatTabPanel extends JPanel {
         updateFighterSection();
         revalidate();
         repaint();
+    }
+
+    private void syncCreditsRateTimer(boolean activeSession) {
+        boolean shouldRun = shouldRunCreditsRateTimer(isShowing(), activeSession);
+        if (shouldRun && !creditsRateTimer.isRunning()) {
+            creditsRateTimer.start();
+        } else if (!shouldRun && creditsRateTimer.isRunning()) {
+            creditsRateTimer.stop();
+        }
+    }
+
+    static boolean shouldRunCreditsRateTimer(boolean combatTabVisible, boolean activeSession) {
+        return combatTabVisible && activeSession;
     }
 
     private void updateTargetTable(CombatTargetTracker.LockedTarget target) {
@@ -843,6 +867,7 @@ public final class CombatTabPanel extends JPanel {
             setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createMatteBorder(0, 0, 1, 0, EdoUi.Internal.separatorLine()),
                     new EmptyBorder(2, 4, 4, 4)));
+            setPreferredSize(new Dimension(112, getPreferredSize().height));
         }
 
         void setValue(String text) {

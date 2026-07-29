@@ -689,6 +689,12 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		}
 	}
 
+	public void setCombatSessionTracker(CombatSessionTracker tracker) {
+		if (combatTab != null) {
+			combatTab.setCombatSessionTracker(tracker);
+		}
+	}
+
 	public EngineeringTabPanel getEngineeringTabPanel() {
 		return engineeringTab;
 	}

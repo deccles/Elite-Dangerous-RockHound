@@ -1223,6 +1223,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         execPlaceholderContext.setGeoSurveyCreditsSupplier(() -> Long.valueOf(geoSurveyCreditsTotal));
         execPlaceholderContext.setBountyCreditsSupplier(() -> Long.valueOf(bountyCreditsTracker.getUnclaimedTotal()));
         tabs.setCombatUnclaimedBountyCreditsSupplier(() -> bountyCreditsTracker.getUnclaimedTotal());
+        tabs.setCombatSessionTracker(combatSessionTracker);
         execPlaceholderContext.setExecConfigSupplier(() -> {
             ExecBindingsConfig config = execTriggerService.store().load();
             return config;

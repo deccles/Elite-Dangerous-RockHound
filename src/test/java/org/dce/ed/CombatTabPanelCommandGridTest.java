@@ -32,4 +32,11 @@ class CombatTabPanelCommandGridTest {
     void neverExceedsButtonCount() {
         assertEquals(2, CombatTabPanel.commandGridColumns(800, 50, 2, 4));
     }
+
+    @Test
+    void creditsRateTimerRunsOnlyForVisibleActiveCombatSession() {
+        assertEquals(true, CombatTabPanel.shouldRunCreditsRateTimer(true, true));
+        assertEquals(false, CombatTabPanel.shouldRunCreditsRateTimer(false, true));
+        assertEquals(false, CombatTabPanel.shouldRunCreditsRateTimer(true, false));
+    }
 }
