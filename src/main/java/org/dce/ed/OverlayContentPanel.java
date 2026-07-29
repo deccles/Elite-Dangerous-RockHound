@@ -11,6 +11,7 @@ import java.util.function.Supplier;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
+import org.dce.ed.ui.EdoSurface;
 import org.dce.ed.ui.tabdock.TabDockingController;
 
 public class OverlayContentPanel extends JPanel {
@@ -26,8 +27,10 @@ public class OverlayContentPanel extends JPanel {
 
         setOpaque(false);
         setLayout(new BorderLayout());
+        EdoSurface.markOverlay(this);
 
         tabbedPane = new EliteOverlayTabbedPane(() -> this.passThroughEnabledSupplier.getAsBoolean());
+        EdoSurface.markOverlay(tabbedPane);
         add(tabbedPane, BorderLayout.CENTER);
         installTabDocking(tabbedPane);
     }
@@ -57,6 +60,7 @@ public class OverlayContentPanel extends JPanel {
         }
 
         EliteOverlayTabbedPane next = new EliteOverlayTabbedPane(() -> this.passThroughEnabledSupplier.getAsBoolean());
+        EdoSurface.markOverlay(next);
         tabbedPane = next;
 
         if (old != null) {

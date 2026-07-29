@@ -82,6 +82,7 @@ import org.dce.ed.logreader.EliteJournalReader;
 import org.dce.ed.logreader.LogSearchFilter;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.RescanJournalsMain;
+import org.dce.ed.ui.EdoSurface;
 import org.dce.ed.logreader.event.CommanderEvent;
 import org.dce.ed.logreader.event.FileheaderEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
@@ -264,6 +265,8 @@ public class LogTabPanel extends JPanel {
         super(new BorderLayout());
         setOpaque(true);
         setBackground(JOURNAL_CHROME);
+        // Light journal chrome — not overlay theme. Mark before building children.
+        EdoSurface.markDocument(this);
         this.prefs = Preferences.userNodeForPackage(LogTabPanel.class);
         this.excludedEventNames = loadExcludedEventNamesFromPreferences();
 

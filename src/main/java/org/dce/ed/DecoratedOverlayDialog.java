@@ -16,7 +16,6 @@ import javax.swing.JLabel;
 import javax.swing.JMenuBar;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import org.dce.ed.util.AppIconUtil;
 
 import com.sun.jna.Library;
@@ -451,9 +450,6 @@ public class DecoratedOverlayDialog extends JFrame implements OverlayUiPreviewHo
     @Override
     public void applyThemeFromPreferences() {
         OverlayPreferences.applyThemeToEdoUi();
-
-        UIManager.put("TitlePane.background", EdoUi.User.BACKGROUND);
-        UIManager.put("TitlePane.foreground", EdoUi.User.MAIN_TEXT);
 
         if (contentPanel != null) {
             contentPanel.rebuildTabbedPane();

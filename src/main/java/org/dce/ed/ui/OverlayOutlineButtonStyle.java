@@ -14,6 +14,7 @@ import javax.swing.AbstractButton;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.UIManager;
 import javax.swing.border.AbstractBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.plaf.ComponentUI;
@@ -25,26 +26,24 @@ import org.dce.ed.OverlayPreferences;
 /**
  * Outline text button styling (same look as Route tab "Copy next destination").
  * Primary/chip ink and borders follow {@link EdoUi.User#MAIN_TEXT} from Preferences.
+ * <p>
+ * Factories set {@link EdoLookAndFeel} client properties ({@code edo.buttonRole},
+ * {@code edo.hitSafe}, {@code edo.buttonCompact}) then install the matching UI — shims until
+ * a global {@code ButtonUI} can read those properties safely.
  */
 public final class OverlayOutlineButtonStyle {
 
     private static final int DEFAULT_ARC = 12;
     private static final String DANGER_DISABLED_TEXT_KEY = "edo.outlineButton.dangerDisabledText";
     private static final String THEME_INK_KEY = "edo.outlineButton.themeInk";
-    /** True red when scripts are running — not coral/salmon. */
-    private static final Color DANGER_ACTIVE = new Color(220, 38, 38);
-    /**
-     * Idle Kill-scripts gray — also used for disabled primary outline buttons
-     * (Combat fighter/targeting, etc.).
-     */
-    private static final Color OUTLINE_IDLE = new Color(130, 130, 130);
 
     private OverlayOutlineButtonStyle() {
     }
 
     /** Full-size primary action button (e.g. copy strip). */
     public static void applyPrimary(JButton b, Font uiFont) {
-        applyTheme(b, uiFont, true, new Insets(8, 18, 8, 18), true);
+        applyTheme(b, uiFont, true, paddingPrimary(), true);
+        tagRole(b, EdoLookAndFeel.BUTTON_ROLE_PRIMARY, false, false);
     }
 
     /**
@@ -61,14 +60,14 @@ public final class OverlayOutlineButtonStyle {
      *        (e.g. muted “Copy next destination” when there is nothing to copy)
      */
     public static void applyPrimaryHitSafe(JButton b, Font uiFont, boolean forceThemeInk) {
-        applyPrimaryHitSafe(b, uiFont, forceThemeInk, new Insets(8, 18, 8, 18), 1f);
+        applyPrimaryHitSafe(b, uiFont, forceThemeInk, paddingPrimary(), 1f);
     }
 
     /**
      * Compact hit-safe primary (~70% font/padding) for dense grids such as Combat commands.
      */
     public static void applyPrimaryHitSafeCompact(JButton b, Font uiFont) {
-        applyPrimaryHitSafe(b, uiFont, true, new Insets(5, 12, 5, 12), 0.7f);
+        applyPrimaryHitSafe(b, uiFont, true, paddingCompact(), 0.7f);
     }
 
     private static void applyPrimaryHitSafe(
@@ -90,6 +89,7 @@ public final class OverlayOutlineButtonStyle {
         b.setBorder(BorderFactory.createCompoundBorder(
                 new ThemeRoundedLineBorder(true, 2, DEFAULT_ARC),
                 new EmptyBorder(padding.top, padding.left, padding.bottom, padding.right)));
+        tagRole(b, EdoLookAndFeel.BUTTON_ROLE_PRIMARY, true, isCompactPadding(padding));
         applyOverlayHitPlate(b);
         b.setUI(HitSafeButtonUI.INSTANCE);
     }
@@ -103,7 +103,7 @@ public final class OverlayOutlineButtonStyle {
         if (b == null || uiFont == null) {
             return;
         }
-        Color ink = active ? DANGER_ACTIVE : OUTLINE_IDLE;
+        Color ink = active ? EdoUi.Internal.OUTLINE_DANGER_ACTIVE : EdoUi.Internal.OUTLINE_IDLE;
         int size = OverlayPreferences.getUiFontSize();
         b.setFocusable(false);
         b.setFocusPainted(false);
@@ -113,10 +113,12 @@ public final class OverlayOutlineButtonStyle {
         b.setMargin(new Insets(0, 0, 0, 0));
         b.setBorderPainted(true);
         b.putClientProperty(THEME_INK_KEY, Boolean.FALSE);
-        b.putClientProperty(DANGER_DISABLED_TEXT_KEY, OUTLINE_IDLE);
+        b.putClientProperty(DANGER_DISABLED_TEXT_KEY, EdoUi.Internal.OUTLINE_IDLE);
+        Insets padding = paddingPrimary();
         b.setBorder(BorderFactory.createCompoundBorder(
                 new RoundedLineBorder(ink, 2, DEFAULT_ARC),
-                new EmptyBorder(8, 18, 8, 18)));
+                new EmptyBorder(padding.top, padding.left, padding.bottom, padding.right)));
+        tagRole(b, EdoLookAndFeel.BUTTON_ROLE_DANGER, true, false);
         applyOverlayHitPlate(b);
         b.setUI(HitSafeButtonUI.INSTANCE);
     }
@@ -125,15 +127,14 @@ public final class OverlayOutlineButtonStyle {
      * Opaque fill so layered windows deliver clicks. Uses fully-opaque RGB (alpha 255) —
      * translucent plates still lose hits on Win32 per-pixel layered windows.
      */
-    public static void applyOverlayHitPlate(JButton b) {
+    public static void applyOverlayHitPlate(AbstractButton b) {
         if (b == null) {
             return;
         }
         b.setOpaque(true);
         b.setContentAreaFilled(true);
-        if (OverlayPreferences.overlayChromeRequestsTransparency(b)) {
-            // Dark plate, fully opaque for hit-testing; still reads as a dim control over the game.
-            b.setBackground(new Color(28, 30, 36));
+        if (OverlayPreferences.overlayChromeRequestsTransparency(b) || EdoSurface.isOverlay(b)) {
+            b.setBackground(EdoUi.Internal.HIT_PLATE_BG);
         } else {
             Color bg = EdoUi.User.BACKGROUND;
             b.setBackground(new Color(bg.getRed(), bg.getGreen(), bg.getBlue()));
@@ -179,7 +180,7 @@ public final class OverlayOutlineButtonStyle {
                 Color previous = b.getForeground();
                 boolean enabled = b.isEnabled();
                 try {
-                    b.setForeground(enabled ? EdoUi.User.MAIN_TEXT : OUTLINE_IDLE);
+                    b.setForeground(enabled ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.OUTLINE_IDLE);
                     if (!enabled) {
                         b.getModel().setEnabled(true);
                     }
@@ -217,21 +218,82 @@ public final class OverlayOutlineButtonStyle {
      * @param active {@code true} when something is running (red); {@code false} when idle (gray)
      */
     public static void applyDanger(JButton b, Font uiFont, boolean active) {
-        Color ink = active ? DANGER_ACTIVE : OUTLINE_IDLE;
-        applyFixed(b, uiFont, true, new Insets(8, 18, 8, 18), ink);
+        Color ink = active ? EdoUi.Internal.OUTLINE_DANGER_ACTIVE : EdoUi.Internal.OUTLINE_IDLE;
+        applyFixed(b, uiFont, true, paddingPrimary(), ink);
         if (b != null) {
             b.putClientProperty(THEME_INK_KEY, Boolean.FALSE);
-            b.putClientProperty(DANGER_DISABLED_TEXT_KEY, OUTLINE_IDLE);
+            b.putClientProperty(DANGER_DISABLED_TEXT_KEY, EdoUi.Internal.OUTLINE_IDLE);
+            tagRole(b, EdoLookAndFeel.BUTTON_ROLE_DANGER, false, false);
             b.setUI((ButtonUI) DangerOutlineButtonUI.createUI(b));
         }
     }
 
-    /** Compact chip (filter tabs, dismiss). */
-    public static void applyChip(JButton b, Font uiFont, boolean selected) {
-        applyTheme(b, uiFont, selected, new Insets(4, 10, 4, 10), selected);
+    /** Compact chip (filter tabs, dismiss). Accepts {@link JToggleButton} for Table/Scatter-style toggles. */
+    public static void applyChip(AbstractButton b, Font uiFont, boolean selected) {
+        applyTheme(b, uiFont, selected, paddingChip(), selected);
+        tagRole(b, EdoLookAndFeel.BUTTON_ROLE_CHIP, false, false);
     }
 
-    private static void applyTheme(JButton b, Font uiFont, boolean bold, Insets padding, boolean strongBorder) {
+    /**
+     * Chip with opaque hit plate for translucent / layered overlay hosts (e.g. Mining Table/Scatter).
+     */
+    public static void applyChipHitSafe(AbstractButton b, Font uiFont, boolean selected) {
+        if (b == null || uiFont == null) {
+            return;
+        }
+        Insets padding = paddingChip();
+        int size = OverlayPreferences.getUiFontSize();
+        b.setFocusable(false);
+        b.setFocusPainted(false);
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        b.setFont(uiFont.deriveFont(selected ? Font.BOLD : Font.PLAIN, size));
+        b.setForeground(EdoUi.User.MAIN_TEXT);
+        b.setMargin(new Insets(0, 0, 0, 0));
+        b.setBorderPainted(true);
+        b.putClientProperty(THEME_INK_KEY, Boolean.TRUE);
+        b.putClientProperty(DANGER_DISABLED_TEXT_KEY, null);
+        b.setBorder(BorderFactory.createCompoundBorder(
+                new ThemeRoundedLineBorder(selected, 2, DEFAULT_ARC),
+                new EmptyBorder(padding.top, padding.left, padding.bottom, padding.right)));
+        tagRole(b, EdoLookAndFeel.BUTTON_ROLE_CHIP, true, false);
+        applyOverlayHitPlate(b);
+        b.setUI(HitSafeButtonUI.INSTANCE);
+    }
+
+    private static void tagRole(AbstractButton b, String role, boolean hitSafe, boolean compact) {
+        if (b == null) {
+            return;
+        }
+        b.putClientProperty(EdoLookAndFeel.BUTTON_ROLE_KEY, role);
+        b.putClientProperty(EdoLookAndFeel.HIT_SAFE_KEY, hitSafe ? Boolean.TRUE : null);
+        b.putClientProperty(EdoLookAndFeel.BUTTON_COMPACT_KEY, compact ? Boolean.TRUE : null);
+    }
+
+    private static boolean isCompactPadding(Insets padding) {
+        Insets compact = paddingCompact();
+        return padding != null
+                && padding.top == compact.top
+                && padding.left == compact.left
+                && padding.bottom == compact.bottom
+                && padding.right == compact.right;
+    }
+
+    private static Insets paddingPrimary() {
+        Object v = UIManager.get("edo.outlineButton.padding");
+        return v instanceof Insets i ? i : new Insets(8, 18, 8, 18);
+    }
+
+    private static Insets paddingCompact() {
+        Object v = UIManager.get("edo.outlineButton.compactPadding");
+        return v instanceof Insets i ? i : new Insets(5, 12, 5, 12);
+    }
+
+    private static Insets paddingChip() {
+        Object v = UIManager.get("edo.outlineButton.chipPadding");
+        return v instanceof Insets i ? i : new Insets(4, 10, 4, 10);
+    }
+
+    private static void applyTheme(AbstractButton b, Font uiFont, boolean bold, Insets padding, boolean strongBorder) {
         if (b == null || uiFont == null) {
             return;
         }
@@ -254,7 +316,7 @@ public final class OverlayOutlineButtonStyle {
                 new EmptyBorder(padding.top, padding.left, padding.bottom, padding.right)));
     }
 
-    private static void applyFixed(JButton b, Font uiFont, boolean bold, Insets padding, Color borderColor) {
+    private static void applyFixed(AbstractButton b, Font uiFont, boolean bold, Insets padding, Color borderColor) {
         if (b == null || uiFont == null) {
             return;
         }
@@ -295,7 +357,7 @@ public final class OverlayOutlineButtonStyle {
                 Color ink;
                 if (c != null && !c.isEnabled()) {
                     // Match Kill scripts idle gray for disabled primary outline buttons.
-                    ink = OUTLINE_IDLE;
+                    ink = EdoUi.Internal.OUTLINE_IDLE;
                 } else {
                     ink = strong ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.MAIN_TEXT_ALPHA_220;
                 }

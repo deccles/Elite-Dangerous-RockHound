@@ -22,7 +22,6 @@ import java.util.prefs.Preferences;
 
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import javax.swing.Timer;
 
 import java.time.LocalTime;
@@ -91,9 +90,6 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         this.decoratedDialog.setPersistenceDelegate(passThroughFrame);
         this.decoratedDialog.setOnRequestSwitchToPassThrough(() -> SwingUtilities.invokeLater(() -> setPassThroughMode(true)));
 
-        UIManager.put("TitlePane.background", EdoUi.User.BACKGROUND);
-        UIManager.put("TitlePane.foreground", EdoUi.User.MAIN_TEXT);
-        
         AppIconUtil.applyAppIcon(passThroughFrame, AppIconUtil.APP_ICON_RESOURCE);
         // Normal interactive startup check (dialog-based).
         GithubMsiUpdater.checkForUpdatesOnStartup(passThroughFrame);

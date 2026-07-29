@@ -1,6 +1,5 @@
 package org.dce.ed.ui;
 
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Window;
 
@@ -70,7 +69,7 @@ public final class AlwaysOnTopPopupFactory extends PopupFactory {
         Object previousTipFg = UIManager.get("ToolTip.foreground");
         Object previousTipBorder = UIManager.get("ToolTip.border");
         UIManager.put("ToolTip.background", EdoUi.User.PANEL_BG);
-        UIManager.put("ToolTip.foreground", new Color(230, 230, 230));
+        UIManager.put("ToolTip.foreground", EdoUi.Internal.MENU_FG_LIGHT);
         UIManager.put("ToolTip.border", new EmptyBorder(4, 8, 4, 8));
 
         host.addWindowListener(new java.awt.event.WindowAdapter() {

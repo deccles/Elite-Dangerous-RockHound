@@ -48,7 +48,6 @@ import javax.swing.JMenuBar;
 import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import javax.swing.Timer;
 import javax.swing.border.LineBorder;
 
@@ -2168,9 +2167,6 @@ private void refreshPassThroughUnifiedStatus() {
     @Override
     public void applyThemeFromPreferences() {
         OverlayPreferences.applyThemeToEdoUi();
-
-        UIManager.put("TitlePane.background", EdoUi.User.BACKGROUND);
-        UIManager.put("TitlePane.foreground", EdoUi.User.MAIN_TEXT);
 
         if (passThroughMenuBar != null) {
             OverlayMenuStatusBar.refreshMenuBarTheme(passThroughMenuBar);

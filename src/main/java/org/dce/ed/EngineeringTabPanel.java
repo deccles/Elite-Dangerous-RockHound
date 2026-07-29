@@ -3138,11 +3138,14 @@ public class EngineeringTabPanel extends JPanel {
         }
 
         if (!hasGoals) {
-            materialsEmptyLabel.setText("<html><body style='color:#ffcc88'>Add a goal to see required materials.</body></html>");
-            tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>Trade Suggestions appear when you have material shortfalls.</body></html>");
+            String ink = EdoUi.htmlHex(EdoUi.Internal.EMPTY_STATE_INK);
+            materialsEmptyLabel.setText("<html><body style='color:" + ink + "'>Add a goal to see required materials.</body></html>");
+            tradeEmptyLabel.setText("<html><body style='color:" + ink
+                    + "'>Trade Suggestions appear when you have material shortfalls.</body></html>");
         } else if (!hasVisibleGoals) {
-            materialsEmptyLabel.setText("<html><body style='color:#ffcc88'>No goals for the selected ship.</body></html>");
-            tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>No goals for the selected ship.</body></html>");
+            String ink = EdoUi.htmlHex(EdoUi.Internal.EMPTY_STATE_INK);
+            materialsEmptyLabel.setText("<html><body style='color:" + ink + "'>No goals for the selected ship.</body></html>");
+            tradeEmptyLabel.setText("<html><body style='color:" + ink + "'>No goals for the selected ship.</body></html>");
         } else if (shopping.isEmpty()) {
             materialsEmptyLabel.setForeground(EdoUi.User.MAIN_TEXT);
             materialsEmptyLabel.setText("No materials required");
@@ -3150,7 +3153,8 @@ public class EngineeringTabPanel extends JPanel {
             materialsEmptyLabel.setText("");
         }
         if (hasGoals && trades.isEmpty() && !shortfalls.isEmpty()) {
-            tradeEmptyLabel.setText("<html><body style='color:#ffcc88'>No material-trader swaps found from current inventory.</body></html>");
+            tradeEmptyLabel.setText("<html><body style='color:" + EdoUi.htmlHex(EdoUi.Internal.EMPTY_STATE_INK)
+                    + "'>No material-trader swaps found from current inventory.</body></html>");
         } else if (hasGoals && trades.isEmpty()) {
             tradeEmptyLabel.setForeground(EdoUi.User.MAIN_TEXT);
             tradeEmptyLabel.setText("No trades required");

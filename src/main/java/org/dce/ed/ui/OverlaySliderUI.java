@@ -10,6 +10,7 @@ import java.awt.geom.RoundRectangle2D;
 
 import javax.swing.JComponent;
 import javax.swing.JSlider;
+import javax.swing.plaf.ComponentUI;
 import javax.swing.plaf.basic.BasicSliderUI;
 
 /**
@@ -23,6 +24,11 @@ public final class OverlaySliderUI extends BasicSliderUI {
 
     public OverlaySliderUI(JSlider slider) {
         super(slider);
+    }
+
+    /** UIManager entry point when registered as {@code SliderUI}. */
+    public static ComponentUI createUI(JComponent c) {
+        return new OverlaySliderUI((JSlider) c);
     }
 
     /** Installs this UI and clears LAF opaque chrome so the theme shows through. */

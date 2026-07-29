@@ -184,8 +184,8 @@ final class BioTableBuilder {
         String toHtml(long valuableThresholdCredits) {
             Color subdued = EdoUi.Internal.GRAY_180;
             Color valuable = EdoUi.User.PRIMARY_HIGHLIGHT;
-            String sub = htmlRgb(subdued);
-            String val = htmlRgb(valuable);
+            String sub = EdoUi.htmlHex(subdued);
+            String val = EdoUi.htmlHex(valuable);
             StringBuilder sb = new StringBuilder("<html><body style='margin:0'>");
             boolean needSpace = false;
             if (remainingMillionText != null && !remainingMillionText.isEmpty()) {
@@ -219,8 +219,8 @@ final class BioTableBuilder {
         Long maxCr = parseMaxCreditsFromMillionSummaryLabel(summary);
         Color subdued = EdoUi.Internal.GRAY_180;
         Color valuable = EdoUi.User.PRIMARY_HIGHLIGHT;
-        String sub = htmlRgb(subdued);
-        String val = htmlRgb(valuable);
+        String sub = EdoUi.htmlHex(subdued);
+        String val = EdoUi.htmlHex(valuable);
         boolean hi = maxCr != null && maxCr.longValue() >= valuableThresholdCredits;
         return "<html><body style='margin:0'><font color='" + (hi ? val : sub) + "'>"
                 + escapeHtml(summary.trim()) + "</font></body></html>";
@@ -255,10 +255,6 @@ final class BioTableBuilder {
         } catch (NumberFormatException e) {
             return null;
         }
-    }
-
-    private static String htmlRgb(Color c) {
-        return String.format("#%06x", c.getRGB() & 0xffffff);
     }
 
     private static String escapeHtml(String s) {

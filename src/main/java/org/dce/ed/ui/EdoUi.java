@@ -10,6 +10,21 @@ public final class EdoUi {
     }
 
     /**
+     * Factory default theme colors (immutable). {@link User} is initialized from these and may be
+     * mutated by preferences; reset buttons should use {@code Defaults}, not live {@code User}.
+     */
+    public static final class Defaults {
+        private Defaults() {
+        }
+
+        public static final Color MAIN_TEXT = new Color(255, 140, 0); // ED orange
+        public static final Color BACKGROUND = new Color(10, 10, 10);
+        public static final Color SNEAKER = new Color(206, 44, 44);
+        public static final Color PRIMARY_HIGHLIGHT = new Color(0, 200, 0);
+        public static final Color SECONDARY_HIGHLIGHT = new Color(255, 255, 0);
+    }
+
+    /**
      * User-configurable theme colors. These are the colors that should be exposed in a preferences UI.
      * Keep this list small (roughly 10-15).
      */
@@ -18,8 +33,8 @@ public final class EdoUi {
         }
 
         // Core theme
-        public static Color MAIN_TEXT = new Color(255, 140, 0); // ED orange
-        public static Color BACKGROUND = new Color(10, 10, 10);
+        public static Color MAIN_TEXT = Defaults.MAIN_TEXT;
+        public static Color BACKGROUND = Defaults.BACKGROUND;
         public static Color PANEL_BG = new Color(22, 22, 22);
 
         // Semantic/status
@@ -33,13 +48,13 @@ public final class EdoUi {
         public static Color CORE_BLUE = new Color(100, 180, 255);
 
         /** System tab: landable sneaker icon — canvas / upper (preferences). */
-        public static Color SNEAKER = new Color(206, 44, 44);
+        public static Color SNEAKER = Defaults.SNEAKER;
 
         /** Completed exobiology (3/3); prospector row matching configured high-value material filters (preferences). */
-        public static Color PRIMARY_HIGHLIGHT = new Color(0, 200, 0);
+        public static Color PRIMARY_HIGHLIGHT = Defaults.PRIMARY_HIGHLIGHT;
 
         /** Exobiology in progress (1–2 samples) on System and Exobiology tabs (preferences). */
-        public static Color SECONDARY_HIGHLIGHT = new Color(255, 255, 0);
+        public static Color SECONDARY_HIGHLIGHT = Defaults.SECONDARY_HIGHLIGHT;
     }
 
     /**
@@ -123,6 +138,26 @@ public final class EdoUi {
 
         // Overlay/tab backgrounds
         public static final Color DARK_ALPHA_220 = withAlpha(new Color(50, 50, 50), 220);
+
+        /** Outline danger button when active (true red). */
+        public static final Color OUTLINE_DANGER_ACTIVE = new Color(220, 38, 38);
+        /** Idle/disabled outline gray (Kill scripts idle, disabled primary). */
+        public static final Color OUTLINE_IDLE = new Color(130, 130, 130);
+        /**
+         * Fully-opaque hit plate for outline buttons on translucent overlay hosts
+         * (Win32 layered windows ignore alpha&lt;255 for hit-testing).
+         */
+        public static final Color HIT_PLATE_BG = new Color(28, 30, 36);
+
+        /** Engineering blueprint tooltip: positive modifier line. */
+        public static final Color TIP_MODIFIER_GOOD = new Color(0x6D, 0xFF, 0x6D);
+        /** Engineering blueprint tooltip: negative modifier line. */
+        public static final Color TIP_MODIFIER_BAD = new Color(0xFF, 0x00, 0x00);
+
+        /** Muted orange for empty-state HTML hints (Engineering panels/dialogs). */
+        public static final Color EMPTY_STATE_INK = new Color(0xff, 0xcc, 0x88);
+        /** Slightly stronger muted orange for validation hints. */
+        public static final Color EMPTY_STATE_WARN = new Color(0xff, 0xaa, 0x66);
     }
 
     // ---- Alpha helper + cache ----
@@ -214,6 +249,14 @@ public final class EdoUi {
             return "rgb(255,255,255)";
         }
         return String.format(java.util.Locale.ROOT, "rgb(%d,%d,%d)", c.getRed(), c.getGreen(), c.getBlue());
+    }
+
+    /** {@code #RRGGBB} for HTML {@code <font color='...'>} / CSS where hex is preferred. */
+    public static String htmlHex(Color c) {
+        if (c == null) {
+            return "#FFFFFF";
+        }
+        return String.format(java.util.Locale.ROOT, "#%06X", c.getRGB() & 0xffffff);
     }
 
     /** Minimal escaping for plain text embedded in HTML status labels. */

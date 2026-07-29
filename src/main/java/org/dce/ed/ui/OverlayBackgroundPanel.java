@@ -22,6 +22,7 @@ public final class OverlayBackgroundPanel extends JPanel {
 
     public OverlayBackgroundPanel() {
         setOpaque(false);
+        EdoSurface.markOverlay(this);
     }
 
     public void setPaintColor(Color paintColor) {

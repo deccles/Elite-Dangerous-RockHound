@@ -58,7 +58,9 @@ import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.mining.ProspectorWriteResult;
 import org.dce.ed.mission.MissionSpeechTracker;
 import org.dce.ed.ui.EdoDialogTitleBar;
+import org.dce.ed.ui.EdoLookAndFeel;
 import org.dce.ed.ui.EdoOptionDialog;
+import org.dce.ed.ui.EdoSurface;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HelpCircleIcon;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
@@ -435,15 +437,20 @@ public class PreferencesDialog extends JDialog {
 		setUndecorated(true);
 		setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 		setLayout(new BorderLayout());
+		if (getRootPane() != null) {
+			EdoSurface.markDialog(getRootPane());
+		}
 		// Match typical Exec-tab layout from the prefs screenshot (~860×720 content).
 		setMinimumSize(new Dimension(780, 560));
 		setPreferredSize(new Dimension(860, 720));
 		getRootPane().setBorder(BorderFactory.createLineBorder(EdoUi.Internal.TITLEBAR_BG_HOVER, 1));
 
 		titleBar = new EdoDialogTitleBar(this, "Overlay Preferences");
+		EdoSurface.markDialog(titleBar);
 		add(titleBar, BorderLayout.NORTH);
 
 		this.preferenceTabs = new JTabbedPane();
+		EdoSurface.markDialog(preferenceTabs);
 		preferenceTabs.addTab("Colors", createColorsPanel());
 		preferenceTabs.addTab("Combat", wrapTabInEdoScroll(createCombatPanel()));
 		preferenceTabs.addTab("Exobiology", wrapTabInEdoScroll(createExobiologyPanel()));
@@ -1047,11 +1054,11 @@ public class PreferencesDialog extends JDialog {
 		gbc.anchor = GridBagConstraints.WEST;
 		JButton resetColorsButton = new JButton("Reset to defaults");
 		resetColorsButton.addActionListener(e -> {
-			uiMainTextColorButton.setBackground(new Color(255, 140, 0));
-			uiBackgroundColorButton.setBackground(new Color(10, 10, 10));
-			uiSneakerColorButton.setBackground(new Color(206, 44, 44));
-			uiPrimaryHighlightColorButton.setBackground(new Color(0, 200, 0));
-			uiSecondaryHighlightColorButton.setBackground(new Color(255, 255, 0));
+			uiMainTextColorButton.setBackground(EdoUi.Defaults.MAIN_TEXT);
+			uiBackgroundColorButton.setBackground(EdoUi.Defaults.BACKGROUND);
+			uiSneakerColorButton.setBackground(EdoUi.Defaults.SNEAKER);
+			uiPrimaryHighlightColorButton.setBackground(EdoUi.Defaults.PRIMARY_HIGHLIGHT);
+			uiSecondaryHighlightColorButton.setBackground(EdoUi.Defaults.SECONDARY_HIGHLIGHT);
 			applyLiveColorPreviewFromButtons();
 		});
 		themeBox.add(resetColorsButton, gbc);
@@ -1760,26 +1767,7 @@ public class PreferencesDialog extends JDialog {
 		preferenceTabs.setOpaque(true);
 		preferenceTabs.setBackground(bg);
 		preferenceTabs.setForeground(fg);
-		javax.swing.UIManager.put("TabbedPane.contentAreaColor", bg);
-		javax.swing.UIManager.put("TabbedPane.background", bg);
-		javax.swing.UIManager.put("Panel.background", bg);
-		javax.swing.UIManager.put("Viewport.background", bg);
-		javax.swing.UIManager.put("ScrollPane.background", bg);
-		Color fieldBg = EdoUi.User.PANEL_BG;
-		javax.swing.UIManager.put("TextField.background", fieldBg);
-		javax.swing.UIManager.put("TextField.foreground", fg);
-		javax.swing.UIManager.put("TextField.caretForeground", fg);
-		javax.swing.UIManager.put("TextField.inactiveBackground", fieldBg);
-		javax.swing.UIManager.put("TextField.inactiveForeground", fg);
-		javax.swing.UIManager.put("TextArea.background", fieldBg);
-		javax.swing.UIManager.put("TextArea.foreground", fg);
-		javax.swing.UIManager.put("TextArea.inactiveBackground", fieldBg);
-		javax.swing.UIManager.put("ComboBox.background", fieldBg);
-		javax.swing.UIManager.put("ComboBox.foreground", fg);
-		javax.swing.UIManager.put("ComboBox.disabledBackground", fieldBg);
-		javax.swing.UIManager.put("ComboBox.disabledForeground", fg);
-		javax.swing.UIManager.put("Spinner.background", fieldBg);
-		javax.swing.UIManager.put("Spinner.foreground", fg);
+		EdoLookAndFeel.refreshFromPreferences();
 		stylePreferenceTabChrome();
 		Font chipFont = OverlayPreferences.getUiFont();
 		if (chipFont == null) {

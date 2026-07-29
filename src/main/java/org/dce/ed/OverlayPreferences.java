@@ -9,8 +9,6 @@ import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.swing.UIManager;
-
 import org.dce.ed.logreader.EliteLogFileLocator;
 
 import com.github.kwhat.jnativehook.keyboard.NativeKeyEvent;
@@ -2225,28 +2223,12 @@ public static Engine getSpeechEngine() {
         applySwingChromeDefaults();
     }
 
-    /** Dark LAF defaults so new components don't flash white before per-widget styling runs. */
+    /**
+     * Dark LAF defaults so new components don't flash white before per-widget styling runs.
+     * Delegates to {@link org.dce.ed.ui.EdoLookAndFeel#install()} (platform L&amp;F + EDO defaults).
+     */
     private static void applySwingChromeDefaults() {
-        Color bg = EdoUi.User.BACKGROUND;
-        Color fg = EdoUi.User.MAIN_TEXT;
-        Color panel = EdoUi.User.PANEL_BG;
-        UIManager.put("Panel.background", bg);
-        UIManager.put("Viewport.background", bg);
-        UIManager.put("ScrollPane.background", bg);
-        UIManager.put("Table.background", bg);
-        UIManager.put("Table.foreground", fg);
-        UIManager.put("Table.selectionBackground", fg);
-        UIManager.put("Table.selectionForeground", bg);
-        UIManager.put("Label.foreground", fg);
-        UIManager.put("CheckBox.foreground", fg);
-        UIManager.put("TitledBorder.titleColor", fg);
-        UIManager.put("TabbedPane.foreground", fg);
-        UIManager.put("TabbedPane.selected", panel);
-        UIManager.put("TabbedPane.highlight", panel);
-        UIManager.put("TabbedPane.light", panel);
-        UIManager.put("TabbedPane.focus", fg);
-        UIManager.put("TabbedPane.darkShadow", EdoUi.Internal.separatorLine());
-        UIManager.put("MenuBar.background", bg);
+        org.dce.ed.ui.EdoLookAndFeel.install();
     }
 
     private static void putDoubleClamped(String key, double v, double min, double max) {

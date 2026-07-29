@@ -1241,7 +1241,8 @@ final class EngineeringGoalDialog extends JDialog {
                 .findFirst()
                 .orElse(null);
         if (preview != null) {
-            effectsLabel.setText("<html><body style='color:#ffcc88; width:420px'>G"
+            effectsLabel.setText("<html><body style='color:" + EdoUi.htmlHex(EdoUi.Internal.EMPTY_STATE_INK)
+                    + "; width:420px'>G"
                     + preview.getGrade() + " effects: " + htmlEscape(preview.modifierSummary()) + "</body></html>");
         }
         materialsLabel.setText(buildMaterialsHtml(selected, targetGrade));
@@ -1271,9 +1272,11 @@ final class EngineeringGoalDialog extends JDialog {
             }
         }
         if (required.isEmpty()) {
-            return "<html><body style='color:#ffcc88'>No materials listed for this grade range.</body></html>";
+            return "<html><body style='color:" + EdoUi.htmlHex(EdoUi.Internal.EMPTY_STATE_INK)
+                    + "'>No materials listed for this grade range.</body></html>";
         }
-        StringBuilder sb = new StringBuilder("<html><body style='color:#ffcc88; width:420px'>Materials (G1–G")
+        StringBuilder sb = new StringBuilder("<html><body style='color:"
+                + EdoUi.htmlHex(EdoUi.Internal.EMPTY_STATE_INK) + "; width:420px'>Materials (G1–G")
                 .append(targetGrade).append("): ");
         boolean first = true;
         for (Map.Entry<String, Integer> e : required.entrySet()) {
@@ -1293,7 +1296,8 @@ final class EngineeringGoalDialog extends JDialog {
                 : selectedOption();
         if (selected == null) {
             if (mode == Mode.ADD) {
-                effectsLabel.setText("<html><body style='color:#ffaa66'>Pick a blueprint from the suggestions.</body></html>");
+                effectsLabel.setText("<html><body style='color:" + EdoUi.htmlHex(EdoUi.Internal.EMPTY_STATE_WARN)
+                        + "'>Pick a blueprint from the suggestions.</body></html>");
             }
             return;
         }
@@ -1307,7 +1311,8 @@ final class EngineeringGoalDialog extends JDialog {
             if (mode == Mode.EDIT) {
                 promptDeleteGoal();
             } else {
-                effectsLabel.setText("<html><body style='color:#ffaa66'>Quantity must be at least 1.</body></html>");
+                effectsLabel.setText("<html><body style='color:" + EdoUi.htmlHex(EdoUi.Internal.EMPTY_STATE_WARN)
+                        + "'>Quantity must be at least 1.</body></html>");
             }
             return;
         }

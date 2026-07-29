@@ -36,6 +36,7 @@ import javax.swing.border.EmptyBorder;
 import org.dce.ed.MouseInteractionMode;
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.TitleBarPanel;
+import org.dce.ed.ui.EdoSurface;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.OverlayBackgroundPanel;
 import org.dce.ed.ui.ScrollableTabBar;
@@ -98,10 +99,12 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         backgroundPanel.setOpaque(false);
         backgroundPanel.setBackground(new Color(0, 0, 0, 0));
         backgroundPanel.setLayout(new BorderLayout());
+        EdoSurface.markOverlay(backgroundPanel);
         setContentPane(backgroundPanel);
         getRootPane().setOpaque(false);
 
         scrollableTabBar = new ScrollableTabBar(this::isFullPassThrough, false);
+        EdoSurface.markOverlay(scrollableTabBar);
         cardLayout = new CardLayout();
         cardPanel = new JPanel(cardLayout) {
             @Override
@@ -111,6 +114,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         };
         cardPanel.setOpaque(false);
         cardPanel.setBackground(new Color(0, 0, 0, 0));
+        EdoSurface.markOverlay(cardPanel);
         cardPanel.setPreferredSize(new Dimension(420, 640));
 
         titleLabel = new JLabel("Detached tabs");
@@ -181,7 +185,9 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         });
 
         titleBar = new JPanel(new BorderLayout());
-        titleBar.setBackground(new Color(28, 28, 34));
+        Color titleBg = EdoUi.Internal.TITLEBAR_BG;
+        // Fully opaque plate for Win32 hit-testing on layered float frames.
+        titleBar.setBackground(new Color(titleBg.getRed(), titleBg.getGreen(), titleBg.getBlue()));
         titleBar.setOpaque(true);
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         left.setOpaque(false);

@@ -18,6 +18,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import org.dce.ed.market.GalacticAveragePrices;
+import org.dce.ed.ui.EdoUi;
 
 /**
  * Lazy-loaded engineering blueprint and material tables from bundled JSON.
@@ -238,11 +239,11 @@ public final class EngineeringDatabase {
                 ? bp.getName()
                 : bp.getName() + " G" + bp.getGrade();
         // Dark tip + bright semantic colors (readable on EDO / Windows light tooltip chrome).
-        final String tipBg = "#161616";
-        final String tipFg = "#E6E6E6";
-        final String titleFg = "#FF8C00";
-        final String goodFg = "#6DFF6D";
-        final String badFg = "#FF0000";
+        final String tipBg = EdoUi.htmlHex(EdoUi.Internal.DARK_22);
+        final String tipFg = EdoUi.htmlHex(EdoUi.Internal.MENU_FG_LIGHT);
+        final String titleFg = EdoUi.htmlHex(EdoUi.User.MAIN_TEXT);
+        final String goodFg = EdoUi.htmlHex(EdoUi.Internal.TIP_MODIFIER_GOOD);
+        final String badFg = EdoUi.htmlHex(EdoUi.Internal.TIP_MODIFIER_BAD);
         StringBuilder body = new StringBuilder();
         body.append("<b><font color='").append(titleFg).append("'>")
                 .append(htmlEscape(title))

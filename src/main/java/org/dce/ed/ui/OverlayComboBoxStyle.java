@@ -49,7 +49,16 @@ public final class OverlayComboBoxStyle {
         combo.repaint();
     }
 
-    private static final class OverlayComboBoxUI extends BasicComboBoxUI {
+    /** Registered as default {@code ComboBoxUI} by {@link EdoLookAndFeel}. */
+    public static final class OverlayComboBoxUI extends BasicComboBoxUI {
+
+        public static javax.swing.plaf.ComponentUI createUI(javax.swing.JComponent c) {
+            // Light document chrome (Log journal) must not get dark overlay combo painting.
+            if (EdoSurface.isDocument(c)) {
+                return new BasicComboBoxUI();
+            }
+            return new OverlayComboBoxUI();
+        }
         @Override
         protected JButton createArrowButton() {
             Color bg = EdoUi.User.PANEL_BG;

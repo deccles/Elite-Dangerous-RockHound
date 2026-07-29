@@ -8,6 +8,7 @@ import java.awt.RenderingHints;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.plaf.ComponentUI;
 import javax.swing.plaf.basic.BasicScrollBarUI;
 
 /**
@@ -15,6 +16,10 @@ import javax.swing.plaf.basic.BasicScrollBarUI;
  * preferred size for a comfortable hit target.
  */
 public final class SubtleScrollBarUI extends BasicScrollBarUI {
+
+    public static ComponentUI createUI(JComponent c) {
+        return new SubtleScrollBarUI();
+    }
 
     @Override
     protected Dimension getMinimumThumbSize() {

@@ -125,6 +125,7 @@ import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.SelectiveHitSupport;
 import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.ui.TableHeaderSortSupport;
@@ -1013,8 +1014,6 @@ private final JLayer<JTable> cargoLayer;
 		boolean initialScatter = OverlayPreferences.isMiningProspectorLogScatterView();
 		prospectorLogTableViewBtn = new JToggleButton("Table", !initialScatter);
 		prospectorLogScatterViewBtn = new JToggleButton("Scatter", initialScatter);
-		prospectorLogTableViewBtn.setOpaque(false);
-		prospectorLogScatterViewBtn.setOpaque(false);
 		ButtonGroup spreadsheetViewGroup = new ButtonGroup();
 		spreadsheetViewGroup.add(prospectorLogTableViewBtn);
 		spreadsheetViewGroup.add(prospectorLogScatterViewBtn);
@@ -1022,14 +1021,17 @@ private final JLayer<JTable> cargoLayer;
 		prospectorLogTableViewBtn.addActionListener(e -> {
 			((CardLayout) spreadsheetCardPanel.getLayout()).show(spreadsheetCardPanel, "table");
 			OverlayPreferences.setMiningProspectorLogScatterView(false);
+			styleProspectorLogViewButtons();
 		});
 		prospectorLogScatterViewBtn.addActionListener(e -> {
 			((CardLayout) spreadsheetCardPanel.getLayout()).show(spreadsheetCardPanel, "scatter");
 			OverlayPreferences.setMiningProspectorLogScatterView(true);
+			styleProspectorLogViewButtons();
 		});
 		// Hover-to-switch between Table and Scatter views (works in pass-through mode via global mouse polling).
 		SpreadsheetViewHoverPoller.register(prospectorLogTableViewBtn, 500, () -> prospectorLogTableViewBtn.doClick());
 		SpreadsheetViewHoverPoller.register(prospectorLogScatterViewBtn, 500, () -> prospectorLogScatterViewBtn.doClick());
+		styleProspectorLogViewButtons();
 		JPanel spreadsheetToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
 		spreadsheetToolbar.setOpaque(false);
 		spreadsheetToolbar.add(prospectorLogTableViewBtn);
@@ -1056,11 +1058,10 @@ private final JLayer<JTable> cargoLayer;
 		prospectorLogSourceCombo.addActionListener(ev -> onProspectorLogSourceComboChanged());
 
 		prospectorLogSourceSyncNowButton = new JButton("Sync now");
-		prospectorLogSourceSyncNowButton.setOpaque(false);
-		prospectorLogSourceSyncNowButton.setFont(prospectorLogSourceLabel.getFont());
 		prospectorLogSourceSyncNowButton.setToolTipText(
 			"Merge this commander's rows between Google Sheets and the local CSV so both sides match.");
 		prospectorLogSourceSyncNowButton.addActionListener(ev -> runProspectorBothSyncNow());
+		OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(prospectorLogSourceSyncNowButton, base);
 
 		prospectorLogSourceStatusLabel = new JLabel();
 		prospectorLogSourceStatusLabel.setOpaque(false);
@@ -1425,6 +1426,20 @@ return EdoUi.User.MAIN_TEXT;
 		applyUiFont(OverlayPreferences.getUiFont());
 	}
 
+	/** Outline L&amp;F chips for Table / Scatter; selected state drives strong border. */
+	private void styleProspectorLogViewButtons() {
+		Font font = OverlayPreferences.getUiFont();
+		if (font == null) {
+			return;
+		}
+		if (prospectorLogTableViewBtn != null) {
+			OverlayOutlineButtonStyle.applyChipHitSafe(prospectorLogTableViewBtn, font, prospectorLogTableViewBtn.isSelected());
+		}
+		if (prospectorLogScatterViewBtn != null) {
+			OverlayOutlineButtonStyle.applyChipHitSafe(prospectorLogScatterViewBtn, font, prospectorLogScatterViewBtn.isSelected());
+		}
+	}
+
 	public void applyUiFont(Font font) {
 		if (font == null) {
 			return;
@@ -1440,6 +1455,10 @@ return EdoUi.User.MAIN_TEXT;
 		}
 		spreadsheetLabel.setFont(headerFont);
 		prospectorLogSourceLabel.setFont(base.deriveFont(Font.PLAIN, Math.max(10, OverlayPreferences.getUiFontSize() - 1)));
+		styleProspectorLogViewButtons();
+		if (prospectorLogSourceSyncNowButton != null) {
+			OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(prospectorLogSourceSyncNowButton, base);
+		}
 
 		uiFont = font;
 
@@ -4315,7 +4334,6 @@ String getName() {
 		private final ProspectorLogScatterPanel scatterPanel;
 		private final JComboBox<String> modeCombo;
 		private final JComboBox<String> secondaryCombo;
-		private final JButton testGatherButton;
 		private List<ProspectorLogRow> currentRows = new ArrayList<>();
 
 		ProspectorLogScatterWrapperPanel(ProspectorLogScatterPanel scatterPanel) {
@@ -4359,28 +4377,17 @@ String getName() {
 			top.add(viewLabel);
 			top.add(modeCombo);
 			top.add(secondaryCombo);
-			testGatherButton = new JButton("Test gather");
-			testGatherButton.setOpaque(false);
-			testGatherButton.setForeground(EdoUi.User.MAIN_TEXT);
-			testGatherButton.setBackground(EdoUi.Internal.TRANSPARENT);
-			testGatherButton.addActionListener(e -> scatterPanel.triggerTestGatherAnimation());
-			top.add(testGatherButton);
 			add(top, BorderLayout.NORTH);
 			add(scatterPanel, BorderLayout.CENTER);
 		}
 
 		void applyScatterControlOpacity(boolean transparent) {
-			if (testGatherButton != null) {
-				testGatherButton.setOpaque(!transparent);
-				testGatherButton.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.Internal.DARK_ALPHA_220);
-				testGatherButton.setForeground(EdoUi.User.MAIN_TEXT);
-			}
+			// Mode combos stay non-opaque; no extra chrome buttons on this toolbar.
 		}
 
 		boolean isPointerOverControls(Point screenPoint) {
 			return SelectiveHitSupport.containsScreenPoint(modeCombo, screenPoint)
-					|| SelectiveHitSupport.containsScreenPoint(secondaryCombo, screenPoint)
-					|| SelectiveHitSupport.containsScreenPoint(testGatherButton, screenPoint);
+					|| SelectiveHitSupport.containsScreenPoint(secondaryCombo, screenPoint);
 		}
 
 		void setRows(List<ProspectorLogRow> rows) {
@@ -4923,36 +4930,6 @@ String getName() {
 				double cx = gunPlatformCenterXByCommander.getOrDefault(cmdr, gunHomeCenterX(geom, i, pcs.size()));
 				drawMobileGunPlatform(g2, (int) Math.round(cx), plotBottom, ac);
 			}
-		}
-
-		void triggerTestGatherAnimation() {
-			gatherAnimQueue.clear();
-			endGatherAnimation();
-			PlotGeom geom = computePlotGeom();
-			if (geom == null || getWidth() <= 0 || getHeight() <= 0) {
-				return;
-			}
-			List<ProspectorLogRow> toPlot = filteredRows();
-			if (toPlot.isEmpty()) {
-				return;
-			}
-			ProspectorLogRow sample = toPlot.get(0);
-			String cmdrName = sample.getCommanderName() != null ? sample.getCommanderName() : "";
-			Color col = commanderColorFor(cmdrName, toPlot);
-			int midX = geom.plotX + (int) (geom.plotW * 0.45);
-			int dx = Math.max(18, (int) (geom.plotW * 0.06));
-			int yHi = geom.plotY + (int) (geom.plotH * 0.30);
-			int yLo = geom.plotY + (int) (geom.plotH * 0.64);
-
-			// Two separate “materials” on the same commander: left rock then right rock, both fully collected.
-			Point fromA = new Point(midX - dx, yHi);
-			Point toA = new Point(midX - dx, yLo);
-			Point fromB = new Point(midX + dx, yHi);
-			Point toB = new Point(midX + dx, yLo);
-
-			offerGatherAnimRequest(new GatherAnimRequest(fromA, toA, col, "__testFromA", "__testToA", cmdrName, cmdrName + "\t__testMatA"));
-			offerGatherAnimRequest(new GatherAnimRequest(fromB, toB, col, "__testFromB", "__testToB", cmdrName, cmdrName + "\t__testMatB"));
-			tryStartNextGatherFromQueue();
 		}
 
 		ProspectorLogScatterPanel() {

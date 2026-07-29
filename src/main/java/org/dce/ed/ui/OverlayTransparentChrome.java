@@ -23,6 +23,8 @@ import org.dce.ed.OverlayPreferences;
 
 /**
  * Recursively clears LAF default white/opaque chrome on overlay tab content.
+ * Prefer marking roots with {@link EdoSurface#markOverlay(JComponent)} so new controls inherit
+ * overlay surface via ancestor walk; this pass remains for trees built before surface marking.
  */
 public final class OverlayTransparentChrome {
 
@@ -32,6 +34,9 @@ public final class OverlayTransparentChrome {
     public static void applyToSubtree(Component root) {
         if (root == null) {
             return;
+        }
+        if (root instanceof JComponent jcRoot) {
+            EdoSurface.markOverlay(jcRoot);
         }
         if (!(root instanceof JComponent jc)) {
             if (root instanceof Container container) {
