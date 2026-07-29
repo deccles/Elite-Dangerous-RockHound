@@ -420,14 +420,11 @@ public final class CombatTabPanel extends JPanel {
         return combatTabVisible && activeSession;
     }
 
-    static int summaryHeightForPreferredContent(int preferredHeight) {
-        return Math.max(56, Math.max(0, preferredHeight) + 6);
-    }
-
+    /** Keep BoxLayout from compressing the two-line metric row below its current font height. */
     private void syncSummaryHeight() {
-        int height = summaryHeightForPreferredContent(summary.getPreferredSize().height);
-        summary.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
+        int height = summary.getPreferredSize().height;
         summary.setMinimumSize(new Dimension(0, height));
+        summary.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
     }
 
     private void updateTargetTable(CombatTargetTracker.LockedTarget target) {
@@ -877,7 +874,7 @@ public final class CombatTabPanel extends JPanel {
             setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createMatteBorder(0, 0, 1, 0, EdoUi.Internal.separatorLine()),
                     new EmptyBorder(2, 4, 4, 4)));
-            setPreferredSize(new Dimension(112, getPreferredSize().height));
+            refreshPreferredHeight();
         }
 
         void setValue(String text) {
@@ -887,6 +884,14 @@ public final class CombatTabPanel extends JPanel {
         void applyFont(Font font) {
             caption.setFont(font.deriveFont(Font.PLAIN, Math.max(8f, font.getSize2D() - 2f)));
             value.setFont(font.deriveFont(Font.BOLD, font.getSize2D() + 2f));
+            refreshPreferredHeight();
+            revalidate();
+        }
+
+        private void refreshPreferredHeight() {
+            setPreferredSize(null);
+            int naturalHeight = super.getPreferredSize().height;
+            setPreferredSize(new Dimension(112, naturalHeight));
         }
     }
 

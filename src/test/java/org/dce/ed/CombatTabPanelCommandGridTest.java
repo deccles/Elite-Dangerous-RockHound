@@ -39,9 +39,4 @@ class CombatTabPanelCommandGridTest {
         assertEquals(false, CombatTabPanel.shouldRunCreditsRateTimer(false, true));
         assertEquals(false, CombatTabPanel.shouldRunCreditsRateTimer(true, false));
     }
-
-    @Test
-    void summaryHeightNeverClipsItsPreferredTwoLineMetrics() {
-        assertEquals(66, CombatTabPanel.summaryHeightForPreferredContent(60));
-    }
 }
