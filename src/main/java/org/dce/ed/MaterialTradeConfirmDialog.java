@@ -131,6 +131,7 @@ final class MaterialTradeConfirmDialog extends JDialog {
             progressBar.setIndeterminate(true);
             progressBar.setString("Focusing…");
             status.setText("Focusing Elite Dangerous…");
+            releaseFocusForTrade(this);
 
             Thread worker = new Thread(() -> {
                 MaterialTradeExecutor.Result completed;
@@ -201,6 +202,14 @@ final class MaterialTradeConfirmDialog extends JDialog {
         setAlwaysOnTop(true);
         pack();
         setLocationRelativeTo(owner);
+    }
+
+    static void releaseFocusForTrade(Window window) {
+        if (window == null) {
+            return;
+        }
+        window.setAlwaysOnTop(false);
+        window.setFocusableWindowState(false);
     }
 
     private static void applyProgress(JProgressBar progressBar, String statusText, int totalTrades) {

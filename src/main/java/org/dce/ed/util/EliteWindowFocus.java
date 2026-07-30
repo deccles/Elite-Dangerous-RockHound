@@ -4,6 +4,7 @@ import java.awt.AWTException;
 import java.awt.Robot;
 import java.awt.event.KeyEvent;
 import java.util.Locale;
+import java.util.function.BooleanSupplier;
 
 import com.sun.jna.Native;
 import com.sun.jna.platform.win32.BaseTSD.ULONG_PTR;
@@ -40,6 +41,8 @@ public final class EliteWindowFocus {
     private static final int VK_RMENU = 0xA5;
     private static final int VK_LWIN = 0x5B;
     private static final int VK_RWIN = 0x5C;
+    private static final long ACTIVATION_TIMEOUT_MS = 750L;
+    private static final long ACTIVATION_POLL_MS = 20L;
 
     /** User32 calls not exposed by JNA's stock {@link User32} mapping. */
     private interface User32Ext extends StdCallLibrary {
@@ -169,7 +172,8 @@ public final class EliteWindowFocus {
     }
 
     private static boolean finishIfEliteForeground(String technique) {
-        if (!isEliteForeground()) {
+        if (!waitForCondition(EliteWindowFocus::isEliteForeground,
+                ACTIVATION_TIMEOUT_MS, ACTIVATION_POLL_MS)) {
             return false;
         }
         releaseStuckModifiers();
@@ -196,7 +200,32 @@ public final class EliteWindowFocus {
         robot.keyRelease(KeyEvent.VK_CONTROL);
         User32.INSTANCE.SetForegroundWindow(hwnd);
         User32Ext.INSTANCE.BringWindowToTop(hwnd);
-        return isEliteForeground();
+        return waitForCondition(EliteWindowFocus::isEliteForeground,
+                ACTIVATION_TIMEOUT_MS, ACTIVATION_POLL_MS);
+    }
+
+    static boolean waitForCondition(BooleanSupplier condition, long timeoutMs, long pollIntervalMs) {
+        if (condition == null) {
+            return false;
+        }
+        long timeoutNanos = java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
+                Math.max(0L, timeoutMs));
+        long deadline = System.nanoTime() + timeoutNanos;
+        long interval = Math.max(1L, pollIntervalMs);
+        while (true) {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            if (System.nanoTime() >= deadline) {
+                return false;
+            }
+            try {
+                Thread.sleep(interval);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return condition.getAsBoolean();
+            }
+        }
     }
 
     /**

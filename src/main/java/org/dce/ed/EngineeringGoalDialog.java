@@ -62,6 +62,7 @@ import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.MaterialRequirement;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.ui.AlwaysOnTopPopupFactory;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
@@ -140,6 +141,10 @@ final class EngineeringGoalDialog extends JDialog {
         pack();
         setMinimumSize(new Dimension(520, mode == Mode.EDIT ? 280 : 360));
         setLocationRelativeTo(owner);
+        // Loadout and other engineering dialogs are always-on-top; without this, Edit/Add Goal
+        // can open underneath them (especially when parented to the overlay frame).
+        setAlwaysOnTop(true);
+        AlwaysOnTopPopupFactory.installWhileShowing(this);
     }
 
     /** Prefill options when opening Add Goal from build progress / elsewhere. */
