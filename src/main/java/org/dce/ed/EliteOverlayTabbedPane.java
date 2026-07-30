@@ -40,6 +40,7 @@ import javax.swing.plaf.basic.BasicButtonUI;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.TransferHandler;
+import javax.swing.UIManager;
 
 import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.exec.placeholder.ExecPlaceholderContext;
@@ -1188,7 +1189,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		button.setUI(TabButtonUI.INSTANCE);
 		button.setFocusable(false);
 		button.setFocusPainted(false);
-		button.setFont(button.getFont().deriveFont(Font.BOLD, 10f));
+		button.setFont(systemTabButtonFont());
 		button.setContentAreaFilled(false);
 		button.setToolTipText("Drag off the strip to open in a separate window; drop on another window's tabs to move");
 
@@ -1202,6 +1203,14 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 		applyTabButtonStyle(button);
 		return button;
+	}
+
+	private static Font systemTabButtonFont() {
+		Font systemFont = UIManager.getLookAndFeelDefaults().getFont("Button.font");
+		if (systemFont == null) {
+			systemFont = new Font(Font.DIALOG, Font.PLAIN, 10);
+		}
+		return systemFont.deriveFont(Font.BOLD, 10f);
 	}
 
 	/**

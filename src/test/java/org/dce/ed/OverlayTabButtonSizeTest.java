@@ -1,10 +1,12 @@
 package org.dce.ed;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Insets;
 import java.util.ArrayList;
@@ -13,6 +15,7 @@ import java.util.Set;
 
 import javax.swing.JButton;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +24,33 @@ import org.junit.jupiter.api.Test;
  */
 class OverlayTabButtonSizeTest {
 
-	private static final Set<String> TAB_LABELS = Set.of("Route", "System", "ExoBio", "Mining", "Fleet Carrier");
+	private static final Set<String> TAB_LABELS = Set.of(
+			"Route", "System", "ExoBio", "Mining", "Missions", "Combat",
+			"Fleet Carrier", "Engineering", "Control Panel");
+
+	@Test
+	void tabButtons_useSystemFontWhenOverlayButtonDefaultIsCustomized() throws Exception {
+		Font nativeButtonFont = UIManager.getLookAndFeelDefaults().getFont("Button.font");
+		Font savedButtonFont = UIManager.getFont("Button.font");
+		final List<JButton> tabButtons = new ArrayList<>();
+		try {
+			UIManager.put("Button.font", new Font(Font.MONOSPACED, Font.PLAIN, 19));
+			SwingUtilities.invokeAndWait(() -> {
+				EliteOverlayTabbedPane tabs = new EliteOverlayTabbedPane(() -> false);
+				collectTabButtons(tabs, tabButtons);
+			});
+		} finally {
+			UIManager.put("Button.font", savedButtonFont);
+		}
+
+		assertTrue(tabButtons.size() >= TAB_LABELS.size(), "expected every main navigation tab");
+		assertEquals(TAB_LABELS, tabButtons.stream().map(JButton::getText).collect(java.util.stream.Collectors.toSet()));
+		for (JButton button : tabButtons) {
+			assertEquals(nativeButtonFont.getFamily(), button.getFont().getFamily(), button.getText());
+			assertEquals(Font.BOLD, button.getFont().getStyle(), button.getText());
+			assertEquals(10, button.getFont().getSize(), button.getText());
+		}
+	}
 
 	@Test
 	void tabButtons_preferredSizeFitsFullLabel() throws Exception {
@@ -43,7 +72,9 @@ class OverlayTabButtonSizeTest {
 		for (Component child : root.getComponents()) {
 			if (child instanceof JButton button) {
 				String text = button.getText();
-				if (text != null && TAB_LABELS.contains(text)) {
+				String toolTip = button.getToolTipText();
+				if (text != null && TAB_LABELS.contains(text)
+						&& toolTip != null && toolTip.startsWith("Drag off the strip")) {
 					out.add(button);
 				}
 			}

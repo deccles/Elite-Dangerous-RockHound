@@ -17,9 +17,7 @@ public final class ExecLaunchContext {
     private final Integer carrierFuelThreshold;
     private final String carrierCallsign;
     private final String carrierName;
-    private final String destination;
     private final String clipboard;
-    private final boolean clipboardCleared;
     private final EliteEventType journalEventType;
 
     private ExecLaunchContext(Builder builder) {
@@ -31,9 +29,7 @@ public final class ExecLaunchContext {
         this.carrierFuelThreshold = builder.carrierFuelThreshold;
         this.carrierCallsign = builder.carrierCallsign;
         this.carrierName = builder.carrierName;
-        this.destination = builder.destination;
         this.clipboard = builder.clipboard;
-        this.clipboardCleared = builder.clipboardCleared;
         this.journalEventType = builder.journalEventType;
     }
 
@@ -69,16 +65,8 @@ public final class ExecLaunchContext {
         return carrierName;
     }
 
-    public String getDestination() {
-        return destination;
-    }
-
     public String getClipboard() {
         return clipboard;
-    }
-
-    public boolean isClipboardCleared() {
-        return clipboardCleared;
     }
 
     public EliteEventType getJournalEventType() {
@@ -99,11 +87,7 @@ public final class ExecLaunchContext {
         }
         putIfPresent(env, "EDO_CARRIER_CALLSIGN", carrierCallsign);
         putIfPresent(env, "EDO_CARRIER_NAME", carrierName);
-        putIfPresent(env, "EDO_DESTINATION", destination);
-        putIfPresent(env, "EDO_CLIPBOARD", clipboard != null ? clipboard : destination);
-        if (clipboardCleared) {
-            env.put("EDO_CLIPBOARD_CLEARED", "1");
-        }
+        putIfPresent(env, "EDO_CLIPBOARD", clipboard);
         if (journalEventType != null && journalEventType != EliteEventType.UNKNOWN) {
             env.put("EDO_JOURNAL_EVENT", journalEventType.getJournalName());
         }
@@ -129,9 +113,7 @@ public final class ExecLaunchContext {
         private Integer carrierFuelThreshold;
         private String carrierCallsign;
         private String carrierName;
-        private String destination;
         private String clipboard;
-        private boolean clipboardCleared;
         private EliteEventType journalEventType;
 
         private Builder(ExecTriggerId trigger) {
@@ -173,18 +155,8 @@ public final class ExecLaunchContext {
             return this;
         }
 
-        public Builder destination(String destination) {
-            this.destination = destination;
-            return this;
-        }
-
         public Builder clipboard(String clipboard) {
             this.clipboard = clipboard;
-            return this;
-        }
-
-        public Builder clipboardCleared(boolean clipboardCleared) {
-            this.clipboardCleared = clipboardCleared;
             return this;
         }
 

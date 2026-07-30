@@ -57,4 +57,42 @@ class RouteGeometryTest {
         list.add(sol);
         assertEquals(1, RouteGeometry.findSystemRow(list, "Sol", 111L));
     }
+
+    @Test
+    void recomputeLegDistances_skipsDestinationBodyRows() {
+        RouteEntry ross104 = new RouteEntry();
+        ross104.systemName = "Ross 104";
+        ross104.x = 0.0;
+        ross104.y = 0.0;
+        ross104.z = 0.0;
+
+        RouteEntry bunchCity = RouteEntry.syntheticBody("Bunch City");
+
+        RouteEntry ministry = new RouteEntry();
+        ministry.systemName = "Ministry";
+        ministry.x = 3.0;
+        ministry.y = 4.0;
+        ministry.z = 0.0;
+
+        java.util.List<RouteEntry> rows = new java.util.ArrayList<>();
+        rows.add(ross104);
+        rows.add(bunchCity);
+        rows.add(ministry);
+
+        RouteGeometry.recomputeLegDistances(rows);
+
+        assertEquals(5.0, ministry.distanceLy, 1e-9);
+    }
+
+    @Test
+    void cumulativeDistanceLy_skipsDestinationBodyRows() {
+        RouteEntry ross104 = new RouteEntry();
+        RouteEntry bunchCity = RouteEntry.syntheticBody("Bunch City");
+        RouteEntry ministry = new RouteEntry();
+        ministry.distanceLy = 5.0;
+
+        java.util.List<RouteEntry> rows = java.util.List.of(ross104, bunchCity, ministry);
+
+        assertEquals(5.0, RouteGeometry.cumulativeDistanceLy(rows, 0, 2), 1e-9);
+    }
 }

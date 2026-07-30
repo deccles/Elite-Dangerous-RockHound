@@ -192,13 +192,14 @@ public final class MissionTracker {
     }
 
     /**
-     * Attributes a wanted kill to every incomplete massacre mission whose
+     * Attributes a wanted kill to one incomplete massacre mission per issuing faction whose
      * {@code TargetFaction} matches {@link BountyEvent#getVictimFaction()} and whose
      * hunt {@code DestinationSystem} matches the commander's current system.
      * <p>
      * Still an estimate (body-specific / pirate-vs-deserter nuance is not in the journal),
      * but system gating avoids counting bounties from unrelated systems.
-     * Stacked missions sharing faction+system all advance on one kill.
+     * Missions from different issuing factions stack. Missions from the same issuing faction
+     * progress oldest-first rather than sharing the same kill.
      */
     private boolean onBounty(BountyEvent e) {
         String victimFaction = e.getVictimFaction();
@@ -213,13 +214,21 @@ public final class MissionTracker {
         if (currentSystem == null || currentSystem.isBlank()) {
             return false;
         }
-        List<MissionRecord> matched = new ArrayList<>();
+        Map<String, MissionRecord> matchedByIssuer = new LinkedHashMap<>();
         for (MissionRecord r : activeById.values()) {
             if (!isMassacreKillCandidate(r, victimFaction, currentSystem)) {
                 continue;
             }
-            matched.add(r);
+            String issuer = r.getFaction();
+            String issuerKey = issuer == null || issuer.isBlank()
+                    ? "mission:" + r.getMissionId()
+                    : issuer.trim().toLowerCase();
+            MissionRecord existing = matchedByIssuer.get(issuerKey);
+            if (existing == null || acceptedBefore(r, existing)) {
+                matchedByIssuer.put(issuerKey, r);
+            }
         }
+        List<MissionRecord> matched = new ArrayList<>(matchedByIssuer.values());
         if (matched.isEmpty()) {
             return false;
         }
@@ -233,6 +242,22 @@ public final class MissionTracker {
         }
         lastMassacreKillRemaining = Integer.valueOf(minRemaining);
         return true;
+    }
+
+    private static boolean acceptedBefore(MissionRecord candidate, MissionRecord existing) {
+        Instant candidateAccepted = candidate.getAcceptedAt();
+        Instant existingAccepted = existing.getAcceptedAt();
+        if (candidateAccepted != null && existingAccepted != null) {
+            int byAccepted = candidateAccepted.compareTo(existingAccepted);
+            if (byAccepted != 0) {
+                return byAccepted < 0;
+            }
+        } else if (candidateAccepted != null) {
+            return true;
+        } else if (existingAccepted != null) {
+            return false;
+        }
+        return candidate.getMissionId() < existing.getMissionId();
     }
 
     static boolean isMassacreKillCandidate(MissionRecord r, String victimFaction, String currentSystem) {

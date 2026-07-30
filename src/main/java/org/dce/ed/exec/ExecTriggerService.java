@@ -8,7 +8,6 @@ import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
-import org.dce.ed.logreader.CarrierJumpCooldown;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.OwnedFleetCarrierTracker;
@@ -28,8 +27,6 @@ public final class ExecTriggerService {
     private volatile Supplier<ExecBindingsConfig> configSupplier;
     private volatile Consumer<String> statusListener;
     private volatile Supplier<String> carrierSystemSupplier;
-    /** Fleet Carrier tab: copy next route hop (or clear clipboard at end of route) before cooldown exec. */
-    private volatile Supplier<FleetCooldownClipboardPrep> fleetCooldownClipboardPrepSupplier;
     private volatile ExecPlaceholderContext placeholderContext;
 
     private final CopyOnWriteArrayList<Timer> scheduledExecTimers = new CopyOnWriteArrayList<>();
@@ -73,10 +70,6 @@ public final class ExecTriggerService {
         this.carrierSystemSupplier = carrierSystemSupplier;
     }
 
-    public void setFleetCooldownClipboardPrepSupplier(Supplier<FleetCooldownClipboardPrep> fleetCooldownClipboardPrepSupplier) {
-        this.fleetCooldownClipboardPrepSupplier = fleetCooldownClipboardPrepSupplier;
-    }
-
     public void setPlaceholderContext(ExecPlaceholderContext placeholderContext) {
         this.placeholderContext = placeholderContext;
     }
@@ -113,7 +106,6 @@ public final class ExecTriggerService {
         }
         String trimmed = destination.trim();
         fireTrigger(triggerId, ExecLaunchContext.builder(triggerId)
-                .destination(trimmed)
                 .clipboard(trimmed)
                 .build());
     }
@@ -139,9 +131,6 @@ public final class ExecTriggerService {
                 .carrierSystemName(carrierSystemName())
                 .carrierCallsign(fuelTracker.getLastKnownCallsign())
                 .carrierName(fuelTracker.getLastKnownCarrierName());
-        if (nextDestination != null && !nextDestination.isBlank()) {
-            builder.destination(nextDestination.trim());
-        }
         fireTrigger(triggerId, builder.build());
     }
 
@@ -171,44 +160,15 @@ public final class ExecTriggerService {
     }
 
     public void onFleetCooldownComplete() {
-        int delayMs = CarrierJumpCooldown.EXEC_TRIGGER_DELAY_AFTER_COOLDOWN_SECONDS * 1000;
-        publishStatus("Cooldown ended — running macro in "
-                + CarrierJumpCooldown.EXEC_TRIGGER_DELAY_AFTER_COOLDOWN_SECONDS + "s…");
-        Timer timer = new Timer(delayMs, e -> fireTrigger(
-                ExecTriggerId.FLEET_COOLDOWN_COMPLETE,
-                buildFleetCooldownLaunchContext()));
-        timer.setRepeats(false);
-        trackExecTimer(timer);
-        timer.start();
-        notifyActivityChanged();
+        fireTrigger(ExecTriggerId.FLEET_COOLDOWN_COMPLETE, buildFleetCooldownLaunchContext());
     }
 
     ExecLaunchContext buildFleetCooldownLaunchContext() {
-        FleetCooldownClipboardPrep prep = resolveFleetCooldownClipboardPrep();
-        ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.FLEET_COOLDOWN_COMPLETE)
+        return ExecLaunchContext.builder(ExecTriggerId.FLEET_COOLDOWN_COMPLETE)
                 .carrierSystemName(carrierSystemName())
                 .carrierCallsign(fuelTracker.getLastKnownCallsign())
-                .carrierName(fuelTracker.getLastKnownCarrierName());
-        if (prep != null && prep.destination() != null && !prep.destination().isBlank()) {
-            String destination = prep.destination().trim();
-            builder.destination(destination).clipboard(destination);
-        } else if (prep != null && prep.clipboardCleared()) {
-            builder.clipboardCleared(true);
-        }
-        return builder.build();
-    }
-
-    private FleetCooldownClipboardPrep resolveFleetCooldownClipboardPrep() {
-        Supplier<FleetCooldownClipboardPrep> supplier = fleetCooldownClipboardPrepSupplier;
-        if (supplier == null) {
-            return null;
-        }
-        try {
-            FleetCooldownClipboardPrep prep = supplier.get();
-            return prep != null ? prep : FleetCooldownClipboardPrep.unavailable();
-        } catch (Exception ignored) {
-            return FleetCooldownClipboardPrep.unavailable();
-        }
+                .carrierName(fuelTracker.getLastKnownCarrierName())
+                .build();
     }
 
     public void onJournalEvent(EliteLogEvent event, OwnedFleetCarrierTracker ownedTracker) {
@@ -349,7 +309,6 @@ public final class ExecTriggerService {
 
     private void runBindingNowInternal(ExecBinding binding) {
         ExecBindingsConfig config = currentConfig();
-        FleetCooldownClipboardPrep prep = resolveFleetCooldownClipboardPrep();
         ExecLaunchContext.Builder builder = ExecLaunchContext.builder(ExecTriggerId.MANUAL)
                 .carrierSystemName(carrierSystemName())
                 .carrierFuelLevel(fuelTracker.getLastKnownFuelLevel() >= 0
@@ -357,12 +316,6 @@ public final class ExecTriggerService {
                 .carrierFuelThreshold(config.getFleetTritiumLowThreshold())
                 .carrierCallsign(fuelTracker.getLastKnownCallsign())
                 .carrierName(fuelTracker.getLastKnownCarrierName());
-        if (prep != null && prep.destination() != null && !prep.destination().isBlank()) {
-            String destination = prep.destination().trim();
-            builder.destination(destination).clipboard(destination);
-        } else if (prep != null && prep.clipboardCleared()) {
-            builder.clipboardCleared(true);
-        }
         // Manual runs (Control Panel / Run now) skip binding delay; delay applies only to triggers.
         launch(binding, builder.build());
     }
@@ -387,9 +340,7 @@ public final class ExecTriggerService {
                 .carrierFuelThreshold(base.getCarrierFuelThreshold())
                 .carrierCallsign(base.getCarrierCallsign())
                 .carrierName(base.getCarrierName())
-                .destination(base.getDestination())
                 .clipboard(base.getClipboard())
-                .clipboardCleared(base.isClipboardCleared())
                 .journalEventType(base.getJournalEventType())
                 .build();
     }

@@ -40,7 +40,7 @@ public final class ExecPlaceholderResolver {
             return UNKNOWN;
         }
         return valueOrUnknown(switch (id) {
-            case FLEET_CARRIER_DESTINATION, DESTINATION -> blankOrNull(ExecPlaceholderContext.fleetNextDestination(ctx));
+            case FLEET_CARRIER_DESTINATION -> blankOrNull(ExecPlaceholderContext.fleetNextDestination(ctx));
             case ROUTE_NEXT_DESTINATION -> blankOrNull(ExecPlaceholderContext.shipNextDestination(ctx));
             case ROUTE_CURRENT_SYSTEM -> routeField(ctx.shipRoute(), RouteSession::getCurrentSystemName);
             case FLEET_ROUTE_CURRENT_SYSTEM -> routeField(ctx.fleetRoute(), RouteSession::getCurrentSystemName);
@@ -56,9 +56,6 @@ public final class ExecPlaceholderResolver {
                 yield n != null ? Integer.toString(n) : null;
             }
             case CLIPBOARD -> {
-                if (launch != null && launch.isClipboardCleared()) {
-                    yield null;
-                }
                 if (launch != null) {
                     String fromLaunch = blankOrNull(launch.getClipboard());
                     if (fromLaunch != null) {

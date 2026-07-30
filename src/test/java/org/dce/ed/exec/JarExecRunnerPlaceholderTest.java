@@ -59,4 +59,14 @@ class JarExecRunnerPlaceholderTest {
 
         assertTrue(env.isEmpty());
     }
+
+    @Test
+    void fleetCarrierDestinationIsNotExportedToChildEnvironment() {
+        Map<String, String> env = new HashMap<>();
+
+        JarExecRunner.putResolvedEnvironment(env,
+                Map.of("FLEET_CARRIER_DESTINATION", "Achenar"));
+
+        assertTrue(env.isEmpty());
+    }
 }

@@ -45,16 +45,6 @@ class ExecPlaceholderSubstitutorTest {
     }
 
     @Test
-    void clipboard_unknownWhenClipboardCleared() {
-        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
-        ExecLaunchContext launch = ExecLaunchContext.builder(ExecTriggerId.FLEET_COOLDOWN_COMPLETE)
-                .clipboardCleared(true)
-                .build();
-        assertEquals("Unknown",
-                ExecPlaceholderResolver.resolveOne(ctx, launch, ExecPlaceholderId.CLIPBOARD));
-    }
-
-    @Test
     void tokenizer_respectsQuotedLiterals() {
         List<String> tokens = ExecArgsTokenizer.tokenize("--play \"fleet map\" $SYSTEM_NAME");
         assertEquals(3, tokens.size());
@@ -64,13 +54,8 @@ class ExecPlaceholderSubstitutorTest {
     }
 
     @Test
-    void destinationAlias_matchesFleetCarrierDestination() {
-        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
-        ctx.setFleetRouteSessionSupplier(() -> null);
-        String fleet = ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.FLEET_CARRIER_DESTINATION);
-        String dest = ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.DESTINATION);
-        assertEquals("Unknown", fleet);
-        assertEquals("Unknown", dest);
+    void destinationAlias_isNotRecognized() {
+        assertEquals(java.util.Optional.empty(), ExecPlaceholderId.fromToken("$DESTINATION"));
     }
 
     @Test
@@ -140,5 +125,23 @@ class ExecPlaceholderSubstitutorTest {
                 ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.FLEET_ROUTE_CURRENT_SYSTEM));
         assertEquals("Sol",
                 ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.ROUTE_CURRENT_SYSTEM));
+    }
+
+    @Test
+    void fleetCarrierDestination_readsNextFleetRouteHop() {
+        org.dce.ed.route.RouteSession fleet = new org.dce.ed.route.RouteSession(null, j -> true);
+        fleet.applyKnownCurrentSystem("Sol", 100L, null);
+        fleet.replaceBaseRouteEntries(List.of(
+                org.dce.ed.route.RouteEntry.syntheticSystem(
+                        "Sol", 100L, null, org.dce.ed.route.RouteMarkerKind.NONE),
+                org.dce.ed.route.RouteEntry.syntheticSystem(
+                        "Achenar", 200L, null, org.dce.ed.route.RouteMarkerKind.NONE)));
+
+        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+        ctx.setFleetRouteSessionSupplier(() -> fleet);
+
+        assertEquals("Achenar",
+                ExecPlaceholderResolver.resolveOne(
+                        ctx, null, ExecPlaceholderId.FLEET_CARRIER_DESTINATION));
     }
 }

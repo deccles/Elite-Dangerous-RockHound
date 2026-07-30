@@ -24,7 +24,6 @@ public enum ExecPlaceholderId {
     CLIPBOARD("Clipboard text at trigger time"),
     TRIGGER("Exec trigger id"),
     TIMESTAMP("Trigger fire time (ISO-8601)"),
-    DESTINATION("Alias for fleet carrier next destination"),
 
     CARRIER_SYSTEM("Owned fleet carrier current system"),
     CARRIER_NAME("Fleet carrier name"),

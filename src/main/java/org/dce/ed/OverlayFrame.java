@@ -85,7 +85,6 @@ import org.dce.ed.util.WindowsNativeMousePassThrough;
 import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.exec.placeholder.ExecPlaceholderContext;
-import org.dce.ed.exec.FleetCooldownClipboardPrep;
 import org.dce.ed.ui.EdoUi;
 
 public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
@@ -1198,12 +1197,6 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         execTriggerService.setCarrierSystemSupplier(() -> {
             OwnedFleetCarrierTracker tracker = tabs.getOwnedFleetCarrierTracker();
             return tracker != null ? tracker.getOwnedSystemName() : null;
-        });
-        execTriggerService.setFleetCooldownClipboardPrepSupplier(() -> {
-            FleetCarrierTabPanel fleetCarrierTab = tabs.getFleetCarrierTabPanel();
-            return fleetCarrierTab != null
-                    ? fleetCarrierTab.prepareFleetCooldownDestinationClipboard()
-                    : FleetCooldownClipboardPrep.unavailable();
         });
         execTriggerService.setStatusListener(msg -> {
             if (msg != null) {

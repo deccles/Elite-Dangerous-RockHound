@@ -73,7 +73,6 @@ import javax.swing.table.TableColumnModel;
 
 import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.exec.ExecTriggerService;
-import org.dce.ed.exec.FleetCooldownClipboardPrep;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.OverlayTransparentChrome;
 import org.dce.ed.ui.PassThroughScrollSupport;
@@ -88,7 +87,9 @@ import org.dce.ed.session.FleetCarrierSessionMapper;
 import org.dce.ed.session.RouteEntryPersisted;
 import org.dce.ed.edsm.BodiesResponse;
 import org.dce.ed.logreader.EliteJournalReader;
+import org.dce.ed.logreader.EliteLogFileLocator;
 import org.dce.ed.logreader.EliteLogEvent;
+import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
@@ -418,6 +419,7 @@ public class RouteTabPanel extends JPanel {
 			setCustomRouteActive(false);
 		}
 		reconcileRouteCurrentWithPostRescanCache();
+		reconcileRouteDestinationWithStatusSnapshot();
 		rebuildDisplayedEntries();
 	}
 
@@ -2720,6 +2722,12 @@ public class RouteTabPanel extends JPanel {
 	 * same journals. Align route markers with that cache when it disagrees with the restored session.
 	 */
 	protected void reconcileRouteCurrentWithPostRescanCache() {
+		if (resolveCurrentSystemFromJournal()) {
+			tableModel.setCurrentSystemIdentity(
+					routeSession.getCurrentSystemName(),
+					routeSession.getCurrentSystemAddress());
+			return;
+		}
 		try {
 			CachedSystem cs = SystemCache.load();
 			if (cs == null || cs.systemName == null || cs.systemName.isBlank() || cs.systemAddress == 0L) {
@@ -2738,7 +2746,7 @@ public class RouteTabPanel extends JPanel {
 		}
 	}
 
-	private boolean resolveCurrentSystemFromJournal() {
+	protected boolean resolveCurrentSystemFromJournal() {
 	    try {
 	        Path journalDir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
 	        if (journalDir == null || !java.nio.file.Files.isDirectory(journalDir)) {
@@ -2772,6 +2780,26 @@ public class RouteTabPanel extends JPanel {
 	        return false;
 	    }
 	}
+
+	protected void reconcileRouteDestinationWithStatusSnapshot() {
+		try {
+			Path journalDir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
+			if (journalDir == null) {
+				return;
+			}
+			Path statusFile = EliteLogFileLocator.findStatusFile(journalDir);
+			if (statusFile == null || !Files.isRegularFile(statusFile)) {
+				return;
+			}
+			StatusEvent status = new EliteLogParser().parseStatusJsonFile(statusFile);
+			if (status != null) {
+				routeSession.applySecondaryJournalEvent(status);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
 	private void setCurrentSystemName(String name) {
 		if (name == null) {
 			return;
@@ -2919,13 +2947,9 @@ public class RouteTabPanel extends JPanel {
 				}
 				int from = Math.min(rowIndex, currentRow);
 				int to = Math.max(rowIndex, currentRow);
-				double total = 0.0;
-				for (int i = from + 1; i <= to; i++) {
-					Double d = entries.get(i).distanceLy;
-					if (d == null) {
-						return "";
-					}
-					total += d.doubleValue();
+				double total = RouteGeometry.cumulativeDistanceLy(entries, from, to);
+				if (!Double.isFinite(total)) {
+					return "";
 				}
 				return String.format("%.2f Ly", total);
 			}
@@ -3684,18 +3708,6 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	/**
-	 * Prepares clipboard for fleet cooldown exec: copies the next hop, or clears the clipboard at end of route.
-	 */
-	public FleetCooldownClipboardPrep prepareFleetCooldownDestinationClipboard() {
-		String next = nextRouteDestinationSystemName(routeSession);
-		if (next == null || next.isBlank()) {
-			clearRouteClipboard();
-			return FleetCooldownClipboardPrep.cleared();
-		}
-		return FleetCooldownClipboardPrep.copied(copyDestinationNameToClipboard(next));
-	}
-
-	/**
 	 * Copies the next plotted route system to the clipboard and shows the “Copied: …” toast.
 	 * Does not fire exec bindings — callers attach their own trigger (e.g. fleet cooldown complete).
 	 * Does not clear the clipboard when there is no next hop.
@@ -3716,14 +3728,6 @@ public class RouteTabPanel extends JPanel {
 		Component anchor = copyNextDestinationButton != null ? copyNextDestinationButton : table;
 		SystemTableHoverCopyManager.showCopiedToast((JComponent) anchor, trimmed);
 		return trimmed;
-	}
-
-	private static void clearRouteClipboard() {
-		try {
-			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(""), null);
-		} catch (IllegalStateException ignored) {
-			// Clipboard busy (another app owns it); best-effort only.
-		}
 	}
 
 	private static void applyFontRecursively(Component c, Font font) {

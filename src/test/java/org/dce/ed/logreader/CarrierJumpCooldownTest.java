@@ -66,12 +66,12 @@ class CarrierJumpCooldownTest {
     }
 
     @Test
-    void execTrigger_firesTwentySecondsAfterCooldownEnd() {
+    void execTrigger_firesAtCooldownEnd() {
         Instant end = Instant.parse("2026-06-15T21:19:06Z");
         Instant trigger = CarrierJumpCooldown.execTriggerTimeFromCooldownEnd(end);
-        assertEquals(Instant.parse("2026-06-15T21:19:26Z"), trigger);
-        assertFalse(CarrierJumpCooldown.isExecTriggerDue(end, Instant.parse("2026-06-15T21:19:25Z")));
-        assertTrue(CarrierJumpCooldown.isExecTriggerDue(end, Instant.parse("2026-06-15T21:19:26Z")));
+        assertEquals(end, trigger);
+        assertFalse(CarrierJumpCooldown.isExecTriggerDue(end, end.minusSeconds(1)));
+        assertTrue(CarrierJumpCooldown.isExecTriggerDue(end, end));
     }
 
     @Test

@@ -41,9 +41,6 @@ public final class CarrierJumpCooldown {
     /** Allow journal timestamps slightly ahead of the local clock. */
     public static final long LIVE_JUMP_FUTURE_SKEW_SECONDS = 120L;
 
-    /** Fire fleet-cooldown exec bindings this many seconds after the in-game cooldown ends. */
-    public static final int EXEC_TRIGGER_DELAY_AFTER_COOLDOWN_SECONDS = 20;
-
     private CarrierJumpCooldown() {
     }
 
@@ -67,7 +64,7 @@ public final class CarrierJumpCooldown {
         if (cooldownEnd == null) {
             return null;
         }
-        return cooldownEnd.plusSeconds(EXEC_TRIGGER_DELAY_AFTER_COOLDOWN_SECONDS);
+        return cooldownEnd;
     }
 
     public static boolean isExecTriggerDue(Instant cooldownEnd, Instant now) {

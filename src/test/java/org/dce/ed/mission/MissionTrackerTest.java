@@ -114,14 +114,14 @@ class MissionTrackerTest {
     }
 
     @Test
-    void bounty_stackedMissions_advanceTogether() {
+    void bounty_stackedMissions_fromDifferentIssuingFactions_advanceTogether() {
         MissionTracker tracker = new MissionTracker();
         tracker.setCurrentSystemSupplier(() -> "Nuenets");
         String a1 = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
-                + "\"MissionID\":12,\"Name\":\"Mission_Massacre\","
+                + "\"MissionID\":12,\"Name\":\"Mission_Massacre\",\"Faction\":\"Issuer A\","
                 + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":5,\"DestinationSystem\":\"Nuenets\"}";
         String a2 = "{\"timestamp\":\"2026-05-22T10:01:00Z\",\"event\":\"MissionAccepted\","
-                + "\"MissionID\":13,\"Name\":\"Mission_Massacre\","
+                + "\"MissionID\":13,\"Name\":\"Mission_Massacre\",\"Faction\":\"Issuer B\","
                 + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":20,\"DestinationSystem\":\"Nuenets\"}";
         tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(a1));
         tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(a2));
@@ -133,6 +133,28 @@ class MissionTrackerTest {
         assertEquals(1, tracker.findById(12L).getKillsCompleted());
         assertEquals(1, tracker.findById(13L).getKillsCompleted());
         // Lowest remaining among stacked matches.
+        assertEquals(4, tracker.consumeLastMassacreKillRemaining().orElse(-1));
+    }
+
+    @Test
+    void bounty_stackedMissions_fromSameIssuingFaction_advancesOldestOnly() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Nuenets");
+        String older = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":15,\"Name\":\"Mission_Massacre\",\"Faction\":\"Issuer A\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":5,\"DestinationSystem\":\"Nuenets\"}";
+        String newer = "{\"timestamp\":\"2026-05-22T10:01:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":16,\"Name\":\"Mission_Massacre\",\"Faction\":\"Issuer A\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":20,\"DestinationSystem\":\"Nuenets\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(older));
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(newer));
+
+        String bounty = "{\"timestamp\":\"2026-05-22T10:10:00Z\",\"event\":\"Bounty\","
+                + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":5000,\"Target\":\"eagle\"}";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(bounty));
+
+        assertEquals(1, tracker.findById(15L).getKillsCompleted());
+        assertEquals(0, tracker.findById(16L).getKillsCompleted());
         assertEquals(4, tracker.consumeLastMassacreKillRemaining().orElse(-1));
     }
 

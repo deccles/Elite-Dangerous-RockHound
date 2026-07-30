@@ -2,10 +2,8 @@ package org.dce.ed.exec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
@@ -13,50 +11,19 @@ import org.junit.jupiter.api.Test;
 class ExecTriggerServiceTest {
 
     @Test
-    void buildFleetCooldownLaunchContext_includesDestinationWhenSupplierReturnsName() {
+    void onFleetCooldownComplete_dispatchesImmediatelyWithoutScheduling() {
         ExecTriggerService service = new ExecTriggerService();
-        service.setCarrierSystemSupplier(() -> "Magellan");
-        service.setFleetCooldownClipboardPrepSupplier(
-                () -> FleetCooldownClipboardPrep.copied("Eol Prou LH-K c9-96"));
+        ExecBinding binding = new ExecBinding();
+        binding.setJarPath("");
+        binding.setEnabled(true);
+        binding.setTrigger(ExecTriggerId.FLEET_COOLDOWN_COMPLETE);
+        ExecBindingsConfig config = new ExecBindingsConfig();
+        config.getBindings().add(binding);
+        service.setConfigSupplier(() -> config);
 
-        ExecLaunchContext context = service.buildFleetCooldownLaunchContext();
-        Map<String, String> env = context.toEnvironment();
+        service.onFleetCooldownComplete();
 
-        assertEquals("fleet_cooldown_complete", env.get("EDO_TRIGGER"));
-        assertEquals("Magellan", env.get("EDO_CARRIER_SYSTEM"));
-        assertEquals("Eol Prou LH-K c9-96", env.get("EDO_DESTINATION"));
-        assertEquals("Eol Prou LH-K c9-96", env.get("EDO_CLIPBOARD"));
-        assertNull(env.get("EDO_CLIPBOARD_CLEARED"));
-    }
-
-    @Test
-    void buildFleetCooldownLaunchContext_signalsClipboardClearedAtEndOfRoute() {
-        ExecTriggerService service = new ExecTriggerService();
-        service.setCarrierSystemSupplier(() -> "Magellan");
-        service.setFleetCooldownClipboardPrepSupplier(FleetCooldownClipboardPrep::cleared);
-
-        ExecLaunchContext context = service.buildFleetCooldownLaunchContext();
-        Map<String, String> env = context.toEnvironment();
-
-        assertEquals("Magellan", env.get("EDO_CARRIER_SYSTEM"));
-        assertNull(env.get("EDO_DESTINATION"));
-        assertNull(env.get("EDO_CLIPBOARD"));
-        assertEquals("1", env.get("EDO_CLIPBOARD_CLEARED"));
-    }
-
-    @Test
-    void buildFleetCooldownLaunchContext_omitsDestinationWhenSupplierUnavailable() {
-        ExecTriggerService service = new ExecTriggerService();
-        service.setCarrierSystemSupplier(() -> "Magellan");
-        service.setFleetCooldownClipboardPrepSupplier(FleetCooldownClipboardPrep::unavailable);
-
-        ExecLaunchContext context = service.buildFleetCooldownLaunchContext();
-        Map<String, String> env = context.toEnvironment();
-
-        assertEquals("Magellan", env.get("EDO_CARRIER_SYSTEM"));
-        assertNull(env.get("EDO_DESTINATION"));
-        assertNull(env.get("EDO_CLIPBOARD"));
-        assertNull(env.get("EDO_CLIPBOARD_CLEARED"));
+        assertFalse(service.hasActiveScripts());
     }
 
     @Test

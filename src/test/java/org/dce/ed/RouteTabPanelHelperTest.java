@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.dce.ed.route.RouteEntry;
+import org.dce.ed.session.EdoSessionState;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -113,6 +114,55 @@ class RouteTabPanelHelperTest {
         // Point (1,0,0) is on the segment A->B, so insert after index 0
         int idx = RouteTabPanel.bestInsertionIndexByCoords(entries, new Double[]{1.0, 0.0, 0.0});
         assertEquals(1, idx);
+    }
+
+    @Test
+    void startupReconcile_prefersLatestJournalLocationOverPersistedCurrent() {
+        JournalFirstRouteTabPanel panel = new JournalFirstRouteTabPanel();
+        panel.routeSessionForTests().applyKnownCurrentSystem("47 Ursae Majoris", 47L, null);
+
+        panel.reconcileRouteCurrentWithPostRescanCache();
+
+        assertEquals("Ross 104", panel.routeSessionForTests().getCurrentSystemName());
+        assertEquals(104L, panel.routeSessionForTests().getCurrentSystemAddress());
+    }
+
+    @Test
+    void sessionRestore_reconcilesPersistedDestinationWithCurrentStatusSnapshot() {
+        StatusFirstRouteTabPanel panel = new StatusFirstRouteTabPanel();
+        EdoSessionState state = new EdoSessionState();
+        state.setDestinationSystemAddress(104L);
+        state.setDestinationBodyId(7);
+        state.setDestinationName("Bunch City");
+
+        panel.applySessionState(state);
+
+        assertEquals(true, panel.statusSnapshotApplied);
+        assertNull(panel.routeSessionForTests().getTargetState().getDestinationName());
+    }
+
+    private static final class JournalFirstRouteTabPanel extends RouteTabPanel {
+        @Override
+        protected boolean resolveCurrentSystemFromJournal() {
+            routeSessionForTests().applyKnownCurrentSystem("Ross 104", 104L, null);
+            return true;
+        }
+    }
+
+    private static final class StatusFirstRouteTabPanel extends RouteTabPanel {
+        boolean statusSnapshotApplied;
+
+        @Override
+        protected boolean resolveCurrentSystemFromJournal() {
+            return false;
+        }
+
+        @Override
+        protected void reconcileRouteDestinationWithStatusSnapshot() {
+            statusSnapshotApplied = true;
+            routeSessionForTests().getTargetState().restoreFromPersistence(
+                    null, null, null, null, null);
+        }
     }
 
     private static RouteEntry entry(String systemName, long systemAddress) {

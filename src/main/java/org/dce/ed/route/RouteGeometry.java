@@ -126,30 +126,46 @@ public final class RouteGeometry {
         if (entries == null) {
             return;
         }
-        for (int i = 0; i < entries.size(); i++) {
-            RouteEntry cur = entries.get(i);
-            if (cur == null || cur.isBodyRow) {
+        RouteEntry previousSystem = null;
+        for (RouteEntry cur : entries) {
+            if (cur == null) {
                 continue;
             }
-            if (i == 0) {
+            if (cur.isBodyRow) {
                 cur.distanceLy = null;
                 continue;
             }
-            RouteEntry prev = entries.get(i - 1);
-            if (prev == null || prev.isBodyRow) {
+            if (previousSystem == null) {
                 cur.distanceLy = null;
-                continue;
-            }
-            if (prev.x == null || prev.y == null || prev.z == null
+            } else if (previousSystem.x == null || previousSystem.y == null || previousSystem.z == null
                     || cur.x == null || cur.y == null || cur.z == null) {
                 cur.distanceLy = null;
+            } else {
+                double dx = cur.x.doubleValue() - previousSystem.x.doubleValue();
+                double dy = cur.y.doubleValue() - previousSystem.y.doubleValue();
+                double dz = cur.z.doubleValue() - previousSystem.z.doubleValue();
+                cur.distanceLy = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            }
+            previousSystem = cur;
+        }
+    }
+
+    public static double cumulativeDistanceLy(List<RouteEntry> entries, int fromRow, int toRow) {
+        if (entries == null || fromRow < 0 || toRow >= entries.size() || fromRow >= toRow) {
+            return Double.NaN;
+        }
+        double total = 0.0;
+        for (int i = fromRow + 1; i <= toRow; i++) {
+            RouteEntry entry = entries.get(i);
+            if (entry == null || entry.isBodyRow) {
                 continue;
             }
-            double dx = cur.x.doubleValue() - prev.x.doubleValue();
-            double dy = cur.y.doubleValue() - prev.y.doubleValue();
-            double dz = cur.z.doubleValue() - prev.z.doubleValue();
-            cur.distanceLy = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (entry.distanceLy == null) {
+                return Double.NaN;
+            }
+            total += entry.distanceLy.doubleValue();
         }
+        return total;
     }
 
     public static void renumberDisplayIndexes(List<RouteEntry> entries) {
