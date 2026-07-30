@@ -12,3 +12,4 @@
 /.gitmsg.txt
 /tts-cache*/
 /debug-*.log
+/.worktrees/
