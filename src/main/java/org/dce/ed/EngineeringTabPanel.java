@@ -2000,14 +2000,29 @@ public class EngineeringTabPanel extends JPanel {
                 () -> List.copyOf(goals));
     }
 
+    /**
+     * Prefer the open Loadout dialog as owner so Add/Edit Goal stacks above it. Loadout is
+     * always-on-top and modeless; parenting to the overlay alone can leave goal dialogs behind.
+     */
+    private Window goalDialogOwner() {
+        for (Window w : Window.getWindows()) {
+            if (w instanceof EngineeringBuildProgressDialog && w.isDisplayable() && w.isShowing()) {
+                return w;
+            }
+        }
+        return SwingUtilities.getWindowAncestor(this);
+    }
+
     private EngineeringGoal addGoalFromBuildProgress(EngineeringBuildProgressDialog.AddGoalRequest request) {
         if (request == null) {
             return null;
         }
-        Window owner = SwingUtilities.getWindowAncestor(this);
+        Window owner = goalDialogOwner();
         String slotKey = request.slotKey() != null ? request.slotKey().trim() : "";
         EngineeringGoal existing = request.existingGoal();
-        if (existing == null) {
+        // Slot-pinned Add must create a new goal. Reusing an existing plan identity opens Edit
+        // (qty +1) and makes a free hardpoint look like it "won't add" a 4th Multi-cannon row.
+        if (existing == null && slotKey.isBlank()) {
             existing = findReusableLoadoutGoal(request);
         }
         if (existing != null) {
@@ -2096,8 +2111,9 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     /**
-     * When adding from Loadout without an existing row match, reuse a goal that already
-     * plans the same module/blueprint/experimental/target on that ship (bump quantity).
+     * When adding from Loadout without a slot pin and without an existing row match, reuse a
+     * goal that already plans the same module/blueprint/experimental/target on that ship
+     * (bump quantity). Slot-pinned adds skip this and always create.
      */
     private EngineeringGoal findReusableLoadoutGoal(EngineeringBuildProgressDialog.AddGoalRequest request) {
         if (request == null || request.ship() == null || !request.ship().isKnown()) {
@@ -2904,7 +2920,7 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     private void openAddGoalDialog() {
-        Window owner = SwingUtilities.getWindowAncestor(this);
+        Window owner = goalDialogOwner();
         EngineeringShipRef equipped = currentShipRef();
         EngineeringShipRef defaultShip = resolveAddGoalDefaultShip(equipped);
         EngineeringGoal goal = EngineeringGoalDialog.showForAdd(
@@ -2922,7 +2938,7 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     private void openAddMaterialsGoalDialog() {
-        Window owner = SwingUtilities.getWindowAncestor(this);
+        Window owner = goalDialogOwner();
         EngineeringShipRef equipped = currentShipRef();
         EngineeringShipRef defaultShip = resolveAddGoalDefaultShip(equipped);
         MaterialsGoal goal = EngineeringMaterialsGoalDialog.showForAdd(
@@ -2982,7 +2998,7 @@ public class EngineeringTabPanel extends JPanel {
         if (row == null) {
             return;
         }
-        Window owner = SwingUtilities.getWindowAncestor(this);
+        Window owner = goalDialogOwner();
         if (row.isMaterials()) {
             MaterialsGoal existing = row.materials();
             MaterialsGoal updated = EngineeringMaterialsGoalDialog.showForEdit(

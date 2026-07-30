@@ -172,4 +172,58 @@ class EngineeringGoalSlotMatcherTest {
         assertEquals("Slot02_Size4", progressed.getTargetSlot());
         assertEquals("Slot02_Size4", progressed.resetJournalProgress().getTargetSlot());
     }
+
+    @Test
+    void partialWithExperimental_claimedByMatchingGoal_notSiblingPlan() {
+        Row corrosiveHuge = new Row(
+                2L,
+                "HugeHardpoint1",
+                "HugeHardpoint1",
+                "Multi-cannon",
+                "Multi-cannon",
+                "hpt_multicannon_gimbal_huge",
+                "Overcharged Weapon",
+                "Corrosive Shell",
+                4,
+                5,
+                1,
+                Band.PARTIAL);
+        Row stockLarge = gapRow(2L, "LargeHardpoint1", "Multi-cannon");
+        Row stockMed1 = gapRow(2L, "MediumHardpoint1", "Multi-cannon");
+        Row stockMed2 = gapRow(2L, "MediumHardpoint2", "Multi-cannon");
+
+        EngineeringGoal corrosive = mcExpGoal(2L, "multi-cannon-corrosive-shell-experimental");
+        EngineeringGoal autoLoader = mcExpGoal(2L, "multi-cannon-auto-loader-experimental");
+        EngineeringGoal incendiary = mcExpGoal(2L, "multi-cannon-incendiary-rounds-experimental");
+
+        // Put Auto Loader first so a naive first-match would wrongly bind it to the Huge.
+        List<EngineeringGoal> goals = List.of(autoLoader, incendiary, corrosive);
+        List<Row> rows = List.of(corrosiveHuge, stockLarge, stockMed1, stockMed2);
+        Map<String, EngineeringGoal> assigned = EngineeringGoalSlotMatcher.assign(rows, goals);
+
+        assertEquals(corrosive, assigned.get(EngineeringGoalSlotMatcher.rowKey(corrosiveHuge)),
+                "Corrosive Huge must bind to Corrosive goal");
+        assertEquals(3, assigned.size(), "three qty-1 goals claim three of four hardpoints");
+        assertNull(assigned.get(EngineeringGoalSlotMatcher.rowKey(stockMed2)),
+                "one stock Multi-cannon must stay free for Add goal");
+    }
+
+    private static EngineeringGoal mcExpGoal(long shipId, String experimentalId) {
+        return new EngineeringGoal(
+                "multi-cannon-overcharged-weapon-g5",
+                "Multi-cannon",
+                "Overcharged Weapon",
+                0,
+                0,
+                5,
+                experimentalId,
+                GoalPriority.MEDIUM,
+                false,
+                1,
+                0,
+                shipId,
+                "Anaconda · Combat 2",
+                true,
+                "");
+    }
 }

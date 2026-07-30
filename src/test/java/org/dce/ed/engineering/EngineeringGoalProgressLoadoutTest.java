@@ -363,4 +363,93 @@ class EngineeringGoalProgressLoadoutTest {
         double frac = EngineeringGoalProgress.displayCompletionFraction(goals.get(0), loadout, db, 0);
         assertTrue(frac > 0.05 && frac < 1.0, "expected partial bar fill, got " + frac);
     }
+
+    @Test
+    void applyLoadout_siblingExperimental_doesNotAdvanceOtherOverchargedGoals() {
+        // Repro: one Huge Overcharged+Corrosive at G4 used to stamp G5 (G5 0/5) onto Auto Loader
+        // and Incendiary Multi-cannon goals as well — looking "done" while those guns are stock.
+        String loadoutJson = """
+                {
+                  "timestamp": "2026-07-30T14:00:00Z",
+                  "event": "Loadout",
+                  "Ship": "anaconda",
+                  "ShipID": 2,
+                  "Modules": [
+                    {
+                      "Slot": "HugeHardpoint1",
+                      "Item": "hpt_multicannon_gimbal_huge",
+                      "On": true,
+                      "Priority": 0,
+                      "Health": 1.0,
+                      "Engineering": {
+                        "Engineer": "Tod 'The Blaster' McQuinn",
+                        "BlueprintName": "Weapon_Overcharged",
+                        "Level": 5,
+                        "Quality": 0.0,
+                        "ExperimentalEffect": "special_corrosive_shell",
+                        "ExperimentalEffect_Localised": "Corrosive Shell"
+                      }
+                    },
+                    {
+                      "Slot": "LargeHardpoint1",
+                      "Item": "hpt_multicannon_gimbal_large",
+                      "On": true,
+                      "Priority": 0,
+                      "Health": 1.0
+                    },
+                    {
+                      "Slot": "MediumHardpoint1",
+                      "Item": "hpt_multicannon_gimbal_medium",
+                      "On": true,
+                      "Priority": 0,
+                      "Health": 1.0
+                    },
+                    {
+                      "Slot": "MediumHardpoint2",
+                      "Item": "hpt_multicannon_gimbal_medium",
+                      "On": true,
+                      "Priority": 0,
+                      "Health": 1.0
+                    }
+                  ]
+                }
+                """;
+        LoadoutEvent loadout = (LoadoutEvent) parser.parseRecord(loadoutJson);
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(mcGoal(2L, "multi-cannon-corrosive-shell-experimental", 4, 0));
+        goals.add(mcGoal(2L, "multi-cannon-auto-loader-experimental", 4, 0));
+        goals.add(mcGoal(2L, "multi-cannon-incendiary-rounds-experimental", 4, 0));
+
+        assertTrue(EngineeringGoalProgress.applyLoadout(goals, loadout, db));
+
+        EngineeringGoal corrosive = goals.get(0);
+        assertEquals(4, corrosive.getFromGrade(), "Corrosive goal keeps Huge G4→G5 progress");
+        assertTrue(!corrosive.isComplete());
+
+        assertEquals(0, goals.get(1).getFromGrade(),
+                "Auto Loader must not inherit Corrosive gun grades");
+        assertEquals(0, goals.get(2).getFromGrade(),
+                "Incendiary must not inherit Corrosive gun grades");
+        assertTrue(!goals.get(1).isComplete());
+        assertTrue(!goals.get(2).isComplete());
+    }
+
+    private static EngineeringGoal mcGoal(long shipId, String experimentalId, int fromGrade, int crafts) {
+        return new EngineeringGoal(
+                "multi-cannon-overcharged-weapon-g5",
+                "Multi-cannon",
+                "Overcharged Weapon",
+                fromGrade,
+                crafts,
+                5,
+                experimentalId,
+                GoalPriority.MEDIUM,
+                false,
+                1,
+                0,
+                shipId,
+                "Anaconda · Combat 2",
+                true,
+                "");
+    }
 }

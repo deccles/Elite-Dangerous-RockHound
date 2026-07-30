@@ -578,6 +578,10 @@ public final class EngineeringGoalProgress {
                         || !template.getBlueprintName().equalsIgnoreCase(resolved.get().blueprintName())) {
                     continue;
                 }
+                if (!template.hasTargetSlot()
+                        && fittedExperimentalConflictsWithGoal(template, engineering, db)) {
+                    continue;
+                }
                 Map<String, EngineeringGoal> instances = instancesByGoal.get(i);
                 EngineeringGoal working = instances.computeIfAbsent(key, k -> blankUnitProgress(template));
                 EngineeringGoal updated = applyPartialLoadoutProgress(working, engineering, db);
@@ -783,6 +787,7 @@ public final class EngineeringGoalProgress {
         EngineeringGoal worstIncomplete = null;
         int worstIncompleteScore = Integer.MAX_VALUE;
         boolean sawMatchingModule = false;
+        boolean sawConflictingExperimentalModule = false;
         boolean incompleteMissingExperimental = false;
 
         for (LoadoutEvent.Module module : loadout.getModules()) {
@@ -821,6 +826,13 @@ public final class EngineeringGoalProgress {
                     || !goal.getBlueprintName().equalsIgnoreCase(resolved.get().blueprintName())) {
                 continue;
             }
+            // Unscoped goals must not inherit grade progress from a sibling gun that already has a
+            // different experimental (e.g. Auto Loader plan reading a Corrosive Overcharged MC).
+            // Pinned slots still take grade (experimental swap on that hardpoint).
+            if (!goal.hasTargetSlot() && fittedExperimentalConflictsWithGoal(goal, engineering, db)) {
+                sawConflictingExperimentalModule = true;
+                continue;
+            }
             sawMatchingModule = true;
             if (isEngineeringCompleteForGoal(goal, engineering, db)) {
                 completeOnShip++;
@@ -856,6 +868,14 @@ public final class EngineeringGoalProgress {
                         .withExperimentalApplied(!goal.getExperimentalId().isBlank());
             }
             if (bestPartial == null) {
+                if (sawConflictingExperimentalModule
+                        && !goal.hasTargetSlot()
+                        && !goal.isComplete()
+                        && worstIncomplete != null) {
+                    // Sibling gun had the blueprint but the wrong experimental — snap back to the
+                    // stock/G0 unit instead of keeping phantom G4/G5 from that sibling.
+                    return worstIncomplete.withCompletedUnits(0).withExperimentalApplied(false);
+                }
                 return goal;
             }
             return mergeProgress(goal.withCompletedUnits(0), bestPartial.withCompletedUnits(0), true);
@@ -1016,6 +1036,9 @@ public final class EngineeringGoalProgress {
                     || !goal.getBlueprintName().equalsIgnoreCase(resolved.get().blueprintName())) {
                 continue;
             }
+            if (!goal.hasTargetSlot() && fittedExperimentalConflictsWithGoal(goal, engineering, db)) {
+                continue;
+            }
             if (isEngineeringCompleteForGoal(goal, engineering, db)) {
                 fracs.add(1.0);
                 continue;
@@ -1072,6 +1095,63 @@ public final class EngineeringGoalProgress {
     }
 
     /**
+     * True when the fitted module already has an experimental that is not the one this goal wants.
+     * Blank fitted experimental is not a conflict (grade-only progress / pending experimental).
+     */
+    private static boolean fittedExperimentalConflictsWithGoal(EngineeringGoal goal,
+                                                               LoadoutEvent.Engineering engineering,
+                                                               EngineeringDatabase db) {
+        if (goal == null || engineering == null || db == null) {
+            return false;
+        }
+        String expId = goal.getExperimentalId();
+        if (expId == null || expId.isBlank()) {
+            return false;
+        }
+        String effect = engineering.getExperimentalEffect();
+        String localised = engineering.getExperimentalEffectLocalised();
+        boolean fittedHasExp = (effect != null && !effect.isBlank())
+                || (localised != null && !localised.isBlank());
+        if (!fittedHasExp) {
+            return false;
+        }
+        Optional<BlueprintGrade> experimental = db.findById(expId);
+        if (experimental.isEmpty()) {
+            return false;
+        }
+        return !experimentalEffectMatches("", effect, localised, experimental.get());
+    }
+
+    /** Same conflict rule for journal craft rows that report the module's current experimental. */
+    private static boolean craftExperimentalConflictsWithGoal(EngineeringGoal goal,
+                                                              EngineerCraftEvent craft,
+                                                              EngineeringDatabase db) {
+        if (goal == null || craft == null || db == null) {
+            return false;
+        }
+        String expId = goal.getExperimentalId();
+        if (expId == null || expId.isBlank()) {
+            return false;
+        }
+        String effect = craft.getExperimentalEffect();
+        String localised = craft.getExperimentalEffectLocalised();
+        boolean craftHasExp = (effect != null && !effect.isBlank())
+                || (localised != null && !localised.isBlank());
+        if (!craftHasExp) {
+            return false;
+        }
+        Optional<BlueprintGrade> experimental = db.findById(expId);
+        if (experimental.isEmpty()) {
+            return false;
+        }
+        return !experimentalEffectMatches(
+                craft.getApplyExperimentalEffect(),
+                effect,
+                localised,
+                experimental.get());
+    }
+
+    /**
      * @param replayHadEvidence true when journal/store crafts actually matched this goal, making the
      *        replayed unit/experimental state authoritative; saved session values only fill gaps when
      *        no craft history was found (e.g. journals rolled off disk)
@@ -1123,7 +1203,20 @@ public final class EngineeringGoalProgress {
         }
         // Trust resolved blueprint + craft level. Strict ingredient matching rejected valid crafts when
         // journal names/counts diverged from the catalog, so inventory fell while Need did not.
-        return matchesGoalModuleBlueprint(goal, craft, db);
+        if (!matchesGoalModuleBlueprint(goal, craft, db)) {
+            return false;
+        }
+        if (goal.hasTargetSlot()) {
+            String craftSlot = craft.getSlot() != null ? craft.getSlot().trim() : "";
+            if (!craftSlot.isBlank() && !goal.getTargetSlot().equalsIgnoreCase(craftSlot)) {
+                return false;
+            }
+        } else if (craftExperimentalConflictsWithGoal(goal, craft, db)) {
+            // Unscoped sibling plans must not share crafts from a gun that already carries a
+            // different experimental.
+            return false;
+        }
+        return true;
     }
 
     private static boolean matchesExperimentalCraft(EngineeringGoal goal,
