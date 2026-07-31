@@ -620,8 +620,6 @@ public class MissionsTabPanel extends JPanel {
         commodityGroupsPanel.repaint();
     }
 
-    private static final Color PROGRESS_COMPLETE_GREEN = new Color(100, 220, 130);
-
     private JPanel buildGroupCard(CommodityMissionGroup g, Font base) {
         JPanel card = new JPanel();
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
@@ -632,7 +630,7 @@ public class MissionsTabPanel extends JPanel {
         boolean enough = g.hasEnoughGathered();
         if (isGroupReady(g) || enough) {
             card.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(PROGRESS_COMPLETE_GREEN, 1),
+                    BorderFactory.createLineBorder(EdoUi.User.PRIMARY_HIGHLIGHT, 1),
                     new EmptyBorder(6, 8, 6, 8)));
         }
         int y = g.totalGathered();
@@ -646,13 +644,13 @@ public class MissionsTabPanel extends JPanel {
 
         JLabel progress = new JLabel(y + " / " + x + " t required  ·  " + pct + "%");
         progress.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize()));
-        progress.setForeground(enough ? PROGRESS_COMPLETE_GREEN : EdoUi.User.MAIN_TEXT);
+        progress.setForeground(enough ? EdoUi.User.PRIMARY_HIGHLIGHT : EdoUi.User.MAIN_TEXT);
         progress.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel holdDelivered = new JLabel("Hold " + g.getTotalInHold() + " t · Delivered "
                 + g.getTotalDelivered() + " t");
         holdDelivered.setFont(base.deriveFont(Font.PLAIN, OverlayPreferences.getUiFontSize() - 1));
-        holdDelivered.setForeground(enough ? PROGRESS_COMPLETE_GREEN : EdoUi.User.MAIN_TEXT);
+        holdDelivered.setForeground(enough ? EdoUi.User.PRIMARY_HIGHLIGHT : EdoUi.User.MAIN_TEXT);
         holdDelivered.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         card.add(title);

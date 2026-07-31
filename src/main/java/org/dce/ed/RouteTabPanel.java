@@ -411,7 +411,7 @@ public class RouteTabPanel extends JPanel {
 			if (!entries.isEmpty()) {
 				routeSession.replaceBaseRouteEntries(entries);
 				setCustomRouteActive(true);
-				setHeaderLabelText("Route: " + entries.size() + " systems");
+				setHeaderLabelText(routeJumpHeader(entries));
 			} else {
 				setCustomRouteActive(false);
 			}
@@ -1579,7 +1579,7 @@ public class RouteTabPanel extends JPanel {
 		}
 		headerLabel.setText(entries.isEmpty()
 				? "No plotted route."
-						: "Route: " + entries.size() + " systems");
+						: routeJumpHeader(entries));
 		routeSession.applyNavRouteReloadParsed(entries);
 		setCustomRouteActive(false);
 		rebuildDisplayedEntries();
@@ -1629,7 +1629,7 @@ public class RouteTabPanel extends JPanel {
 			jumpFlashTimer.stop();
 		}
 
-		setHeaderLabelText("Route: " + entries.size() + " systems");
+		setHeaderLabelText(routeJumpHeader(entries));
 		routeSession.applySpanshImport(entries);
 		rebuildDisplayedEntries();
 		fireSessionStateChanged();
@@ -1666,7 +1666,7 @@ public class RouteTabPanel extends JPanel {
 		if (jumpFlashTimer != null && jumpFlashTimer.isRunning()) {
 			jumpFlashTimer.stop();
 		}
-		setHeaderLabelText("Route: " + entries.size() + " systems");
+		setHeaderLabelText(routeJumpHeader(entries));
 		routeSession.applySpanshImport(entries);
 		rebuildDisplayedEntries();
 		fireSessionStateChanged();
@@ -1776,8 +1776,7 @@ public class RouteTabPanel extends JPanel {
 		onCustomRouteMutated();
 		rebuildDisplayedEntries();
 		fireSessionStateChanged();
-		int baseSize = routeSession.getBaseRouteEntries().size();
-		String msg = "Route: " + baseSize + " systems";
+		String msg = routeJumpHeader(routeSession.getBaseRouteEntries());
 		if (resolved.size() < requestedCount) {
 			msg += " (added " + resolved.size() + " of " + requestedCount + ")";
 		}
@@ -1952,7 +1951,7 @@ public class RouteTabPanel extends JPanel {
 		onCustomRouteMutated();
 		rebuildDisplayedEntries();
 		fireSessionStateChanged();
-		setHeaderLabelText("Route: " + routeSession.getBaseRouteEntries().size() + " systems");
+		setHeaderLabelText(routeJumpHeader(routeSession.getBaseRouteEntries()));
 	}
 
 	/**
@@ -2354,6 +2353,11 @@ public class RouteTabPanel extends JPanel {
 
 	static void renumberDisplayIndexes(List<RouteEntry> entries) {
 		RouteGeometry.renumberDisplayIndexes(entries);
+	}
+
+	static String routeJumpHeader(List<RouteEntry> entries) {
+		int jumps = Math.max(0, RouteGeometry.realSystemCount(entries) - 1);
+		return "Route: " + jumps + " jumps";
 	}
 
 	private void rememberScanStatus(RouteEntry entry, RouteScanStatus status) {

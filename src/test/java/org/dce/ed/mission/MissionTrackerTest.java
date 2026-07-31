@@ -3,6 +3,10 @@ package org.dce.ed.mission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
@@ -156,6 +160,52 @@ class MissionTrackerTest {
         assertEquals(1, tracker.findById(15L).getKillsCompleted());
         assertEquals(0, tracker.findById(16L).getKillsCompleted());
         assertEquals(4, tracker.consumeLastMassacreKillRemaining().orElse(-1));
+    }
+
+    @Test
+    void bounty_beforeMissionAccepted_doesNotAdvanceProgress() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Nuenets");
+        String accept = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":17,\"Name\":\"Mission_Massacre\",\"Faction\":\"Issuer A\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":5,\"DestinationSystem\":\"Nuenets\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+
+        String stale = "{\"timestamp\":\"2026-05-21T22:00:00Z\",\"event\":\"Bounty\","
+                + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":5000,\"Target\":\"eagle\"}";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(stale));
+        assertEquals(0, tracker.findById(17L).getKillsCompleted());
+
+        String fresh = "{\"timestamp\":\"2026-05-22T10:10:00Z\",\"event\":\"Bounty\","
+                + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":5000,\"Target\":\"eagle\"}";
+        tracker.applyEvent((BountyEvent) parser.parseRecord(fresh));
+        assertEquals(1, tracker.findById(17L).getKillsCompleted());
+    }
+
+    @Test
+    void rebuildReplay_keepsKillsWithTurnedInMission_ratherThanSurvivingSameIssuerMission() {
+        String massacre = "\"event\":\"MissionAccepted\",\"Name\":\"Mission_Massacre\",\"Faction\":\"Issuer A\","
+                + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":12,\"DestinationSystem\":\"Nuenets\"";
+        List<EliteLogEvent> history = new ArrayList<>();
+        history.add(parser.parseRecord("{\"timestamp\":\"2026-05-22T09:00:00Z\",\"event\":\"Location\","
+                + "\"StarSystem\":\"Nuenets\",\"SystemAddress\":1}"));
+        history.add(parser.parseRecord("{\"timestamp\":\"2026-05-22T10:00:00Z\",\"MissionID\":60," + massacre + "}"));
+        history.add(parser.parseRecord("{\"timestamp\":\"2026-05-22T11:00:00Z\",\"MissionID\":61," + massacre + "}"));
+        for (int i = 0; i < 3; i++) {
+            history.add(parser.parseRecord("{\"timestamp\":\"2026-05-22T12:0" + i + ":00Z\",\"event\":\"Bounty\","
+                    + "\"VictimFaction\":\"Nuenets Corp.\",\"TotalReward\":5000,\"Target\":\"eagle\"}"));
+        }
+        history.add(parser.parseRecord("{\"timestamp\":\"2026-05-22T13:00:00Z\",\"event\":\"MissionCompleted\","
+                + "\"MissionID\":60}"));
+
+        // Only the second mission is still on the board, as after turning the first one in.
+        MissionTracker live = new MissionTracker();
+        live.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-05-22T11:00:00Z\",\"MissionID\":61," + massacre + "}"));
+        live.findById(61L).setKillsCompleted(3);
+
+        assertTrue(live.adoptMassacreKillProgress(MissionTracker.replayMissionHistory(history)));
+        assertEquals(0, live.findById(61L).getKillsCompleted());
     }
 
     @Test

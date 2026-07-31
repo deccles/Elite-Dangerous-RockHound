@@ -3,11 +3,16 @@ package org.dce.ed;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.awt.Component;
+import java.awt.Container;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.swing.JLabel;
+
 import org.dce.ed.route.RouteEntry;
 import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.session.FleetCarrierSessionMapper;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -73,13 +78,30 @@ class RouteTabPanelHelperTest {
     }
 
     @Test
-    void renumberDisplayIndexes_setsDisplayIndexSequentially() {
+    void renumberDisplayIndexes_startsAtZeroAndSkipsBodyRows() {
         List<RouteEntry> entries = new ArrayList<>();
         entries.add(entry("A", 1L));
+        entries.add(RouteEntry.syntheticBody("A Station"));
         entries.add(entry("B", 2L));
         RouteTabPanel.renumberDisplayIndexes(entries);
-        assertEquals(Integer.valueOf(1), entries.get(0).displayIndex);
-        assertEquals(Integer.valueOf(2), entries.get(1).displayIndex);
+        assertEquals(Integer.valueOf(0), entries.get(0).displayIndex);
+        assertNull(entries.get(1).displayIndex);
+        assertEquals(Integer.valueOf(1), entries.get(2).displayIndex);
+    }
+
+    @Test
+    void sessionRestore_displaysRouteAsJumpCount() {
+        RouteTabPanel panel = new StatusFirstRouteTabPanel();
+        EdoSessionState state = new EdoSessionState();
+        state.setCustomRouteActive(Boolean.TRUE);
+        state.setCustomRouteEntries(List.of(
+                FleetCarrierSessionMapper.toPersisted(entry("Sol", 1L)),
+                FleetCarrierSessionMapper.toPersisted(entry("Achenar", 2L)),
+                FleetCarrierSessionMapper.toPersisted(entry("Shinrarta Dezhra", 3L))));
+
+        panel.applySessionState(state);
+
+        assertEquals("Route: 2 jumps", findRouteHeader(panel));
     }
 
     @Test
@@ -163,6 +185,22 @@ class RouteTabPanelHelperTest {
             routeSessionForTests().getTargetState().restoreFromPersistence(
                     null, null, null, null, null);
         }
+    }
+
+    private static String findRouteHeader(Container root) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JLabel label && label.getText() != null
+                    && label.getText().startsWith("Route:")) {
+                return label.getText();
+            }
+            if (child instanceof Container container) {
+                String found = findRouteHeader(container);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private static RouteEntry entry(String systemName, long systemAddress) {

@@ -169,7 +169,7 @@ public final class RouteGeometry {
     }
 
     public static void renumberDisplayIndexes(List<RouteEntry> entries) {
-        int n = 1;
+        int n = 0;
         if (entries == null) {
             return;
         }
@@ -184,5 +184,18 @@ public final class RouteGeometry {
             e.displayIndex = Integer.valueOf(n);
             n++;
         }
+    }
+
+    public static int realSystemCount(List<RouteEntry> entries) {
+        if (entries == null) {
+            return 0;
+        }
+        int count = 0;
+        for (RouteEntry entry : entries) {
+            if (entry != null && !entry.isSynthetic && !entry.isBodyRow) {
+                count++;
+            }
+        }
+        return count;
     }
 }

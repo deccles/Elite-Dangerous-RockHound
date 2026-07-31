@@ -19,7 +19,7 @@ public enum MissionCategory {
         if (n.endsWith("_name")) {
             n = n.substring(0, n.length() - 5);
         }
-        if (n.startsWith("Mission_Mining_") || n.startsWith("Mission_Delivery_")
+        if (n.startsWith("Mission_Mining") || n.startsWith("Mission_Delivery")
                 || n.contains("Mission_Collect") || n.startsWith("Mission_Sourced")) {
             return COMMODITY;
         }

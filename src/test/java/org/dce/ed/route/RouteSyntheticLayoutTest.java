@@ -63,9 +63,9 @@ class RouteSyntheticLayoutTest {
         rows.add(syn);
         rows.add(coordRow("B", 2L, 2, 0, 0));
         RouteGeometry.renumberDisplayIndexes(rows);
-        assertEquals(Integer.valueOf(1), rows.get(0).displayIndex);
+        assertEquals(Integer.valueOf(0), rows.get(0).displayIndex);
         assertEquals(null, rows.get(1).displayIndex);
-        assertEquals(Integer.valueOf(2), rows.get(2).displayIndex);
+        assertEquals(Integer.valueOf(1), rows.get(2).displayIndex);
     }
 
     @Test

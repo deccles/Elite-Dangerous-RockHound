@@ -1532,16 +1532,7 @@ public class EngineeringTabPanel extends JPanel {
                 if (row < 0) {
                     return base;
                 }
-                int modelRow = convertRowIndexToModel(row);
-                if (model.isGapRow(modelRow)) {
-                    return TRADE_SECTION_GAP_PX;
-                }
-                // Section titles (Raw / Manufactured / Encoded) need a little extra height so
-                // bold text + outline padding does not clip and sit optically low.
-                if (model.isSectionRow(modelRow)) {
-                    return Math.max(base + 8, 26);
-                }
-                return base;
+                return tradeRowHeight(model, convertRowIndexToModel(row), base);
             }
 
             @Override
@@ -1773,6 +1764,66 @@ public class EngineeringTabPanel extends JPanel {
         for (int viewRow = 0; viewRow < n; viewRow++) {
             goalsTable.setRowHeight(viewRow, computeGoalsViewRowHeight(viewRow));
         }
+    }
+
+    /**
+     * Height of one trade row. Section titles (Raw / Manufactured / Encoded) need a little extra
+     * height so bold text + outline padding does not clip and sit optically low.
+     */
+    private static int tradeRowHeight(TradeTableModel model, int modelRow, int baseHeight) {
+        if (model == null || modelRow < 0) {
+            return baseHeight;
+        }
+        if (model.isGapRow(modelRow)) {
+            return TRADE_SECTION_GAP_PX;
+        }
+        if (model.isSectionRow(modelRow)) {
+            return Math.max(baseHeight + 8, 26);
+        }
+        return baseHeight;
+    }
+
+    /**
+     * Section and gap rows are taller than data rows, and {@link JTable#getCellRect} only reports
+     * the true y offset once the per-row SizeSequence is populated. Without this the section
+     * outline and column-title underline paint over neighbouring rows, and {@code rowAtPoint}
+     * resolves Trade clicks to the wrong row.
+     */
+    private void syncTradeRowHeights() {
+        if (tradeTable == null) {
+            return;
+        }
+        int baseline = Math.max(18, OverlayPreferences.getUiFontSize() + 6);
+        // fireTableDataChanged does not resize JTable's per-row SizeSequence when the
+        // row count changes — reset it so setRowHeight(row, h) matches getRowCount().
+        tradeTable.setRowHeight(baseline);
+        int n = tradeTable.getRowCount();
+        for (int viewRow = 0; viewRow < n; viewRow++) {
+            tradeTable.setRowHeight(viewRow,
+                    tradeRowHeight(tradeModel, tradeTable.convertRowIndexToModel(viewRow), baseline));
+        }
+    }
+
+    /** For tests: the Trade Suggestions table. */
+    JTable tradeTableForTest() {
+        return tradeTable;
+    }
+
+    /**
+     * For tests: a two-section Trade Suggestions list (section title, column titles, data, gap),
+     * matching the row shapes {@link #updateTradeTable} produces.
+     */
+    void installSampleTradeRowsForTest() {
+        List<TradeTableRow> rows = new ArrayList<>();
+        rows.add(TradeTableRow.section("Raw"));
+        rows.add(TradeTableRow.columnHeaders());
+        rows.add(TradeTableRow.data("Iron", 12, "4 Carbon", 2, false, true, null));
+        rows.add(TradeTableRow.gap());
+        rows.add(TradeTableRow.section("Encoded"));
+        rows.add(TradeTableRow.columnHeaders());
+        rows.add(TradeTableRow.data("Decoded Emission Data", 34, "18 Abnormal", 3, false, true, null));
+        tradeModel.setRows(rows);
+        syncTradeRowHeights();
     }
 
     public void applyOverlayBackground(Color bgWithAlpha, boolean treatAsTransparent) {
@@ -3318,6 +3369,7 @@ public class EngineeringTabPanel extends JPanel {
         // Sort red groups to the top within each section already happens in groupByTarget using
         // option-sum coverage; re-sort here using post-trade shortfall so priority-planned rows match.
         tradeModel.setRows(reorderTradeRowsUncoveredFirst(rows));
+        syncTradeRowHeights();
     }
 
     /** Union of shortfall maps; when both have a key, keep the larger remaining Need. */
@@ -3571,6 +3623,10 @@ public class EngineeringTabPanel extends JPanel {
         if (goalsTable != null) {
             goalsTable.setRowHeight(Math.max(36, fontSize * 2 + 12));
             syncGoalsRowHeights();
+        }
+        if (tradeTable != null) {
+            tradeTable.setRowHeight(Math.max(18, fontSize + 6));
+            syncTradeRowHeights();
         }
         EdoMiningSplitPaneUi.applyDividerTheme(mainSplit);
         EdoMiningSplitPaneUi.applyDividerTheme(lowerSplit);

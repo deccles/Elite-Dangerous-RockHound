@@ -193,13 +193,15 @@ public final class MissionTracker {
 
     /**
      * Attributes a wanted kill to one incomplete massacre mission per issuing faction whose
-     * {@code TargetFaction} matches {@link BountyEvent#getVictimFaction()} and whose
-     * hunt {@code DestinationSystem} matches the commander's current system.
+     * {@code TargetFaction} matches {@link BountyEvent#getVictimFaction()}, whose hunt
+     * {@code DestinationSystem} matches the commander's current system, and that was accepted
+     * before the kill.
      * <p>
      * Still an estimate (body-specific / pirate-vs-deserter nuance is not in the journal),
-     * but system gating avoids counting bounties from unrelated systems.
+     * but system gating avoids counting bounties from unrelated systems and the accept-time gate
+     * avoids crediting kills made before the mission existed.
      * Missions from different issuing factions stack. Missions from the same issuing faction
-     * progress oldest-first rather than sharing the same kill.
+     * progress oldest-first rather than sharing the same kill, matching how the game credits them.
      */
     private boolean onBounty(BountyEvent e) {
         String victimFaction = e.getVictimFaction();
@@ -214,9 +216,10 @@ public final class MissionTracker {
         if (currentSystem == null || currentSystem.isBlank()) {
             return false;
         }
+        Instant killedAt = eventTimestamp(e);
         Map<String, MissionRecord> matchedByIssuer = new LinkedHashMap<>();
         for (MissionRecord r : activeById.values()) {
-            if (!isMassacreKillCandidate(r, victimFaction, currentSystem)) {
+            if (!isMassacreKillCandidate(r, victimFaction, currentSystem, killedAt)) {
                 continue;
             }
             String issuer = r.getFaction();
@@ -260,7 +263,8 @@ public final class MissionTracker {
         return candidate.getMissionId() < existing.getMissionId();
     }
 
-    static boolean isMassacreKillCandidate(MissionRecord r, String victimFaction, String currentSystem) {
+    static boolean isMassacreKillCandidate(MissionRecord r, String victimFaction, String currentSystem,
+            Instant killedAt) {
         if (r == null || r.getCategory() != MissionCategory.COMBAT) {
             return false;
         }
@@ -268,6 +272,12 @@ public final class MissionTracker {
             return false;
         }
         if (r.getKillsCompleted() >= r.getKillCount()) {
+            return false;
+        }
+        // Kills predating the mission board offer cannot count toward it. Missions known only from a
+        // Missions snapshot have no accepted time, so they keep the pre-gate behaviour.
+        Instant acceptedAt = r.getAcceptedAt();
+        if (acceptedAt != null && killedAt != null && killedAt.isBefore(acceptedAt)) {
             return false;
         }
         String tf = r.getTargetFaction();
@@ -451,6 +461,7 @@ public final class MissionTracker {
                     "FSDJump",
                     "CarrierJump",
                     "SupercruiseExit",
+                    "MissionAccepted",
                     "MissionRedirected",
                     "MissionCompleted",
                     "MissionFailed",
@@ -460,38 +471,7 @@ public final class MissionTracker {
             if (events.isEmpty()) {
                 return false;
             }
-
-            resetEstimatedMassacreProgress();
-            final String[] system = { null };
-            Supplier<String> savedSupplier = currentSystemSupplier;
-            Runnable savedCallback = changeCallback;
-            currentSystemSupplier = () -> system[0];
-            changeCallback = null;
-            boolean changed = false;
-            try {
-                for (EliteLogEvent event : events) {
-                    if (event instanceof LocationEvent le) {
-                        system[0] = le.getStarSystem();
-                    } else if (event instanceof FsdJumpEvent je) {
-                        system[0] = je.getStarSystem();
-                    } else if (event instanceof CarrierJumpEvent cj) {
-                        system[0] = cj.getStarSystem();
-                    } else if (event instanceof SupercruiseExitEvent sc) {
-                        system[0] = sc.getStarSystem();
-                    } else if (event instanceof MissionRedirectedEvent
-                            || event instanceof MissionCompletedEvent
-                            || event instanceof MissionFailedEvent
-                            || event instanceof MissionAbandonedEvent
-                            || event instanceof BountyEvent) {
-                        if (applyEvent(event)) {
-                            changed = true;
-                        }
-                    }
-                }
-            } finally {
-                currentSystemSupplier = savedSupplier;
-                changeCallback = savedCallback;
-            }
+            boolean changed = adoptMassacreKillProgress(replayMissionHistory(events));
             if (changed) {
                 lastUpdated = Instant.now();
                 notifyChanged();
@@ -500,6 +480,54 @@ public final class MissionTracker {
         } catch (IOException ex) {
             return false;
         }
+    }
+
+    /**
+     * Replays journal history into a throwaway tracker. Missions that have since been turned in are
+     * re-accepted and removed at their original times, so they still consume the kills they were
+     * credited with while active instead of leaving them for whatever mission is active today.
+     */
+    static MissionTracker replayMissionHistory(List<EliteLogEvent> events) {
+        MissionTracker replay = new MissionTracker();
+        final String[] system = { null };
+        replay.setCurrentSystemSupplier(() -> system[0]);
+        for (EliteLogEvent event : events) {
+            if (event instanceof LocationEvent le) {
+                system[0] = le.getStarSystem();
+            } else if (event instanceof FsdJumpEvent je) {
+                system[0] = je.getStarSystem();
+            } else if (event instanceof CarrierJumpEvent cj) {
+                system[0] = cj.getStarSystem();
+            } else if (event instanceof SupercruiseExitEvent sc) {
+                system[0] = sc.getStarSystem();
+            } else {
+                replay.applyEvent(event);
+            }
+        }
+        return replay;
+    }
+
+    /** Copies replayed kill estimates onto the live board, leaving missions the replay never saw. */
+    boolean adoptMassacreKillProgress(MissionTracker replay) {
+        boolean changed = false;
+        for (MissionRecord r : activeById.values()) {
+            if (r.getCategory() != MissionCategory.COMBAT || r.getKillCount() <= 0 || r.isRedirected()) {
+                continue;
+            }
+            MissionRecord replayed = replay.findById(r.getMissionId());
+            if (replayed == null) {
+                continue;
+            }
+            int kills = Math.min(replayed.getKillsCompleted(), r.getKillCount());
+            if (kills != r.getKillsCompleted()) {
+                r.setKillsCompleted(kills);
+                changed = true;
+            }
+        }
+        if (changed) {
+            lastMassacreKillRemaining = null;
+        }
+        return changed;
     }
 
     private boolean hasIncompleteMassacreMissions() {
