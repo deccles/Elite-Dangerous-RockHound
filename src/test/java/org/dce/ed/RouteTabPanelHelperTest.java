@@ -11,8 +11,10 @@ import java.util.List;
 import javax.swing.JLabel;
 
 import org.dce.ed.route.RouteEntry;
+import org.dce.ed.route.RouteMarkerKind;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.FleetCarrierSessionMapper;
+import org.dce.ed.state.SystemState;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -161,6 +163,30 @@ class RouteTabPanelHelperTest {
 
         assertEquals(true, panel.statusSnapshotApplied);
         assertNull(panel.routeSessionForTests().getTargetState().getDestinationName());
+    }
+
+    @Test
+    void rebuild_adoptsLiveSystemStateWhenSessionCurrentLagsOneHop() {
+        RouteTabPanel panel = new RouteTabPanel(() -> false);
+        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                entry("Kuan Ti", 100L),
+                entry("Cemiess", 200L),
+                entry("Achenar", 300L)));
+        panel.routeSessionForTests().applyKnownCurrentSystem("Kuan Ti", 100L, null);
+
+        SystemState live = new SystemState();
+        live.setSystemName("Cemiess");
+        live.setSystemAddress(200L);
+        panel.setLiveSystemStateSupplier(() -> live);
+
+        panel.rebuildDisplayedEntries();
+
+        assertEquals("Cemiess", panel.routeSessionForTests().getCurrentSystemName());
+        assertEquals(200L, panel.routeSessionForTests().getCurrentSystemAddress());
+        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null)
+                .displayedEntries();
+        assertEquals(RouteMarkerKind.CURRENT, displayed.get(1).markerKind);
+        assertEquals(RouteMarkerKind.PENDING_JUMP, displayed.get(2).markerKind);
     }
 
     private static final class JournalFirstRouteTabPanel extends RouteTabPanel {

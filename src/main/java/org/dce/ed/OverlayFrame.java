@@ -267,13 +267,22 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
      * Clears after about 20 seconds; each call restarts the timer.
      */
     public void setExecOverlayStatus(String message) {
+        setTransientOverlayStatus(message, isExecStatusError(message));
+    }
+
+    public void warnUnplannedEngineeringCraft() {
+        Toolkit.getDefaultToolkit().beep();
+        setTransientOverlayStatus("Engineered a Module with no goal", true);
+    }
+
+    private void setTransientOverlayStatus(String message, boolean error) {
         Runnable apply = () -> {
             if (message == null || message.isBlank()) {
                 execOverlayStatusMessage = null;
                 execOverlayStatusError = false;
             } else {
                 execOverlayStatusMessage = truncateExecOverlayStatus(message.trim());
-                execOverlayStatusError = isExecStatusError(execOverlayStatusMessage);
+                execOverlayStatusError = error;
             }
             restartExecOverlayStatusClearTimer();
             refreshPassThroughUnifiedStatus();
@@ -924,6 +933,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getMiningTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getMissionsTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getEngineeringTabPanel().setSessionStateChangeCallback(debouncedSave);
+        tabs.getEngineeringTabPanel().setUnplannedCraftWarningCallback(this::warnUnplannedEngineeringCraft);
         tabs.getBiologyTabPanel().setSessionStateChangeCallback(debouncedSave);
         NpcCrewTracker.getInstance().setSessionStateChangeCallback(debouncedSave);
         CombatTargetTracker.getInstance().setSessionStateChangeCallback(debouncedSave);

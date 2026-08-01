@@ -86,6 +86,52 @@ public final class EngineeringGoalProgress {
         return goal.getShipId() == currentShipId;
     }
 
+    /**
+     * Returns whether a live craft is covered by a goal for the current ship and module slot.
+     *
+     * <p>Grade rolls only need a matching module and blueprint. Applying an experimental effect
+     * is covered only when a matching goal requests that same effect.</p>
+     */
+    public static boolean hasMatchingGoal(List<EngineeringGoal> goals,
+                                          EngineerCraftEvent craft,
+                                          EngineeringDatabase database,
+                                          long currentShipId) {
+        if (goals == null || goals.isEmpty() || craft == null) {
+            return false;
+        }
+        EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
+        boolean experimentalApply = EngineeringLoadoutExperimentalPatch.isExperimentalApply(craft);
+        for (EngineeringGoal goal : goals) {
+            if (!goalMatchesShip(goal, currentShipId)
+                    || !matchesGoalModuleBlueprint(goal, craft, db)) {
+                continue;
+            }
+            if (goal.hasTargetSlot()) {
+                String craftSlot = craft.getSlot() != null ? craft.getSlot().trim() : "";
+                if (!craftSlot.isBlank() && !goal.getTargetSlot().equalsIgnoreCase(craftSlot)) {
+                    continue;
+                }
+            }
+            if (!experimentalApply) {
+                return true;
+            }
+            String experimentalId = goal.getExperimentalId();
+            if (experimentalId == null || experimentalId.isBlank()) {
+                continue;
+            }
+            Optional<BlueprintGrade> experimental = db.findById(experimentalId);
+            if (experimental.isPresent()
+                    && experimentalEffectMatches(
+                            craft.getApplyExperimentalEffect(),
+                            craft.getExperimentalEffect(),
+                            craft.getExperimentalEffectLocalised(),
+                            experimental.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static EngineeringGoal advanceCompletedUnits(EngineeringGoal goal) {
         if (!goal.isCurrentUnitComplete()) {
             return goal;

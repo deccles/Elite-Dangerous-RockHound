@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -324,8 +325,20 @@ public class RouteTabPanel extends JPanel {
 	/** Optional callback when route state changes (for debounced session persist). */
 	private Runnable sessionStateChangeCallback;
 
+	/**
+	 * Live commander position from the System tab. Prefer this over a stale session
+	 * {@code currentSystem*} that can lag one hop when an {@code FSDJump}/{@code Location} was missed
+	 * or restored from persistence before journal reconcile finished.
+	 */
+	private Supplier<SystemState> liveSystemStateSupplier;
+
 	public void setSessionStateChangeCallback(Runnable callback) {
 		this.sessionStateChangeCallback = callback;
+	}
+
+	/** Ship Route tab: System tab state. Fleet Carrier overrides reconciliation and should not set this. */
+	public void setLiveSystemStateSupplier(Supplier<SystemState> liveSystemStateSupplier) {
+		this.liveSystemStateSupplier = liveSystemStateSupplier;
 	}
 
 	protected void fireSessionStateChanged() {
@@ -1001,13 +1014,16 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		trackShipFuelState(event);
-		if (event instanceof NavRouteEvent
-				|| event instanceof NavRouteClearEvent) {
-			// Galaxy-map plot / clear replaces a paste/reorder custom list.
+		if (event instanceof NavRouteEvent) {
+			// Galaxy-map plot replaces a paste/reorder custom list unless the destination
+			// is already a hop on that custom route.
 			reloadFromNavRouteFile(true);
 		}
 		if (event instanceof NavRouteClearEvent) {
+			// In-game route clear always drops a custom list.
+			reloadFromNavRouteFile(true, true);
 			routeSession.clearAfterNavRouteClearEvent();
+			setCustomRouteActive(false);
 			rebuildDisplayedEntries();
 			table.repaint();
 		}
@@ -1540,12 +1556,18 @@ public class RouteTabPanel extends JPanel {
 		reloadFromNavRouteFile(false);
 	}
 
+	private void reloadFromNavRouteFile(boolean replaceCustomRoute) {
+		reloadFromNavRouteFile(replaceCustomRoute, false);
+	}
+
 	/**
 	 * @param replaceCustomRoute when {@code false}, leave an active paste/reorder custom list alone
-	 *        (e.g. FSS status refresh). When {@code true}, a galaxy-map {@code NavRoute}/{@code NavRouteClear}
-	 *        replaces the custom list.
+	 *        (e.g. FSS status refresh). When {@code true}, a galaxy-map {@code NavRoute} replaces the
+	 *        custom list unless its destination is already on that list; empty/missing NavRoute clears it.
+	 * @param forceReplaceCustomRoute when {@code true}, always replace even if the NavRoute destination
+	 *        is on the custom list (used for {@code NavRouteClear}).
 	 */
-	private void reloadFromNavRouteFile(boolean replaceCustomRoute) {
+	private void reloadFromNavRouteFile(boolean replaceCustomRoute, boolean forceReplaceCustomRoute) {
 		if (customRouteActive && !replaceCustomRoute) {
 			return;
 		}
@@ -1575,6 +1597,11 @@ public class RouteTabPanel extends JPanel {
 			routeSession.applyNavRouteReloadParsed(List.of());
 			setCustomRouteActive(false);
 			rebuildDisplayedEntries();
+			return;
+		}
+		if (customRouteActive && replaceCustomRoute && !forceReplaceCustomRoute
+				&& RouteGeometry.navRouteDestinationOnCustomRoute(entries, routeSession.getBaseRouteEntries())) {
+			// Keep paste/reorder list; FSDTarget/Status still update via applySecondaryJournalEvent.
 			return;
 		}
 		headerLabel.setText(entries.isEmpty()
@@ -1697,6 +1724,23 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	protected void rebuildDisplayedEntries() {
+		if (rebuildingDisplayedEntries) {
+			// A reconcile hook moved route current and asked for another rebuild; this pass covers it.
+			return;
+		}
+		rebuildingDisplayedEntries = true;
+		try {
+			rebuildDisplayedEntriesOnce();
+		} finally {
+			rebuildingDisplayedEntries = false;
+		}
+	}
+
+	/** Guards against a reconcile hook re-entering {@link #rebuildDisplayedEntries()} (EDT-only state). */
+	private boolean rebuildingDisplayedEntries;
+
+	private void rebuildDisplayedEntriesOnce() {
+		reconcileRouteCurrentWithLiveCommanderPosition();
 		syncTableCurrentFromRouteSession();
 		RouteDisplaySnapshot snap = routeSession.buildDisplaySnapshot(this::applyRememberedScanStatuses, this::resolveSystemCoords);
 		tableModel.setEntries(snap.displayedEntries());
@@ -2748,6 +2792,35 @@ public class RouteTabPanel extends JPanel {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
+
+	/**
+	 * Keeps the solid “you are here” marker aligned with the System tab’s live commander position.
+	 * Session/journal current can sit one hop behind (solid on the previous system, hollow on the
+	 * system you already arrived in); SystemState is updated on the same {@code FSDJump} path and
+	 * is the authoritative in-memory location while the overlay is running.
+	 */
+	protected void reconcileRouteCurrentWithLiveCommanderPosition() {
+		if (liveSystemStateSupplier == null) {
+			return;
+		}
+		SystemState live = liveSystemStateSupplier.get();
+		if (live == null) {
+			return;
+		}
+		String liveName = live.getSystemName();
+		if (liveName == null || liveName.isBlank()) {
+			return;
+		}
+		long liveAddr = live.getSystemAddress();
+		String sessionName = routeSession.getCurrentSystemName();
+		long sessionAddr = routeSession.getCurrentSystemAddress();
+		boolean sameName = liveName.equals(sessionName);
+		boolean sameAddr = liveAddr == 0L || sessionAddr == 0L || liveAddr == sessionAddr;
+		if (sameName && sameAddr) {
+			return;
+		}
+		routeSession.applyKnownCurrentSystem(liveName, liveAddr, live.getStarPos());
 	}
 
 	protected boolean resolveCurrentSystemFromJournal() {

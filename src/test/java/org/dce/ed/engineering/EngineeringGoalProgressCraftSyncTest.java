@@ -1,6 +1,7 @@
 package org.dce.ed.engineering;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -58,6 +59,44 @@ class EngineeringGoalProgressCraftSyncTest {
         assertTrue(EngineeringGoalProgress.applyCraft(goals, craft, db));
         assertEquals(0, goals.get(0).getFromGrade());
         assertEquals(1, goals.get(0).getCraftsAtCurrentGrade());
+    }
+
+    @Test
+    void hasMatchingGoal_distinguishesWakeScannerFromKillWarrantScanner() {
+        String json = """
+                {
+                  "timestamp": "2026-07-31T21:03:54Z",
+                  "event": "EngineerCraft",
+                  "Slot": "TinyHardpoint7",
+                  "Module": "hpt_cloudscanner_size0_class5",
+                  "BlueprintName": "Sensor_FastScan",
+                  "Level": 5,
+                  "Quality": 1.0,
+                  "Ingredients": []
+                }
+                """;
+        EngineerCraftEvent craft = (EngineerCraftEvent) parser.parseRecord(json);
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "kill-warrant-scanner-fast-scanner-g5",
+                "Kill Warrant Scanner",
+                "Fast Scanner",
+                0,
+                0,
+                5,
+                null));
+
+        assertFalse(EngineeringGoalProgress.hasMatchingGoal(goals, craft, db, 7L));
+
+        goals.add(new EngineeringGoal(
+                "wake-scanner-fast-scanner-g5",
+                "Wake Scanner",
+                "Fast Scanner",
+                0,
+                0,
+                5,
+                null));
+        assertTrue(EngineeringGoalProgress.hasMatchingGoal(goals, craft, db, 7L));
     }
 
     @Test

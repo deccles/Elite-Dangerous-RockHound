@@ -69,6 +69,38 @@ public final class RouteGeometry {
         return -1;
     }
 
+    /**
+     * Last non-body hop of a galaxy-map {@code NavRoute} (the plotted destination).
+     *
+     * @return {@code null} when there is no system hop
+     */
+    public static RouteEntry navRouteDestination(List<RouteEntry> navEntries) {
+        if (navEntries == null || navEntries.isEmpty()) {
+            return null;
+        }
+        for (int i = navEntries.size() - 1; i >= 0; i--) {
+            RouteEntry e = navEntries.get(i);
+            if (e != null && !e.isBodyRow) {
+                return e;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether a plotted NavRoute's destination is already a hop on the custom (paste/reorder) route.
+     * Intermediate NavRoute hops are ignored — the galaxy map may path through systems that are not
+     * on the custom list.
+     */
+    public static boolean navRouteDestinationOnCustomRoute(List<RouteEntry> navEntries,
+            List<RouteEntry> customBase) {
+        RouteEntry dest = navRouteDestination(navEntries);
+        if (dest == null || customBase == null || customBase.isEmpty()) {
+            return false;
+        }
+        return findSystemRow(customBase, dest.systemName, dest.systemAddress) >= 0;
+    }
+
     public static int bestInsertionIndexByCoords(List<RouteEntry> entries, Double[] coords) {
         if (entries == null || entries.isEmpty()) {
             return 0;

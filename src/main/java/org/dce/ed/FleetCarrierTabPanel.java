@@ -441,9 +441,23 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 
 	@Override
 	protected void reconcileRouteCurrentWithPostRescanCache() {
-		if (ownedFleetCarrierTracker.hasOwnedCarrierLocation()) {
-			applyOwnedCarrierLocationToRouteSession();
-		}
+		applyOwnedCarrierLocationToRouteSession();
+	}
+
+	/** Carrier route tracks the owned carrier, not the ship System-tab location. */
+	@Override
+	protected void reconcileRouteCurrentWithLiveCommanderPosition() {
+		// Runs inside rebuildDisplayedEntries; rebuilding again from here would recurse.
+		applyOwnedCarrierLocationToRouteSessionOnly();
+	}
+
+	/**
+	 * {@link RouteTabPanel}'s constructor reaches the reconcile overrides through
+	 * {@code rebuildDisplayedEntries()} before this subclass has assigned
+	 * {@link #ownedFleetCarrierTracker}.
+	 */
+	private boolean hasOwnedCarrierLocation() {
+		return ownedFleetCarrierTracker != null && ownedFleetCarrierTracker.hasOwnedCarrierLocation();
 	}
 
 	@Override
@@ -597,14 +611,21 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	}
 
 	private void applyOwnedCarrierLocationToRouteSession() {
-		if (!ownedFleetCarrierTracker.hasOwnedCarrierLocation()) {
-			return;
+		if (applyOwnedCarrierLocationToRouteSessionOnly()) {
+			rebuildDisplayedEntries();
+		}
+	}
+
+	/** @return {@code true} when the route session current system was updated */
+	private boolean applyOwnedCarrierLocationToRouteSessionOnly() {
+		if (!hasOwnedCarrierLocation()) {
+			return false;
 		}
 		routeSession.applyKnownCurrentSystem(
 				ownedFleetCarrierTracker.getOwnedSystemName(),
 				ownedFleetCarrierTracker.getOwnedSystemAddress(),
 				ownedFleetCarrierTracker.getOwnedStarPos());
-		rebuildDisplayedEntries();
+		return true;
 	}
 
 	void bootstrapOwnedFleetCarrierFromJournalIfNeeded() {

@@ -59,6 +59,63 @@ class RouteGeometryTest {
     }
 
     @Test
+    void navRouteDestination_lastNonBodyHop() {
+        java.util.List<RouteEntry> nav = new java.util.ArrayList<>();
+        RouteEntry a = new RouteEntry();
+        a.systemName = "Sol";
+        a.systemAddress = 1L;
+        RouteEntry body = RouteEntry.syntheticBody("Earth");
+        body.isBodyRow = true;
+        RouteEntry b = new RouteEntry();
+        b.systemName = "Achenar";
+        b.systemAddress = 2L;
+        nav.add(a);
+        nav.add(body);
+        nav.add(b);
+        nav.add(RouteEntry.syntheticBody("Station"));
+        assertEquals("Achenar", RouteGeometry.navRouteDestination(nav).systemName);
+    }
+
+    @Test
+    void navRouteDestinationOnCustomRoute_destinationOnList_true() {
+        java.util.List<RouteEntry> custom = new java.util.ArrayList<>();
+        RouteEntry hop = new RouteEntry();
+        hop.systemName = "Achenar";
+        hop.systemAddress = 2L;
+        custom.add(hop);
+
+        java.util.List<RouteEntry> nav = new java.util.ArrayList<>();
+        RouteEntry via = new RouteEntry();
+        via.systemName = "Off-route Via";
+        via.systemAddress = 99L;
+        RouteEntry dest = new RouteEntry();
+        dest.systemName = "Achenar";
+        dest.systemAddress = 2L;
+        nav.add(via);
+        nav.add(dest);
+
+        assertEquals(true, RouteGeometry.navRouteDestinationOnCustomRoute(nav, custom));
+    }
+
+    @Test
+    void navRouteDestinationOnCustomRoute_destinationOffList_false() {
+        java.util.List<RouteEntry> custom = new java.util.ArrayList<>();
+        RouteEntry hop = new RouteEntry();
+        hop.systemName = "Achenar";
+        hop.systemAddress = 2L;
+        custom.add(hop);
+
+        java.util.List<RouteEntry> nav = new java.util.ArrayList<>();
+        RouteEntry dest = new RouteEntry();
+        dest.systemName = "Sol";
+        dest.systemAddress = 1L;
+        nav.add(dest);
+
+        assertEquals(false, RouteGeometry.navRouteDestinationOnCustomRoute(nav, custom));
+        assertEquals(false, RouteGeometry.navRouteDestinationOnCustomRoute(java.util.List.of(), custom));
+    }
+
+    @Test
     void recomputeLegDistances_skipsDestinationBodyRows() {
         RouteEntry ross104 = new RouteEntry();
         ross104.systemName = "Ross 104";

@@ -238,6 +238,7 @@ public class EngineeringTabPanel extends JPanel {
     private final List<GoalReadiness> goalReadiness = new ArrayList<>();
     private final List<String> goalStatusText = new ArrayList<>();
     private Runnable sessionStateChangeCallback;
+    private Runnable unplannedCraftWarningCallback;
 
     private final JLabel materialsEmptyLabel = new JLabel();
     private final JLabel tradeEmptyLabel = new JLabel();
@@ -1989,6 +1990,10 @@ public class EngineeringTabPanel extends JPanel {
         this.sessionStateChangeCallback = callback;
     }
 
+    public void setUnplannedCraftWarningCallback(Runnable callback) {
+        this.unplannedCraftWarningCallback = callback;
+    }
+
     public void hydrateFromJournalIfNeeded(String clientKey) {
         inventoryTracker.bootstrapFromJournal(clientKey);
         reputationTracker.bootstrapFromJournal(clientKey);
@@ -2282,6 +2287,12 @@ public class EngineeringTabPanel extends JPanel {
             // crafts as a UI refresh even when the stored snapshot was already current.
             if (EngineeringLoadoutExperimentalPatch.shouldPatchLoadout(craft)) {
                 loadoutPatched = true;
+            }
+            if (!EngineeringGoalProgress.hasMatchingGoal(goals, craft, database, shipId)) {
+                Runnable warning = unplannedCraftWarningCallback;
+                if (warning != null) {
+                    warning.run();
+                }
             }
             boolean goalsChanged = EngineeringGoalProgress.applyCraft(goals, craft, database, shipId);
             // Elite often skips a fresh Loadout after craft; sync goals from the patched snapshot too.

@@ -262,6 +262,8 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		addLoadoutChangeListener(routeTab::refreshShipFuelProfileFromLatestLoadout);
 		this.systemTab = new SystemTabPanel();
 		this.systemTab.setNearBodyChangedListener(this::handleNearBodyChanged);
+		// Prefer System tab position so Route markers cannot lag one hop behind after FSDJump.
+		this.routeTab.setLiveSystemStateSupplier(systemTab::getState);
 		
 		this.biologyTab = new BiologyTabPanel();
 		this.biologyTab.setSystemTabPanel(systemTab);
