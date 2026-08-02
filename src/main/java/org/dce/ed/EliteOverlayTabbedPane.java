@@ -612,10 +612,12 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			lastKnownStationName = null;
 		}
 
+		// Missions before System so Bounty progress is applied even if system hydration is slow.
+		// lastKnownSystemName is already updated above for hunt-system gating.
+		missionsTab.handleLogEvent(event);
 		systemTab.handleLogEvent(event);
 		routeTab.handleLogEvent(event);
 		biologyTab.handleLogEvent(event);
-		missionsTab.handleLogEvent(event);
 		CombatTargetTracker.getInstance().applyJournalEvent(event);
 		if (combatTab != null) {
 			combatTab.handleLogEvent(event);
@@ -2279,13 +2281,10 @@ public static boolean hasMiningEquipment(LoadoutEvent loadout) {
 		return false;
 	}
 
-	// Conservative keyword match on module item names.
+	// Limpet controllers only: int_dronecontrol_* / int_multidronecontrol_*
+	// (prospector, collector, repair, hatch breaker, multi-limpet, etc.).
 	String[] miningKeywords = new String[] {
-			"mining",
-			"abrasion",
-			"seismic",
-			"subsurf",
-			"displacement",
+			"dronecontrol",
 	};
 
 	for (LoadoutEvent.Module m : modules) {

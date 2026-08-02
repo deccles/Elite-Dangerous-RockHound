@@ -613,15 +613,22 @@ public final class LiveJournalMonitor {
 
         try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
             raf.seek(startPos);
+            long fileLength = raf.length();
 
             String raw;
-            while ((raw = raf.readLine()) != null) {
-                newPos = raf.getFilePointer();
+            while (true) {
+                long lineStart = raf.getFilePointer();
+                raw = raf.readLine();
+                if (raw == null) {
+                    break;
+                }
+                long afterLine = raf.getFilePointer();
 
                 // Convert from ISO-8859-1 assumption to UTF-8
                 String line = new String(raw.getBytes(StandardCharsets.ISO_8859_1),
                                          StandardCharsets.UTF_8).trim();
                 if (line.isEmpty()) {
+                    newPos = afterLine;
                     continue;
                 }
 
@@ -633,13 +640,24 @@ public final class LiveJournalMonitor {
                                 && ts != null
                                 && lastProcessedJournalTimestamp != null
                                 && ts.isBefore(lastProcessedJournalTimestamp)) {
+                            newPos = afterLine;
                             continue;
                         }
                         dispatch(event);
+                        newPos = afterLine;
                         updateCursorIfNeeded(ts, file, newPos);
+                    } else {
+                        newPos = afterLine;
                     }
                 } catch (JsonSyntaxException | IllegalStateException ex) {
-                    // malformed line – skip
+                    // Elite may still be writing the line: readLine() returns a torn fragment at EOF.
+                    // Leave the pointer on this line so the next poll can reassemble it.
+                    if (afterLine >= fileLength && !looksLikeCompleteJournalLine(line)) {
+                        newPos = lineStart;
+                        break;
+                    }
+                    // Truly malformed — skip
+                    newPos = afterLine;
                 }
             }
         } catch (IOException ex) {
@@ -709,6 +727,15 @@ public final class LiveJournalMonitor {
                 maybeLogListenerError(ex);
             }
         }
+    }
+
+    /** True when a journal line looks like a finished JSON object (not a mid-write fragment). */
+    static boolean looksLikeCompleteJournalLine(String line) {
+        if (line == null) {
+            return false;
+        }
+        String t = line.trim();
+        return t.length() >= 2 && t.charAt(0) == '{' && t.charAt(t.length() - 1) == '}';
     }
 
     private Path findLatestJournalFile(Path dir) throws IOException {

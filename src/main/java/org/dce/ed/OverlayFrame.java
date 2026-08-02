@@ -924,8 +924,16 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         EliteOverlayTabbedPane tabs = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         if (tabs == null) return;
         Runnable debouncedSave = () -> {
-            sessionSaveTimer.stop();
-            sessionSaveTimer.start();
+            // Combat ShipTargeted floods call this from the journal thread; Timer must be EDT.
+            if (SwingUtilities.isEventDispatchThread()) {
+                sessionSaveTimer.stop();
+                sessionSaveTimer.start();
+            } else {
+                SwingUtilities.invokeLater(() -> {
+                    sessionSaveTimer.stop();
+                    sessionSaveTimer.start();
+                });
+            }
         };
         tabs.getRouteTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getFleetCarrierTabPanel().setSessionStateChangeCallback(debouncedSave);
@@ -1782,13 +1790,16 @@ private void installBountyCreditsTracker() {
             if (!bountyCreditsTracker.applyJournalEvent(event)) {
                 return;
             }
-            persistExoCreditsTotal();
-            updateRightStatusDefault();
-            EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
-            if (tp != null && tp.getCombatTabPanel() != null) {
-                // Force credit line refresh when unclaimed total changes.
-                tp.getCombatTabPanel().handleLogEvent(event);
-            }
+            // Persist/UI off the journal thread — SQLite + Swing work was delaying massacre kill handling.
+            SwingUtilities.invokeLater(() -> {
+                persistExoCreditsTotal();
+                updateRightStatusDefault();
+                EliteOverlayTabbedPane tp = (contentPanel == null) ? null : contentPanel.getTabbedPane();
+                if (tp != null && tp.getCombatTabPanel() != null) {
+                    // Force credit line refresh when unclaimed total changes.
+                    tp.getCombatTabPanel().handleLogEvent(event);
+                }
+            });
         });
     } catch (Exception ex) {
         ex.printStackTrace();
@@ -1803,7 +1814,14 @@ private void installLowLimpetStatusUpdater() {
     }
 
     NpcCrewTracker.getInstance().addListener(this::refreshPassThroughUnifiedStatus);
-    BountyScanTracker.getInstance().addListener(this::publishRightStatusText);
+    BountyScanTracker.getInstance().addListener(() -> {
+        // ShipTargeted updates arrive on the journal thread during combat.
+        if (SwingUtilities.isEventDispatchThread()) {
+            publishRightStatusText();
+        } else {
+            SwingUtilities.invokeLater(this::publishRightStatusText);
+        }
+    });
 
     CargoMonitor.getInstance().addListener(snap -> {
         lastCargoSnapshot = snap;

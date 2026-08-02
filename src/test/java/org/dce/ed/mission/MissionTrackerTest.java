@@ -183,6 +183,63 @@ class MissionTrackerTest {
     }
 
     @Test
+    void redirect_correctsSiblingEstimateByTheVoucherDrift() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Cemiess");
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-01T03:24:55Z\",\"event\":\"MissionAccepted\",\"MissionID\":70,"
+                        + "\"Name\":\"Mission_Massacre\",\"Faction\":\"Vequess Legal Industry\","
+                        + "\"TargetFaction\":\"Cemiess Purple Council\",\"KillCount\":9,"
+                        + "\"DestinationSystem\":\"Cemiess\"}"));
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-01T03:25:32Z\",\"event\":\"MissionAccepted\",\"MissionID\":71,"
+                        + "\"Name\":\"Mission_MassacreWing\",\"Faction\":\"Vequess Empire Pact\","
+                        + "\"TargetFaction\":\"Cemiess Purple Council\",\"KillCount\":56,"
+                        + "\"DestinationSystem\":\"Cemiess\"}"));
+
+        // Eleven bounty vouchers, but only nine were mission kills.
+        for (int i = 0; i < 11; i++) {
+            tracker.applyEvent((BountyEvent) parser.parseRecord(
+                    String.format("{\"timestamp\":\"2026-08-01T04:%02d:00Z\",\"event\":\"Bounty\","
+                            + "\"VictimFaction\":\"Cemiess Purple Council\",\"TotalReward\":5000,"
+                            + "\"Target\":\"python\"}", 20 + i)));
+        }
+        assertEquals(11, tracker.findById(71L).getKillsCompleted());
+
+        tracker.applyEvent((MissionRedirectedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-01T04:42:04Z\",\"event\":\"MissionRedirected\",\"MissionID\":70,"
+                        + "\"Name\":\"Mission_Massacre\",\"NewDestinationSystem\":\"Vequess\","
+                        + "\"NewDestinationStation\":\"Agnews' Folly\"}"));
+
+        assertEquals(9, tracker.findById(70L).getKillsCompleted());
+        assertEquals(9, tracker.findById(71L).getKillsCompleted());
+    }
+
+    @Test
+    void redirect_leavesSiblingsHuntingOtherFactionsAlone() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Cemiess");
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-01T03:24:55Z\",\"event\":\"MissionAccepted\",\"MissionID\":72,"
+                        + "\"Name\":\"Mission_Massacre\",\"Faction\":\"Issuer A\","
+                        + "\"TargetFaction\":\"Cemiess Purple Council\",\"KillCount\":2,"
+                        + "\"DestinationSystem\":\"Cemiess\"}"));
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-01T03:24:56Z\",\"event\":\"MissionAccepted\",\"MissionID\":73,"
+                        + "\"Name\":\"Mission_Massacre\",\"Faction\":\"Issuer B\","
+                        + "\"TargetFaction\":\"Some Other Gang\",\"KillCount\":20,"
+                        + "\"DestinationSystem\":\"Cemiess\"}"));
+        tracker.findById(73L).setKillsCompleted(6);
+        tracker.findById(72L).setKillsCompleted(5);
+
+        tracker.applyEvent((MissionRedirectedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-01T04:42:04Z\",\"event\":\"MissionRedirected\",\"MissionID\":72,"
+                        + "\"Name\":\"Mission_Massacre\",\"NewDestinationSystem\":\"Vequess\"}"));
+
+        assertEquals(6, tracker.findById(73L).getKillsCompleted());
+    }
+
+    @Test
     void rebuildReplay_keepsKillsWithTurnedInMission_ratherThanSurvivingSameIssuerMission() {
         String massacre = "\"event\":\"MissionAccepted\",\"Name\":\"Mission_Massacre\",\"Faction\":\"Issuer A\","
                 + "\"TargetFaction\":\"Nuenets Corp.\",\"KillCount\":12,\"DestinationSystem\":\"Nuenets\"";

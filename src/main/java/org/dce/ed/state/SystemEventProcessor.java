@@ -315,20 +315,39 @@ public class SystemEventProcessor {
             systemCache.loadInto(state, cs);
         }
 
-        // 2) Enrich from EDSM (best-effort; fills legacy gaps)
-        if (edsmClient != null && name != null && !name.isEmpty()) {
-            try {
-                BodiesResponse edsmBodies = edsmClient.showBodies(name);
-                if (edsmBodies != null) {
-                    systemCache.mergeBodiesFromEdsm(state, edsmBodies);
-                }
-            } catch (Exception ex) {
-                // best-effort only; never block system state updates
-                ex.printStackTrace();
-            }
-        }
-
         applySystemClassifiersToAllBodies();
+
+        // 2) Enrich from EDSM off the journal thread. A slow/hung EDSM call used to stall
+        // LiveJournalMonitor for the whole fight (massacre kills only appeared after hyperspace).
+        if (edsmClient != null && name != null && !name.isEmpty()) {
+            final String systemName = name;
+            final long systemAddr = addr;
+            Thread t = new Thread(() -> enrichBodiesFromEdsmAsync(systemName, systemAddr), "EDO-EdsmBodies");
+            t.setDaemon(true);
+            t.start();
+        }
+    }
+
+    private void enrichBodiesFromEdsmAsync(String systemName, long systemAddr) {
+        try {
+            BodiesResponse edsmBodies = edsmClient.showBodies(systemName);
+            if (edsmBodies == null) {
+                return;
+            }
+            // Only merge if the commander is still in this system.
+            String current = state.getSystemName();
+            long currentAddr = state.getSystemAddress();
+            boolean sameName = systemName.equals(current);
+            boolean sameAddr = systemAddr != 0L && systemAddr == currentAddr;
+            if (!sameName && !sameAddr) {
+                return;
+            }
+            systemCache.mergeBodiesFromEdsm(state, edsmBodies);
+            applySystemClassifiersToAllBodies();
+        } catch (Exception ex) {
+            // best-effort only; never block system state updates
+            ex.printStackTrace();
+        }
     }
 
     // ---------------------------------------------------------------------

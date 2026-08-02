@@ -153,6 +153,8 @@ public final class MissionTracker {
             r = new MissionRecord(e.getMissionId());
             activeById.put(e.getMissionId(), r);
         }
+        // Before the redirect overwrites the hunt system and forces progress to full.
+        recalibrateSiblingsFromRedirect(r);
         if (e.getName() != null) {
             r.setName(e.getName());
         }
@@ -171,6 +173,47 @@ public final class MissionTracker {
         }
         dismissedRedirectIds.remove(e.getMissionId());
         return true;
+    }
+
+    /**
+     * A redirect is the one exact progress figure the journal ever gives us: the game counted
+     * {@code KillCount} kills over this mission's lifetime. A sibling accepted no earlier, hunting
+     * the same faction in the same system, was active for a subset of that window, so its true
+     * progress cannot exceed that figure. Bounty estimates overshoot whenever security, a
+     * ship-launched fighter or another commander lands the killing blow — the journal reports those
+     * vouchers identically to a solo kill — so clamp the sibling down to the proven bound.
+     */
+    private void recalibrateSiblingsFromRedirect(MissionRecord finished) {
+        if (finished.getCategory() != MissionCategory.COMBAT
+                || finished.getKillCount() <= 0
+                || finished.isRedirected()) {
+            return;
+        }
+        Instant finishedAccepted = finished.getAcceptedAt();
+        String faction = finished.getTargetFaction();
+        String huntSystem = finished.getDestinationSystem();
+        if (finishedAccepted == null || faction == null || faction.isBlank()
+                || huntSystem == null || huntSystem.isBlank()) {
+            return;
+        }
+        for (MissionRecord other : activeById.values()) {
+            if (other == finished
+                    || other.getCategory() != MissionCategory.COMBAT
+                    || other.getKillCount() <= 0
+                    || other.isRedirected()
+                    || other.getKillsCompleted() <= finished.getKillCount()) {
+                continue;
+            }
+            if (!faction.equalsIgnoreCase(other.getTargetFaction())
+                    || !huntSystem.equalsIgnoreCase(other.getDestinationSystem())) {
+                continue;
+            }
+            Instant accepted = other.getAcceptedAt();
+            if (accepted == null || accepted.isBefore(finishedAccepted)) {
+                continue;
+            }
+            other.setKillsCompleted(finished.getKillCount());
+        }
     }
 
     /**
