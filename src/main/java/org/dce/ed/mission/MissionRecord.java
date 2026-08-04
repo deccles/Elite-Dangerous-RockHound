@@ -17,6 +17,10 @@ public final class MissionRecord {
     private String destinationSystem;
     private String destinationStation;
     private String destinationSettlement;
+    /** System where the mission was accepted (pickup / From). */
+    private String originSystem;
+    /** Station where the mission was accepted, when known. */
+    private String originStation;
     private String targetFaction;
     private String target;
     private String targetType;
@@ -73,6 +77,12 @@ public final class MissionRecord {
 
     public String getDestinationSettlement() { return destinationSettlement; }
     public void setDestinationSettlement(String destinationSettlement) { this.destinationSettlement = destinationSettlement; }
+
+    public String getOriginSystem() { return originSystem; }
+    public void setOriginSystem(String originSystem) { this.originSystem = originSystem; }
+
+    public String getOriginStation() { return originStation; }
+    public void setOriginStation(String originStation) { this.originStation = originStation; }
 
     public String getTargetFaction() { return targetFaction; }
     public void setTargetFaction(String targetFaction) { this.targetFaction = targetFaction; }

@@ -2,6 +2,7 @@ package org.dce.ed.ui;
 
 import java.awt.MouseInfo;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
@@ -21,20 +22,32 @@ public final class DestinationCopySupport {
     private static final int POLL_INTERVAL_MS = 100;
     private static final int HOVER_DELAY_MS = 1500;
 
+    /**
+     * Places / turn-in copy text. {@code preferFrom} is true when the pointer is in the upper half
+     * of the cell (From row in Transport Places); callers that only have a single destination
+     * may ignore it.
+     */
+    @FunctionalInterface
+    public interface PlacesCopyText {
+        String apply(int modelRow, boolean preferFrom);
+    }
+
     private DestinationCopySupport() {
     }
 
     public static void install(JTable table,
             int objectiveColumn,
-            int turnInColumn,
+            int placesColumn,
             Function<Integer, String> objectiveText,
-            Function<Integer, String> turnInText,
+            PlacesCopyText placesText,
             BooleanSupplier passThroughEnabledSupplier) {
         if (objectiveColumn >= 0) {
-            new ColumnHoverCopier(table, objectiveColumn, objectiveText, passThroughEnabledSupplier).start();
+            new ColumnHoverCopier(table, objectiveColumn,
+                    (row, preferFrom) -> objectiveText.apply(row),
+                    passThroughEnabledSupplier).start();
         }
-        if (turnInColumn >= 0) {
-            new ColumnHoverCopier(table, turnInColumn, turnInText, passThroughEnabledSupplier).start();
+        if (placesColumn >= 0) {
+            new ColumnHoverCopier(table, placesColumn, placesText, passThroughEnabledSupplier).start();
         }
         table.addMouseListener(new MouseAdapter() {
             @Override
@@ -52,12 +65,24 @@ public final class DestinationCopySupport {
                 String text = null;
                 if (modelCol == objectiveColumn) {
                     text = objectiveText.apply(modelRow);
-                } else if (modelCol == turnInColumn) {
-                    text = turnInText.apply(modelRow);
+                } else if (modelCol == placesColumn) {
+                    text = placesText.apply(modelRow, preferFromHalf(table, row, col, e.getPoint()));
                 }
                 copyIfValid(table, text);
             }
         });
+    }
+
+    /** Upper half of the cell → From; lower half → To. */
+    public static boolean preferFromHalf(JTable table, int viewRow, int viewCol, Point tablePoint) {
+        if (table == null || tablePoint == null || viewRow < 0 || viewCol < 0) {
+            return false;
+        }
+        Rectangle cell = table.getCellRect(viewRow, viewCol, true);
+        if (cell == null || cell.height <= 0) {
+            return false;
+        }
+        return tablePoint.y < cell.y + cell.height / 2;
     }
 
     private static void copyIfValid(JTable table, String text) {
@@ -72,15 +97,16 @@ public final class DestinationCopySupport {
     private static final class ColumnHoverCopier {
         private final JTable table;
         private final int modelColumnIndex;
-        private final Function<Integer, String> textForRow;
+        private final PlacesCopyText textForRow;
         private final BooleanSupplier passThroughEnabledSupplier;
         private final Timer pollTimer;
         private final Timer hoverTimer;
         private int hoverViewRow = -1;
+        private boolean hoverPreferFrom;
 
         ColumnHoverCopier(JTable table,
                 int modelColumnIndex,
-                Function<Integer, String> textForRow,
+                PlacesCopyText textForRow,
                 BooleanSupplier passThroughEnabledSupplier) {
             this.table = table;
             this.modelColumnIndex = modelColumnIndex;
@@ -134,8 +160,10 @@ public final class DestinationCopySupport {
                 hoverViewRow = -1;
                 return;
             }
-            if (viewRow != hoverViewRow) {
+            boolean preferFrom = preferFromHalf(table, viewRow, viewCol, tablePoint);
+            if (viewRow != hoverViewRow || preferFrom != hoverPreferFrom) {
                 hoverViewRow = viewRow;
+                hoverPreferFrom = preferFrom;
                 hoverTimer.restart();
             }
         }
@@ -148,7 +176,7 @@ public final class DestinationCopySupport {
             if (modelRow < 0) {
                 return;
             }
-            copyIfValid(table, textForRow.apply(modelRow));
+            copyIfValid(table, textForRow.apply(modelRow, hoverPreferFrom));
         }
     }
 }

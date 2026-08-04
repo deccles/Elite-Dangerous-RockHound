@@ -25,18 +25,91 @@ class MissionDestinationResolverTest {
         r.setDestinationStation("Foster Terminal");
         MissionDestination turnIn = MissionDestinationResolver.turnInFor(r);
         assertEquals("Coeus / Foster Terminal", turnIn.displayLine());
+        assertEquals("Coeus", turnIn.copyLine());
     }
 
     @Test
-    void courierUsesSameDestinationForBoth() {
+    void courierObjective_isDataNotDestination() {
         MissionRecord r = new MissionRecord(3L);
         r.setName("Mission_Courier");
         r.setDestinationSystem("Tenjin");
         r.setDestinationStation("Balakor's Beacon");
         MissionDestination obj = MissionDestinationResolver.objectiveFor(r);
         MissionDestination turnIn = MissionDestinationResolver.turnInFor(r);
-        assertEquals("Tenjin / Balakor's Beacon", obj.displayLine());
-        assertEquals(turnIn.displayLine(), obj.displayLine());
+        assertEquals("Data on board", obj.displayLine());
+        assertEquals("Data on board", obj.copyLine());
+        assertEquals("Tenjin / Balakor's Beacon", turnIn.displayLine());
+        assertEquals("Tenjin", turnIn.copyLine());
+    }
+
+    @Test
+    void courierObjective_usesCommodityWhenPresent() {
+        MissionRecord r = new MissionRecord(31L);
+        r.setName("Mission_Courier_Boom");
+        r.setCommodityLocalised("Data");
+        r.setCountRequired(1);
+        r.setDestinationSystem("Tenjin");
+        assertEquals("1 Data", MissionDestinationResolver.objectiveFor(r).displayLine());
+        assertEquals("Tenjin", MissionDestinationResolver.turnInFor(r).displayLine());
+    }
+
+    @Test
+    void originFor_usesAcceptLocation() {
+        MissionRecord r = new MissionRecord(9L);
+        r.setName("Mission_Courier");
+        r.setOriginSystem("Sol");
+        r.setOriginStation("Abraham Lincoln");
+        r.setDestinationSystem("Tenjin");
+        r.setDestinationStation("Balakor's Beacon");
+        assertEquals("Sol / Abraham Lincoln", MissionDestinationResolver.originFor(r).displayLine());
+        assertEquals("Tenjin / Balakor's Beacon", MissionDestinationResolver.turnInFor(r).displayLine());
+    }
+
+    @Test
+    void passengerObjective_isPassengersNotDestination() {
+        MissionRecord r = new MissionRecord(32L);
+        r.setName("Mission_PassengerBulk");
+        r.setDestinationSystem("Sol");
+        r.setDestinationStation("Abraham Lincoln");
+        MissionDestination obj = MissionDestinationResolver.objectiveFor(r);
+        MissionDestination turnIn = MissionDestinationResolver.turnInFor(r);
+        assertEquals("Passengers on board", obj.displayLine());
+        assertEquals("Sol / Abraham Lincoln", turnIn.displayLine());
+    }
+
+    @Test
+    void unknownObjective_isNotDestination() {
+        MissionRecord r = new MissionRecord(33L);
+        r.setName("Mission_SomethingElse");
+        r.setDestinationSystem("Lave");
+        assertEquals("Complete mission", MissionDestinationResolver.objectiveFor(r).displayLine());
+        assertEquals("Lave", MissionDestinationResolver.turnInFor(r).displayLine());
+    }
+
+    @Test
+    void combatObjective_fallbackIsNotDestination() {
+        MissionRecord r = new MissionRecord(34L);
+        r.setName("Mission_Combat");
+        r.setDestinationSystem("Nuenets");
+        assertEquals("Complete objective", MissionDestinationResolver.objectiveFor(r).displayLine());
+        assertEquals("Nuenets", MissionDestinationResolver.turnInFor(r).displayLine());
+    }
+
+    @Test
+    void settlementDestination_copyLineIsSystemOnly() {
+        MissionDestination dest = new MissionDestination("Lave", null, "Lave 2");
+        assertEquals("Lave / Lave 2", dest.displayLine());
+        assertEquals("Lave", dest.copyLine());
+    }
+
+    @Test
+    void commodityObjective_copyLineKeepsLabel() {
+        MissionRecord r = new MissionRecord(1L);
+        r.setName("Mission_Mining_Boom");
+        r.setCommodityLocalised("Bromellite");
+        r.setCountRequired(36);
+        MissionDestination obj = MissionDestinationResolver.objectiveFor(r);
+        assertEquals("36 Bromellite", obj.copyLine());
     }
 
     @Test

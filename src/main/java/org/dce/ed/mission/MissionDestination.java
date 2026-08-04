@@ -55,8 +55,11 @@ public final class MissionDestination {
         return settlement != null ? settlement : "—";
     }
 
-    /** Clipboard text (system only, or full line). */
+    /** Clipboard text: system name when known; otherwise the display label (commodity/combat text). */
     public String copyLine() {
+        if (system != null) {
+            return system;
+        }
         return displayLine();
     }
 

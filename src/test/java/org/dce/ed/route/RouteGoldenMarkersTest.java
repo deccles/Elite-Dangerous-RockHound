@@ -35,6 +35,7 @@ class RouteGoldenMarkersTest {
                 null,
                 0L,
                 (n, a, p) -> null,
+                false,
                 true);
         List<String> actual = displayed.stream()
                 .filter(e -> !e.isBodyRow)

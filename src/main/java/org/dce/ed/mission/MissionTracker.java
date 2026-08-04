@@ -37,6 +37,8 @@ import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.MissionSessionData;
 import org.dce.ed.session.MissionSessionData.MissionRecordPersisted;
 
+import com.google.gson.JsonObject;
+
 /**
  * Commander-scoped active mission board; hydrated from {@link EdoSessionState} and journal events.
  */
@@ -47,6 +49,7 @@ public final class MissionTracker {
     private volatile Runnable changeCallback;
     private volatile Instant lastUpdated = Instant.now();
     private volatile Supplier<String> currentSystemSupplier;
+    private volatile Supplier<String> currentStationSupplier;
     /**
      * Lowest remaining kills among missions updated by the last qualifying {@link BountyEvent};
      * consumed for speech.
@@ -60,6 +63,11 @@ public final class MissionTracker {
     /** Used to require commander presence in the mission hunt system before attributing kills. */
     public void setCurrentSystemSupplier(Supplier<String> currentSystemSupplier) {
         this.currentSystemSupplier = currentSystemSupplier;
+    }
+
+    /** Station at accept time (Transport From row), when docked. */
+    public void setCurrentStationSupplier(Supplier<String> currentStationSupplier) {
+        this.currentStationSupplier = currentStationSupplier;
     }
 
     public boolean applyEvent(EliteLogEvent event) {
@@ -113,6 +121,20 @@ public final class MissionTracker {
         }
         if (e.getDestinationSettlement() != null) {
             r.setDestinationSettlement(e.getDestinationSettlement());
+        }
+        // Snapshot accept location (pickup / From). Fill system and station independently
+        // so a known system still allows a later station backfill (e.g. journal hydrate).
+        if (r.getOriginSystem() == null || r.getOriginSystem().isBlank()) {
+            String originSys = currentSystemSupplier != null ? currentSystemSupplier.get() : null;
+            if (originSys != null && !originSys.isBlank()) {
+                r.setOriginSystem(originSys.trim());
+            }
+        }
+        if (r.getOriginStation() == null || r.getOriginStation().isBlank()) {
+            String originStn = currentStationSupplier != null ? currentStationSupplier.get() : null;
+            if (originStn != null && !originStn.isBlank()) {
+                r.setOriginStation(originStn.trim());
+            }
         }
         r.setTargetFaction(e.getTargetFaction());
         String targetName = e.getTargetLocalised();
@@ -454,11 +476,21 @@ public final class MissionTracker {
                 }
             }
             Runnable savedCallback = changeCallback;
+            Supplier<String> savedSystem = currentSystemSupplier;
+            Supplier<String> savedStation = currentStationSupplier;
+            final String[] replaySystem = { null };
+            final String[] replayStation = { null };
             changeCallback = null;
+            currentSystemSupplier = () -> replaySystem[0];
+            currentStationSupplier = () -> replayStation[0];
             boolean changed = false;
             try {
                 for (int i = start; i < events.size(); i++) {
                     EliteLogEvent event = events.get(i);
+                    if (event == null) {
+                        continue;
+                    }
+                    applyReplayLocationContext(event, replaySystem, replayStation);
                     if (event instanceof MissionAcceptedEvent
                             || event instanceof MissionCompletedEvent
                             || event instanceof MissionFailedEvent
@@ -473,6 +505,8 @@ public final class MissionTracker {
                 }
             } finally {
                 changeCallback = savedCallback;
+                currentSystemSupplier = savedSystem;
+                currentStationSupplier = savedStation;
             }
             if (changed) {
                 lastUpdated = Instant.now();
@@ -482,6 +516,74 @@ public final class MissionTracker {
         } catch (IOException ex) {
             return false;
         }
+    }
+
+    /**
+     * Tracks commander system/station while replaying journals so {@link #onAccepted} can snapshot
+     * Transport From (including station name from {@code Docked}/{@code Location}).
+     */
+    private static void applyReplayLocationContext(EliteLogEvent event, String[] system, String[] station) {
+        if (event == null || system == null || station == null) {
+            return;
+        }
+        EliteEventType type = event.getType();
+        if (type == EliteEventType.DOCKED) {
+            JsonObject raw = event.getRawJson();
+            String stn = jsonString(raw, "StationName");
+            if (stn != null) {
+                station[0] = stn;
+            }
+            String sys = jsonString(raw, "StarSystem");
+            if (sys != null) {
+                system[0] = sys;
+            }
+            return;
+        }
+        if (type == EliteEventType.UNDOCKED) {
+            station[0] = null;
+            return;
+        }
+        if (event instanceof LocationEvent loc) {
+            if (loc.getStarSystem() != null && !loc.getStarSystem().isBlank()) {
+                system[0] = loc.getStarSystem().trim();
+            }
+            if (loc.isDocked()) {
+                String stn = jsonString(event.getRawJson(), "StationName");
+                if (stn != null) {
+                    station[0] = stn;
+                }
+            } else {
+                station[0] = null;
+            }
+            return;
+        }
+        if (event instanceof FsdJumpEvent jump) {
+            if (jump.getStarSystem() != null && !jump.getStarSystem().isBlank()) {
+                system[0] = jump.getStarSystem().trim();
+            }
+            station[0] = null;
+            return;
+        }
+        if (event instanceof CarrierJumpEvent jump) {
+            if (jump.getStarSystem() != null && !jump.getStarSystem().isBlank()) {
+                system[0] = jump.getStarSystem().trim();
+            }
+            station[0] = null;
+            return;
+        }
+        if (event instanceof SupercruiseExitEvent sc) {
+            if (sc.getStarSystem() != null && !sc.getStarSystem().isBlank()) {
+                system[0] = sc.getStarSystem().trim();
+            }
+        }
+    }
+
+    private static String jsonString(JsonObject raw, String key) {
+        if (raw == null || key == null || !raw.has(key) || raw.get(key).isJsonNull()) {
+            return null;
+        }
+        String v = raw.get(key).getAsString();
+        return v != null && !v.isBlank() ? v.trim() : null;
     }
 
     /**
@@ -803,6 +905,8 @@ public final class MissionTracker {
         p.setDestinationSystem(r.getDestinationSystem());
         p.setDestinationStation(r.getDestinationStation());
         p.setDestinationSettlement(r.getDestinationSettlement());
+        p.setOriginSystem(r.getOriginSystem());
+        p.setOriginStation(r.getOriginStation());
         p.setTargetFaction(r.getTargetFaction());
         p.setTarget(r.getTarget());
         p.setTargetType(r.getTargetType());
@@ -843,6 +947,8 @@ public final class MissionTracker {
         r.setDestinationSystem(p.getDestinationSystem());
         r.setDestinationStation(p.getDestinationStation());
         r.setDestinationSettlement(p.getDestinationSettlement());
+        r.setOriginSystem(p.getOriginSystem());
+        r.setOriginStation(p.getOriginStation());
         r.setTargetFaction(p.getTargetFaction());
         r.setTarget(p.getTarget());
         r.setTargetType(p.getTargetType());

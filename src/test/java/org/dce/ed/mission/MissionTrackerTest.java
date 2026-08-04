@@ -98,6 +98,29 @@ class MissionTrackerTest {
     }
 
     @Test
+    void accept_snapshotsOriginSystemAndStationIndependently() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Sol");
+        tracker.setCurrentStationSupplier(() -> "Abraham Lincoln");
+        String accept = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":42,\"Name\":\"Mission_Delivery\","
+                + "\"Commodity_Localised\":\"Osmium\",\"Count\":10,"
+                + "\"DestinationSystem\":\"Tenjin\",\"DestinationStation\":\"Balakor's Beacon\"}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+
+        MissionRecord r = tracker.getActive().get(0);
+        assertEquals("Sol", r.getOriginSystem());
+        assertEquals("Abraham Lincoln", r.getOriginStation());
+        assertEquals("Sol / Abraham Lincoln", MissionDestinationResolver.originFor(r).displayLine());
+
+        // Later accept replay can backfill station even when system was already set.
+        r.setOriginStation(null);
+        tracker.setCurrentStationSupplier(() -> "Abraham Lincoln");
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accept));
+        assertEquals("Abraham Lincoln", tracker.findById(42L).getOriginStation());
+    }
+
+    @Test
     void bounty_wrongSystem_doesNotAdvanceMassacreProgress() {
         MissionTracker tracker = new MissionTracker();
         tracker.setCurrentSystemSupplier(() -> "Sol");

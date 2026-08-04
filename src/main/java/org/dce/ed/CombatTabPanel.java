@@ -45,6 +45,9 @@ import org.dce.ed.mission.MissionCategory;
 import org.dce.ed.mission.MissionRecord;
 import org.dce.ed.mission.MissionTracker;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.exec.ExecTabButtonStrip;
+import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.ui.tabdock.OverlayTabId;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
@@ -70,6 +73,7 @@ public final class CombatTabPanel extends JPanel {
     private static final String TOOLTIP_UNBOUND_COMMAND = "Add a key binding to enable this command";
 
     private final BooleanSupplier passThroughEnabledSupplier;
+    private ExecTabButtonStrip execButtonStrip;
     private final ContentPanel content = new ContentPanel();
     private final JScrollPane scroll;
     private final JPanel summary = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -226,6 +230,8 @@ public final class CombatTabPanel extends JPanel {
         OverlayTransparentChrome.configureScrollPane(scroll);
         OverlayScrollPaneSupport.installSubtleScrollBars(scroll);
         add(scroll, BorderLayout.CENTER);
+        execButtonStrip = new ExecTabButtonStrip(OverlayTabId.COMBAT, passThroughEnabledSupplier);
+        add(execButtonStrip, BorderLayout.SOUTH);
 
         reloadCombatCommandBindings();
         CombatTargetTracker.getInstance().addListener(this::requestRefresh);
@@ -236,6 +242,12 @@ public final class CombatTabPanel extends JPanel {
     public void setMissionTracker(MissionTracker tracker) {
         this.missionTracker = tracker;
         requestRefresh();
+    }
+
+    public void setExecTriggerService(ExecTriggerService service) {
+        if (execButtonStrip != null) {
+            execButtonStrip.setExecTriggerService(service);
+        }
     }
 
     public void setUnclaimedBountyCreditsSupplier(LongSupplier supplier) {
@@ -273,6 +285,9 @@ public final class CombatTabPanel extends JPanel {
     public boolean isPointerOverInteractiveRegion(Point screenPoint) {
         if (!isShowing() || screenPoint == null) {
             return false;
+        }
+        if (execButtonStrip != null && execButtonStrip.isPointerOverActionButton(screenPoint)) {
+            return true;
         }
         for (JButton button : fighterButtons) {
             if (button != null && button.isShowing() && containsScreenPoint(button, screenPoint)) {

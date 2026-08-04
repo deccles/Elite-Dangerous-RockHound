@@ -104,9 +104,13 @@ public final class ControlPanelTabPanel extends JPanel {
     }
 
     public void setExecTriggerService(ExecTriggerService service) {
+        if (this.triggerService != null) {
+            this.triggerService.removeBindingsChangedListener(this::refreshButtons);
+        }
         this.triggerService = service;
         if (triggerService != null) {
             triggerService.setActivityListener(this::refreshKillButtonState);
+            triggerService.addBindingsChangedListener(this::refreshButtons);
         }
         refreshButtons();
     }

@@ -109,6 +109,9 @@ import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.OverlayTransparentChrome;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.SelectiveHitSupport;
+import org.dce.ed.exec.ExecTabButtonStrip;
+import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.ui.tabdock.OverlayTabId;
 import org.dce.ed.ui.TransparentViewportUI;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FssEdsmBackfill;
@@ -170,6 +173,7 @@ public class SystemTabPanel extends JPanel {
     private final JScrollPane systemBodyScrollPane;
     /** Resizable split between bodies table (top) and plan map (bottom), like Mining tab dividers. */
     private JSplitPane systemTableMapSplit;
+    private ExecTabButtonStrip execButtonStrip;
     /** Suppresses divider-move persistence while the divider is positioned programmatically. */
     private boolean systemSplitProgrammaticChange;
     /**
@@ -418,8 +422,17 @@ public class SystemTabPanel extends JPanel {
 		return OverlayScrollPaneSupport.isPointerOverScrollBar(systemBodyScrollPane, screenPoint);
 	}
 
+	public void setExecTriggerService(ExecTriggerService service) {
+		if (execButtonStrip != null) {
+			execButtonStrip.setExecTriggerService(service);
+		}
+	}
+
 	/** Selective mouse mode: sort icons, bodies scroller (when active), bio cues, map toolbar. */
 	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+		if (execButtonStrip != null && execButtonStrip.isPointerOverActionButton(screenPoint)) {
+			return true;
+		}
 		if (SelectiveHitSupport.containsScreenPoint(headerLabel, screenPoint)) {
 			return true;
 		}
@@ -1150,6 +1163,8 @@ public class SystemTabPanel extends JPanel {
         }
         updateSystemPlanMapCollapseButtons();
         add(systemTableMapSplit, BorderLayout.CENTER);
+        execButtonStrip = new ExecTabButtonStrip(OverlayTabId.SYSTEM, OverlayPreferences::isOverlayFullMousePassThrough);
+        add(execButtonStrip, BorderLayout.SOUTH);
 
         refreshFromCache();
         // Live monitor tails from a cursor (no history replay); learn aboard-carrier state from recent journals

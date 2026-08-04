@@ -72,8 +72,11 @@ import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 
+import org.dce.ed.exec.ExecBinding;
+import org.dce.ed.exec.ExecOverlayButtonSupport;
 import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.ui.tabdock.OverlayTabId;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.OverlayTransparentChrome;
 import org.dce.ed.ui.PassThroughScrollSupport;
@@ -205,16 +208,19 @@ public class RouteTabPanel extends JPanel {
 	/** Holds {@link #routeScrollPane} and the copy strip (same structure on Route and Fleet Carrier tabs). */
 	private final JPanel routeCenterWrapper;
 	private final JPanel routeCopyStrip;
-	/** Red warning under the table when the route was customized (paste / reorder). */
+	/** Red “Custom Route” label + Clear under the table when the route was customized (paste / reorder). */
+	private final JPanel customRouteWarningStrip;
 	private final JLabel customRouteWarningLabel;
+	private final JButton clearCustomRouteButton;
 	/** {@code true} after paste/reorder until a game {@code NavRoute} reload or explicit clear. */
 	private boolean customRouteActive;
 	private final JButton copyNextDestinationButton;
 	private final HoverCopyButtonSupport copyNextDestinationHoverCopySupport;
 	private final Timer copyNextDestinationRefreshTimer;
+	private final List<JButton> execTabButtons = new ArrayList<>();
+	private ExecTriggerService execTriggerService;
 	private final RouteTableModel tableModel;
 	private SystemTableHoverCopyManager systemTableHoverCopyManager;
-	private ExecTriggerService execTriggerService;
 	private StatusHoverPopupManager statusHoverPopupManager;
 	private StatusHoverPopupManager fuelHoverPopupManager;
 	private final EdsmClient edsmClient;
@@ -394,6 +400,13 @@ public class RouteTabPanel extends JPanel {
 			return true;
 		}
 		if (SelectiveHitSupport.containsScreenPoint(table, screenPoint)) {
+			return true;
+		}
+		if (ExecOverlayButtonSupport.anyButtonContains(execTabButtons, screenPoint)) {
+			return true;
+		}
+		if (clearCustomRouteButton != null && clearCustomRouteButton.isVisible()
+				&& SelectiveHitSupport.containsScreenPoint(clearCustomRouteButton, screenPoint)) {
 			return true;
 		}
 		return SelectiveHitSupport.containsScreenPoint(copyNextDestinationButton, screenPoint);
@@ -737,8 +750,21 @@ public class RouteTabPanel extends JPanel {
 		customRouteWarningLabel.setOpaque(false);
 		customRouteWarningLabel.setForeground(EdoUi.User.ERROR);
 		customRouteWarningLabel.setFont(uiFont.deriveFont(Font.BOLD));
-		customRouteWarningLabel.setBorder(new EmptyBorder(4, 4, 0, 4));
-		customRouteWarningLabel.setVisible(false);
+		customRouteWarningLabel.setBorder(new EmptyBorder(0, 0, 0, 0));
+
+		clearCustomRouteButton = new JButton("Clear");
+		OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(clearCustomRouteButton, uiFont);
+		clearCustomRouteButton.setToolTipText(
+				"Clear the custom route and reload NavRoute.json, or show the current system if none is plotted");
+		clearCustomRouteButton.addActionListener(e -> clearCustomRoute());
+
+		customRouteWarningStrip = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+		customRouteWarningStrip.setOpaque(false);
+		customRouteWarningStrip.setBackground(EdoUi.Internal.TRANSPARENT);
+		customRouteWarningStrip.setBorder(new EmptyBorder(4, 4, 0, 4));
+		customRouteWarningStrip.add(customRouteWarningLabel);
+		customRouteWarningStrip.add(clearCustomRouteButton);
+		customRouteWarningStrip.setVisible(false);
 
 		// Right-justified directly under the last table row; docks to the panel bottom only when the table scrolls.
 		routeCopyStrip = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
@@ -755,7 +781,7 @@ public class RouteTabPanel extends JPanel {
 				passThroughEnabledSupplier);
 
 		routeCenterWrapper.add(routeScrollPane);
-		routeCenterWrapper.add(customRouteWarningLabel);
+		routeCenterWrapper.add(customRouteWarningStrip);
 		routeCopyStrip.add(copyNextDestinationButton);
 		routeCenterWrapper.add(routeCopyStrip);
 
@@ -910,39 +936,74 @@ public class RouteTabPanel extends JPanel {
 		int contentH = preferredRouteTableSize().height;
 		int tableH = Math.min(contentH, maxTableH);
 		routeScrollPane.setBounds(0, 0, w, tableH);
-		if (customRouteWarningLabel != null) {
-			customRouteWarningLabel.setBounds(0, tableH, w, warnH);
+		if (customRouteWarningStrip != null) {
+			customRouteWarningStrip.setBounds(0, tableH, w, warnH);
 		}
 		routeCopyStrip.setBounds(0, tableH + warnH, w, stripH);
 	}
 
 	private int preferredCustomRouteWarningHeight() {
-		if (customRouteWarningLabel == null || !customRouteWarningLabel.isVisible()) {
+		if (customRouteWarningStrip == null || !customRouteWarningStrip.isVisible()) {
 			return 0;
 		}
-		Dimension pref = customRouteWarningLabel.getPreferredSize();
+		Dimension pref = customRouteWarningStrip.getPreferredSize();
 		return Math.max(pref != null ? pref.height : 0, 18);
 	}
 
-	/** Shows or hides the red “Custom Route” warning under the table. */
+	/** Shows or hides the red “Custom Route” warning + Clear under the table. */
 	protected void setCustomRouteActive(boolean active) {
 		customRouteActive = active;
-		if (customRouteWarningLabel == null) {
+		if (customRouteWarningStrip == null) {
 			return;
 		}
 		boolean show = active && routeSession != null && !routeSession.getBaseRouteEntries().isEmpty();
-		if (customRouteWarningLabel.isVisible() == show) {
+		if (customRouteWarningStrip.isVisible() == show) {
 			if (routeCenterWrapper != null) {
 				routeCenterWrapper.revalidate();
 				routeCenterWrapper.repaint();
 			}
 			return;
 		}
-		customRouteWarningLabel.setVisible(show);
+		customRouteWarningStrip.setVisible(show);
 		if (routeCenterWrapper != null) {
 			routeCenterWrapper.revalidate();
 			routeCenterWrapper.repaint();
 		}
+	}
+
+	/**
+	 * Drops a paste/reorder custom list: reload {@code NavRoute.json} when present, otherwise seed the
+	 * current system as the solitary “no plotted route” row.
+	 */
+	protected void clearCustomRoute() {
+		replaceCustomRouteFromGamePlot();
+		seedCurrentSystemIfRouteEmptyAfterCustomClear();
+		fireSessionStateChanged();
+	}
+
+	/**
+	 * Force-reloads the game plot over any custom list ({@code NavRoute.json}, or empty when missing).
+	 * Overridable in tests to avoid touching a live journal directory.
+	 */
+	protected void replaceCustomRouteFromGamePlot() {
+		reloadFromNavRouteFile(true, true);
+	}
+
+	/** When Clear left no plotted hops, keep a one-row “you are here” placeholder. */
+	void seedCurrentSystemIfRouteEmptyAfterCustomClear() {
+		if (routeSession == null || !routeSession.getBaseRouteEntries().isEmpty()) {
+			return;
+		}
+		reconcileRouteCurrentWithLiveCommanderPosition();
+		String name = routeSession.getCurrentSystemName();
+		long addr = routeSession.getCurrentSystemAddress();
+		if (name == null || name.isBlank()) {
+			resolveCurrentSystemFromJournal();
+			name = routeSession.getCurrentSystemName();
+			addr = routeSession.getCurrentSystemAddress();
+		}
+		routeSession.ensureSingleSystemRowIfBaseEmpty(name, addr);
+		rebuildDisplayedEntries();
 	}
 
 	/** {@code true} when the Route tab is showing a paste/reorder custom route. */
@@ -1016,16 +1077,20 @@ public class RouteTabPanel extends JPanel {
 		trackShipFuelState(event);
 		if (event instanceof NavRouteEvent) {
 			// Galaxy-map plot replaces a paste/reorder custom list unless the destination
-			// is already a hop on that custom route.
+			// is already a hop on that custom route (or NavRoute is empty after a hop).
 			reloadFromNavRouteFile(true);
 		}
 		if (event instanceof NavRouteClearEvent) {
-			// In-game route clear always drops a custom list.
-			reloadFromNavRouteFile(true, true);
-			routeSession.clearAfterNavRouteClearEvent();
-			setCustomRouteActive(false);
-			rebuildDisplayedEntries();
-			table.repaint();
+			if (isCustomRouteActive()) {
+				// Game clears its NavRoute when you arrive at a hop; keep the custom list.
+				routeSession.getTargetState().applyNavRouteClear();
+			} else {
+				reloadFromNavRouteFile(true, true);
+				routeSession.clearAfterNavRouteClearEvent();
+				setCustomRouteActive(false);
+				rebuildDisplayedEntries();
+				table.repaint();
+			}
 		}
 		if (event instanceof FssAllBodiesFoundEvent) {
 			// Status refresh only — do not wipe an active custom route.
@@ -1475,8 +1540,55 @@ public class RouteTabPanel extends JPanel {
 		return ExecTriggerId.ROUTE_COPY_NEXT_DESTINATION;
 	}
 
+	/** Which overlay tab this panel hosts Exec buttons for (Fleet Carrier overrides). */
+	protected OverlayTabId execButtonTabId() {
+		return OverlayTabId.ROUTE;
+	}
+
 	public void setExecTriggerService(ExecTriggerService service) {
+		if (this.execTriggerService != null) {
+			this.execTriggerService.removeBindingsChangedListener(this::refreshExecTabButtons);
+		}
 		this.execTriggerService = service;
+		if (service != null) {
+			service.addBindingsChangedListener(this::refreshExecTabButtons);
+		}
+		refreshExecTabButtons();
+	}
+
+	public void refreshExecTabButtons() {
+		SwingUtilities.invokeLater(this::rebuildExecTabButtons);
+	}
+
+	private void rebuildExecTabButtons() {
+		if (routeCopyStrip == null || copyNextDestinationButton == null) {
+			return;
+		}
+		for (JButton button : execTabButtons) {
+			routeCopyStrip.remove(button);
+		}
+		execTabButtons.clear();
+		List<ExecBinding> bindings = ExecOverlayButtonSupport.loadBindingsForButtonTab(execTriggerService,
+				execButtonTabId());
+		int insertAt = routeCopyStrip.getComponentCount();
+		for (int i = 0; i < routeCopyStrip.getComponentCount(); i++) {
+			if (routeCopyStrip.getComponent(i) == copyNextDestinationButton) {
+				insertAt = i;
+				break;
+			}
+		}
+		for (ExecBinding binding : bindings) {
+			JButton button = ExecOverlayButtonSupport.createActionButton(binding, execTriggerService,
+					passThroughEnabledSupplier);
+			routeCopyStrip.add(button, insertAt++);
+			execTabButtons.add(button);
+		}
+		routeCopyStrip.revalidate();
+		routeCopyStrip.repaint();
+		if (routeCenterWrapper != null) {
+			routeCenterWrapper.revalidate();
+			routeCenterWrapper.repaint();
+		}
 	}
 
 	protected void afterDestinationCopiedToClipboard(String destination) {
@@ -1563,9 +1675,10 @@ public class RouteTabPanel extends JPanel {
 	/**
 	 * @param replaceCustomRoute when {@code false}, leave an active paste/reorder custom list alone
 	 *        (e.g. FSS status refresh). When {@code true}, a galaxy-map {@code NavRoute} replaces the
-	 *        custom list unless its destination is already on that list; empty/missing NavRoute clears it.
+	 *        custom list unless its destination is already on that list; empty/missing NavRoute keeps
+	 *        an active custom list (game clears NavRoute on hop arrival).
 	 * @param forceReplaceCustomRoute when {@code true}, always replace even if the NavRoute destination
-	 *        is on the custom list (used for {@code NavRouteClear}).
+	 *        is on the custom list (used for the Clear button).
 	 */
 	private void reloadFromNavRouteFile(boolean replaceCustomRoute, boolean forceReplaceCustomRoute) {
 		if (customRouteActive && !replaceCustomRoute) {
@@ -1573,6 +1686,9 @@ public class RouteTabPanel extends JPanel {
 		}
 		Path dir = OverlayPreferences.resolveJournalDirectory(EliteDangerousOverlay.clientKey);
 		if (dir == null) {
+			if (keepCustomRouteAgainstEmptyNavRoute(forceReplaceCustomRoute)) {
+				return;
+			}
 			headerLabel.setText("No journal directory.");
 			routeSession.applyNavRouteReloadParsed(List.of());
 			setCustomRouteActive(false);
@@ -1581,6 +1697,9 @@ public class RouteTabPanel extends JPanel {
 		}
 		Path navRoute = dir.resolve("NavRoute.json");
 		if (!Files.isRegularFile(navRoute)) {
+			if (keepCustomRouteAgainstEmptyNavRoute(forceReplaceCustomRoute)) {
+				return;
+			}
 			headerLabel.setText("No plotted route.");
 			routeSession.applyNavRouteReloadParsed(List.of());
 			setCustomRouteActive(false);
@@ -1593,6 +1712,9 @@ public class RouteTabPanel extends JPanel {
 			entries = RouteNavRouteJson.parseNavRouteFromJson(root);
 		} catch (Exception e) {
 			e.printStackTrace();
+			if (keepCustomRouteAgainstEmptyNavRoute(forceReplaceCustomRoute)) {
+				return;
+			}
 			headerLabel.setText("Error reading NavRoute.json");
 			routeSession.applyNavRouteReloadParsed(List.of());
 			setCustomRouteActive(false);
@@ -1600,7 +1722,8 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		if (customRouteActive && replaceCustomRoute && !forceReplaceCustomRoute
-				&& RouteGeometry.navRouteDestinationOnCustomRoute(entries, routeSession.getBaseRouteEntries())) {
+				&& (entries.isEmpty()
+						|| RouteGeometry.navRouteDestinationOnCustomRoute(entries, routeSession.getBaseRouteEntries()))) {
 			// Keep paste/reorder list; FSDTarget/Status still update via applySecondaryJournalEvent.
 			return;
 		}
@@ -1610,6 +1733,11 @@ public class RouteTabPanel extends JPanel {
 		routeSession.applyNavRouteReloadParsed(entries);
 		setCustomRouteActive(false);
 		rebuildDisplayedEntries();
+	}
+
+	/** Empty/missing game NavRoute must not wipe an active custom list unless Clear forced it. */
+	private boolean keepCustomRouteAgainstEmptyNavRoute(boolean forceReplaceCustomRoute) {
+		return customRouteActive && !forceReplaceCustomRoute;
 	}
 
 	/**
@@ -1742,7 +1870,8 @@ public class RouteTabPanel extends JPanel {
 	private void rebuildDisplayedEntriesOnce() {
 		reconcileRouteCurrentWithLiveCommanderPosition();
 		syncTableCurrentFromRouteSession();
-		RouteDisplaySnapshot snap = routeSession.buildDisplaySnapshot(this::applyRememberedScanStatuses, this::resolveSystemCoords);
+		RouteDisplaySnapshot snap = routeSession.buildDisplaySnapshot(
+				this::applyRememberedScanStatuses, this::resolveSystemCoords, customRouteActive);
 		tableModel.setEntries(snap.displayedEntries());
 		recomputeRouteFuelPrediction();
 		maybeScheduleTargetCoordsFetch(snap.displayedEntries());
@@ -3718,6 +3847,9 @@ public class RouteTabPanel extends JPanel {
 			customRouteWarningLabel.setFont(uiFont.deriveFont(Font.BOLD));
 			customRouteWarningLabel.setForeground(EdoUi.User.ERROR);
 		}
+		if (clearCustomRouteButton != null) {
+			OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(clearCustomRouteButton, uiFont);
+		}
 		if (lyModeFromCurrentButton != null) {
 			lyModeFromCurrentButton.setForeground(EdoUi.User.MAIN_TEXT);
 			lyModePerLegButton.setForeground(EdoUi.User.MAIN_TEXT);
@@ -3751,6 +3883,9 @@ public class RouteTabPanel extends JPanel {
 			}
 		}
 		OverlayTransparentChrome.applyToSubtree(this);
+		if (clearCustomRouteButton != null) {
+			OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(clearCustomRouteButton, uiFont);
+		}
 		if (copyNextDestinationButton != null) {
 			styleCopyNextDestinationButton(copyNextDestinationButton, uiFont);
 			updateCopyNextDestinationButton();

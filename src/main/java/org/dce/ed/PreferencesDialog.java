@@ -603,7 +603,7 @@ public class PreferencesDialog extends JDialog {
 		tabsPanel.add(overlayTabMiningVisibleCheckBox, tgc);
 
 		tgc.gridy++;
-		overlayTabMissionsVisibleCheckBox = new JCheckBox("Missions");
+		overlayTabMissionsVisibleCheckBox = new JCheckBox("Transport");
 		overlayTabMissionsVisibleCheckBox.setOpaque(false);
 		overlayTabMissionsVisibleCheckBox.setSelected(OverlayPreferences.isOverlayTabMissionsVisible());
 		tabsPanel.add(overlayTabMissionsVisibleCheckBox, tgc);

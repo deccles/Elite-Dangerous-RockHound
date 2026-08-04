@@ -18,6 +18,11 @@ public final class ExecBinding {
     private boolean enabled;
     /** When true, a button for this binding appears on the overlay Control Panel tab. */
     private boolean includeOnControlPanel;
+    /**
+     * Overlay content tab that hosts a button for this binding ({@link org.dce.ed.ui.tabdock.OverlayTabId#cardName()}),
+     * or empty for none. Independent of {@link #includeOnControlPanel}.
+     */
+    private String buttonTab = "";
     private ExecTriggerId trigger;
     private int delayMs;
     /** Selected catalog name from {@link ExecBindingsConfig#getPrograms()}; empty when unset. */
@@ -64,7 +69,16 @@ public final class ExecBinding {
         this.includeOnControlPanel = includeOnControlPanel;
     }
 
-    /** Label for Control Panel buttons: name, else program file name, else trigger label; appends shortcut key when set. */
+    /** {@link org.dce.ed.ui.tabdock.OverlayTabId#cardName()} or empty when unset. */
+    public String getButtonTab() {
+        return buttonTab;
+    }
+
+    public void setButtonTab(String buttonTab) {
+        this.buttonTab = buttonTab != null ? buttonTab.trim().toUpperCase(java.util.Locale.ROOT) : "";
+    }
+
+    /** Label for Control Panel / tab buttons: name, else program file name, else trigger label; appends shortcut key when set. */
     public String controlPanelLabel() {
         String base;
         if (name != null && !name.isBlank()) {

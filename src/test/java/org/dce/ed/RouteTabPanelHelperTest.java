@@ -2,20 +2,25 @@ package org.dce.ed;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
 import javax.swing.JLabel;
 
+import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.route.RouteEntry;
 import org.dce.ed.route.RouteMarkerKind;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.FleetCarrierSessionMapper;
 import org.dce.ed.state.SystemState;
 import org.junit.jupiter.api.Test;
+
+import com.google.gson.JsonObject;
 
 /**
  * Unit tests for route helper methods: findSystemRow, deepCopy, bestInsertionIndexByCoords, recomputeLegDistances, renumberDisplayIndexes.
@@ -107,6 +112,39 @@ class RouteTabPanelHelperTest {
     }
 
     @Test
+    void clearCustomRoute_withEmptyGamePlot_seedsCurrentSystemAndClearsLatch() {
+        EmptyNavRouteClearPanel panel = new EmptyNavRouteClearPanel();
+        panel.routeSessionForTests().applyKnownCurrentSystem("Sol", 1L, null);
+        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                entry("Sol", 1L),
+                entry("Achenar", 2L)));
+        panel.setCustomRouteActive(true);
+
+        panel.clearCustomRoute();
+
+        assertEquals(false, panel.isCustomRouteActive());
+        assertEquals(1, panel.routeSessionForTests().getBaseRouteEntries().size());
+        assertEquals("Sol", panel.routeSessionForTests().getBaseRouteEntries().get(0).systemName);
+        assertEquals(1L, panel.routeSessionForTests().getBaseRouteEntries().get(0).systemAddress);
+    }
+
+    @Test
+    void navRouteClear_whileCustomRouteActive_keepsCustomHops() {
+        RouteTabPanel panel = new RouteTabPanel(() -> false);
+        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                entry("Sol", 1L),
+                entry("Achenar", 2L),
+                entry("Shinrarta Dezhra", 3L)));
+        panel.setCustomRouteActive(true);
+
+        panel.handleLogEvent(new NavRouteClearEvent(Instant.parse("2026-01-01T00:00:00Z"), new JsonObject()));
+
+        assertTrue(panel.isCustomRouteActive());
+        assertEquals(3, panel.routeSessionForTests().getBaseRouteEntries().size());
+        assertEquals("Achenar", panel.routeSessionForTests().getBaseRouteEntries().get(1).systemName);
+    }
+
+    @Test
     void parsePastedSystemNames_splitsLinesAndCommas() {
         List<String> names = RouteTabPanel.parsePastedSystemNames("Sol\nAlpha Centauri, Barnard's Star");
         assertEquals(List.of("Sol", "Alpha Centauri", "Barnard's Star"), names);
@@ -183,7 +221,7 @@ class RouteTabPanelHelperTest {
 
         assertEquals("Cemiess", panel.routeSessionForTests().getCurrentSystemName());
         assertEquals(200L, panel.routeSessionForTests().getCurrentSystemAddress());
-        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null)
+        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
                 .displayedEntries();
         assertEquals(RouteMarkerKind.CURRENT, displayed.get(1).markerKind);
         assertEquals(RouteMarkerKind.PENDING_JUMP, displayed.get(2).markerKind);
@@ -194,6 +232,18 @@ class RouteTabPanelHelperTest {
         protected boolean resolveCurrentSystemFromJournal() {
             routeSessionForTests().applyKnownCurrentSystem("Ross 104", 104L, null);
             return true;
+        }
+    }
+
+    /**
+     * Stubs the NavRoute reload path so Clear can be tested without touching a live journal dir.
+     */
+    private static final class EmptyNavRouteClearPanel extends RouteTabPanel {
+        @Override
+        protected void replaceCustomRouteFromGamePlot() {
+            routeSessionForTests().applyNavRouteReloadParsed(List.of());
+            setCustomRouteActive(false);
+            rebuildDisplayedEntries();
         }
     }
 

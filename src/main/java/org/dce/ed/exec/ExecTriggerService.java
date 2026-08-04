@@ -31,6 +31,7 @@ public final class ExecTriggerService {
 
     private final CopyOnWriteArrayList<Timer> scheduledExecTimers = new CopyOnWriteArrayList<>();
     private volatile Runnable activityListener;
+    private final CopyOnWriteArrayList<Runnable> bindingsChangedListeners = new CopyOnWriteArrayList<>();
 
     public ExecTriggerService() {
         this(new ExecBindingsStore());
@@ -51,6 +52,31 @@ public final class ExecTriggerService {
     /** Fired on EDT when a script starts, stops, or a delayed launch is scheduled/cancelled. */
     public void setActivityListener(Runnable activityListener) {
         this.activityListener = activityListener;
+    }
+
+    /** Register for Preferences / install changes that affect overlay Exec buttons. */
+    public void addBindingsChangedListener(Runnable listener) {
+        if (listener != null) {
+            bindingsChangedListeners.addIfAbsent(listener);
+        }
+    }
+
+    public void removeBindingsChangedListener(Runnable listener) {
+        bindingsChangedListeners.remove(listener);
+    }
+
+    /** Notify overlay hosts to rebuild Exec buttons (EDT). */
+    public void fireBindingsChanged() {
+        for (Runnable listener : bindingsChangedListeners) {
+            if (listener == null) {
+                continue;
+            }
+            if (SwingUtilities.isEventDispatchThread()) {
+                listener.run();
+            } else {
+                SwingUtilities.invokeLater(listener);
+            }
+        }
     }
 
     /** True when an exec child process is running or a delayed launch timer is active. */

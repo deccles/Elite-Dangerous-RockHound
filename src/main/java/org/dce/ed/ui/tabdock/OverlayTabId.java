@@ -14,7 +14,7 @@ public enum OverlayTabId {
     SYSTEM("SYSTEM", "System"),
     BIOLOGY("BIOLOGY", "ExoBio"),
     MINING("MINING", "Mining"),
-    MISSIONS("MISSIONS", "Missions"),
+    MISSIONS("MISSIONS", "Transport"),
     COMBAT("COMBAT", "Combat"),
     FLEET_CARRIER("FLEET_CARRIER", "Fleet Carrier"),
     ENGINEERING("ENGINEERING", "Engineering"),
@@ -53,5 +53,22 @@ public enum OverlayTabId {
 
     public static Set<OverlayTabId> allDetachable() {
         return new LinkedHashSet<>(Arrays.asList(values()));
+    }
+
+    /**
+     * Tabs that can host an Exec action button via Preferences → Exec → Tab.
+     * Control Panel uses its own checkbox column.
+     */
+    public static OverlayTabId[] execButtonPlacementValues() {
+        return new OverlayTabId[] {
+                ROUTE,
+                SYSTEM,
+                BIOLOGY,
+                MINING,
+                MISSIONS,
+                COMBAT,
+                FLEET_CARRIER,
+                ENGINEERING
+        };
     }
 }

@@ -16,6 +16,7 @@ import java.util.Map;
 import javax.swing.AbstractCellEditor;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -39,6 +40,7 @@ import org.dce.ed.exec.ExecBinding;
 import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecBindingsStore;
 import org.dce.ed.exec.ExecJournalFilterDialog;
+import org.dce.ed.exec.ExecOverlayButtonSupport;
 import org.dce.ed.exec.ExecProgram;
 import org.dce.ed.exec.ExecPrograms;
 import org.dce.ed.exec.ExecProgramsDialog;
@@ -50,6 +52,7 @@ import org.dce.ed.exec.ExecTriggerService;
 import org.dce.ed.exec.placeholder.ExecPlaceholderId;
 import org.dce.ed.exec.placeholder.ExecPlaceholderFieldSupport;
 import org.dce.ed.logreader.EliteEventType;
+import org.dce.ed.ui.tabdock.OverlayTabId;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HelpCircleIcon;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
@@ -68,11 +71,12 @@ public final class ExecTabPanel extends JPanel {
     private static final int COL_NAME = 0;
     private static final int COL_ENABLED = 1;
     private static final int COL_CONTROL_PANEL = 2;
-    private static final int COL_TRIGGER = 3;
-    private static final int COL_JOURNAL_EVENT = 4;
-    private static final int COL_DELAY_SEC = 5;
-    private static final int COL_PROGRAM = 6;
-    private static final int COL_ARGS = 7;
+    private static final int COL_BUTTON_TAB = 3;
+    private static final int COL_TRIGGER = 4;
+    private static final int COL_JOURNAL_EVENT = 5;
+    private static final int COL_DELAY_SEC = 6;
+    private static final int COL_PROGRAM = 7;
+    private static final int COL_ARGS = 8;
 
     private final ExecBindingsStore store = new ExecBindingsStore();
     private final ExecBindingsConfig config = store.load();
@@ -512,6 +516,9 @@ public final class ExecTabPanel extends JPanel {
     private void persistConfig() {
         try {
             store.save(config);
+            if (triggerService != null) {
+                triggerService.fireBindingsChanged();
+            }
         } catch (IOException e) {
             setStatus("Save failed: " + e.getMessage());
         }
@@ -533,7 +540,7 @@ public final class ExecTabPanel extends JPanel {
 
         @Override
         public int getColumnCount() {
-            return 8;
+            return 9;
         }
 
         @Override
@@ -542,6 +549,7 @@ public final class ExecTabPanel extends JPanel {
                 case COL_NAME -> "Name";
                 case COL_ENABLED -> "On";
                 case COL_CONTROL_PANEL -> "Control Panel";
+                case COL_BUTTON_TAB -> "Tab";
                 case COL_TRIGGER -> "Trigger";
                 case COL_JOURNAL_EVENT -> "Event / key";
                 case COL_DELAY_SEC -> "Delay (s)";
@@ -581,6 +589,10 @@ public final class ExecTabPanel extends JPanel {
                 case COL_NAME -> b.getName();
                 case COL_ENABLED -> b.isEnabled();
                 case COL_CONTROL_PANEL -> b.isIncludeOnControlPanel();
+                case COL_BUTTON_TAB -> {
+                    OverlayTabId tab = ExecOverlayButtonSupport.parseButtonTab(b.getButtonTab());
+                    yield tab != null ? tab : "";
+                }
                 case COL_TRIGGER -> b.getTrigger();
                 case COL_JOURNAL_EVENT -> {
                     if (b.getTrigger() == ExecTriggerId.SHORTCUT_KEY) {
@@ -605,6 +617,16 @@ public final class ExecTabPanel extends JPanel {
                 case COL_NAME -> b.setName(value != null ? value.toString() : "");
                 case COL_ENABLED -> b.setEnabled(Boolean.TRUE.equals(value));
                 case COL_CONTROL_PANEL -> b.setIncludeOnControlPanel(Boolean.TRUE.equals(value));
+                case COL_BUTTON_TAB -> {
+                    if (value instanceof OverlayTabId tab) {
+                        b.setButtonTab(tab.cardName());
+                    } else if (value == null || value.toString().isBlank() || "None".equalsIgnoreCase(value.toString())) {
+                        b.setButtonTab("");
+                    } else {
+                        OverlayTabId tab = ExecOverlayButtonSupport.parseButtonTab(value.toString());
+                        b.setButtonTab(tab != null ? tab.cardName() : "");
+                    }
+                }
                 case COL_TRIGGER -> {
                     if (value instanceof ExecTriggerId id) {
                         b.setTrigger(id);
@@ -749,6 +771,53 @@ public final class ExecTabPanel extends JPanel {
         table.getColumnModel().getColumn(COL_CONTROL_PANEL).setCellEditor(overlayCheckBoxEditor(controlPanelCheck));
         constrainCheckboxColumn(COL_ENABLED, 36);
         constrainCheckboxColumn(COL_CONTROL_PANEL, 96);
+
+        JComboBox<Object> buttonTabCombo = new JComboBox<>();
+        buttonTabCombo.addItem("");
+        for (OverlayTabId tab : OverlayTabId.execButtonPlacementValues()) {
+            buttonTabCombo.addItem(tab);
+        }
+        buttonTabCombo.setRenderer(new DefaultListCellRenderer() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public Component getListCellRendererComponent(javax.swing.JList<?> list, Object value, int index,
+                    boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof OverlayTabId tab) {
+                    setText(tab.label());
+                } else {
+                    setText("None");
+                }
+                return this;
+            }
+        });
+        OverlayComboBoxStyle.apply(buttonTabCombo, fieldFont);
+        OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(buttonTabCombo);
+        table.getColumnModel().getColumn(COL_BUTTON_TAB).setCellEditor(new javax.swing.DefaultCellEditor(buttonTabCombo) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public Object getCellEditorValue() {
+                Object v = super.getCellEditorValue();
+                return v instanceof OverlayTabId || v == null || "".equals(v) ? v : "";
+            }
+        });
+        table.getColumnModel().getColumn(COL_BUTTON_TAB).setCellRenderer(new DefaultTableCellRenderer() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean isSelected,
+                    boolean hasFocus, int row, int column) {
+                super.getTableCellRendererComponent(t, value, isSelected, hasFocus, row, column);
+                if (value instanceof OverlayTabId tab) {
+                    setText(tab.label());
+                } else {
+                    setText("None");
+                }
+                return this;
+            }
+        });
 
         table.getColumnModel().getColumn(COL_PROGRAM).setCellEditor(new ProgramCellEditor());
         table.getColumnModel().getColumn(COL_PROGRAM).setCellRenderer(new DefaultTableCellRenderer() {

@@ -29,6 +29,7 @@ class ExecBindingsStoreTest {
         binding.setProgramArgs("--foo");
         binding.setName("My macro");
         binding.setIncludeOnControlPanel(true);
+        binding.setButtonTab("ROUTE");
         config.getBindings().add(binding);
 
         store.save(config);
@@ -50,6 +51,7 @@ class ExecBindingsStoreTest {
         assertEquals("Docked", rows.get(0).getJournalEventType());
         assertEquals("My macro", rows.get(0).getName());
         assertTrue(rows.get(0).isIncludeOnControlPanel());
+        assertEquals("ROUTE", rows.get(0).getButtonTab());
     }
 
     @Test

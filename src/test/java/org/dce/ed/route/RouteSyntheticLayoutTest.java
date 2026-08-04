@@ -27,6 +27,7 @@ class RouteSyntheticLayoutTest {
                 null,
                 0L,
                 resolver,
+                false,
                 false);
         assertEquals(3, out.size());
         assertTrue(out.stream().anyMatch(e -> "Mid".equals(e.systemName) && e.isSynthetic));
@@ -48,6 +49,7 @@ class RouteSyntheticLayoutTest {
                 null,
                 0L,
                 resolver,
+                false,
                 false);
         assertEquals(2, out.size());
         assertEquals("Sol", out.get(0).systemName);
@@ -85,6 +87,7 @@ class RouteSyntheticLayoutTest {
                 null,
                 0L,
                 (name, addr, pref) -> null,
+                false,
                 false);
         assertEquals(3, out.size());
         assertEquals("Sol", out.get(0).systemName);
@@ -110,6 +113,7 @@ class RouteSyntheticLayoutTest {
                 null,
                 0L,
                 (name, addr, pref) -> null,
+                false,
                 false);
         assertEquals(2, out.size());
         assertEquals("Diaguandri", out.get(0).systemName);
@@ -133,6 +137,7 @@ class RouteSyntheticLayoutTest {
                 null,
                 0L,
                 (name, addr, pref) -> null,
+                false,
                 false);
         assertEquals(1, out.size());
         assertEquals("Sol", out.get(0).systemName);
@@ -157,6 +162,7 @@ class RouteSyntheticLayoutTest {
                 null,
                 0L,
                 (name, addr, pref) -> null,
+                false,
                 false);
         assertEquals(2, out.size());
         assertTrue(out.stream().noneMatch(e -> e != null && e.isBodyRow));
@@ -190,6 +196,7 @@ class RouteSyntheticLayoutTest {
                 null,
                 0L,
                 (name, addr, pref) -> new Double[] { 10.0, 0.0, 0.0 },
+                false,
                 false);
         RouteEntry side = out.stream()
                 .filter(e -> e != null && "Arietis Sector KH-V b2-1".equals(e.systemName))
@@ -198,6 +205,77 @@ class RouteSyntheticLayoutTest {
         assertTrue(side.isSynthetic);
         assertEquals("M", side.starClass);
         assertTrue(FuelScoopStarClass.isFuelScoopable(side.starClass));
+    }
+
+    /**
+     * Normal NavRoute side trip: place by 3D polyline distance even when that is after a later hop.
+     */
+    @Test
+    void nonCustom_syntheticTargetUsesGeometricInsertion() {
+        List<RouteEntry> base = new ArrayList<>();
+        base.add(coordRow("A", 1L, 0, 0, 0));
+        base.add(coordRow("B", 2L, 100, 0, 0));
+        base.add(coordRow("C", 3L, 200, 0, 0));
+        RouteTargetState ts = new RouteTargetState();
+        ts.restoreFromPersistence("Side", 99L, null, null, null);
+        List<RouteEntry> out = RouteLayoutEngine.buildDisplayedEntries(
+                base,
+                null,
+                "A",
+                1L,
+                null,
+                ts,
+                null,
+                0L,
+                // Closer to B→C than A→B.
+                (name, addr, pref) -> new Double[] { 140.0, 0.0, 0.0 },
+                false,
+                false);
+        assertEquals(4, out.size());
+        assertEquals("A", out.get(0).systemName);
+        assertEquals("B", out.get(1).systemName);
+        assertEquals("Side", out.get(2).systemName);
+        assertTrue(out.get(2).isSynthetic);
+        assertEquals("C", out.get(3).systemName);
+    }
+
+    /**
+     * Multi-jump NavRoute to the next custom destination: the FSD intermediate must appear
+     * after current and before that destination — even when coords are closer to a later segment.
+     */
+    @Test
+    void customRoute_syntheticTargetInsertedAfterCurrent_notAfterNextCustomDestination() {
+        // Custom: Core → JD-I → Gyllembo. Intermediate LY-H is nearer JD-I→Gyllembo than Core→JD-I,
+        // so geometric insertion would wrongly place it after JD-I.
+        List<RouteEntry> base = new ArrayList<>();
+        base.add(coordRow("Core Sys Sector KC-M A7-4", 1L, 0, 0, 0));
+        base.add(coordRow("Piscium Sector JD-I a10-1", 2L, 100, 0, 0));
+        base.add(coordRow("Gyllembo", 3L, 200, 0, 0));
+        RouteTargetState ts = new RouteTargetState();
+        ts.restoreFromPersistence("Piscium Sector LY-H A10-4", 99L, null, null, null);
+        List<RouteEntry> out = RouteLayoutEngine.buildDisplayedEntries(
+                base,
+                null,
+                "Core Sys Sector KC-M A7-4",
+                1L,
+                null,
+                ts,
+                null,
+                0L,
+                // Closer to JD-I→Gyllembo (midpoint ~150) than Core→JD-I (midpoint ~50).
+                (name, addr, pref) -> new Double[] { 140.0, 0.0, 0.0 },
+                true,
+                false);
+        assertEquals(4, out.size());
+        assertEquals("Core Sys Sector KC-M A7-4", out.get(0).systemName);
+        assertEquals(Integer.valueOf(0), out.get(0).displayIndex);
+        assertEquals("Piscium Sector LY-H A10-4", out.get(1).systemName);
+        assertTrue(out.get(1).isSynthetic);
+        assertEquals(null, out.get(1).displayIndex);
+        assertEquals("Piscium Sector JD-I a10-1", out.get(2).systemName);
+        assertEquals(Integer.valueOf(1), out.get(2).displayIndex);
+        assertEquals("Gyllembo", out.get(3).systemName);
+        assertEquals(Integer.valueOf(2), out.get(3).displayIndex);
     }
 
     private static RouteEntry coordRow(String name, long addr, double x, double y, double z) {

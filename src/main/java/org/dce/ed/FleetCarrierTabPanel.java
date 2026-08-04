@@ -33,6 +33,7 @@ import javax.swing.event.DocumentListener;
 
 import org.dce.ed.exec.ExecTriggerId;
 import org.dce.ed.logreader.EliteEventType;
+import org.dce.ed.ui.tabdock.OverlayTabId;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.OwnedFleetCarrierJournalBootstrap;
 import org.dce.ed.logreader.OwnedFleetCarrierTracker;
@@ -71,6 +72,11 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	}
 
 	@Override
+	protected OverlayTabId execButtonTabId() {
+		return OverlayTabId.FLEET_CARRIER;
+	}
+
+	@Override
 	protected boolean firesShipJumpCompleteTrigger() {
 		return false;
 	}
@@ -79,6 +85,12 @@ public class FleetCarrierTabPanel extends RouteTabPanel {
 	protected void onCustomRouteMutated() {
 		spanshRouteLoaded = !routeSession.getBaseRouteEntries().isEmpty();
 		super.onCustomRouteMutated();
+	}
+
+	/** Fleet Carrier Clear drops the loaded route; it does not reload ship {@code NavRoute.json}. */
+	@Override
+	protected void clearCustomRoute() {
+		clearFleetCarrierRoute();
 	}
 
 	private final String defaultStatusText = " ";

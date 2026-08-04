@@ -15,14 +15,12 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -44,11 +42,10 @@ import javax.swing.border.MatteBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableRowSorter;
 
-import org.dce.ed.cache.CachedSystem;
-import org.dce.ed.cache.SystemCache;
-import org.dce.ed.edsm.SystemResponse;
 import org.dce.ed.edsm.UtilTable;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
@@ -73,30 +70,30 @@ import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.SelectiveHitSupport;
+import org.dce.ed.exec.ExecTabButtonStrip;
+import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.ui.tabdock.OverlayTabId;
+import org.dce.ed.ui.TableCellToolTipSupport;
 import org.dce.ed.ui.TableHeaderSortSupport;
 import org.dce.ed.ui.TransparentTableHeader;
 import org.dce.ed.ui.TransparentTableHeaderUI;
 import org.dce.ed.ui.TransparentViewportUI;
-import org.dce.ed.util.EdsmClient;
 
 /**
- * Missions tab: commodity group cards, active missions table, filters, destination copy.
+ * Transport tab: trucking-style missions (cargo / courier / passenger), From/To places, filters.
  */
 public class MissionsTabPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
 
-    private enum Filter { ALL, COMMODITY, COMBAT, OTHER }
+    private enum Filter { ALL, CARGO, COURIER, PASSENGER }
 
     private final MissionTracker tracker = new MissionTracker();
     private final BooleanSupplier passThroughEnabledSupplier;
+    private ExecTabButtonStrip execButtonStrip;
     private final Supplier<Boolean> dockedSupplier;
     private final Supplier<String> currentSystemSupplier;
     private final Supplier<String> currentStationSupplier;
-    private final Supplier<double[]> currentStarPosSupplier;
-    private final EdsmClient edsmClient = new EdsmClient();
-    private final Map<String, double[]> resolvedCoordsCache = new ConcurrentHashMap<>();
-    private final Set<String> coordsFetchInProgress = ConcurrentHashMap.newKeySet();
 
     private Runnable sessionStateChangeCallback;
     private Filter filter = Filter.ALL;
@@ -113,7 +110,35 @@ public class MissionsTabPanel extends JPanel {
     private final JButton redirectDismiss = new JButton("Dismiss");
     private final JPanel commodityGroupsPanel = new JPanel();
     private final MissionsTableModel tableModel = new MissionsTableModel();
-    private final JTable missionsTable = new JTable(tableModel);
+    /**
+     * Full-text tooltips on Summary / Objective / Places (renderer tips are unreliable on overlay).
+     */
+    private final JTable missionsTable = new JTable(tableModel) {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public String getToolTipText(MouseEvent event) {
+            int row = rowAtPoint(event.getPoint());
+            int col = columnAtPoint(event.getPoint());
+            if (row < 0 || col < 0) {
+                return null;
+            }
+            int modelCol = convertColumnIndexToModel(col);
+            int modelRow = convertRowIndexToModel(row);
+            if (modelCol == MissionsTableModel.COL_PLACES) {
+                MissionRow mr = tableModel.rowAt(modelRow);
+                return mr != null ? mr.placesTooltip() : null;
+            }
+            if (modelCol == MissionsTableModel.COL_SUMMARY
+                    || modelCol == MissionsTableModel.COL_OBJECTIVE) {
+                String tip = TableCellToolTipSupport.cellTextAt(this, event);
+                if (tip != null && !tip.isBlank() && !"—".equals(tip)) {
+                    return tip;
+                }
+            }
+            return null;
+        }
+    };
     private final TableRowSorter<MissionsTableModel> missionsSorter = new TableRowSorter<>(tableModel);
     /** Created after the custom header is installed (see constructor). */
     private JScrollPane tableScroll;
@@ -122,15 +147,14 @@ public class MissionsTabPanel extends JPanel {
     public MissionsTabPanel(BooleanSupplier passThroughEnabledSupplier,
             Supplier<Boolean> dockedSupplier,
             Supplier<String> currentSystemSupplier,
-            Supplier<String> currentStationSupplier,
-            Supplier<double[]> currentStarPosSupplier) {
+            Supplier<String> currentStationSupplier) {
         super(new BorderLayout());
         this.passThroughEnabledSupplier = passThroughEnabledSupplier;
         this.dockedSupplier = dockedSupplier;
         this.currentSystemSupplier = currentSystemSupplier;
         this.currentStationSupplier = currentStationSupplier;
-        this.currentStarPosSupplier = currentStarPosSupplier;
         tracker.setCurrentSystemSupplier(currentSystemSupplier);
+        tracker.setCurrentStationSupplier(currentStationSupplier);
 
         setOpaque(false);
         setBackground(EdoUi.User.BACKGROUND);
@@ -149,14 +173,14 @@ public class MissionsTabPanel extends JPanel {
 
         DefaultTableCellRenderer renderer = new MissionCellRenderer();
         missionsTable.setDefaultRenderer(Object.class, renderer);
+        missionsTable.getColumnModel().getColumn(MissionsTableModel.COL_PLACES)
+                .setCellRenderer(new PlacesCellRenderer());
 
         Comparator<String> textCmp = Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER);
         missionsSorter.setComparator(MissionsTableModel.COL_TYPE, textCmp);
         missionsSorter.setComparator(MissionsTableModel.COL_SUMMARY, textCmp);
         missionsSorter.setComparator(MissionsTableModel.COL_OBJECTIVE, textCmp);
-        missionsSorter.setComparator(MissionsTableModel.COL_TURNIN, textCmp);
-        missionsSorter.setComparator(MissionsTableModel.COL_DISTANCE, Comparator.nullsLast(Comparator.naturalOrder()));
-        missionsSorter.setComparator(MissionsTableModel.COL_EXPIRY, Comparator.nullsLast(Comparator.naturalOrder()));
+        missionsSorter.setComparator(MissionsTableModel.COL_PLACES, textCmp);
         missionsTable.setAutoCreateRowSorter(false);
         missionsTable.setRowSorter(missionsSorter);
         TableHeaderSortSupport.install(missionsTable, passThroughEnabledSupplier, HEADER_SORT_HOVER_MS);
@@ -164,9 +188,9 @@ public class MissionsTabPanel extends JPanel {
         DestinationCopySupport.install(
                 missionsTable,
                 MissionsTableModel.COL_OBJECTIVE,
-                MissionsTableModel.COL_TURNIN,
+                MissionsTableModel.COL_PLACES,
                 tableModel::objectiveCopyText,
-                tableModel::turnInCopyText,
+                tableModel::placesCopyText,
                 passThroughEnabledSupplier);
 
         // Create scroll pane after the custom header is installed so the column header
@@ -207,6 +231,8 @@ public class MissionsTabPanel extends JPanel {
 
         add(top, BorderLayout.NORTH);
         add(center, BorderLayout.CENTER);
+        execButtonStrip = new ExecTabButtonStrip(OverlayTabId.MISSIONS, passThroughEnabledSupplier);
+        add(execButtonStrip, BorderLayout.SOUTH);
 
         tracker.setChangeCallback(this::scheduleRefresh);
         CargoMonitor.getInstance().addListener(s -> scheduleRefresh());
@@ -218,12 +244,18 @@ public class MissionsTabPanel extends JPanel {
         refreshUi();
     }
 
+    public void setExecTriggerService(ExecTriggerService service) {
+        if (execButtonStrip != null) {
+            execButtonStrip.setExecTriggerService(service);
+        }
+    }
+
     private void buildFilterBar(Font base) {
         filterBar.setOpaque(false);
         addFilterChip("All", Filter.ALL, base);
-        addFilterChip("Commodity", Filter.COMMODITY, base);
-        addFilterChip("Combat", Filter.COMBAT, base);
-        addFilterChip("Other", Filter.OTHER, base);
+        addFilterChip("Cargo", Filter.CARGO, base);
+        addFilterChip("Courier", Filter.COURIER, base);
+        addFilterChip("Passenger", Filter.PASSENGER, base);
     }
 
     private void addFilterChip(String label, Filter f, Font base) {
@@ -260,11 +292,13 @@ public class MissionsTabPanel extends JPanel {
         missionsTable.setShowVerticalLines(false);
         missionsTable.setIntercellSpacing(new Dimension(0, 0));
         missionsTable.setGridColor(EdoUi.Internal.TRANSPARENT);
-        int rowH = Math.max(22, OverlayPreferences.getUiFontSize() + 10);
+        int fontPx = OverlayPreferences.getUiFontSize();
+        int rowH = Math.max(40, (fontPx + 10) * 2);
+        int headerH = Math.max(22, fontPx + 10);
         missionsTable.setRowHeight(rowH);
-        missionsTable.setFont(base.deriveFont(Font.PLAIN, OverlayPreferences.getUiFontSize()));
+        missionsTable.setFont(base.deriveFont(Font.PLAIN, fontPx));
         missionsTable.setFillsViewportHeight(false);
-        missionsTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        missionsTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         missionsTable.setTableHeader(new TransparentTableHeader(missionsTable.getColumnModel()));
         JTableHeader th = missionsTable.getTableHeader();
         if (th != null) {
@@ -273,14 +307,14 @@ public class MissionsTabPanel extends JPanel {
             th.setForeground(EdoUi.User.MAIN_TEXT);
             th.setBackground(OverlayPreferences.overlayChromeRequestsTransparency(this)
                     ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
-            th.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize()));
+            th.setFont(base.deriveFont(Font.BOLD, fontPx));
             th.setBorder(null);
             th.setReorderingAllowed(false);
             th.setFocusable(false);
             th.putClientProperty("JTableHeader.focusCellBackground", null);
             th.putClientProperty("JTableHeader.cellBorder", null);
             th.setDefaultRenderer(new MissionsHeaderRenderer());
-            th.setPreferredSize(new Dimension(Math.max(1, th.getPreferredSize().width), rowH));
+            th.setPreferredSize(new Dimension(Math.max(1, th.getPreferredSize().width), headerH));
         }
         // If the scroll pane already exists (prefs refresh), re-bind the column header view.
         if (tableScroll != null) {
@@ -337,6 +371,10 @@ public class MissionsTabPanel extends JPanel {
         OverlayOutlineButtonStyle.applyChip(redirectDismiss, base, false);
         redirectLabel.setFont(base.deriveFont(Font.PLAIN, OverlayPreferences.getUiFontSize()));
         configureMissionsTable(base);
+        if (missionsTable.getColumnCount() > MissionsTableModel.COL_PLACES) {
+            missionsTable.getColumnModel().getColumn(MissionsTableModel.COL_PLACES)
+                    .setCellRenderer(new PlacesCellRenderer());
+        }
         autoSizeMissionsColumns();
         repaint();
     }
@@ -359,8 +397,11 @@ public class MissionsTabPanel extends JPanel {
         tracker.fillSessionState(state);
     }
 
-    /** Selective mouse mode: filters, Dismiss, sort headers, Objective/Turn-in cells. */
+    /** Selective mouse mode: filters, Dismiss, sort headers, Objective/Places cells. */
     public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+        if (execButtonStrip != null && execButtonStrip.isPointerOverActionButton(screenPoint)) {
+            return true;
+        }
         if (SelectiveHitSupport.containsScreenPoint(filterBar, screenPoint)) {
             return true;
         }
@@ -374,7 +415,7 @@ public class MissionsTabPanel extends JPanel {
                 missionsTable,
                 screenPoint,
                 MissionsTableModel.COL_OBJECTIVE,
-                MissionsTableModel.COL_TURNIN);
+                MissionsTableModel.COL_PLACES);
     }
 
     /**
@@ -459,7 +500,7 @@ public class MissionsTabPanel extends JPanel {
         if (type == EliteEventType.LOCATION
                 || type == EliteEventType.FSD_JUMP
                 || type == EliteEventType.CARRIER_JUMP) {
-            // Current system moved — recompute Dist column.
+            // Current system/station moved — refresh ready-state highlighting.
             scheduleRefresh();
         }
         if (event instanceof MissionAcceptedEvent
@@ -497,12 +538,11 @@ public class MissionsTabPanel extends JPanel {
 
     private void autoSizeMissionsColumns() {
         SwingUtilities.invokeLater(() -> {
-            // Measure content widths first, then fit all columns into the viewport
-            // so nothing is clipped off-screen in the overlay.
+            // Content-size first, then fit into the viewport. Stay on AUTO_RESIZE_OFF
+            // (Route/Exec pattern) so our preferred widths are not redistributed.
             missionsTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
             UtilTable.autoSizeTableColumns(missionsTable);
             fitMissionsColumnsToViewport();
-            missionsTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
             missionsTable.revalidate();
             missionsTable.repaint();
             if (missionsTable.getTableHeader() != null) {
@@ -512,11 +552,17 @@ public class MissionsTabPanel extends JPanel {
     }
 
     /**
-     * Shrinks flexible text columns when UtilTable preferred widths exceed the viewport.
-     * Keeps Type / Dist / Exp closer to their content size.
+     * Fits missions columns into the viewport without crushing text to ~50px.
+     * <ul>
+     *   <li>Type stays near content width.</li>
+     *   <li>Summary / Objective / Places share leftover space with higher mins.</li>
+     *   <li>Overflow shrinks Summary first, then Objective, then Places.</li>
+     *   <li>Hover shows full Summary / Objective / Places via tooltips.</li>
+     * </ul>
      */
     private void fitMissionsColumnsToViewport() {
-        int avail = tableScroll.getViewport() != null ? tableScroll.getViewport().getWidth() : 0;
+        int avail = tableScroll != null && tableScroll.getViewport() != null
+                ? tableScroll.getViewport().getWidth() : 0;
         if (avail <= 0) {
             avail = missionsTable.getWidth();
         }
@@ -525,58 +571,73 @@ public class MissionsTabPanel extends JPanel {
         }
         var cm = missionsTable.getColumnModel();
         int cols = cm.getColumnCount();
-        if (cols == 0) {
+        if (cols <= MissionsTableModel.COL_PLACES) {
             return;
         }
-        int total = 0;
-        for (int i = 0; i < cols; i++) {
-            total += cm.getColumn(i).getPreferredWidth();
-        }
-        if (total <= avail) {
-            // Give leftover space to Summary so the table fills the pane cleanly.
-            if (cols > MissionsTableModel.COL_SUMMARY) {
-                var summary = cm.getColumn(MissionsTableModel.COL_SUMMARY);
-                summary.setPreferredWidth(summary.getPreferredWidth() + (avail - total));
-            }
+
+        // Cap Type so it does not steal space from text columns.
+        clampMissionsColumn(cm.getColumn(MissionsTableModel.COL_TYPE), 48, 72);
+
+        int minSummary = 110;
+        int minObjective = 88;
+        int minTurnIn = 100;
+        TableColumn summary = cm.getColumn(MissionsTableModel.COL_SUMMARY);
+        TableColumn objective = cm.getColumn(MissionsTableModel.COL_OBJECTIVE);
+        TableColumn turnIn = cm.getColumn(MissionsTableModel.COL_PLACES);
+        summary.setPreferredWidth(Math.max(minSummary, summary.getPreferredWidth()));
+        objective.setPreferredWidth(Math.max(minObjective, objective.getPreferredWidth()));
+        turnIn.setPreferredWidth(Math.max(minTurnIn, turnIn.getPreferredWidth()));
+
+        int fixedTotal = columnPreferred(cm, MissionsTableModel.COL_TYPE);
+        int flexAvail = Math.max(0, avail - fixedTotal);
+        int flexWanted = summary.getPreferredWidth() + objective.getPreferredWidth() + turnIn.getPreferredWidth();
+
+        if (flexWanted <= flexAvail) {
+            // Leftover → Summary, then Turn-in (names / destinations benefit most).
+            int leftover = flexAvail - flexWanted;
+            int toSummary = (leftover * 2) / 3;
+            summary.setPreferredWidth(summary.getPreferredWidth() + toSummary);
+            turnIn.setPreferredWidth(turnIn.getPreferredWidth() + (leftover - toSummary));
             return;
         }
-        int overflow = total - avail;
-        int[] flexible = {
-                MissionsTableModel.COL_SUMMARY,
-                MissionsTableModel.COL_OBJECTIVE,
-                MissionsTableModel.COL_TURNIN
-        };
-        int flexTotal = 0;
-        for (int c : flexible) {
-            if (c < cols) {
-                flexTotal += cm.getColumn(c).getPreferredWidth();
-            }
+
+        // Shrink Summary first (long mission titles; tooltip covers full text), then Objective, then Turn-in.
+        int overflow = flexWanted - flexAvail;
+        overflow = shrinkMissionsColumn(summary, minSummary, overflow);
+        overflow = shrinkMissionsColumn(objective, minObjective, overflow);
+        shrinkMissionsColumn(turnIn, minTurnIn, overflow);
+
+        // Last resort: proportional scale of flexible columns only.
+        int flexNow = summary.getPreferredWidth() + objective.getPreferredWidth() + turnIn.getPreferredWidth();
+        if (flexNow > flexAvail && flexNow > 0) {
+            double scale = flexAvail / (double) flexNow;
+            summary.setPreferredWidth(Math.max(minSummary, (int) Math.floor(summary.getPreferredWidth() * scale)));
+            objective.setPreferredWidth(Math.max(minObjective, (int) Math.floor(objective.getPreferredWidth() * scale)));
+            turnIn.setPreferredWidth(Math.max(minTurnIn, (int) Math.floor(turnIn.getPreferredWidth() * scale)));
         }
-        if (flexTotal <= 0) {
-            return;
+    }
+
+    private static int columnPreferred(TableColumnModel cm, int index) {
+        return cm.getColumn(index).getPreferredWidth();
+    }
+
+    private static void clampMissionsColumn(TableColumn col, int min, int max) {
+        int w = Math.max(min, Math.min(max, col.getPreferredWidth()));
+        col.setMinWidth(min);
+        col.setMaxWidth(max);
+        col.setPreferredWidth(w);
+    }
+
+    /** @return remaining overflow after shrinking */
+    private static int shrinkMissionsColumn(TableColumn col, int minWidth, int overflow) {
+        if (overflow <= 0) {
+            return 0;
         }
-        int minFlex = 52;
-        for (int c : flexible) {
-            if (c >= cols) {
-                continue;
-            }
-            var col = cm.getColumn(c);
-            int pref = col.getPreferredWidth();
-            int shrink = (int) Math.round(overflow * (pref / (double) flexTotal));
-            col.setPreferredWidth(Math.max(minFlex, pref - shrink));
-        }
-        // If still over (rare: many narrow mins), scale every column.
-        total = 0;
-        for (int i = 0; i < cols; i++) {
-            total += cm.getColumn(i).getPreferredWidth();
-        }
-        if (total > avail) {
-            double scale = avail / (double) total;
-            for (int i = 0; i < cols; i++) {
-                var col = cm.getColumn(i);
-                col.setPreferredWidth(Math.max(40, (int) Math.floor(col.getPreferredWidth() * scale)));
-            }
-        }
+        int pref = col.getPreferredWidth();
+        int canShrink = Math.max(0, pref - minWidth);
+        int shrink = Math.min(canShrink, overflow);
+        col.setPreferredWidth(pref - shrink);
+        return overflow - shrink;
     }
 
     private List<MissionRecord> filterActive(List<MissionRecord> all) {
@@ -590,18 +651,20 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private boolean matchesFilter(MissionRecord r) {
+        if (r == null || !r.getCategory().isTransport()) {
+            return false;
+        }
         return switch (filter) {
             case ALL -> true;
-            case COMMODITY -> r.getCategory() == MissionCategory.COMMODITY;
-            case COMBAT -> r.getCategory() == MissionCategory.COMBAT;
-            case OTHER -> r.getCategory() != MissionCategory.COMMODITY
-                    && r.getCategory() != MissionCategory.COMBAT;
+            case CARGO -> r.getCategory() == MissionCategory.COMMODITY;
+            case COURIER -> r.getCategory() == MissionCategory.COURIER;
+            case PASSENGER -> r.getCategory() == MissionCategory.PASSENGER;
         };
     }
 
     private void rebuildCommodityGroups() {
         commodityGroupsPanel.removeAll();
-        if (filter != Filter.ALL && filter != Filter.COMMODITY) {
+        if (filter != Filter.ALL && filter != Filter.CARGO) {
             commodityGroupsPanel.setVisible(false);
             return;
         }
@@ -739,7 +802,12 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void updateRedirectBanner() {
-        List<MissionRecord> redirected = tracker.getRedirectedNotDismissed();
+        List<MissionRecord> redirected = new ArrayList<>();
+        for (MissionRecord r : tracker.getRedirectedNotDismissed()) {
+            if (r != null && r.getCategory().isTransport()) {
+                redirected.add(r);
+            }
+        }
         if (redirected.isEmpty()) {
             redirectBanner.setVisible(false);
             return;
@@ -783,14 +851,35 @@ public class MissionsTabPanel extends JPanel {
         return current != null && current.equalsIgnoreCase(missionStation.trim());
     }
 
+    /**
+     * Chooses Places clipboard text: upper half prefers From, lower half prefers To.
+     * When From is hidden (courier), always To.
+     */
+    static String selectPlacesCopyLine(String from, String to, boolean showsFrom, boolean preferFrom) {
+        boolean toOk = to != null && !to.isBlank() && !"—".equals(to.trim());
+        boolean fromOk = from != null && !from.isBlank() && !"—".equals(from.trim());
+        if (!showsFrom) {
+            return toOk ? to : "";
+        }
+        if (preferFrom) {
+            if (fromOk) {
+                return from;
+            }
+            return toOk ? to : "";
+        }
+        if (toOk) {
+            return to;
+        }
+        return fromOk ? from : "";
+    }
+
     private final class MissionRow {
         final MissionRecord record;
         final MissionCategory category;
         final String summary;
         final MissionDestination objective;
+        final MissionDestination origin;
         final MissionDestination turnIn;
-        final DistanceDisplay distance;
-        final ExpiryDisplay expiry;
         final boolean ready;
         final boolean expiring;
         final boolean urgent;
@@ -801,169 +890,35 @@ public class MissionsTabPanel extends JPanel {
             category = r.getCategory();
             summary = r.shortSummaryLine();
             objective = MissionDestinationResolver.objectiveFor(r);
+            origin = MissionDestinationResolver.originFor(r);
             turnIn = MissionDestinationResolver.turnInFor(r);
-            distance = distanceFor(r, turnIn);
-            expiry = ExpiryDisplay.from(r);
             ready = isRowReady(r);
             expiring = MissionTracker.isExpiringSoon(r);
             urgent = MissionTracker.isUrgent(r);
             redirected = r.isRedirected();
         }
-    }
 
-    private DistanceDisplay distanceFor(MissionRecord r, MissionDestination turnIn) {
-        String destSystem = turnIn != null ? turnIn.getSystem() : null;
-        if (destSystem == null || destSystem.isBlank()) {
-            destSystem = r != null ? r.getDestinationSystem() : null;
-        }
-        if (destSystem == null || destSystem.isBlank()) {
-            return DistanceDisplay.unknown();
-        }
-        String current = currentSystemSupplier != null ? currentSystemSupplier.get() : null;
-        if (current != null && current.equalsIgnoreCase(destSystem.trim())) {
-            return DistanceDisplay.of(0.0);
-        }
-        double[] from = resolveCurrentStarPos(current);
-        double[] to = resolveSystemCoords(destSystem.trim());
-        if (from == null || to == null) {
-            return DistanceDisplay.unknown();
-        }
-        return DistanceDisplay.of(distanceLy(from, to));
-    }
-
-    private double[] resolveCurrentStarPos(String currentSystemName) {
-        if (currentStarPosSupplier != null) {
-            double[] pos = currentStarPosSupplier.get();
-            if (isValidStarPos(pos)) {
-                return pos;
+        String placesTooltip() {
+            String to = turnIn != null && !turnIn.isEmpty() ? turnIn.displayLine() : "—";
+            if (!showsFromPlace()) {
+                return "To: " + to;
             }
+            String from = origin != null && !origin.isEmpty() ? origin.displayLine() : "—";
+            return "From: " + from + "\nTo: " + to;
         }
-        if (currentSystemName != null && !currentSystemName.isBlank()) {
-            return resolveSystemCoords(currentSystemName.trim());
-        }
-        return null;
-    }
 
-    private double[] resolveSystemCoords(String systemName) {
-        if (systemName == null || systemName.isBlank()) {
-            return null;
+        /** Courier data is already aboard at accept — From is not useful. */
+        boolean showsFromPlace() {
+            return category != MissionCategory.COURIER;
         }
-        double[] cached = resolvedCoordsCache.get(systemName);
-        if (isValidStarPos(cached)) {
-            return cached;
-        }
-        try {
-            CachedSystem cs = SystemCache.getInstance().get(0L, systemName);
-            if (cs != null && isValidStarPos(cs.starPos)) {
-                double[] copy = cs.starPos.clone();
-                resolvedCoordsCache.put(systemName, copy);
-                return copy;
+
+        String placesSortKey() {
+            String to = turnIn != null ? turnIn.displayLine() : "";
+            if (!showsFromPlace()) {
+                return to;
             }
-        } catch (Exception ignored) {
-        }
-        scheduleCoordsFetch(systemName);
-        return null;
-    }
-
-    private void scheduleCoordsFetch(String systemName) {
-        if (systemName == null || systemName.isBlank()) {
-            return;
-        }
-        if (!coordsFetchInProgress.add(systemName)) {
-            return;
-        }
-        Thread t = new Thread(() -> {
-            try {
-                SystemResponse sys = edsmClient.getSystem(systemName);
-                if (sys != null && sys.coords != null) {
-                    double[] coords = new double[] { sys.coords.x, sys.coords.y, sys.coords.z };
-                    resolvedCoordsCache.put(systemName, coords);
-                    SwingUtilities.invokeLater(this::refreshUi);
-                }
-            } catch (Exception ignored) {
-            } finally {
-                coordsFetchInProgress.remove(systemName);
-            }
-        }, "MissionDistCoords-" + systemName);
-        t.setDaemon(true);
-        t.start();
-    }
-
-    private static boolean isValidStarPos(double[] pos) {
-        return pos != null && pos.length >= 3
-                && Double.isFinite(pos[0]) && Double.isFinite(pos[1]) && Double.isFinite(pos[2]);
-    }
-
-    private static double distanceLy(double[] from, double[] to) {
-        double dx = to[0] - from[0];
-        double dy = to[1] - from[1];
-        double dz = to[2] - from[2];
-        return Math.sqrt(dx * dx + dy * dy + dz * dz);
-    }
-
-    /** Formatted Ly distance that sorts numerically (unknown last). */
-    private static final class DistanceDisplay implements Comparable<DistanceDisplay> {
-        final String label;
-        final double ly;
-
-        DistanceDisplay(String label, double ly) {
-            this.label = label != null ? label : "—";
-            this.ly = ly;
-        }
-
-        static DistanceDisplay of(double ly) {
-            if (!Double.isFinite(ly)) {
-                return unknown();
-            }
-            return new DistanceDisplay(String.format(Locale.US, "%.2f Ly", ly), ly);
-        }
-
-        static DistanceDisplay unknown() {
-            return new DistanceDisplay("—", Double.POSITIVE_INFINITY);
-        }
-
-        @Override
-        public int compareTo(DistanceDisplay o) {
-            return Double.compare(ly, o.ly);
-        }
-
-        @Override
-        public String toString() {
-            return label;
-        }
-    }
-
-    /** Formatted expiry label that sorts by remaining seconds. */
-    private static final class ExpiryDisplay implements Comparable<ExpiryDisplay> {
-        final String label;
-        final long remainingSec;
-
-        ExpiryDisplay(String label, long remainingSec) {
-            this.label = label != null ? label : "—";
-            this.remainingSec = remainingSec;
-        }
-
-        static ExpiryDisplay from(MissionRecord r) {
-            String label = MissionTracker.formatExpiryRemaining(r);
-            java.time.Instant exp = MissionTracker.expiryInstant(r);
-            if (exp == null) {
-                return new ExpiryDisplay(label, Long.MAX_VALUE);
-            }
-            long sec = exp.getEpochSecond() - java.time.Instant.now().getEpochSecond();
-            if (sec <= 0) {
-                return new ExpiryDisplay(label, -1L);
-            }
-            return new ExpiryDisplay(label, sec);
-        }
-
-        @Override
-        public int compareTo(ExpiryDisplay o) {
-            return Long.compare(remainingSec, o.remainingSec);
-        }
-
-        @Override
-        public String toString() {
-            return label;
+            String from = origin != null ? origin.displayLine() : "";
+            return to + "\n" + from;
         }
     }
 
@@ -971,11 +926,9 @@ public class MissionsTabPanel extends JPanel {
         static final int COL_TYPE = 0;
         static final int COL_SUMMARY = 1;
         static final int COL_OBJECTIVE = 2;
-        static final int COL_TURNIN = 3;
-        static final int COL_DISTANCE = 4;
-        static final int COL_EXPIRY = 5;
+        static final int COL_PLACES = 3;
 
-        private final String[] columns = { "Type", "Summary", "Objective", "Turn-in", "Dist", "Exp" };
+        private final String[] columns = { "Type", "Summary", "Objective", "Places" };
         private List<MissionRow> rows = List.of();
 
         void setRows(List<MissionRow> rows) {
@@ -990,11 +943,14 @@ public class MissionsTabPanel extends JPanel {
             return rows.get(modelRow).objective.copyLine();
         }
 
-        String turnInCopyText(int modelRow) {
+        String placesCopyText(int modelRow, boolean preferFrom) {
             if (modelRow < 0 || modelRow >= rows.size()) {
                 return "";
             }
-            return rows.get(modelRow).turnIn.copyLine();
+            MissionRow r = rows.get(modelRow);
+            String to = r.turnIn != null ? r.turnIn.copyLine() : "";
+            String from = r.origin != null ? r.origin.copyLine() : "";
+            return selectPlacesCopyLine(from, to, r.showsFromPlace(), preferFrom);
         }
 
         @Override
@@ -1023,9 +979,7 @@ public class MissionsTabPanel extends JPanel {
                 case COL_TYPE -> r.category.displayLabel();
                 case COL_SUMMARY -> r.summary;
                 case COL_OBJECTIVE -> r.objective.displayLine();
-                case COL_TURNIN -> r.turnIn.displayLine();
-                case COL_DISTANCE -> r.distance;
-                case COL_EXPIRY -> r.expiry;
+                case COL_PLACES -> r.placesSortKey();
                 default -> "";
             };
         }
@@ -1044,33 +998,148 @@ public class MissionsTabPanel extends JPanel {
                 label.setOpaque(false);
                 label.setForeground(EdoUi.User.MAIN_TEXT);
                 label.setBackground(EdoUi.Internal.TRANSPARENT);
-                label.setBorder(new EmptyBorder(3, 4, 3, 4));
-                int modelCol = table.convertColumnIndexToModel(column);
-                label.setHorizontalAlignment(modelCol == MissionsTableModel.COL_DISTANCE
-                        || modelCol == MissionsTableModel.COL_EXPIRY
-                        ? SwingConstants.RIGHT
-                        : SwingConstants.LEFT);
+                label.setHorizontalAlignment(SwingConstants.LEFT);
+                label.setVerticalAlignment(SwingConstants.CENTER);
+                label.setBorder(missionRowCellBorder(table, row));
             }
-            Color bg = EdoUi.Internal.TRANSPARENT;
-            if (row >= 0 && row < tableModel.getRowCount()) {
-                MissionRow mr = tableModel.rowAt(table.convertRowIndexToModel(row));
+            applyMissionRowBackground(c, table, row);
+            return c;
+        }
+    }
+
+    /**
+     * Two-line From/To places cell with equal-width outlined badges so labels align.
+     */
+    private final class PlacesCellRenderer implements javax.swing.table.TableCellRenderer {
+        private final JPanel panel = new JPanel();
+        private final JLabel fromBadge = new JLabel("From", SwingConstants.CENTER);
+        private final JLabel toBadge = new JLabel("To", SwingConstants.CENTER);
+        private final JLabel fromText = new JLabel();
+        private final JLabel toText = new JLabel();
+        private int badgeWidthPx = -1;
+
+        PlacesCellRenderer() {
+            panel.setLayout(new java.awt.GridBagLayout());
+            panel.setOpaque(false);
+            fromText.setOpaque(false);
+            toText.setOpaque(false);
+            fromText.setForeground(EdoUi.User.MAIN_TEXT);
+            toText.setForeground(EdoUi.User.MAIN_TEXT);
+            styleBadge(fromBadge);
+            styleBadge(toBadge);
+            java.awt.GridBagConstraints gc = new java.awt.GridBagConstraints();
+            gc.insets = new java.awt.Insets(1, 2, 1, 4);
+            gc.anchor = java.awt.GridBagConstraints.WEST;
+            gc.gridx = 0;
+            gc.gridy = 0;
+            gc.fill = java.awt.GridBagConstraints.NONE;
+            panel.add(fromBadge, gc);
+            gc.gridx = 1;
+            gc.weightx = 1;
+            gc.fill = java.awt.GridBagConstraints.HORIZONTAL;
+            panel.add(fromText, gc);
+            gc.gridx = 0;
+            gc.gridy = 1;
+            gc.weightx = 0;
+            gc.fill = java.awt.GridBagConstraints.NONE;
+            panel.add(toBadge, gc);
+            gc.gridx = 1;
+            gc.weightx = 1;
+            gc.fill = java.awt.GridBagConstraints.HORIZONTAL;
+            panel.add(toText, gc);
+        }
+
+        private void styleBadge(JLabel badge) {
+            badge.setOpaque(false);
+            badge.setForeground(EdoUi.User.MAIN_TEXT);
+            badge.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(EdoUi.Internal.MAIN_TEXT_ALPHA_180, 1),
+                    new EmptyBorder(0, 4, 0, 4)));
+            badge.setHorizontalAlignment(SwingConstants.CENTER);
+        }
+
+        private void ensureEqualBadgeWidth(Font font) {
+            FontMetrics fm = panel.getFontMetrics(font != null ? font : OverlayPreferences.getUiFont());
+            int w = Math.max(fm.stringWidth("From"), fm.stringWidth("To")) + 12;
+            if (w == badgeWidthPx) {
+                return;
+            }
+            badgeWidthPx = w;
+            Dimension size = new Dimension(w, Math.max(16, fm.getHeight() + 2));
+            fromBadge.setPreferredSize(size);
+            fromBadge.setMinimumSize(size);
+            fromBadge.setMaximumSize(size);
+            toBadge.setPreferredSize(size);
+            toBadge.setMinimumSize(size);
+            toBadge.setMaximumSize(size);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            Font base = table != null ? table.getFont() : OverlayPreferences.getUiFont();
+            fromBadge.setFont(base.deriveFont(Font.BOLD, Math.max(9f, base.getSize2D() - 1f)));
+            toBadge.setFont(fromBadge.getFont());
+            fromText.setFont(base);
+            toText.setFont(base);
+            ensureEqualBadgeWidth(fromBadge.getFont());
+
+            String from = "—";
+            String to = "—";
+            boolean showFrom = true;
+            if (row >= 0 && table != null) {
+                int modelRow = table.convertRowIndexToModel(row);
+                MissionRow mr = tableModel.rowAt(modelRow);
                 if (mr != null) {
-                    if (mr.ready) {
-                        bg = new Color(40, 80, 50, 100);
-                    } else if (mr.urgent) {
-                        bg = new Color(120, 40, 40, 100);
-                    } else if (mr.expiring) {
-                        bg = EdoUi.ED_ORANGE_TRANS;
-                    } else if (mr.redirected) {
-                        bg = EdoUi.ED_ORANGE_LESS_TRANS;
+                    showFrom = mr.showsFromPlace();
+                    if (mr.origin != null && !mr.origin.isEmpty()) {
+                        from = mr.origin.displayLine();
+                    }
+                    if (mr.turnIn != null && !mr.turnIn.isEmpty()) {
+                        to = mr.turnIn.displayLine();
                     }
                 }
             }
-            c.setBackground(bg);
-            if (c instanceof JLabel label) {
-                label.setOpaque(bg.getAlpha() > 0);
+            fromBadge.setVisible(showFrom);
+            fromText.setVisible(showFrom);
+            fromText.setText(from);
+            toText.setText(to);
+            panel.setBorder(missionRowCellBorder(table, row));
+            applyMissionRowBackground(panel, table, row);
+            return panel;
+        }
+    }
+
+    /** Thin orange line between jobs (not after the last row). */
+    private static javax.swing.border.Border missionRowCellBorder(JTable table, int viewRow) {
+        EmptyBorder pad = new EmptyBorder(3, 4, 3, 4);
+        if (table != null && viewRow >= 0 && viewRow < table.getRowCount() - 1) {
+            return new CompoundBorder(new MatteBorder(0, 0, 1, 0, EdoUi.ED_ORANGE_TRANS), pad);
+        }
+        return pad;
+    }
+
+    private void applyMissionRowBackground(Component c, JTable table, int row) {
+        Color bg = EdoUi.Internal.TRANSPARENT;
+        if (row >= 0 && table != null && row < tableModel.getRowCount()) {
+            MissionRow mr = tableModel.rowAt(table.convertRowIndexToModel(row));
+            if (mr != null) {
+                if (mr.ready) {
+                    bg = new Color(40, 80, 50, 100);
+                } else if (mr.urgent) {
+                    bg = new Color(120, 40, 40, 100);
+                } else if (mr.expiring) {
+                    bg = EdoUi.ED_ORANGE_TRANS;
+                } else if (mr.redirected) {
+                    bg = EdoUi.ED_ORANGE_LESS_TRANS;
+                }
             }
-            return c;
+        }
+        c.setBackground(bg);
+        if (c instanceof JLabel label) {
+            label.setOpaque(bg.getAlpha() > 0);
+        } else if (c instanceof JPanel p) {
+            p.setOpaque(bg.getAlpha() > 0);
         }
     }
 
@@ -1086,11 +1155,7 @@ public class MissionsTabPanel extends JPanel {
             label.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.User.BACKGROUND);
             label.setForeground(EdoUi.Internal.tableHeaderForeground());
             label.setFont(label.getFont().deriveFont(Font.BOLD));
-            int modelCol = table != null ? table.convertColumnIndexToModel(column) : column;
-            label.setHorizontalAlignment(modelCol == MissionsTableModel.COL_DISTANCE
-                    || modelCol == MissionsTableModel.COL_EXPIRY
-                    ? SwingConstants.RIGHT
-                    : SwingConstants.LEFT);
+            label.setHorizontalAlignment(SwingConstants.LEFT);
             label.setBorder(transparent
                     ? new EmptyBorder(2, 4, 0, 4)
                     : new CompoundBorder(

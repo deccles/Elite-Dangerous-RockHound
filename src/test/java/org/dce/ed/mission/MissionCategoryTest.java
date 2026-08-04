@@ -41,6 +41,16 @@ class MissionCategoryTest {
         assertEquals(MissionCategory.UNKNOWN, MissionCategory.fromMissionName(null));
     }
 
+    @Test
+    void isTransport_includesCargoCourierPassengerOnly() {
+        assertTrue(MissionCategory.COMMODITY.isTransport());
+        assertTrue(MissionCategory.COURIER.isTransport());
+        assertTrue(MissionCategory.PASSENGER.isTransport());
+        assertTrue(!MissionCategory.COMBAT.isTransport());
+        assertTrue(!MissionCategory.DONATION.isTransport());
+        assertTrue(!MissionCategory.UNKNOWN.isTransport());
+    }
+
     /** A bare {@code Mission_Mining} must reach the commodity summary panel, which gates on this flag. */
     @Test
     void suffixlessMiningMissionCountsAsCommodityMission() {

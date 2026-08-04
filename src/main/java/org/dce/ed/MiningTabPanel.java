@@ -124,6 +124,8 @@ import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.SelectiveHitSupport;
+import org.dce.ed.exec.ExecTabButtonStrip;
+import org.dce.ed.ui.tabdock.OverlayTabId;
 import org.dce.ed.ui.SubtleScrollBarUI;
 import org.dce.ed.ui.TableHeaderSortSupport;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
@@ -217,6 +219,7 @@ public class MiningTabPanel extends JPanel {
 	private static final int SPREADSHEET_REFRESH_AFTER_WRITE_DEBOUNCE_MS = 1_500;
 	private final Timer spreadsheetRefreshAfterWriteDebounceTimer;
 	private final JSplitPane miningOuterSplit;
+	private ExecTabButtonStrip execButtonStrip;
 	private final JSplitPane miningInnerSplit;
 	private SystemTableHoverCopyManager miningSystemCopyManager;
 
@@ -1164,6 +1167,8 @@ private final JLayer<JTable> cargoLayer;
 		centerPanel.add(miningOuterSplit, BorderLayout.CENTER);
 
 		add(centerPanel, BorderLayout.CENTER);
+		execButtonStrip = new ExecTabButtonStrip(OverlayTabId.MINING, OverlayPreferences::isOverlayFullMousePassThrough);
+		add(execButtonStrip, BorderLayout.SOUTH);
 
 		SwingUtilities.invokeLater(() -> {
 			miningOuterSplit.setResizeWeight(outerRatio);
@@ -1658,13 +1663,16 @@ return EdoUi.User.MAIN_TEXT;
 				-1,
 				MiningMissionsTableModel.COL_TURNIN,
 				row -> "",
-				row -> missionsModel.turnInCopyText(row),
+				(row, preferFrom) -> missionsModel.turnInCopyText(row),
 				passThroughEnabledSupplier != null ? passThroughEnabledSupplier : () -> false);
 		refreshMiningMissionsTable();
 	}
 
 	/** Selective mouse mode: log/source controls, missions sort/turn-in, scatter controls. */
 	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+		if (execButtonStrip != null && execButtonStrip.isPointerOverActionButton(screenPoint)) {
+			return true;
+		}
 		if (SelectiveHitSupport.containsScreenPoint(prospectorLogTableViewBtn, screenPoint)
 				|| SelectiveHitSupport.containsScreenPoint(prospectorLogScatterViewBtn, screenPoint)) {
 			return true;
@@ -1681,6 +1689,12 @@ return EdoUi.User.MAIN_TEXT;
 			return true;
 		}
 		return spreadsheetScatterWrapper != null && spreadsheetScatterWrapper.isPointerOverControls(screenPoint);
+	}
+
+	public void setExecTriggerService(org.dce.ed.exec.ExecTriggerService service) {
+		if (execButtonStrip != null) {
+			execButtonStrip.setExecTriggerService(service);
+		}
 	}
 
 	public void refreshMiningMissionsTable() {

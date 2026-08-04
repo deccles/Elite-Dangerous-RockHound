@@ -503,7 +503,8 @@ public final class RouteSession {
     }
 
     public RouteDisplaySnapshot buildDisplaySnapshot(Consumer<List<RouteEntry>> afterDeepCopyBeforeSynthetics,
-            RouteCoordsResolver coordsResolver) {
+            RouteCoordsResolver coordsResolver,
+            boolean customRouteActive) {
         displayRevision++;
         List<RouteEntry> rows = RouteLayoutEngine.buildDisplayedEntries(
                 baseRouteEntries,
@@ -515,6 +516,7 @@ public final class RouteSession {
                 pendingJumpLockedName,
                 pendingJumpLockedAddress,
                 coordsResolver,
+                customRouteActive,
                 jumpFlash.isTimerRunning());
         return new RouteDisplaySnapshot(displayRevision, rows);
     }

@@ -76,6 +76,9 @@ import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.exec.ExecTabButtonStrip;
+import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.ui.tabdock.OverlayTabId;
 import org.dce.ed.ui.SelectiveHitSupport;
 
 public class BiologyTabPanel extends JPanel {
@@ -112,6 +115,7 @@ public class BiologyTabPanel extends JPanel {
     private final BioMapPanel mapPanel = new BioMapPanel();
 
     private final JSplitPane tableMapSplit;
+    private ExecTabButtonStrip execButtonStrip;
 
     private static final int REQUIRED_SAMPLES = 3;
 
@@ -280,7 +284,15 @@ private Double lastFootTravelUpDeg;
         });
 
         add(tableMapSplit, BorderLayout.CENTER);
+        execButtonStrip = new ExecTabButtonStrip(OverlayTabId.BIOLOGY, OverlayPreferences::isOverlayFullMousePassThrough);
+        add(execButtonStrip, BorderLayout.SOUTH);
         setPreferredSize(new Dimension(560, 320));
+    }
+
+    public void setExecTriggerService(ExecTriggerService service) {
+        if (execButtonStrip != null) {
+            execButtonStrip.setExecTriggerService(service);
+        }
     }
 
     private static void configureBioTableMapSplit(JSplitPane split, double resizeWeight) {
@@ -426,6 +438,9 @@ private Double lastFootTravelUpDeg;
      * favorite, wheel). Tiny control-only hits left pan dead under {@code WS_EX_TRANSPARENT}.
      */
     public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+        if (execButtonStrip != null && execButtonStrip.isPointerOverActionButton(screenPoint)) {
+            return true;
+        }
         return SelectiveHitSupport.containsScreenPoint(mapPanel, screenPoint);
     }
 

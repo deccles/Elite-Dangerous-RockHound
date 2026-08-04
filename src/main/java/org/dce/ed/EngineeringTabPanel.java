@@ -104,6 +104,8 @@ import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
 import org.dce.ed.ui.SelectiveHitSupport;
+import org.dce.ed.exec.ExecTabButtonStrip;
+import org.dce.ed.ui.tabdock.OverlayTabId;
 import org.dce.ed.ui.PassThroughScrollSupport;
 import org.dce.ed.ui.OverlayCheckBoxStyle;
 import org.dce.ed.ui.WrapLayout;
@@ -213,6 +215,7 @@ public class EngineeringTabPanel extends JPanel {
     private static final int TRADE_SECTION_GAP_PX = 8;
 
     private final BooleanSupplier passThroughEnabledSupplier;
+    private ExecTabButtonStrip execButtonStrip;
 
     private final EngineeringDatabase database = EngineeringDatabase.getInstance();
     private final EngineeringInventoryTracker inventoryTracker = new EngineeringInventoryTracker();
@@ -515,6 +518,8 @@ public class EngineeringTabPanel extends JPanel {
         });
 
         add(mainSplit, BorderLayout.CENTER);
+        execButtonStrip = new ExecTabButtonStrip(OverlayTabId.ENGINEERING, passThroughEnabledSupplier);
+        add(execButtonStrip, BorderLayout.SOUTH);
 
         SwingUtilities.invokeLater(() -> {
             stripAllEngineeringScrollChrome();
@@ -528,6 +533,12 @@ public class EngineeringTabPanel extends JPanel {
         reputationTracker.setChangeCallback(this::scheduleRefresh);
         installEngineeringTableLayoutListeners();
         refreshUi();
+    }
+
+    public void setExecTriggerService(org.dce.ed.exec.ExecTriggerService service) {
+        if (execButtonStrip != null) {
+            execButtonStrip.setExecTriggerService(service);
+        }
     }
 
     private JPanel buildGoalsPanel(Font base, int fontSize) {
@@ -1888,6 +1899,9 @@ public class EngineeringTabPanel extends JPanel {
      * only its scrollbar (when present) accepts real clicks.
      */
     public boolean isPointerOverInteractiveRegion(Point screenPoint) {
+        if (execButtonStrip != null && execButtonStrip.isPointerOverActionButton(screenPoint)) {
+            return true;
+        }
         if (SelectiveHitSupport.containsScreenPoint(goalsPanel, screenPoint)) {
             return true;
         }

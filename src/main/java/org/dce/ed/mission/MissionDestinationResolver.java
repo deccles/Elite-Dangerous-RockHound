@@ -13,25 +13,47 @@ public final class MissionDestinationResolver {
             return empty();
         }
         return switch (r.getCategory()) {
-            case COMMODITY -> {
-                String commodity = r.getCommodityLocalised();
-                if (commodity == null || commodity.isBlank()) {
-                    yield new MissionDestination(null, null, null);
-                }
-                int count = r.getCountRequired() > 0 ? r.getCountRequired() : r.getTotalItemsToDeliver();
-                String label = count > 0
-                        ? count + " " + commodity
-                        : commodity;
-                yield new MissionDestination(null, null, label);
-            }
+            case COMMODITY -> commodityObjective(r);
             case DONATION -> {
                 long d = r.getDonation();
                 yield new MissionDestination(null, null,
                         d > 0 ? "Donate " + formatCredits(d) : "Donate credits");
             }
             case COMBAT -> combatObjective(r);
-            case COURIER, PASSENGER, UNKNOWN -> turnInFromRecord(r);
+            // Objective = what to do; Turn-in holds system/station. Never put destination here.
+            case COURIER -> courierObjective(r);
+            case PASSENGER -> labelObjective("Passengers on board");
+            case UNKNOWN -> labelObjective("Complete mission");
         };
+    }
+
+    /** Cargo / mining / delivery: {@code 36 Bromellite}. */
+    private static MissionDestination commodityObjective(MissionRecord r) {
+        String commodity = r.getCommodityLocalised();
+        if (commodity == null || commodity.isBlank()) {
+            return new MissionDestination(null, null, null);
+        }
+        int count = r.getCountRequired() > 0 ? r.getCountRequired() : r.getTotalItemsToDeliver();
+        String label = count > 0
+                ? count + " " + commodity
+                : commodity;
+        return new MissionDestination(null, null, label);
+    }
+
+    /**
+     * Courier jobs deliver data packages. Prefer journal commodity/count when present
+     * (often {@code 1 Data}); otherwise a stable status label.
+     */
+    private static MissionDestination courierObjective(MissionRecord r) {
+        String commodity = r.getCommodityLocalised();
+        if (commodity != null && !commodity.isBlank()) {
+            return commodityObjective(r);
+        }
+        return labelObjective("Data on board");
+    }
+
+    private static MissionDestination labelObjective(String label) {
+        return new MissionDestination(null, null, label);
     }
 
     public static MissionDestination turnInFor(MissionRecord r) {
@@ -49,6 +71,14 @@ public final class MissionDestinationResolver {
             return dest;
         }
         return new MissionDestination(null, null, "Claim at destination");
+    }
+
+    /** Accept / pickup location for Transport From row. */
+    public static MissionDestination originFor(MissionRecord r) {
+        if (r == null) {
+            return empty();
+        }
+        return new MissionDestination(r.getOriginSystem(), r.getOriginStation(), null);
     }
 
     /**
@@ -79,7 +109,7 @@ public final class MissionDestinationResolver {
         if (faction != null) {
             return new MissionDestination(null, null, faction);
         }
-        return turnInFromRecord(r);
+        return labelObjective("Complete objective");
     }
 
     /** Plural noun for massacre progress, e.g. {@code pirates}. */

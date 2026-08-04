@@ -49,4 +49,9 @@ public enum MissionCategory {
             case UNKNOWN -> "Other";
         };
     }
+
+    /** Trucking-style jobs shown on the Transport tab (not combat / donate / unknown). */
+    public boolean isTransport() {
+        return this == COMMODITY || this == COURIER || this == PASSENGER;
+    }
 }

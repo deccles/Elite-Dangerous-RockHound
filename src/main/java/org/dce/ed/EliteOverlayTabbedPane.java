@@ -200,7 +200,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		systemButton = createTabButton("System");
 		biologyButton = createTabButton("ExoBio");
 		miningButton = createTabButton("Mining");
-		missionsButton = createTabButton("Missions");
+		missionsButton = createTabButton("Transport");
 		combatButton = createTabButton("Combat");
 		nearbyButton = null;
 		fleetCarrierButton = createTabButton("Fleet Carrier");
@@ -301,11 +301,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 					}
 					return lastKnownSystemName;
 				},
-				() -> lastKnownStationName,
-				() -> {
-					var state = systemTab.getState();
-					return state != null ? state.getStarPos() : null;
-				});
+				() -> lastKnownStationName);
 		miningTab.setMissionTracker(missionsTab.getTracker(), hoverSwitchEnabled);
 		this.combatTab = new CombatTabPanel(hoverSwitchEnabled);
 		this.combatTab.setMissionTracker(missionsTab.getTracker());
@@ -430,7 +426,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 		add(cardPanel, BorderLayout.CENTER);
 
-		// Drag & drop Spansh fleet-carrier JSON/CSV import (drop anywhere on the overlay).
+		// Drag & drop: EDO script install (edo metadata) or Spansh fleet-carrier JSON/CSV.
 		// Mouse pass-through mode typically prevents receiving drag events, so we decline drops there.
 		TransferHandler fcDropHandler = new TransferHandler() {
 			private static final long serialVersionUID = 1L;
@@ -482,10 +478,26 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 					final Path droppedFinal = dropped;
 					SwingUtilities.invokeLater(() -> {
+						if (org.dce.ed.exec.EdoScriptInstaller.hasEdoMetadata(droppedFinal)) {
+							if (execTriggerService == null) {
+								org.dce.ed.ui.SystemTableHoverCopyManager.showToast(
+										EliteOverlayTabbedPane.this, "Exec service not ready.");
+								return;
+							}
+							org.dce.ed.exec.EdoScriptInstaller.installDroppedFile(
+									EliteOverlayTabbedPane.this, droppedFinal, execTriggerService);
+							return;
+						}
+						String lower = droppedFinal.getFileName().toString().toLowerCase(Locale.US);
 						if (OverlayPreferences.isAutoSwitchFleetCarrierOnJsonDrop()) {
 							selectTab(CARD_FLEET_CARRIER, fleetCarrierButton);
 						}
-						fleetCarrierTab.importSpanshFleetCarrierRouteFile(droppedFinal);
+						boolean ok = fleetCarrierTab.importSpanshFleetCarrierRouteFile(droppedFinal);
+						if (!ok && lower.endsWith(".json")) {
+							org.dce.ed.ui.SystemTableHoverCopyManager.showToast(
+									EliteOverlayTabbedPane.this,
+									"No EDO metadata (edo block) in dropped JSON.");
+						}
 					});
 
 					return true;
@@ -576,10 +588,23 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 		if (event instanceof LocationEvent le) {
 			lastKnownSystemName = le.getStarSystem();
+			JsonObject locRaw = event.getRawJson();
+			if (le.isDocked()) {
+				if (locRaw != null && locRaw.has("StationName") && !locRaw.get("StationName").isJsonNull()) {
+					String stn = locRaw.get("StationName").getAsString();
+					if (stn != null && !stn.isBlank()) {
+						lastKnownStationName = stn.trim();
+					}
+				}
+			} else {
+				lastKnownStationName = null;
+			}
 		} else if (event instanceof FsdJumpEvent jump) {
 			lastKnownSystemName = jump.getStarSystem();
+			lastKnownStationName = null;
 		} else if (event instanceof CarrierJumpEvent cj) {
 			lastKnownSystemName = cj.getStarSystem();
+			lastKnownStationName = null;
 		} else if (event instanceof org.dce.ed.logreader.event.SupercruiseExitEvent sc) {
 			lastKnownSystemName = sc.getStarSystem();
 		}
@@ -796,6 +821,24 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		}
 		if (controlPanelTab != null) {
 			controlPanelTab.setExecTriggerService(service);
+		}
+		if (systemTab != null) {
+			systemTab.setExecTriggerService(service);
+		}
+		if (biologyTab != null) {
+			biologyTab.setExecTriggerService(service);
+		}
+		if (miningTab != null) {
+			miningTab.setExecTriggerService(service);
+		}
+		if (missionsTab != null) {
+			missionsTab.setExecTriggerService(service);
+		}
+		if (combatTab != null) {
+			combatTab.setExecTriggerService(service);
+		}
+		if (engineeringTab != null) {
+			engineeringTab.setExecTriggerService(service);
 		}
 	}
 
@@ -1904,7 +1947,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 	/**
 	 * Cycles to the next visible tab on the main overlay strip (skips preference-hidden and floated tabs).
-	 * Order: Route → System → ExoBio → Mining → Missions → Fleet Carrier → Control Panel.
+	 * Order: Route → System → ExoBio → Mining → Transport → Fleet Carrier → Control Panel.
 	 */
 	public void selectNextVisibleTab() {
 		JButton[] buttons = { routeButton, systemButton, biologyButton, miningButton, missionsButton,
