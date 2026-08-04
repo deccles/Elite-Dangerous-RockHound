@@ -36,6 +36,7 @@ import org.dce.ed.logreader.event.ScanBaryCentreEvent;
 import org.dce.ed.logreader.event.ScanEvent;
 import org.dce.ed.logreader.event.ScanOrganicEvent;
 import org.dce.ed.logreader.event.StatusEvent;
+import org.dce.ed.logreader.event.SupercruiseExitEvent;
 import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.RingGeometryUtil;
@@ -143,15 +144,31 @@ public class SystemEventProcessor {
             fleetCarrierPresence.onDocked(obj);
             syncCommanderAboardFleetCarrier();
             if (obj != null) {
-                int bodyId = obj.has("BodyID") && !obj.get("BodyID").isJsonNull()
-                        ? obj.get("BodyID").getAsInt()
-                        : -1;
+                // Docked carries StarSystem/SystemAddress. If FSDJump was missed by the live
+                // monitor, this still recovers SystemState (Gliese/Core loop 2026-08-04).
+                String dockedSystem = obj.has("StarSystem") && !obj.get("StarSystem").isJsonNull()
+                        ? obj.get("StarSystem").getAsString()
+                        : null;
                 long systemAddress = obj.has("SystemAddress") && !obj.get("SystemAddress").isJsonNull()
                         ? obj.get("SystemAddress").getAsLong()
                         : state.getSystemAddress();
+                if (dockedSystem != null && !dockedSystem.isBlank()) {
+                    enterSystem(dockedSystem, systemAddress, state.getStarPos());
+                }
+                int bodyId = obj.has("BodyID") && !obj.get("BodyID").isJsonNull()
+                        ? obj.get("BodyID").getAsInt()
+                        : -1;
                 if (bodyId > 0) {
                     assignCarrierParkedOrbit(bodyId, systemAddress);
                 }
+            }
+            return;
+        }
+
+        if (event instanceof SupercruiseExitEvent sc) {
+            // Same recovery path as Docked: Elite always includes StarSystem here.
+            if (sc.getStarSystem() != null && !sc.getStarSystem().isBlank()) {
+                enterSystem(sc.getStarSystem(), sc.getSystemAddress(), state.getStarPos());
             }
             return;
         }

@@ -51,7 +51,10 @@ public final class RouteLayoutEngine {
         if (entries == null || targetSystemName == null || targetSystemName.isBlank()) {
             return;
         }
-        if (RouteGeometry.findSystemRow(entries, targetSystemName, targetSystemAddress) >= 0) {
+        // Only treat as "already on route" when the target appears at/after CURRENT; an earlier
+        // loop duplicate must not suppress the synthetic / forward TARGET marker.
+        if (RouteGeometry.findSystemRowFrom(
+                entries, targetSystemName, targetSystemAddress, currentBaseIndex) >= 0) {
             return;
         }
         Double[] coords = coordsResolver.resolve(targetSystemName, targetSystemAddress, null);

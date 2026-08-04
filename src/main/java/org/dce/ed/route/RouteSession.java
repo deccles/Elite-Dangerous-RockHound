@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import org.dce.ed.logreader.CarrierJumpCooldown;
+import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
@@ -13,6 +14,9 @@ import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.StatusEvent;
+import org.dce.ed.logreader.event.SupercruiseExitEvent;
+
+import com.google.gson.JsonObject;
 
 /**
  * Single owner of route navigation state and base plotted list (no Swing).
@@ -152,10 +156,20 @@ public final class RouteSession {
             return;
         }
         clampCurrentBaseIndex();
-        if (RouteGeometry.rowMatchesSystem(baseRouteEntries.get(currentBaseIndex), name, systemAddress)) {
+        RouteEntry atCursor = baseRouteEntries.get(currentBaseIndex);
+        boolean alreadyMatch = RouteGeometry.rowMatchesSystem(atCursor, name, systemAddress);
+        if (alreadyMatch) {
             return;
         }
-        int found = RouteGeometry.findSystemRowFrom(baseRouteEntries, name, systemAddress, currentBaseIndex);
+        // Prefer strictly after the cursor so a false address/name hit on the current hop
+        // cannot keep us stuck when the real arrival is the next loop visit.
+        int foundAfter = RouteGeometry.findSystemRowFrom(
+                baseRouteEntries, name, systemAddress, currentBaseIndex + 1);
+        int found = foundAfter;
+        if (found < 0) {
+            found = RouteGeometry.findSystemRowFrom(
+                    baseRouteEntries, name, systemAddress, currentBaseIndex);
+        }
         if (found >= 0) {
             currentBaseIndex = found;
         }
@@ -426,6 +440,33 @@ public final class RouteSession {
             inHyperspace = false;
             syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
             return new RouteJournalApplyOutcome(false, true);
+        }
+        if (event instanceof SupercruiseExitEvent sc) {
+            if (sc.getStarSystem() != null && !sc.getStarSystem().isBlank()) {
+                applyKnownCurrentSystem(sc.getStarSystem(), sc.getSystemAddress(), null);
+                clearPendingJumpState();
+                inHyperspace = false;
+                syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
+                return new RouteJournalApplyOutcome(false, true);
+            }
+            return new RouteJournalApplyOutcome(false, false);
+        }
+        if (event.getType() == EliteEventType.DOCKED) {
+            JsonObject obj = event.getRawJson();
+            if (obj != null && obj.has("StarSystem") && !obj.get("StarSystem").isJsonNull()) {
+                String dockedSystem = obj.get("StarSystem").getAsString();
+                long addr = obj.has("SystemAddress") && !obj.get("SystemAddress").isJsonNull()
+                        ? obj.get("SystemAddress").getAsLong()
+                        : 0L;
+                if (dockedSystem != null && !dockedSystem.isBlank()) {
+                    applyKnownCurrentSystem(dockedSystem, addr, null);
+                    clearPendingJumpState();
+                    inHyperspace = false;
+                    syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
+                    return new RouteJournalApplyOutcome(false, true);
+                }
+            }
+            return new RouteJournalApplyOutcome(false, false);
         }
         if (event instanceof StatusEvent se) {
             return applyStatusEvent(se);

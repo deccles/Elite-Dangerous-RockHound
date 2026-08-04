@@ -56,6 +56,19 @@ public final class LiveJournalMonitor {
     private Double lastStatusHeading;
     private String lastStatusBodyName;
     private Double lastStatusPlanetRadius;
+    private Integer lastStatusBodyId;
+    private Long lastStatusDestSystem;
+    private Integer lastStatusDestBody;
+    private String lastStatusDestName;
+    private String lastStatusDestNameLocalised;
+    private double lastStatusFuelMain = Double.NaN;
+    private double lastStatusFuelReservoir = Double.NaN;
+    private double lastStatusCargo = Double.NaN;
+    private long lastStatusBalance = Long.MIN_VALUE;
+    private String lastStatusLegalState;
+    private int lastStatusFireGroup = Integer.MIN_VALUE;
+    private int lastStatusGuiFocus = Integer.MIN_VALUE;
+    private int[] lastStatusPips;
 
     private static Map<String,LiveJournalMonitor> INSTANCE = new HashMap<String,LiveJournalMonitor>();
 
@@ -331,7 +344,8 @@ public final class LiveJournalMonitor {
 
     /**
      * Poll Status.json in the journal directory.
-     * When Flags / Flags2 change, emit a StatusEvent into the normal pipeline.
+     * Emits a {@link StatusEvent} only when meaningful content changes — not when Elite
+     * merely rewrites the file with a new {@code timestamp}.
      */
     private void pollStatusFile() {
         if (statusFile == null || !Files.isRegularFile(statusFile)) {
@@ -345,7 +359,7 @@ public final class LiveJournalMonitor {
 
             JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
-            // timestamp
+            // timestamp (tracked for diagnostics; not a emit trigger by itself)
             Instant ts = null;
             JsonElement tsEl = root.get("timestamp");
             if (tsEl != null && !tsEl.isJsonNull()) {
@@ -492,7 +506,44 @@ public final class LiveJournalMonitor {
                 }
             }
 
-            // Build the StatusEvent using the extended constructor
+            boolean meaningfulChange = statusMeaningfulContentChanged(
+                    flags, flags2, pips, fireGroup, guiFocus,
+                    fuelMain, fuelReservoir, cargo, legalState, balance,
+                    latitude, longitude, altitude, heading, bodyName, planetRadius, statusBodyId,
+                    destSystem, destBody, destName, destNameLocalised,
+                    lastStatusFlags, lastStatusFlags2, lastStatusPips, lastStatusFireGroup, lastStatusGuiFocus,
+                    lastStatusFuelMain, lastStatusFuelReservoir, lastStatusCargo, lastStatusLegalState, lastStatusBalance,
+                    lastStatusLatitude, lastStatusLongitude, lastStatusAltitude, lastStatusHeading,
+                    lastStatusBodyName, lastStatusPlanetRadius, lastStatusBodyId,
+                    lastStatusDestSystem, lastStatusDestBody, lastStatusDestName, lastStatusDestNameLocalised);
+
+            lastStatusTimestamp = ts;
+            lastStatusFlags = flags;
+            lastStatusFlags2 = flags2;
+            lastStatusPips = pips.clone();
+            lastStatusFireGroup = fireGroup;
+            lastStatusGuiFocus = guiFocus;
+            lastStatusFuelMain = fuelMain;
+            lastStatusFuelReservoir = fuelReservoir;
+            lastStatusCargo = cargo;
+            lastStatusLegalState = legalState;
+            lastStatusBalance = balance;
+            lastStatusLatitude = latitude;
+            lastStatusLongitude = longitude;
+            lastStatusAltitude = altitude;
+            lastStatusHeading = heading;
+            lastStatusBodyName = bodyName;
+            lastStatusPlanetRadius = planetRadius;
+            lastStatusBodyId = statusBodyId;
+            lastStatusDestSystem = destSystem;
+            lastStatusDestBody = destBody;
+            lastStatusDestName = destName;
+            lastStatusDestNameLocalised = destNameLocalised;
+
+            if (!meaningfulChange) {
+                return;
+            }
+
             StatusEvent event =
                     new StatusEvent(
                             ts,
@@ -520,36 +571,61 @@ public final class LiveJournalMonitor {
                             bodyNamePhysical,
                             statusBodyId
                     );
-
-            // Emit Status updates promptly (not just Flags changes).
-            // For surface biology tracking we need high-frequency Lat/Lon updates.
-            boolean flagsChanged = (flags != lastStatusFlags) || (flags2 != lastStatusFlags2);
-            boolean tsChanged = !Objects.equals(ts, lastStatusTimestamp);
-            boolean positionChanged =
-                    !Objects.equals(latitude, lastStatusLatitude)
-                            || !Objects.equals(longitude, lastStatusLongitude)
-                            || !Objects.equals(altitude, lastStatusAltitude)
-                            || !Objects.equals(heading, lastStatusHeading)
-                            || !Objects.equals(bodyName, lastStatusBodyName)
-                            || !Objects.equals(planetRadius, lastStatusPlanetRadius);
-
-            if (flagsChanged || tsChanged || positionChanged) {
-                dispatch(event);
-            }
-
-            lastStatusTimestamp = ts;
-            lastStatusFlags = flags;
-            lastStatusFlags2 = flags2;
-            lastStatusLatitude = latitude;
-            lastStatusLongitude = longitude;
-            lastStatusAltitude = altitude;
-            lastStatusHeading = heading;
-            lastStatusBodyName = bodyName;
-            lastStatusPlanetRadius = planetRadius;
+            dispatch(event);
 
         } catch (IOException | JsonSyntaxException ex) {
             ex.printStackTrace();
         }
+    }
+
+    /**
+     * True when Status.json content differs in a way listeners care about.
+     * Timestamp-only rewrites from Elite must return false.
+     */
+    static boolean statusMeaningfulContentChanged(
+            int flags, int flags2, int[] pips, int fireGroup, int guiFocus,
+            double fuelMain, double fuelReservoir, double cargo, String legalState, long balance,
+            Double latitude, Double longitude, Double altitude, Double heading,
+            String bodyName, Double planetRadius, Integer statusBodyId,
+            Long destSystem, Integer destBody, String destName, String destNameLocalised,
+            int lastFlags, int lastFlags2, int[] lastPips, int lastFireGroup, int lastGuiFocus,
+            double lastFuelMain, double lastFuelReservoir, double lastCargo, String lastLegalState, long lastBalance,
+            Double lastLatitude, Double lastLongitude, Double lastAltitude, Double lastHeading,
+            String lastBodyName, Double lastPlanetRadius, Integer lastBodyId,
+            Long lastDestSystem, Integer lastDestBody, String lastDestName, String lastDestNameLocalised) {
+        if (flags != lastFlags || flags2 != lastFlags2) {
+            return true;
+        }
+        if (fireGroup != lastFireGroup || guiFocus != lastGuiFocus) {
+            return true;
+        }
+        if (lastPips == null || pips == null || !java.util.Arrays.equals(pips, lastPips)) {
+            return true;
+        }
+        if (Double.doubleToLongBits(fuelMain) != Double.doubleToLongBits(lastFuelMain)
+                || Double.doubleToLongBits(fuelReservoir) != Double.doubleToLongBits(lastFuelReservoir)
+                || Double.doubleToLongBits(cargo) != Double.doubleToLongBits(lastCargo)) {
+            return true;
+        }
+        if (balance != lastBalance || !Objects.equals(legalState, lastLegalState)) {
+            return true;
+        }
+        if (!Objects.equals(latitude, lastLatitude)
+                || !Objects.equals(longitude, lastLongitude)
+                || !Objects.equals(altitude, lastAltitude)
+                || !Objects.equals(heading, lastHeading)
+                || !Objects.equals(bodyName, lastBodyName)
+                || !Objects.equals(planetRadius, lastPlanetRadius)
+                || !Objects.equals(statusBodyId, lastBodyId)) {
+            return true;
+        }
+        if (!Objects.equals(destSystem, lastDestSystem)
+                || !Objects.equals(destBody, lastDestBody)
+                || !Objects.equals(destName, lastDestName)
+                || !Objects.equals(destNameLocalised, lastDestNameLocalised)) {
+            return true;
+        }
+        return false;
     }
 
     private static int getIntOrDefault(JsonObject obj, String key, int def) {

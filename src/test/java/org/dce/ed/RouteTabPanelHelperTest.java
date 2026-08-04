@@ -240,12 +240,12 @@ class RouteTabPanelHelperTest {
                 return false;
             }
         };
+        // Non-looping route: previous hop must not reappear later, or a lagging SystemState
+        // would look identical to arriving at a future revisit.
         panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
                 entry("Core Sys Sector CB-O a6-1", 100L),
                 entry("Gliese 868", 200L),
-                entry("Core Sys Sector CB-O a6-1", 100L),
-                entry("Gliese 868", 200L)));
-        // Journal FSDJump already advanced the route session.
+                entry("Sol", 300L)));
         panel.routeSessionForTests().applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
         panel.routeSessionForTests().applyKnownCurrentSystem("Gliese 868", 200L, null);
         assertEquals(1, panel.routeSessionForTests().getCurrentBaseIndex());
@@ -264,6 +264,81 @@ class RouteTabPanelHelperTest {
                 .displayedEntries();
         assertEquals(RouteMarkerKind.CURRENT, displayed.get(1).markerKind);
         assertEquals(RouteMarkerKind.PENDING_JUMP, displayed.get(2).markerKind);
+    }
+
+    @Test
+    void rebuild_advancesLoopCursorWhenLiveArrivesAtRevisitedSystem() {
+        RouteTabPanel panel = new RouteTabPanel(() -> false) {
+            @Override
+            protected boolean resolveCurrentSystemFromJournal() {
+                return false;
+            }
+        };
+        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                entry("Gliese 868", 200L),
+                entry("Core Sys Sector CB-O a6-1", 100L),
+                entry("Gliese 868", 200L),
+                entry("Core Sys Sector CB-O a6-1", 100L)));
+        panel.routeSessionForTests().applyKnownCurrentSystem("Gliese 868", 200L, null);
+        panel.routeSessionForTests().applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
+        assertEquals(1, panel.routeSessionForTests().getCurrentBaseIndex());
+
+        // Arrived back in Gliese — SystemState is ahead of a sticky route session.
+        SystemState live = new SystemState();
+        live.setSystemName("Gliese 868");
+        live.setSystemAddress(200L);
+        panel.setLiveSystemStateSupplier(() -> live);
+
+        panel.rebuildDisplayedEntries();
+
+        assertEquals("Gliese 868", panel.routeSessionForTests().getCurrentSystemName());
+        assertEquals(2, panel.routeSessionForTests().getCurrentBaseIndex());
+        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
+                .displayedEntries();
+        assertEquals(RouteMarkerKind.NONE, displayed.get(0).markerKind);
+        assertEquals(RouteMarkerKind.NONE, displayed.get(1).markerKind);
+        assertEquals(RouteMarkerKind.CURRENT, displayed.get(2).markerKind);
+        assertEquals(RouteMarkerKind.PENDING_JUMP, displayed.get(3).markerKind);
+    }
+
+    @Test
+    void rebuild_resyncsLoopCursorWhenNameMatchesLiveButIndexStuck() throws Exception {
+        RouteTabPanel panel = new RouteTabPanel(() -> false) {
+            @Override
+            protected boolean resolveCurrentSystemFromJournal() {
+                return false;
+            }
+        };
+        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                entry("Gliese 868", 200L),
+                entry("Core Sys Sector CB-O a6-1", 100L),
+                entry("Gliese 868", 200L),
+                entry("Core Sys Sector CB-O a6-1", 100L)));
+        panel.routeSessionForTests().applyKnownCurrentSystem("Gliese 868", 200L, null);
+        panel.routeSessionForTests().applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
+        assertEquals(1, panel.routeSessionForTests().getCurrentBaseIndex());
+
+        // Simulate desync: identity already says Gliese but cursor still on Core.
+        var session = panel.routeSessionForTests();
+        session.applyKnownCurrentSystem("Gliese 868", 200L, null);
+        assertEquals(2, session.getCurrentBaseIndex());
+        var indexField = session.getClass().getDeclaredField("currentBaseIndex");
+        indexField.setAccessible(true);
+        indexField.setInt(session, 1);
+        assertEquals(1, session.getCurrentBaseIndex());
+        assertEquals("Gliese 868", session.getCurrentSystemName());
+
+        SystemState live = new SystemState();
+        live.setSystemName("Gliese 868");
+        live.setSystemAddress(200L);
+        panel.setLiveSystemStateSupplier(() -> live);
+
+        panel.rebuildDisplayedEntries();
+
+        assertEquals(2, panel.routeSessionForTests().getCurrentBaseIndex());
+        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
+                .displayedEntries();
+        assertEquals(RouteMarkerKind.CURRENT, displayed.get(2).markerKind);
     }
 
     private static final class JournalFirstRouteTabPanel extends RouteTabPanel {

@@ -31,4 +31,24 @@ class SystemEventProcessorDockedTest {
         assertEquals(Integer.valueOf(7), state.getCarrierParkedBodyId());
         assertEquals(42L, state.getCarrierParkedSystemAddress());
     }
+
+    @Test
+    void dockedEvent_withStarSystem_recoversStaleSystemState() {
+        SystemState state = new SystemState();
+        state.setSystemName("Core Sys Sector CB-O a6-1");
+        state.setSystemAddress(22958210698080L);
+        SystemEventProcessor proc = new SystemEventProcessor("test", state);
+
+        JsonObject raw = new JsonObject();
+        raw.addProperty("event", "Docked");
+        raw.addProperty("StarSystem", "Gliese 868");
+        raw.addProperty("SystemAddress", 2557753660122L);
+        raw.addProperty("BodyID", 67);
+
+        proc.handleEvent(new EliteLogEvent.GenericEvent(Instant.EPOCH, EliteEventType.DOCKED, raw));
+
+        assertTrue(state.isDocked());
+        assertEquals("Gliese 868", state.getSystemName());
+        assertEquals(2557753660122L, state.getSystemAddress());
+    }
 }

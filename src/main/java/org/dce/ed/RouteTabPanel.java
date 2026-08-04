@@ -933,6 +933,29 @@ public class RouteTabPanel extends JPanel {
 	 * Place the Exec/Clear strip snug under the last table row when the table is short; when the table
 	 * needs a scrollbar, keep the strip pinned to the bottom of the visible panel.
 	 */
+	/** Immediate strip/table bounds after row-count changes (body insert/remove). */
+	private void relayoutRouteCenterAfterRowChange() {
+		if (routeCenterWrapper == null) {
+			return;
+		}
+		if (table != null) {
+			table.revalidate();
+		}
+		if (routeScrollPane != null) {
+			routeScrollPane.revalidate();
+		}
+		routeCenterWrapper.invalidate();
+		routeCenterWrapper.revalidate();
+		if (routeCenterWrapper.getWidth() > 0 && routeCenterWrapper.getHeight() > 0) {
+			layoutRouteTableAndCopyStrip();
+		}
+		java.awt.Container parent = routeCenterWrapper.getParent();
+		if (parent != null) {
+			parent.revalidate();
+		}
+		routeCenterWrapper.repaint();
+	}
+
 	private void layoutRouteTableAndCopyStrip() {
 		if (routeCenterWrapper == null || routeScrollPane == null || routeCopyStrip == null) {
 			return;
@@ -1901,6 +1924,10 @@ public class RouteTabPanel extends JPanel {
 		RouteDisplaySnapshot snap = routeSession.buildDisplaySnapshot(
 				this::applyRememberedScanStatuses, this::resolveSystemCoords, customRouteActive);
 		tableModel.setEntries(snap.displayedEntries());
+		// Body-row insert/remove changes preferred table height. Apply strip bounds
+		// synchronously — revalidate alone can paint one frame with a stale scroll height
+		// (blank gap above Custom Route after a station row is removed).
+		relayoutRouteCenterAfterRowChange();
 		recomputeRouteFuelPrediction();
 		maybeScheduleTargetCoordsFetch(snap.displayedEntries());
 		SwingUtilities.invokeLater(() -> {
@@ -2956,9 +2983,9 @@ public class RouteTabPanel extends JPanel {
      * system you already arrived in); SystemState is updated on the same {@code FSDJump} path and
      * is the authoritative in-memory location while the overlay is running.
      * <p>
-     * Never moves the route cursor backward, and does not treat a later duplicate of an earlier hop
-     * as progress when SystemState is still lagging (custom-route loops). Loop re-visits are advanced
-     * by journal {@code FSDJump}/{@code Location}, not by ambiguous live-name matches.
+     * Never moves the route cursor backward. Forward matches at/after the cursor are adopted even
+     * when the same system appeared earlier (custom-route loops). Also re-syncs when the session
+     * name already matches live but {@code currentBaseIndex} is still on a different hop.
      */
 	protected void reconcileRouteCurrentWithLiveCommanderPosition() {
 		if (liveSystemStateSupplier == null) {
@@ -2973,24 +3000,22 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		long liveAddr = live.getSystemAddress();
+		List<RouteEntry> base = routeSession.getBaseRouteEntries();
+		int cursor = routeSession.getCurrentBaseIndex();
+		boolean cursorMatchesLive = base != null && !base.isEmpty()
+				&& cursor >= 0 && cursor < base.size()
+				&& RouteGeometry.rowMatchesSystem(base.get(cursor), liveName, liveAddr);
 		String sessionName = routeSession.getCurrentSystemName();
 		long sessionAddr = routeSession.getCurrentSystemAddress();
 		boolean sameName = liveName.equals(sessionName);
 		boolean sameAddr = liveAddr == 0L || sessionAddr == 0L || liveAddr == sessionAddr;
-		if (sameName && sameAddr) {
+		if (sameName && sameAddr && cursorMatchesLive) {
 			return;
 		}
-		List<RouteEntry> base = routeSession.getBaseRouteEntries();
-		int cursor = routeSession.getCurrentBaseIndex();
 		if (base != null && !base.isEmpty()) {
 			int liveAtOrAfter = RouteGeometry.findSystemRowFrom(base, liveName, liveAddr, cursor);
 			if (liveAtOrAfter >= 0) {
-				int liveFirst = RouteGeometry.findSystemRow(base, liveName, liveAddr);
-				// Only adopt when this is the first occurrence at/after the cursor. A later
-				// duplicate of a system already behind us is ambiguous with stale SystemState.
-				if (liveFirst == liveAtOrAfter) {
-					routeSession.applyKnownCurrentSystem(liveName, liveAddr, live.getStarPos());
-				}
+				routeSession.applyKnownCurrentSystem(liveName, liveAddr, live.getStarPos());
 				return;
 			}
 			int liveAny = RouteGeometry.findSystemRow(base, liveName, liveAddr);
@@ -3695,12 +3720,23 @@ public class RouteTabPanel extends JPanel {
 				JLabel l = (JLabel) c;
 				l.setOpaque(false);
 				l.setForeground(EdoUi.User.MAIN_TEXT);
+				l.setIcon(null);
+				l.setIconTextGap(4);
 				int indent = 0;
+				RouteEntry e = null;
 				try {
-					RouteEntry e = tableModel.getEntries(row);
+					e = tableModel.getEntries(row);
 					indent = (e != null ? e.indentLevel : 0);
 				} catch (Exception ex) {
 					indent = 0;
+				}
+				// Body/station target: draw the next-stop chevron beside the name, not in COL_MARKER.
+				if (e != null && e.isBodyRow) {
+					RouteMarkerKind kind = e.markerKind;
+					if (kind == RouteMarkerKind.TARGET
+							|| (kind == RouteMarkerKind.PENDING_JUMP && jumpFlashOn)) {
+						l.setIcon(new OutlineTriangleIcon(EdoUi.ED_ORANGE_LESS_TRANS, 10, 10, 2f));
+					}
 				}
 				int left = 6 + indent * 14;
 				l.setBorder(new EmptyBorder(3, left, 3, 4));
@@ -3739,7 +3775,8 @@ public class RouteTabPanel extends JPanel {
 			} catch (Exception e) {
 				entry = null;
 			}
-			RouteMarkerKind kind = (entry != null ? entry.markerKind : RouteMarkerKind.NONE);
+			// Body rows show their target chevron beside the indented name instead.
+			RouteMarkerKind kind = (entry != null && !entry.isBodyRow) ? entry.markerKind : RouteMarkerKind.NONE;
 
 			if (kind == RouteMarkerKind.CURRENT) {
 				icon = new TriangleIcon(EdoUi.User.MAIN_TEXT, 10, 10);

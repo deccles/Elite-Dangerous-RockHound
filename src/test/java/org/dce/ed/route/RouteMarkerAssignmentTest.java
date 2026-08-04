@@ -80,6 +80,30 @@ class RouteMarkerAssignmentTest {
         assertEquals(RouteMarkerKind.PENDING_JUMP, rows.get(3).markerKind);
     }
 
+    @Test
+    void loopedRoute_fsdTargetUsesForwardOccurrenceNotFirstNameMatch() {
+        List<RouteEntry> rows = new ArrayList<>();
+        rows.add(entry("Gliese", 1L, 0, 0, 0));
+        rows.add(entry("Core", 2L, 1, 0, 0));
+        rows.add(entry("Gliese", 1L, 2, 0, 0));
+        rows.add(entry("Core", 2L, 3, 0, 0));
+        for (int i = 0; i < rows.size(); i++) {
+            rows.get(i).index = i;
+        }
+        // Sitting at Core (index 1) with FSD locked on Gliese — mark the upcoming Gliese, not row 0.
+        RouteMarkerAssignment.applyMarkerKinds(rows,
+                "Core", 2L,
+                1,
+                "Gliese", 1L,
+                null, null, null,
+                null, 0L,
+                false);
+        assertEquals(RouteMarkerKind.NONE, rows.get(0).markerKind);
+        assertEquals(RouteMarkerKind.CURRENT, rows.get(1).markerKind);
+        assertEquals(RouteMarkerKind.TARGET, rows.get(2).markerKind);
+        assertEquals(RouteMarkerKind.NONE, rows.get(3).markerKind);
+    }
+
     private static RouteEntry entry(String name, long addr, double x, double y, double z) {
         RouteEntry e = new RouteEntry();
         e.systemName = name;

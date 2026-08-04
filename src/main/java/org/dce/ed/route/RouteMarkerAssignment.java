@@ -39,13 +39,13 @@ public final class RouteMarkerAssignment {
 
         int currentRow = -1;
         // Prefer the base-route hop tagged with currentBaseIndex (survives deepCopy via entry.index).
+        // Trust the index even when session name briefly disagrees — reconcile owns fixing the cursor.
         for (int i = 0; i < entries.size(); i++) {
             RouteEntry e = entries.get(i);
             if (e == null || e.isBodyRow || e.isSynthetic) {
                 continue;
             }
-            if (e.index == currentBaseIndex
-                    && RouteGeometry.rowMatchesSystem(e, currentName, currentSystemAddress)) {
+            if (e.index == currentBaseIndex) {
                 currentRow = i;
                 break;
             }
@@ -128,7 +128,11 @@ public final class RouteMarkerAssignment {
         }
 
         if (hasSideTripTarget) {
-            for (RouteEntry e : entries) {
+            // Prefer the occurrence at/after CURRENT so looped custom routes do not put the
+            // next-stop TARGET on an earlier duplicate of the same system.
+            int targetStart = currentRow >= 0 ? currentRow + 1 : 0;
+            for (int i = targetStart; i < entries.size(); i++) {
+                RouteEntry e = entries.get(i);
                 if (!matchesTarget(e, targetSystemName, targetSystemAddress)) {
                     continue;
                 }
