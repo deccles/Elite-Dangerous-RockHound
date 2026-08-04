@@ -14,6 +14,7 @@ public final class RouteMarkerAssignment {
     public static void applyMarkerKinds(List<RouteEntry> entries,
             String currentName,
             long currentSystemAddress,
+            int currentBaseIndex,
             String targetSystemName,
             long targetSystemAddress,
             Long destinationSystemAddress,
@@ -36,7 +37,26 @@ public final class RouteMarkerAssignment {
             e.markerKind = RouteMarkerKind.NONE;
         }
 
-        int currentRow = RouteGeometry.findSystemRow(entries, currentName, currentSystemAddress);
+        int currentRow = -1;
+        // Prefer the base-route hop tagged with currentBaseIndex (survives deepCopy via entry.index).
+        for (int i = 0; i < entries.size(); i++) {
+            RouteEntry e = entries.get(i);
+            if (e == null || e.isBodyRow || e.isSynthetic) {
+                continue;
+            }
+            if (e.index == currentBaseIndex
+                    && RouteGeometry.rowMatchesSystem(e, currentName, currentSystemAddress)) {
+                currentRow = i;
+                break;
+            }
+        }
+        if (currentRow < 0) {
+            currentRow = RouteGeometry.findSystemRowFrom(
+                    entries, currentName, currentSystemAddress, Math.max(0, currentBaseIndex));
+        }
+        if (currentRow < 0) {
+            currentRow = RouteGeometry.findSystemRow(entries, currentName, currentSystemAddress);
+        }
         if (currentRow >= 0) {
             RouteEntry cur = entries.get(currentRow);
             if (cur != null && !cur.isBodyRow) {
@@ -64,24 +84,6 @@ public final class RouteMarkerAssignment {
 
         boolean hasSideTripTarget = (targetSystemName != null && !targetSystemName.isBlank());
 
-        long resolvedCurrentAddress = 0L;
-        if (currentRow >= 0) {
-            RouteEntry cur = entries.get(currentRow);
-            if (cur != null) {
-                resolvedCurrentAddress = cur.systemAddress;
-            }
-        }
-        if (resolvedCurrentAddress == 0L) {
-            resolvedCurrentAddress = currentSystemAddress;
-        }
-
-        boolean hasLocalBodyDestination = false;
-        if (destinationBodyId != null && destinationSystemAddress != null && resolvedCurrentAddress != 0L) {
-            if (destinationSystemAddress.longValue() == resolvedCurrentAddress) {
-                hasLocalBodyDestination = true;
-            }
-        }
-
         RouteEntry pending = null;
 
         if (!hasSideTripTarget) {
@@ -97,7 +99,13 @@ public final class RouteMarkerAssignment {
                 }
 
                 if (destAddrForPending != 0L || (destNameForPending != null && !destNameForPending.isBlank())) {
-                    int destRow = RouteGeometry.findSystemRow(entries, destNameForPending, destAddrForPending);
+                    int from = Math.max(0, currentRow);
+                    int destRow = RouteGeometry.findSystemRowFrom(
+                            entries, destNameForPending, destAddrForPending, from);
+                    if (destRow < 0) {
+                        destRow = RouteGeometry.findSystemRowFrom(
+                                entries, destNameForPending, destAddrForPending, currentBaseIndex);
+                    }
                     if (destRow >= 0 && destRow != currentRow) {
                         RouteEntry e = entries.get(destRow);
                         if (e != null && !e.isBodyRow) {
@@ -107,7 +115,10 @@ public final class RouteMarkerAssignment {
                 }
             }
 
-            if (pending == null && nextHop != null && !hasLocalBodyDestination) {
+            if (pending == null && nextHop != null) {
+                // Keep next-system PENDING even when Status targets a local station/body.
+                // Local destination is shown as an indented body row; suppressing the next hop
+                // made Set Next Destination / markers look stuck on the current system.
                 pending = nextHop;
             }
 

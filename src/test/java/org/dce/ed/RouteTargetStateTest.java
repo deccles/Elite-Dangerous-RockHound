@@ -182,23 +182,48 @@ class RouteTargetStateTest {
         assertEquals("Sol", state.getDestinationName());
     }
 
+    @Test
+    void applyStatusEvent_blankDestination_clearsDestinationLatch() {
+        state.applyStatusEvent(parseStatusWithDestination("MacLean Terminal", 200L, 7), List.of());
+        assertEquals("MacLean Terminal", state.getDestinationName());
+        assertEquals(7, state.getDestinationBodyId().intValue());
+
+        state.applyStatusEvent(parseStatusWithDestination(null, null), List.of());
+        assertNull(state.getDestinationName());
+        assertNull(state.getDestinationBodyId());
+        assertNull(state.getDestinationSystemAddress());
+    }
+
     private FsdTargetEvent parseFsdTarget(String name, long address) {
         String json = "{\"event\":\"FSDTarget\",\"timestamp\":\"" + ISO_TS + "\",\"Name\":\"" + name + "\",\"SystemAddress\":" + address + "}";
         return (FsdTargetEvent) parser.parseRecord(json);
     }
 
     private StatusEvent parseStatusWithDestination(String destName, Long destSystem) {
+        return parseStatusWithDestination(destName, destSystem, null);
+    }
+
+    private StatusEvent parseStatusWithDestination(String destName, Long destSystem, Integer destBody) {
         StringBuilder json = new StringBuilder("{\"event\":\"Status\",\"timestamp\":\"" + ISO_TS + "\",\"Flags\":0,\"Flags2\":0");
-        if (destName != null || destSystem != null) {
+        if (destName != null || destSystem != null || destBody != null) {
             json.append(",\"Destination\":{");
+            boolean first = true;
             if (destName != null) {
                 json.append("\"Name\":\"").append(destName.replace("\"", "\\\"")).append("\"");
+                first = false;
             }
             if (destSystem != null) {
-                if (destName != null) {
+                if (!first) {
                     json.append(",");
                 }
                 json.append("\"System\":").append(destSystem);
+                first = false;
+            }
+            if (destBody != null) {
+                if (!first) {
+                    json.append(",");
+                }
+                json.append("\"Body\":").append(destBody);
             }
             json.append("}");
         }

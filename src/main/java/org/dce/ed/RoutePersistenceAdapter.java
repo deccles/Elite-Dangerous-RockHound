@@ -26,7 +26,8 @@ public final class RoutePersistenceAdapter {
                 state.getDestinationName(),
                 state.getPendingJumpLockedName(),
                 state.getPendingJumpLockedAddress(),
-                state.getInHyperspace());
+                state.getInHyperspace(),
+                state.getCurrentBaseIndex());
     }
 
     public static void fillEdoSession(EdoSessionState state, RoutePersistenceSnapshot snap) {
@@ -44,6 +45,7 @@ public final class RoutePersistenceAdapter {
         state.setPendingJumpLockedName(snap.pendingJumpLockedName());
         state.setPendingJumpLockedAddress(snap.pendingJumpLockedAddress());
         state.setInHyperspace(snap.inHyperspace());
+        state.setCurrentBaseIndex(snap.currentBaseIndex());
     }
 
 }

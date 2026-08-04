@@ -114,7 +114,8 @@ class RouteSessionTest {
                 "Sol", 1L, null,
                 null, null, null, null, null,
                 "Paesui Xena", 42L,
-                Boolean.FALSE);
+                Boolean.FALSE,
+                null);
         session.applyPersistenceSnapshot(snap);
         assertTrue(flash.running);
         assertEquals("Paesui Xena", session.getPendingJumpLockedName());
@@ -129,7 +130,8 @@ class RouteSessionTest {
                 "Sol", 1L, null,
                 null, null, null, null, null,
                 null, null,
-                Boolean.FALSE);
+                Boolean.FALSE,
+                null);
         session.applyPersistenceSnapshot(cleared);
         assertFalse(flash.running);
         assertEquals(0L, session.getPendingJumpLockedAddress());
@@ -182,6 +184,68 @@ class RouteSessionTest {
         session.appendBaseRouteEntry(sampleEntry("B", 2L));
         assertFalse(session.moveBaseRouteEntry(0, 1));
         assertEquals("A", session.getBaseRouteEntries().get(0).systemName);
+    }
+
+    @Test
+    void loopedCustomRoute_advancesCurrentBaseIndexMonotonically() {
+        session.replaceBaseRouteEntries(List.of(
+                sampleEntry("Gyll", 1L),
+                sampleEntry("Fliese", 2L),
+                sampleEntry("Gyll", 1L),
+                sampleEntry("Fliese", 2L)));
+        session.applyKnownCurrentSystem("Gyll", 1L, null);
+        assertEquals(0, session.getCurrentBaseIndex());
+        assertEquals("Fliese", org.dce.ed.RouteTabPanel.nextRouteDestinationSystemName(session));
+
+        session.applyKnownCurrentSystem("Fliese", 2L, null);
+        assertEquals(1, session.getCurrentBaseIndex());
+        assertEquals("Gyll", org.dce.ed.RouteTabPanel.nextRouteDestinationSystemName(session));
+
+        session.applyKnownCurrentSystem("Gyll", 1L, null);
+        assertEquals(2, session.getCurrentBaseIndex());
+        assertEquals("Fliese", org.dce.ed.RouteTabPanel.nextRouteDestinationSystemName(session));
+
+        session.applyKnownCurrentSystem("Fliese", 2L, null);
+        assertEquals(3, session.getCurrentBaseIndex());
+        assertEquals(null, org.dce.ed.RouteTabPanel.nextRouteDestinationSystemName(session));
+    }
+
+    @Test
+    void loopedCustomRoute_doesNotMoveIndexBackwardOnRepeatArrival() {
+        session.replaceBaseRouteEntries(List.of(
+                sampleEntry("Gyll", 1L),
+                sampleEntry("Fliese", 2L),
+                sampleEntry("Gyll", 1L)));
+        session.applyKnownCurrentSystem("Gyll", 1L, null);
+        session.applyKnownCurrentSystem("Fliese", 2L, null);
+        session.applyKnownCurrentSystem("Gyll", 1L, null);
+        assertEquals(2, session.getCurrentBaseIndex());
+        // Same system again (Location spam) must not snap back to hop 0.
+        session.applyKnownCurrentSystem("Gyll", 1L, null);
+        assertEquals(2, session.getCurrentBaseIndex());
+    }
+
+    @Test
+    void persistenceRoundTrip_preservesCurrentBaseIndexOnLoop() {
+        session.replaceBaseRouteEntries(List.of(
+                sampleEntry("Gyll", 1L),
+                sampleEntry("Fliese", 2L),
+                sampleEntry("Gyll", 1L),
+                sampleEntry("Fliese", 2L)));
+        session.applyKnownCurrentSystem("Gyll", 1L, null);
+        session.applyKnownCurrentSystem("Fliese", 2L, null);
+        session.applyKnownCurrentSystem("Gyll", 1L, null);
+        assertEquals(2, session.getCurrentBaseIndex());
+
+        RoutePersistenceSnapshot snap = session.toPersistenceSnapshot();
+        assertEquals(Integer.valueOf(2), snap.currentBaseIndex());
+
+        RouteSession restored = new RouteSession(flash, j -> false);
+        restored.replaceBaseRouteEntries(session.getBaseRouteEntries());
+        restored.applyPersistenceSnapshot(snap);
+        assertEquals(2, restored.getCurrentBaseIndex());
+        assertEquals("Gyll", restored.getCurrentSystemName());
+        assertEquals("Fliese", org.dce.ed.RouteTabPanel.nextRouteDestinationSystemName(restored));
     }
 
     private static RouteEntry sampleEntry(String name, long addr) {

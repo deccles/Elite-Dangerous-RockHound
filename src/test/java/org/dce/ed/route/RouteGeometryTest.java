@@ -59,6 +59,26 @@ class RouteGeometryTest {
     }
 
     @Test
+    void findSystemRowFrom_skipsEarlierDuplicates() {
+        java.util.List<RouteEntry> list = new java.util.ArrayList<>();
+        RouteEntry a0 = new RouteEntry();
+        a0.systemName = "Gyll";
+        a0.systemAddress = 1L;
+        RouteEntry b = new RouteEntry();
+        b.systemName = "Fliese";
+        b.systemAddress = 2L;
+        RouteEntry a1 = new RouteEntry();
+        a1.systemName = "Gyll";
+        a1.systemAddress = 1L;
+        list.add(a0);
+        list.add(b);
+        list.add(a1);
+        assertEquals(0, RouteGeometry.findSystemRow(list, "Gyll", 1L));
+        assertEquals(2, RouteGeometry.findSystemRowFrom(list, "Gyll", 1L, 1));
+        assertEquals(-1, RouteGeometry.findSystemRowFrom(list, "Gyll", 1L, 3));
+    }
+
+    @Test
     void navRouteDestination_lastNonBodyHop() {
         java.util.List<RouteEntry> nav = new java.util.ArrayList<>();
         RouteEntry a = new RouteEntry();

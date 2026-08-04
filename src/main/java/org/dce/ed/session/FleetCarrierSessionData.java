@@ -19,6 +19,8 @@ public final class FleetCarrierSessionData {
     private String pendingJumpLockedName;
     private Long pendingJumpLockedAddress;
     private Boolean inHyperspace;
+    /** Monotonic CURRENT hop index into {@link #baseRouteEntries} (looped carrier routes). */
+    private Integer currentBaseIndex;
     private List<RouteEntryPersisted> baseRouteEntries;
 
     /**
@@ -121,6 +123,14 @@ public final class FleetCarrierSessionData {
 
     public void setInHyperspace(Boolean inHyperspace) {
         this.inHyperspace = inHyperspace;
+    }
+
+    public Integer getCurrentBaseIndex() {
+        return currentBaseIndex;
+    }
+
+    public void setCurrentBaseIndex(Integer currentBaseIndex) {
+        this.currentBaseIndex = currentBaseIndex;
     }
 
     public List<RouteEntryPersisted> getBaseRouteEntries() {

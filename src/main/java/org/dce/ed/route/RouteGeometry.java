@@ -26,20 +26,40 @@ public final class RouteGeometry {
     }
 
     /**
-     * Locates a system row by name and/or address.
+     * Locates a system row by name and/or address (first match from the start of the list).
      * <p>
      * When both are provided and they point at different rows (or the address hits a row whose
      * name disagrees), prefers the name match and otherwise treats the identity as not present.
      * That avoids a stale {@code systemAddress} keeping CURRENT locked on an earlier hop after a
      * name-only update.
+     * <p>
+     * For custom-route loops (duplicate systems), prefer {@link #findSystemRowFrom} with the
+     * session's current base index so progress does not snap back to the first occurrence.
      */
     public static int findSystemRow(List<RouteEntry> entries, String systemName, long systemAddress) {
-        if (entries == null) {
+        return findSystemRowFrom(entries, systemName, systemAddress, 0);
+    }
+
+    /**
+     * Like {@link #findSystemRow} but only considers hops at {@code fromIndexInclusive} and later.
+     * Does not wrap to earlier hops — used so looped custom routes advance monotonically.
+     *
+     * @return row index, or {@code -1} when not found at/after {@code fromIndexInclusive}
+     */
+    public static int findSystemRowFrom(List<RouteEntry> entries,
+            String systemName,
+            long systemAddress,
+            int fromIndexInclusive) {
+        if (entries == null || entries.isEmpty()) {
+            return -1;
+        }
+        int start = Math.max(0, fromIndexInclusive);
+        if (start >= entries.size()) {
             return -1;
         }
         int byAddress = -1;
         int byName = -1;
-        for (int i = 0; i < entries.size(); i++) {
+        for (int i = start; i < entries.size(); i++) {
             RouteEntry e = entries.get(i);
             if (e == null || e.isBodyRow) {
                 continue;
@@ -67,6 +87,21 @@ public final class RouteGeometry {
             return byAddress;
         }
         return -1;
+    }
+
+    /** Whether a base/displayed hop matches commander system identity. */
+    public static boolean rowMatchesSystem(RouteEntry entry, String systemName, long systemAddress) {
+        if (entry == null || entry.isBodyRow) {
+            return false;
+        }
+        if (systemAddress != 0L && entry.systemAddress != 0L && entry.systemAddress == systemAddress) {
+            if (systemName == null || systemName.isBlank() || entry.systemName == null
+                    || systemName.equals(entry.systemName)) {
+                return true;
+            }
+            return false;
+        }
+        return systemName != null && !systemName.isBlank() && systemName.equals(entry.systemName);
     }
 
     /**

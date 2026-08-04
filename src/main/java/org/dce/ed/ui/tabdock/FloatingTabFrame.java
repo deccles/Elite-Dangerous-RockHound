@@ -192,11 +192,14 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         left.setOpaque(false);
         left.add(titleLabel);
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 4));
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
         right.setOpaque(false);
         right.add(mouseModeButton);
         right.add(minimizeButton);
         right.add(closeButton);
+        Dimension chromeMin = right.getPreferredSize();
+        right.setMinimumSize(chromeMin);
+        right.setPreferredSize(chromeMin);
         titleBar.add(left, BorderLayout.CENTER);
         titleBar.add(right, BorderLayout.EAST);
         installTitleDrag(titleBar);

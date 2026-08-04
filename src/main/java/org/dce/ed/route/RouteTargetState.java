@@ -136,6 +136,11 @@ public final class RouteTargetState {
 
         String statusDestName = destinationName;
         if (statusDestName == null || statusDestName.isBlank()) {
+            // No player-facing destination — drop any leftover System/Body latch so station
+            // rows (and local-body pending suppression) cannot stick after untarget.
+            destinationSystemAddress = null;
+            destinationBodyId = null;
+            destinationName = null;
             if (targetSystemName != null) {
                 targetSystemName = null;
                 targetSystemAddress = 0L;

@@ -35,6 +35,11 @@ public final class RouteSession {
     private String currentSystemName;
     private long currentSystemAddress;
     private double[] currentStarPos;
+    /**
+     * Index into {@link #baseRouteEntries} for the CURRENT hop. Advances on arrival to a match
+     * at/after this index so custom-route loops (duplicate systems) do not snap back to hop 0.
+     */
+    private int currentBaseIndex;
     private String pendingJumpSystemName;
     private String pendingJumpLockedName;
     private long pendingJumpLockedAddress;
@@ -79,6 +84,11 @@ public final class RouteSession {
 
     public double[] getCurrentStarPos() {
         return currentStarPos;
+    }
+
+    /** Base-route index of the CURRENT hop (monotonic for custom-route loops). */
+    public int getCurrentBaseIndex() {
+        return currentBaseIndex;
     }
 
     public String getPendingJumpSystemName() {
@@ -128,7 +138,43 @@ public final class RouteSession {
         if (starPos != null && starPos.length >= 3) {
             this.currentStarPos = starPos.clone();
         }
+        advanceCurrentBaseIndexForArrival(this.currentSystemName, this.currentSystemAddress);
         targetState.clearTargetIfMatchesArrival(this.currentSystemName, this.currentSystemAddress);
+    }
+
+    /**
+     * Moves {@link #currentBaseIndex} forward to the first hop at/after the current index that
+     * matches the arrival system. Never moves backward (earlier duplicates stay behind).
+     */
+    public void advanceCurrentBaseIndexForArrival(String name, long systemAddress) {
+        if (baseRouteEntries == null || baseRouteEntries.isEmpty()) {
+            currentBaseIndex = 0;
+            return;
+        }
+        clampCurrentBaseIndex();
+        if (RouteGeometry.rowMatchesSystem(baseRouteEntries.get(currentBaseIndex), name, systemAddress)) {
+            return;
+        }
+        int found = RouteGeometry.findSystemRowFrom(baseRouteEntries, name, systemAddress, currentBaseIndex);
+        if (found >= 0) {
+            currentBaseIndex = found;
+        }
+    }
+
+    private void clampCurrentBaseIndex() {
+        if (baseRouteEntries == null || baseRouteEntries.isEmpty()) {
+            currentBaseIndex = 0;
+            return;
+        }
+        if (currentBaseIndex < 0) {
+            currentBaseIndex = 0;
+        } else if (currentBaseIndex >= baseRouteEntries.size()) {
+            currentBaseIndex = baseRouteEntries.size() - 1;
+        }
+    }
+
+    private void resetCurrentBaseIndex() {
+        currentBaseIndex = 0;
     }
 
     /**
@@ -137,7 +183,12 @@ public final class RouteSession {
      */
     public void applyNavRouteReloadParsed(List<RouteEntry> parsedEntries) {
         baseRouteEntries = RouteGeometry.deepCopy(parsedEntries != null ? parsedEntries : List.of());
+        renumberBaseIndexes();
         targetState.applyNavRouteClear();
+        resetCurrentBaseIndex();
+        if (currentSystemName != null && !currentSystemName.isBlank()) {
+            advanceCurrentBaseIndexForArrival(currentSystemName, currentSystemAddress);
+        }
     }
 
     /**
@@ -151,6 +202,7 @@ public final class RouteSession {
         pendingJumpLockedAddress = 0L;
         inHyperspace = false;
         jumpFlash.stopTimer();
+        resetCurrentBaseIndex();
     }
 
     /**
@@ -158,20 +210,35 @@ public final class RouteSession {
      */
     public void applySpanshImport(List<RouteEntry> entries) {
         baseRouteEntries = RouteGeometry.deepCopy(entries != null ? entries : List.of());
+        renumberBaseIndexes();
         targetState.applyNavRouteClear();
         pendingJumpSystemName = null;
         pendingJumpLockedName = null;
         pendingJumpLockedAddress = 0L;
         inHyperspace = false;
         jumpFlash.stopTimer();
+        resetCurrentBaseIndex();
+        if (currentSystemName != null && !currentSystemName.isBlank()) {
+            advanceCurrentBaseIndexForArrival(currentSystemName, currentSystemAddress);
+        }
     }
 
     /**
      * Replace base route list only (used when restoring fleet carrier session from persistence).
      * Does not clear target state; caller should apply a persistence snapshot first if needed.
+     * Preserves {@link #currentBaseIndex} when the hop at that index still matches the commander.
      */
     public void replaceBaseRouteEntries(List<RouteEntry> entries) {
         baseRouteEntries = RouteGeometry.deepCopy(entries != null ? entries : List.of());
+        renumberBaseIndexes();
+        clampCurrentBaseIndex();
+        if (currentSystemName != null && !currentSystemName.isBlank()) {
+            if (baseRouteEntries.isEmpty()
+                    || !RouteGeometry.rowMatchesSystem(
+                            baseRouteEntries.get(currentBaseIndex), currentSystemName, currentSystemAddress)) {
+                advanceCurrentBaseIndexForArrival(currentSystemName, currentSystemAddress);
+            }
+        }
     }
 
     /**
@@ -216,6 +283,8 @@ public final class RouteSession {
         }
         baseRouteEntries.add(0, here);
         renumberBaseIndexes();
+        // New "you are here" is hop 0; shift any prior cursor.
+        currentBaseIndex = 0;
     }
 
     /**
@@ -231,6 +300,7 @@ public final class RouteSession {
         if (toIndex == fromIndex || toIndex == fromIndex + 1) {
             return false;
         }
+        int oldCurrent = currentBaseIndex;
         RouteEntry moved = baseRouteEntries.remove(fromIndex);
         int insertAt = toIndex;
         if (insertAt > fromIndex) {
@@ -238,6 +308,19 @@ public final class RouteSession {
         }
         baseRouteEntries.add(insertAt, moved);
         renumberBaseIndexes();
+        if (oldCurrent == fromIndex) {
+            currentBaseIndex = insertAt;
+        } else {
+            int idx = oldCurrent;
+            if (fromIndex < idx) {
+                idx--;
+            }
+            if (insertAt <= idx) {
+                idx++;
+            }
+            currentBaseIndex = idx;
+        }
+        clampCurrentBaseIndex();
         return true;
     }
 
@@ -312,20 +395,14 @@ public final class RouteSession {
             return new RouteJournalApplyOutcome(false, true);
         }
         if (event instanceof LocationEvent loc) {
-            setCurrentSystemName(loc.getStarSystem());
-            currentSystemAddress = loc.getSystemAddress();
-            currentStarPos = loc.getStarPos();
-            targetState.clearTargetIfMatchesArrival(loc.getStarSystem(), loc.getSystemAddress());
+            applyKnownCurrentSystem(loc.getStarSystem(), loc.getSystemAddress(), loc.getStarPos());
             clearPendingJumpState();
             inHyperspace = false;
             syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
             return new RouteJournalApplyOutcome(false, true);
         }
         if (event instanceof FsdJumpEvent jump) {
-            setCurrentSystemName(jump.getStarSystem());
-            currentSystemAddress = jump.getSystemAddress();
-            currentStarPos = jump.getStarPos();
-            targetState.clearTargetIfMatchesArrival(jump.getStarSystem(), jump.getSystemAddress());
+            applyKnownCurrentSystem(jump.getStarSystem(), jump.getSystemAddress(), jump.getStarPos());
             clearPendingJumpState();
             inHyperspace = false;
             jumpFlash.stopTimer();
@@ -336,10 +413,7 @@ public final class RouteSession {
             if (!carrierJumpPolicy.shouldUpdateCurrentSystem(jump)) {
                 return new RouteJournalApplyOutcome(false, false);
             }
-            setCurrentSystemName(jump.getStarSystem());
-            currentSystemAddress = jump.getSystemAddress();
-            currentStarPos = jump.getStarPos();
-            targetState.clearTargetIfMatchesArrival(jump.getStarSystem(), jump.getSystemAddress());
+            applyKnownCurrentSystem(jump.getStarSystem(), jump.getSystemAddress(), jump.getStarPos());
             clearPendingJumpState();
             inHyperspace = false;
             jumpFlash.stopTimer();
@@ -347,9 +421,7 @@ public final class RouteSession {
             return new RouteJournalApplyOutcome(false, true);
         }
         if (event instanceof CarrierLocationEvent loc) {
-            setCurrentSystemName(loc.getStarSystem());
-            currentSystemAddress = loc.getSystemAddress();
-            targetState.clearTargetIfMatchesArrival(loc.getStarSystem(), loc.getSystemAddress());
+            applyKnownCurrentSystem(loc.getStarSystem(), loc.getSystemAddress(), null);
             clearPendingJumpState();
             inHyperspace = false;
             syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
@@ -459,7 +531,8 @@ public final class RouteSession {
                 targetState.getDestinationName(),
                 pendingJumpLockedName,
                 pendingJumpLockedAddress != 0L ? Long.valueOf(pendingJumpLockedAddress) : null,
-                Boolean.valueOf(inHyperspace));
+                Boolean.valueOf(inHyperspace),
+                Integer.valueOf(currentBaseIndex));
     }
 
     public void applyPersistenceSnapshot(RoutePersistenceSnapshot snap) {
@@ -474,6 +547,9 @@ public final class RouteSession {
         }
         if (snap.currentStarPos() != null && snap.currentStarPos().length >= 3) {
             currentStarPos = snap.currentStarPos();
+        }
+        if (snap.currentBaseIndex() != null) {
+            currentBaseIndex = Math.max(0, snap.currentBaseIndex().intValue());
         }
         targetState.restoreFromPersistence(
                 snap.targetSystemName(),
@@ -500,6 +576,14 @@ public final class RouteSession {
             pendingJumpSystemName = null;
             jumpFlash.stopTimer();
         }
+        clampCurrentBaseIndex();
+        // If saved index no longer matches identity (list edited offline), advance from that point.
+        if (currentSystemName != null && !currentSystemName.isBlank() && !baseRouteEntries.isEmpty()) {
+            if (!RouteGeometry.rowMatchesSystem(
+                    baseRouteEntries.get(currentBaseIndex), currentSystemName, currentSystemAddress)) {
+                advanceCurrentBaseIndexForArrival(currentSystemName, currentSystemAddress);
+            }
+        }
     }
 
     public RouteDisplaySnapshot buildDisplaySnapshot(Consumer<List<RouteEntry>> afterDeepCopyBeforeSynthetics,
@@ -512,6 +596,7 @@ public final class RouteSession {
                 currentSystemName,
                 currentSystemAddress,
                 currentStarPos,
+                currentBaseIndex,
                 targetState,
                 pendingJumpLockedName,
                 pendingJumpLockedAddress,

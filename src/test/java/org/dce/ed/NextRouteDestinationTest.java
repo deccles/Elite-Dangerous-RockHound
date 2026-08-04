@@ -42,13 +42,36 @@ class NextRouteDestinationTest {
     }
 
     @Test
-    void nextHop_atEndOfRoute_returnsNull() {
+    void nextHop_prefersLiveCurrentWhenSessionLags() {
         session.replaceBaseRouteEntries(List.of(
-                system("NGC 6153 Sector KX-T b3-1", 100L),
-                system("Khun", 300L)));
-        session.applyKnownCurrentSystem("Khun", 300L, null);
+                system("Gyllembo", 100L),
+                system("Gliese 868", 200L),
+                system("Core Sys Sector CB-O a6-1", 300L)));
+        // Session still thinks we're in Gyllembo after arriving in Gliese.
+        session.applyKnownCurrentSystem("Gyllembo", 100L, null);
 
-        assertNull(RouteTabPanel.nextRouteDestinationSystemName(session));
+        assertEquals("Gliese 868", RouteTabPanel.nextRouteDestinationSystemName(session));
+        assertEquals("Core Sys Sector CB-O a6-1",
+                RouteTabPanel.nextRouteDestinationSystemName(
+                        session.getBaseRouteEntries(), "Gliese 868", 200L));
+    }
+
+    @Test
+    void nextHop_loopUsesMonotonicBaseIndex() {
+        session.replaceBaseRouteEntries(List.of(
+                system("Gyll", 1L),
+                system("Fliese", 2L),
+                system("Gyll", 1L),
+                system("Fliese", 2L)));
+        session.applyKnownCurrentSystem("Gyll", 1L, null);
+        session.applyKnownCurrentSystem("Fliese", 2L, null);
+        session.applyKnownCurrentSystem("Gyll", 1L, null);
+        assertEquals(2, session.getCurrentBaseIndex());
+        assertEquals("Fliese", RouteTabPanel.nextRouteDestinationSystemName(session));
+        // Live override from earlier on the loop must still search from the session cursor.
+        assertEquals("Fliese",
+                RouteTabPanel.nextRouteDestinationSystemName(
+                        session.getBaseRouteEntries(), "Gyll", 1L, session.getCurrentBaseIndex()));
     }
 
     private static RouteEntry system(String name, long address) {

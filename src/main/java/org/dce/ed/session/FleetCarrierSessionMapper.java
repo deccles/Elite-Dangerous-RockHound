@@ -34,6 +34,7 @@ public final class FleetCarrierSessionMapper {
         d.setPendingJumpLockedName(snap.pendingJumpLockedName());
         d.setPendingJumpLockedAddress(snap.pendingJumpLockedAddress());
         d.setInHyperspace(snap.inHyperspace());
+        d.setCurrentBaseIndex(snap.currentBaseIndex());
         List<RouteEntryPersisted> rows = new ArrayList<>();
         for (RouteEntry e : session.getBaseRouteEntries()) {
             rows.add(toPersisted(e));
@@ -46,6 +47,15 @@ public final class FleetCarrierSessionMapper {
         if (session == null || d == null) {
             return;
         }
+        // Load hops first so applyPersistenceSnapshot can clamp/verify currentBaseIndex against them.
+        List<RouteEntry> entries = new ArrayList<>();
+        for (RouteEntryPersisted p : d.baseRouteEntriesOrEmpty()) {
+            RouteEntry e = fromPersisted(p);
+            if (e != null) {
+                entries.add(e);
+            }
+        }
+        session.replaceBaseRouteEntries(entries);
         String currentName = preferOwnedCarrierSystemName(d);
         Long currentAddress = preferOwnedCarrierSystemAddress(d);
         double[] currentStarPos = preferOwnedCarrierStarPos(d);
@@ -60,16 +70,9 @@ public final class FleetCarrierSessionMapper {
                 d.getDestinationName(),
                 d.getPendingJumpLockedName(),
                 d.getPendingJumpLockedAddress(),
-                d.getInHyperspace());
+                d.getInHyperspace(),
+                d.getCurrentBaseIndex());
         session.applyPersistenceSnapshot(snap);
-        List<RouteEntry> entries = new ArrayList<>();
-        for (RouteEntryPersisted p : d.baseRouteEntriesOrEmpty()) {
-            RouteEntry e = fromPersisted(p);
-            if (e != null) {
-                entries.add(e);
-            }
-        }
-        session.replaceBaseRouteEntries(entries);
     }
 
     private static String preferOwnedCarrierSystemName(FleetCarrierSessionData d) {

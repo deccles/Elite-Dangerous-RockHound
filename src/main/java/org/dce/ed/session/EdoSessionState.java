@@ -26,6 +26,11 @@ public final class EdoSessionState {
     private Long pendingJumpLockedAddress;
     private Boolean inHyperspace;
     /**
+     * Monotonic CURRENT hop index into the ship Route tab base list (custom-route loops).
+     * Null in older session JSON — treat as 0 on restore.
+     */
+    private Integer currentBaseIndex;
+    /**
      * Ship Route tab: paste/reorder list (not {@code NavRoute.json}). When true, {@link #customRouteEntries}
      * is restored on startup instead of the journal NavRoute snapshot.
      */
@@ -341,6 +346,14 @@ public final class EdoSessionState {
 
     public void setInHyperspace(Boolean inHyperspace) {
         this.inHyperspace = inHyperspace;
+    }
+
+    public Integer getCurrentBaseIndex() {
+        return currentBaseIndex;
+    }
+
+    public void setCurrentBaseIndex(Integer currentBaseIndex) {
+        this.currentBaseIndex = currentBaseIndex;
     }
 
     public Boolean getCustomRouteActive() {

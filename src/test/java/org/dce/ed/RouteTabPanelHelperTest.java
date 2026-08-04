@@ -205,7 +205,12 @@ class RouteTabPanelHelperTest {
 
     @Test
     void rebuild_adoptsLiveSystemStateWhenSessionCurrentLagsOneHop() {
-        RouteTabPanel panel = new RouteTabPanel(() -> false);
+        RouteTabPanel panel = new RouteTabPanel(() -> false) {
+            @Override
+            protected boolean resolveCurrentSystemFromJournal() {
+                return false;
+            }
+        };
         panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
                 entry("Kuan Ti", 100L),
                 entry("Cemiess", 200L),
@@ -221,6 +226,40 @@ class RouteTabPanelHelperTest {
 
         assertEquals("Cemiess", panel.routeSessionForTests().getCurrentSystemName());
         assertEquals(200L, panel.routeSessionForTests().getCurrentSystemAddress());
+        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
+                .displayedEntries();
+        assertEquals(RouteMarkerKind.CURRENT, displayed.get(1).markerKind);
+        assertEquals(RouteMarkerKind.PENDING_JUMP, displayed.get(2).markerKind);
+    }
+
+    @Test
+    void rebuild_doesNotRegressCursorWhenLiveSystemStateLagsJournalArrival() {
+        RouteTabPanel panel = new RouteTabPanel(() -> false) {
+            @Override
+            protected boolean resolveCurrentSystemFromJournal() {
+                return false;
+            }
+        };
+        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                entry("Core Sys Sector CB-O a6-1", 100L),
+                entry("Gliese 868", 200L),
+                entry("Core Sys Sector CB-O a6-1", 100L),
+                entry("Gliese 868", 200L)));
+        // Journal FSDJump already advanced the route session.
+        panel.routeSessionForTests().applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
+        panel.routeSessionForTests().applyKnownCurrentSystem("Gliese 868", 200L, null);
+        assertEquals(1, panel.routeSessionForTests().getCurrentBaseIndex());
+
+        // System tab still briefly reports the previous hop.
+        SystemState live = new SystemState();
+        live.setSystemName("Core Sys Sector CB-O a6-1");
+        live.setSystemAddress(100L);
+        panel.setLiveSystemStateSupplier(() -> live);
+
+        panel.rebuildDisplayedEntries();
+
+        assertEquals("Gliese 868", panel.routeSessionForTests().getCurrentSystemName());
+        assertEquals(1, panel.routeSessionForTests().getCurrentBaseIndex());
         var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
                 .displayedEntries();
         assertEquals(RouteMarkerKind.CURRENT, displayed.get(1).markerKind);

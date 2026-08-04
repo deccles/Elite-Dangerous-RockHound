@@ -108,7 +108,6 @@ import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.DistanceToggleIcons;
-import org.dce.ed.ui.HoverCopyButtonSupport;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.StatusCircleIcon;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
@@ -194,7 +193,7 @@ public class RouteTabPanel extends JPanel {
 	private static final int ROUTE_COL_CLASS_ICON_TEXT_GAP = 4;
 	/** Keep current system row at this offset from top when auto-scrolling (e.g. one jump = one row scroll). */
 	private static final int TARGET_CURRENT_ROW_OFFSET = 4;
-	/** Padding above “Copy next destination” under the route table. */
+	/** Padding above the Exec-script / Clear strip under the route table. */
 	private static final int ROUTE_COPY_STRIP_GAP_PX = 6;
 	private final JLabel headerLabel;
 	/** Title strip: route summary (west) + Ly column mode toggles (east). */
@@ -207,6 +206,11 @@ public class RouteTabPanel extends JPanel {
 	protected JScrollPane routeScrollPane;
 	/** Holds {@link #routeScrollPane} and the copy strip (same structure on Route and Fleet Carrier tabs). */
 	private final JPanel routeCenterWrapper;
+	/**
+	 * Right-aligned strip under the table for Exec script buttons (and Fleet Carrier Clear).
+	 * The built-in “Copy next destination” control was removed; clipboard copy remains available to
+	 * scripts via {@link #copyNextRouteDestinationForExec()} and jump auto-copy.
+	 */
 	private final JPanel routeCopyStrip;
 	/** Red “Custom Route” label + Clear under the table when the route was customized (paste / reorder). */
 	private final JPanel customRouteWarningStrip;
@@ -214,9 +218,6 @@ public class RouteTabPanel extends JPanel {
 	private final JButton clearCustomRouteButton;
 	/** {@code true} after paste/reorder until a game {@code NavRoute} reload or explicit clear. */
 	private boolean customRouteActive;
-	private final JButton copyNextDestinationButton;
-	private final HoverCopyButtonSupport copyNextDestinationHoverCopySupport;
-	private final Timer copyNextDestinationRefreshTimer;
 	private final List<JButton> execTabButtons = new ArrayList<>();
 	private ExecTriggerService execTriggerService;
 	private final RouteTableModel tableModel;
@@ -274,13 +275,38 @@ public class RouteTabPanel extends JPanel {
 		if (session == null) {
 			return null;
 		}
-		List<RouteEntry> entries = session.getBaseRouteEntries();
+		return nextRouteDestinationSystemName(
+				session.getBaseRouteEntries(),
+				session.getCurrentSystemName(),
+				session.getCurrentSystemAddress(),
+				session.getCurrentBaseIndex());
+	}
+
+	/**
+	 * Next hop after {@code currentName}/{@code currentAddress} on the given route list.
+	 * Prefer the live commander position when the session current can lag one hop behind.
+	 */
+	public static String nextRouteDestinationSystemName(List<RouteEntry> entries,
+			String currentName,
+			long currentAddress) {
+		return nextRouteDestinationSystemName(entries, currentName, currentAddress, 0);
+	}
+
+	/**
+	 * Next hop after the CURRENT occurrence at/after {@code fromIndexInclusive}.
+	 * Used so custom-route loops do not snap next-dest back to the first duplicate.
+	 */
+	public static String nextRouteDestinationSystemName(List<RouteEntry> entries,
+			String currentName,
+			long currentAddress,
+			int fromIndexInclusive) {
 		if (entries == null || entries.isEmpty()) {
 			return null;
 		}
-		String curName = session.getCurrentSystemName();
-		long curAddr = session.getCurrentSystemAddress();
-		int row = RouteGeometry.findSystemRow(entries, curName, curAddr);
+		int row = RouteGeometry.findSystemRowFrom(entries, currentName, currentAddress, fromIndexInclusive);
+		if (row < 0) {
+			row = RouteGeometry.findSystemRow(entries, currentName, currentAddress);
+		}
 		int start = row + 1;
 		if (row < 0) {
 			start = 0;
@@ -290,7 +316,7 @@ public class RouteTabPanel extends JPanel {
 			if (e == null || e.isBodyRow || e.systemName == null || e.systemName.isBlank()) {
 				continue;
 			}
-			if (isSameRouteSystem(e, curName, curAddr)) {
+			if (isSameRouteSystem(e, currentName, currentAddress)) {
 				continue;
 			}
 			return e.systemName.trim();
@@ -388,7 +414,7 @@ public class RouteTabPanel extends JPanel {
 		return OverlayScrollPaneSupport.isPointerOverScrollBar(routeScrollPane, screenPoint);
 	}
 
-	/** Selective mouse mode: distance toggles, route table (paste / drag reorder / copy), Copy next destination. */
+	/** Selective mouse mode: distance toggles, route table (paste / drag reorder / copy), Exec strip. */
 	public boolean isPointerOverInteractiveRegion(Point screenPoint) {
 		if (isRouteReorderGestureActive()) {
 			return true;
@@ -409,7 +435,8 @@ public class RouteTabPanel extends JPanel {
 				&& SelectiveHitSupport.containsScreenPoint(clearCustomRouteButton, screenPoint)) {
 			return true;
 		}
-		return SelectiveHitSupport.containsScreenPoint(copyNextDestinationButton, screenPoint);
+		return routeCopyStrip != null && routeCopyStrip.isVisible()
+				&& SelectiveHitSupport.containsScreenPoint(routeCopyStrip, screenPoint);
 	}
 
 	/** True while a route-row drag is armed or in progress (keeps mouse pass-through disabled). */
@@ -421,10 +448,7 @@ public class RouteTabPanel extends JPanel {
 		if (state == null) {
 			return;
 		}
-		routeSession.applyPersistenceSnapshot(RoutePersistenceAdapter.fromEdoSession(state));
-		if (state.getCurrentSystemName() != null && !state.getCurrentSystemName().isBlank()) {
-			routeSession.setCurrentSystemName(state.getCurrentSystemName());
-		}
+		// Restore custom hops before the nav snapshot so currentBaseIndex clamps against the list.
 		if (Boolean.TRUE.equals(state.getCustomRouteActive())
 				&& !state.customRouteEntriesOrEmpty().isEmpty()) {
 			List<RouteEntry> entries = new ArrayList<>();
@@ -443,6 +467,10 @@ public class RouteTabPanel extends JPanel {
 			}
 		} else {
 			setCustomRouteActive(false);
+		}
+		routeSession.applyPersistenceSnapshot(RoutePersistenceAdapter.fromEdoSession(state));
+		if (state.getCurrentSystemName() != null && !state.getCurrentSystemName().isBlank()) {
+			routeSession.setCurrentSystemName(state.getCurrentSystemName());
 		}
 		reconcileRouteCurrentWithPostRescanCache();
 		reconcileRouteDestinationWithStatusSnapshot();
@@ -726,16 +754,18 @@ public class RouteTabPanel extends JPanel {
 			@Override
 			public Dimension getPreferredSize() {
 				Dimension tablePref = preferredRouteTableSize();
-				Dimension stripPref = routeCopyStrip.getPreferredSize();
+				int stripH = preferredRouteCopyStripHeight();
 				int warnH = preferredCustomRouteWarningHeight();
-				int w = Math.max(tablePref.width, stripPref.width);
-				return new Dimension(w, tablePref.height + warnH + stripPref.height);
+				int stripW = (routeCopyStrip != null && routeCopyStrip.isVisible())
+						? routeCopyStrip.getPreferredSize().width
+						: 0;
+				int w = Math.max(tablePref.width, stripW);
+				return new Dimension(w, tablePref.height + warnH + stripH);
 			}
 
 			@Override
 			public Dimension getMinimumSize() {
-				Dimension stripPref = routeCopyStrip.getPreferredSize();
-				return new Dimension(120, stripPref.height + preferredCustomRouteWarningHeight() + 40);
+				return new Dimension(120, preferredRouteCopyStripHeight() + preferredCustomRouteWarningHeight() + 40);
 			}
 
 			@Override
@@ -766,23 +796,14 @@ public class RouteTabPanel extends JPanel {
 		customRouteWarningStrip.add(clearCustomRouteButton);
 		customRouteWarningStrip.setVisible(false);
 
-		// Right-justified directly under the last table row; docks to the panel bottom only when the table scrolls.
+		// Right-justified under the last table row; hosts Exec script buttons (and Fleet Carrier Clear).
 		routeCopyStrip = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
 		routeCopyStrip.setOpaque(false);
 		routeCopyStrip.setBorder(new EmptyBorder(ROUTE_COPY_STRIP_GAP_PX, 4, 4, 4));
-
-		copyNextDestinationButton = new JButton("Copy next destination");
-		styleCopyNextDestinationButton(copyNextDestinationButton, uiFont);
-		copyNextDestinationButton.setToolTipText("Copy the next route system name to the clipboard (same as Route/Nearby copy)");
-		copyNextDestinationButton.addActionListener(e -> copyNextRouteDestinationToClipboard());
-
-		copyNextDestinationHoverCopySupport = new HoverCopyButtonSupport(copyNextDestinationButton,
-				() -> nextRouteDestinationSystemName(routeSession),
-				passThroughEnabledSupplier);
+		routeCopyStrip.setVisible(false);
 
 		routeCenterWrapper.add(routeScrollPane);
 		routeCenterWrapper.add(customRouteWarningStrip);
-		routeCopyStrip.add(copyNextDestinationButton);
 		routeCenterWrapper.add(routeCopyStrip);
 
 		add(routeTitleRow, BorderLayout.NORTH);
@@ -793,12 +814,6 @@ public class RouteTabPanel extends JPanel {
 		if (vpRoute != null) {
 			vpRoute.setViewPosition(new Point(0, 0));
 		}
-
-		copyNextDestinationRefreshTimer = new Timer(1_000, e -> updateCopyNextDestinationButton());
-		copyNextDestinationRefreshTimer.setRepeats(true);
-		copyNextDestinationRefreshTimer.start();
-		updateCopyNextDestinationButton();
-		copyNextDestinationHoverCopySupport.start();
 
 		routeScrollPane.setColumnHeaderView(null);
 		table.setTableHeader(null);
@@ -915,8 +930,8 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	/**
-	 * Place the copy button snug under the last table row when the table is short; when the table
-	 * needs a scrollbar, keep the button pinned to the bottom of the visible panel.
+	 * Place the Exec/Clear strip snug under the last table row when the table is short; when the table
+	 * needs a scrollbar, keep the strip pinned to the bottom of the visible panel.
 	 */
 	private void layoutRouteTableAndCopyStrip() {
 		if (routeCenterWrapper == null || routeScrollPane == null || routeCopyStrip == null) {
@@ -927,10 +942,7 @@ public class RouteTabPanel extends JPanel {
 		if (w <= 0 || h <= 0) {
 			return;
 		}
-		Dimension stripPref = routeCopyStrip.getPreferredSize();
-		int stripH = Math.max(stripPref.height, copyNextDestinationButton != null
-				? copyNextDestinationButton.getPreferredSize().height + 10
-				: 36);
+		int stripH = preferredRouteCopyStripHeight();
 		int warnH = preferredCustomRouteWarningHeight();
 		int maxTableH = Math.max(0, h - stripH - warnH);
 		int contentH = preferredRouteTableSize().height;
@@ -940,6 +952,14 @@ public class RouteTabPanel extends JPanel {
 			customRouteWarningStrip.setBounds(0, tableH, w, warnH);
 		}
 		routeCopyStrip.setBounds(0, tableH + warnH, w, stripH);
+	}
+
+	private int preferredRouteCopyStripHeight() {
+		if (routeCopyStrip == null || !routeCopyStrip.isVisible()) {
+			return 0;
+		}
+		Dimension stripPref = routeCopyStrip.getPreferredSize();
+		return Math.max(stripPref != null ? stripPref.height : 0, 36);
 	}
 
 	private int preferredCustomRouteWarningHeight() {
@@ -1012,31 +1032,28 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	/**
-	 * Selective (hybrid) mode: punch chrome left of “Copy next destination” and everything below
+	 * Selective (hybrid) mode: punch chrome around the Exec/Clear strip and everything below
 	 * that row fully transparent (same idea as Control Panel’s Kill scripts strip).
 	 */
 	@Override
 	public void paint(Graphics g) {
 		super.paint(g);
-		clearAroundCopyNextDestinationInSelectiveMode(g);
+		clearAroundRouteCopyStripInSelectiveMode(g);
 	}
 
-	private void clearAroundCopyNextDestinationInSelectiveMode(Graphics g) {
+	private void clearAroundRouteCopyStripInSelectiveMode(Graphics g) {
 		if (g == null || !TransparentViewportUI.isSelectivePassThroughContext(this)) {
 			return;
 		}
-		if (copyNextDestinationButton == null || !copyNextDestinationButton.isShowing()) {
+		if (routeCopyStrip == null || !routeCopyStrip.isShowing() || !routeCopyStrip.isVisible()) {
 			return;
 		}
-		// Punch strip padding / gaps so only Clear + Copy (and their fills) remain visible.
+		// Punch strip padding / gaps so only strip buttons (and their fills) remain visible.
 		TransparentViewportUI.clearPanelChromeExceptButtons(g, this, routeCopyStrip);
 		Graphics2D g2 = (Graphics2D) g.create();
 		try {
 			g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-			Component row = routeCopyStrip != null && routeCopyStrip.isShowing()
-					? routeCopyStrip
-					: copyNextDestinationButton;
-			Point rowBottom = SwingUtilities.convertPoint(row, 0, row.getHeight(), this);
+			Point rowBottom = SwingUtilities.convertPoint(routeCopyStrip, 0, routeCopyStrip.getHeight(), this);
 			int yStart = Math.max(0, rowBottom.y);
 			int yEnd = getHeight();
 			if (yEnd > yStart) {
@@ -1051,7 +1068,23 @@ public class RouteTabPanel extends JPanel {
 	protected void addCopyStripComponentLeft(Component c) {
 		if (routeCopyStrip != null && c != null) {
 			routeCopyStrip.add(c, 0);
+			updateRouteCopyStripVisibility();
 			routeCopyStrip.revalidate();
+		}
+	}
+
+	/** Shows the strip only when it hosts Exec buttons and/or Fleet Carrier Clear. */
+	private void updateRouteCopyStripVisibility() {
+		if (routeCopyStrip == null) {
+			return;
+		}
+		boolean show = routeCopyStrip.getComponentCount() > 0;
+		if (routeCopyStrip.isVisible() != show) {
+			routeCopyStrip.setVisible(show);
+			if (routeCenterWrapper != null) {
+				routeCenterWrapper.revalidate();
+				routeCenterWrapper.repaint();
+			}
 		}
 	}
 
@@ -1561,7 +1594,7 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	private void rebuildExecTabButtons() {
-		if (routeCopyStrip == null || copyNextDestinationButton == null) {
+		if (routeCopyStrip == null) {
 			return;
 		}
 		for (JButton button : execTabButtons) {
@@ -1570,19 +1603,14 @@ public class RouteTabPanel extends JPanel {
 		execTabButtons.clear();
 		List<ExecBinding> bindings = ExecOverlayButtonSupport.loadBindingsForButtonTab(execTriggerService,
 				execButtonTabId());
-		int insertAt = routeCopyStrip.getComponentCount();
-		for (int i = 0; i < routeCopyStrip.getComponentCount(); i++) {
-			if (routeCopyStrip.getComponent(i) == copyNextDestinationButton) {
-				insertAt = i;
-				break;
-			}
-		}
+		// Append script buttons on the right (Fleet Carrier Clear stays on the left via addCopyStripComponentLeft).
 		for (ExecBinding binding : bindings) {
 			JButton button = ExecOverlayButtonSupport.createActionButton(binding, execTriggerService,
 					passThroughEnabledSupplier);
-			routeCopyStrip.add(button, insertAt++);
+			routeCopyStrip.add(button);
 			execTabButtons.add(button);
 		}
+		updateRouteCopyStripVisibility();
 		routeCopyStrip.revalidate();
 		routeCopyStrip.repaint();
 		if (routeCenterWrapper != null) {
@@ -1880,7 +1908,6 @@ public class RouteTabPanel extends JPanel {
 			startEdsmUpdatesForVisibleRows();
 			scrollToKeepCurrentRowAtOffset();
 		});
-		updateCopyNextDestinationButton();
 	}
 
 	private void installRouteTablePasteBinding() {
@@ -2923,12 +2950,16 @@ public class RouteTabPanel extends JPanel {
 		}
 	}
 
-	/**
-	 * Keeps the solid “you are here” marker aligned with the System tab’s live commander position.
-	 * Session/journal current can sit one hop behind (solid on the previous system, hollow on the
-	 * system you already arrived in); SystemState is updated on the same {@code FSDJump} path and
-	 * is the authoritative in-memory location while the overlay is running.
-	 */
+    /**
+     * Keeps the solid “you are here” marker aligned with the System tab’s live commander position.
+     * Session/journal current can sit one hop behind (solid on the previous system, hollow on the
+     * system you already arrived in); SystemState is updated on the same {@code FSDJump} path and
+     * is the authoritative in-memory location while the overlay is running.
+     * <p>
+     * Never moves the route cursor backward, and does not treat a later duplicate of an earlier hop
+     * as progress when SystemState is still lagging (custom-route loops). Loop re-visits are advanced
+     * by journal {@code FSDJump}/{@code Location}, not by ambiguous live-name matches.
+     */
 	protected void reconcileRouteCurrentWithLiveCommanderPosition() {
 		if (liveSystemStateSupplier == null) {
 			return;
@@ -2948,6 +2979,24 @@ public class RouteTabPanel extends JPanel {
 		boolean sameAddr = liveAddr == 0L || sessionAddr == 0L || liveAddr == sessionAddr;
 		if (sameName && sameAddr) {
 			return;
+		}
+		List<RouteEntry> base = routeSession.getBaseRouteEntries();
+		int cursor = routeSession.getCurrentBaseIndex();
+		if (base != null && !base.isEmpty()) {
+			int liveAtOrAfter = RouteGeometry.findSystemRowFrom(base, liveName, liveAddr, cursor);
+			if (liveAtOrAfter >= 0) {
+				int liveFirst = RouteGeometry.findSystemRow(base, liveName, liveAddr);
+				// Only adopt when this is the first occurrence at/after the cursor. A later
+				// duplicate of a system already behind us is ambiguous with stale SystemState.
+				if (liveFirst == liveAtOrAfter) {
+					routeSession.applyKnownCurrentSystem(liveName, liveAddr, live.getStarPos());
+				}
+				return;
+			}
+			int liveAny = RouteGeometry.findSystemRow(base, liveName, liveAddr);
+			if (liveAny >= 0 && liveAny < cursor) {
+				return;
+			}
 		}
 		routeSession.applyKnownCurrentSystem(liveName, liveAddr, live.getStarPos());
 	}
@@ -3054,6 +3103,14 @@ public class RouteTabPanel extends JPanel {
 		}
 
 		private int findCurrentSystemRow() {
+			// Prefer the CURRENT marker (set with monotonic base index) so loops do not
+			// scroll/Ly-measure against the first name match.
+			for (int i = 0; i < entries.size(); i++) {
+				RouteEntry e = entries.get(i);
+				if (e != null && !e.isBodyRow && e.markerKind == RouteMarkerKind.CURRENT) {
+					return i;
+				}
+			}
 			if (currentSystemName == null || currentSystemName.isBlank()) {
 				return -1;
 			}
@@ -3864,8 +3921,10 @@ public class RouteTabPanel extends JPanel {
 			configureRouteTableColumnResizePolicy();
 			applyRouteTableColumnLayout();
 		}
-		if (copyNextDestinationButton != null) {
-			styleCopyNextDestinationButton(copyNextDestinationButton, uiFont);
+		for (JButton execButton : execTabButtons) {
+			if (execButton != null) {
+				styleCopyNextDestinationButton(execButton, uiFont);
+			}
 		}
 		repaint();
 	}
@@ -3886,37 +3945,8 @@ public class RouteTabPanel extends JPanel {
 		if (clearCustomRouteButton != null) {
 			OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(clearCustomRouteButton, uiFont);
 		}
-		if (copyNextDestinationButton != null) {
-			styleCopyNextDestinationButton(copyNextDestinationButton, uiFont);
-			updateCopyNextDestinationButton();
-		}
 		revalidate();
 		repaint();
-	}
-
-	private void updateCopyNextDestinationButton() {
-		if (copyNextDestinationButton == null) {
-			return;
-		}
-		String next = nextRouteDestinationSystemName(routeSession);
-		boolean hasNext = next != null && !next.isBlank();
-		// Keep enabled so BasicButtonUI keeps painting label text on translucent hosts;
-		// mute the ink when there is nothing to copy.
-		copyNextDestinationButton.setEnabled(true);
-		copyNextDestinationButton.setForeground(hasNext
-				? EdoUi.User.MAIN_TEXT
-				: EdoUi.Internal.MAIN_TEXT_ALPHA_180);
-		if (routeCenterWrapper != null) {
-			routeCenterWrapper.revalidate();
-			routeCenterWrapper.repaint();
-		}
-	}
-
-	private void copyNextRouteDestinationToClipboard() {
-		String next = copyNextRouteDestinationForExec();
-		if (next != null) {
-			afterDestinationCopiedToClipboard(next);
-		}
 	}
 
 	/**
@@ -3927,6 +3957,8 @@ public class RouteTabPanel extends JPanel {
 	 * @return trimmed system name, or {@code null} if there is no next hop
 	 */
 	public String copyNextRouteDestinationForExec() {
+		// Session current can lag one hop; align with System tab before resolving next.
+		reconcileRouteCurrentWithLiveCommanderPosition();
 		String next = nextRouteDestinationSystemName(routeSession);
 		if (next == null || next.isBlank()) {
 			return null;
@@ -3937,7 +3969,7 @@ public class RouteTabPanel extends JPanel {
 	private String copyDestinationNameToClipboard(String systemName) {
 		String trimmed = systemName.trim();
 		Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(trimmed), null);
-		Component anchor = copyNextDestinationButton != null ? copyNextDestinationButton : table;
+		Component anchor = (routeCopyStrip != null && routeCopyStrip.isShowing()) ? routeCopyStrip : table;
 		SystemTableHoverCopyManager.showCopiedToast((JComponent) anchor, trimmed);
 		return trimmed;
 	}

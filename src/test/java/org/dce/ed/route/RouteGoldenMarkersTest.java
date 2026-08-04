@@ -31,6 +31,7 @@ class RouteGoldenMarkersTest {
                 "Sol",
                 1L,
                 null,
+                0,
                 ts,
                 null,
                 0L,

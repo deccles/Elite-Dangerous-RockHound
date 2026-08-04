@@ -15,5 +15,7 @@ public record RoutePersistenceSnapshot(
         String destinationName,
         String pendingJumpLockedName,
         Long pendingJumpLockedAddress,
-        Boolean inHyperspace) {
+        Boolean inHyperspace,
+        /** Monotonic CURRENT hop index into the base route (custom-route loops). */
+        Integer currentBaseIndex) {
 }

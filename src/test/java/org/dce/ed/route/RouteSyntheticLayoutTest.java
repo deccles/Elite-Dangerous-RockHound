@@ -23,6 +23,7 @@ class RouteSyntheticLayoutTest {
                 "Mid",
                 0L,
                 null,
+                0,
                 ts,
                 null,
                 0L,
@@ -45,6 +46,7 @@ class RouteSyntheticLayoutTest {
                 "Sol",
                 1L,
                 null,
+                0,
                 ts,
                 null,
                 0L,
@@ -83,6 +85,7 @@ class RouteSyntheticLayoutTest {
                 "Sol",
                 1L,
                 null,
+                0,
                 ts,
                 null,
                 0L,
@@ -109,6 +112,7 @@ class RouteSyntheticLayoutTest {
                 "Diaguandri",
                 2L,
                 null,
+                0,
                 ts,
                 null,
                 0L,
@@ -119,6 +123,43 @@ class RouteSyntheticLayoutTest {
         assertEquals("Diaguandri", out.get(0).systemName);
         assertEquals("Ray Gateway", out.get(1).systemName);
         assertTrue(out.get(1).isBodyRow);
+    }
+
+    @Test
+    void destinationStationUnderCurrentVisit_notPastLoopHop() {
+        // Loop: Core → Gliese → Core → Gliese. At second Core, Hyperion must sit under hop 2.
+        List<RouteEntry> base = new ArrayList<>();
+        base.add(coordRow("Core Sys Sector CB-O a6-1", 1L, 0, 0, 0));
+        base.add(coordRow("Gliese 868", 2L, 10, 0, 0));
+        base.add(coordRow("Core Sys Sector CB-O a6-1", 1L, 20, 0, 0));
+        base.add(coordRow("Gliese 868", 2L, 30, 0, 0));
+        for (int i = 0; i < base.size(); i++) {
+            base.get(i).index = i;
+        }
+        RouteTargetState ts = new RouteTargetState();
+        ts.restoreFromPersistence(null, null, 1L, 7, "Hyperion");
+        List<RouteEntry> out = RouteLayoutEngine.buildDisplayedEntries(
+                base,
+                null,
+                "Core Sys Sector CB-O a6-1",
+                1L,
+                null,
+                2,
+                ts,
+                null,
+                0L,
+                (name, addr, pref) -> null,
+                true,
+                false);
+        assertEquals(5, out.size());
+        assertEquals("Core Sys Sector CB-O a6-1", out.get(0).systemName);
+        assertEquals("Gliese 868", out.get(1).systemName);
+        assertEquals("Core Sys Sector CB-O a6-1", out.get(2).systemName);
+        assertEquals("Hyperion", out.get(3).systemName);
+        assertTrue(out.get(3).isBodyRow);
+        assertEquals(1, out.get(3).indentLevel);
+        assertEquals("Gliese 868", out.get(4).systemName);
+        assertTrue(out.stream().noneMatch(e -> e != null && e.isBodyRow && out.indexOf(e) < 2));
     }
 
     @Test
@@ -133,6 +174,7 @@ class RouteSyntheticLayoutTest {
                 "Sol",
                 1L,
                 null,
+                0,
                 ts,
                 null,
                 0L,
@@ -158,6 +200,7 @@ class RouteSyntheticLayoutTest {
                 "Sol",
                 1L,
                 null,
+                0,
                 ts,
                 null,
                 0L,
@@ -192,6 +235,7 @@ class RouteSyntheticLayoutTest {
                 "HIP 12099",
                 1L,
                 null,
+                0,
                 ts,
                 null,
                 0L,
@@ -224,6 +268,7 @@ class RouteSyntheticLayoutTest {
                 "A",
                 1L,
                 null,
+                0,
                 ts,
                 null,
                 0L,
@@ -259,6 +304,7 @@ class RouteSyntheticLayoutTest {
                 "Core Sys Sector KC-M A7-4",
                 1L,
                 null,
+                0,
                 ts,
                 null,
                 0L,

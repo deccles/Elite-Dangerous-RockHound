@@ -15,10 +15,15 @@ public final class RouteLayoutEngine {
             String curName,
             long currentSystemAddress,
             double[] currentStarPos,
+            int currentBaseIndex,
             RouteCoordsResolver coordsResolver) {
         if (entries == null || curName == null || curName.isBlank()) {
             return;
         }
+        if (RouteGeometry.findSystemRowFrom(entries, curName, currentSystemAddress, currentBaseIndex) >= 0) {
+            return;
+        }
+        // Off-route (or only earlier duplicates): fall back to any occurrence before synthesizing.
         if (RouteGeometry.findSystemRow(entries, curName, currentSystemAddress) >= 0) {
             return;
         }
@@ -40,6 +45,7 @@ public final class RouteLayoutEngine {
             String targetStarClass,
             String currentSystemName,
             long currentSystemAddress,
+            int currentBaseIndex,
             boolean customRouteActive,
             RouteCoordsResolver coordsResolver) {
         if (entries == null || targetSystemName == null || targetSystemName.isBlank()) {
@@ -58,7 +64,7 @@ public final class RouteLayoutEngine {
         // before the next custom destination (galaxy paths bend; geometric insert can go after it).
         // Normal NavRoute: keep 3D polyline placement so intentional side trips sit along the path.
         int insertAt = customRouteActive
-                ? insertionIndexAfterCurrent(entries, currentSystemName, currentSystemAddress, coords)
+                ? insertionIndexAfterCurrent(entries, currentSystemName, currentSystemAddress, currentBaseIndex, coords)
                 : RouteGeometry.bestInsertionIndexByCoords(entries, coords);
         entries.add(insertAt, synthetic);
     }
@@ -69,8 +75,13 @@ public final class RouteLayoutEngine {
     static int insertionIndexAfterCurrent(List<RouteEntry> entries,
             String currentSystemName,
             long currentSystemAddress,
+            int currentBaseIndex,
             Double[] coords) {
-        int currentRow = RouteGeometry.findSystemRow(entries, currentSystemName, currentSystemAddress);
+        int currentRow = RouteGeometry.findSystemRowFrom(
+                entries, currentSystemName, currentSystemAddress, currentBaseIndex);
+        if (currentRow < 0) {
+            currentRow = RouteGeometry.findSystemRow(entries, currentSystemName, currentSystemAddress);
+        }
         if (currentRow < 0) {
             return RouteGeometry.bestInsertionIndexByCoords(entries, coords);
         }
@@ -89,6 +100,7 @@ public final class RouteLayoutEngine {
     public static void applySyntheticDestinationBodyRow(List<RouteEntry> entries,
             String currentSystemName,
             long currentSystemAddress,
+            int currentBaseIndex,
             String destinationName,
             Long destinationSystemAddress,
             Integer destinationBodyId,
@@ -113,9 +125,10 @@ public final class RouteLayoutEngine {
                 return;
             }
         }
-        // Attach under the destination system hop (not only when it is the current system),
-        // so a plotted station like Ray Gateway shows as soon as Status reports it.
-        int destSystemRow = RouteGeometry.findSystemRow(entries, null, destinationSystemAddress.longValue());
+        // Attach under the destination system hop at/after CURRENT (never under a past loop hop).
+        // Local stations sit under the current visit; en-route stations under the upcoming visit.
+        int destSystemRow = RouteGeometry.findSystemRowFrom(
+                entries, null, destinationSystemAddress.longValue(), currentBaseIndex);
         if (destSystemRow < 0) {
             return;
         }
@@ -142,6 +155,7 @@ public final class RouteLayoutEngine {
     /**
      * Full pipeline: copy base → optional hook (e.g. remembered scan status) → synthetics → leg distances → display # → markers.
      *
+     * @param currentBaseIndex monotonic CURRENT hop in the base list (custom-route loops)
      * @param customRouteActive when true, off-list FSD targets insert after CURRENT (custom multi-hop);
      *        when false, use 3D polyline insertion (normal NavRoute side trips).
      */
@@ -150,6 +164,7 @@ public final class RouteLayoutEngine {
             String currentSystemName,
             long currentSystemAddress,
             double[] currentStarPos,
+            int currentBaseIndex,
             RouteTargetState targetState,
             String pendingJumpLockedName,
             long pendingJumpLockedAddress,
@@ -162,10 +177,12 @@ public final class RouteLayoutEngine {
         }
         String tgtName = targetState.getTargetSystemName();
         long tgtAddr = targetState.getTargetSystemAddress();
-        applySyntheticCurrentRow(working, currentSystemName, currentSystemAddress, currentStarPos, coordsResolver);
+        applySyntheticCurrentRow(working, currentSystemName, currentSystemAddress, currentStarPos,
+                currentBaseIndex, coordsResolver);
         applySyntheticTargetRow(working, tgtName, tgtAddr, targetState.getTargetStarClass(),
-                currentSystemName, currentSystemAddress, customRouteActive, coordsResolver);
+                currentSystemName, currentSystemAddress, currentBaseIndex, customRouteActive, coordsResolver);
         applySyntheticDestinationBodyRow(working, currentSystemName, currentSystemAddress,
+                currentBaseIndex,
                 targetState.getDestinationName(),
                 targetState.getDestinationSystemAddress(),
                 targetState.getDestinationBodyId(),
@@ -175,6 +192,7 @@ public final class RouteLayoutEngine {
         RouteMarkerAssignment.applyMarkerKinds(working,
                 currentSystemName,
                 currentSystemAddress,
+                currentBaseIndex,
                 tgtName,
                 tgtAddr,
                 targetState.getDestinationSystemAddress(),

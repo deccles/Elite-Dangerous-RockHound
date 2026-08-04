@@ -34,15 +34,15 @@ class SystemEventProcessorFsdJumpTest {
     }
 
     @Test
-    void fsdJumpWithDockedFalse_doesNotUpdateSystem() {
+    void fsdJumpWithDockedFalse_updatesSystem() {
         state.setSystemName("Old");
         state.setSystemAddress(1L);
         FsdJumpEvent e = new FsdJumpEvent(Instant.parse("2025-01-01T12:00:00Z"), new JsonObject(),
                 "New", 2L, new double[] { 1, 1, 1 },
                 null, 0, null, 0, 0, 0, Boolean.FALSE);
         processor.handleEvent(e);
-        assertEquals("Old", state.getSystemName());
-        assertEquals(1L, state.getSystemAddress());
+        assertEquals("New", state.getSystemName());
+        assertEquals(2L, state.getSystemAddress());
         assertFalse(state.isDocked());
     }
 

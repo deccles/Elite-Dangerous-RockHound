@@ -16,6 +16,7 @@ class RouteMarkerAssignmentTest {
         rows.add(entry("Alpha", 2L, 1, 0, 0));
         RouteMarkerAssignment.applyMarkerKinds(rows,
                 "Sol", 1L,
+                0,
                 null, 0L,
                 null, null, null,
                 null, 0L,
@@ -32,6 +33,7 @@ class RouteMarkerAssignmentTest {
         rows.add(entry("C", 3L, 2, 0, 0));
         RouteMarkerAssignment.applyMarkerKinds(rows,
                 "B", 2L,
+                1,
                 null, 0L,
                 null, null, null,
                 null, 0L,
@@ -47,12 +49,35 @@ class RouteMarkerAssignmentTest {
         rows.add(entry("Side", 99L, 2, 0, 0));
         RouteMarkerAssignment.applyMarkerKinds(rows,
                 "Sol", 1L,
+                0,
                 "Side", 99L,
                 null, null, null,
                 null, 0L,
                 false);
         assertEquals(RouteMarkerKind.CURRENT, rows.get(0).markerKind);
         assertEquals(RouteMarkerKind.TARGET, rows.get(1).markerKind);
+    }
+
+    @Test
+    void loopedRoute_currentUsesBaseIndexNotFirstNameMatch() {
+        List<RouteEntry> rows = new ArrayList<>();
+        rows.add(entry("Gyll", 1L, 0, 0, 0));
+        rows.add(entry("Fliese", 2L, 1, 0, 0));
+        rows.add(entry("Gyll", 1L, 2, 0, 0));
+        rows.add(entry("Fliese", 2L, 3, 0, 0));
+        for (int i = 0; i < rows.size(); i++) {
+            rows.get(i).index = i;
+        }
+        RouteMarkerAssignment.applyMarkerKinds(rows,
+                "Gyll", 1L,
+                2,
+                null, 0L,
+                null, null, null,
+                null, 0L,
+                false);
+        assertEquals(RouteMarkerKind.NONE, rows.get(0).markerKind);
+        assertEquals(RouteMarkerKind.CURRENT, rows.get(2).markerKind);
+        assertEquals(RouteMarkerKind.PENDING_JUMP, rows.get(3).markerKind);
     }
 
     private static RouteEntry entry(String name, long addr, double x, double y, double z) {

@@ -146,6 +146,23 @@ public final class ExecPlaceholderContext {
     }
 
     static String shipNextDestination(ExecPlaceholderContext ctx) {
-        return RouteTabPanel.nextRouteDestinationSystemName(ctx.shipRoute());
+        RouteSession session = ctx.shipRoute();
+        if (session == null) {
+            return null;
+        }
+        // Prefer live System tab position — route session current can lag one hop behind arrival,
+        // which makes $ROUTE_NEXT_DESTINATION return the system you are already in.
+        SystemState live = ctx.systemState();
+        if (live != null) {
+            String liveName = live.getSystemName();
+            if (liveName != null && !liveName.isBlank()) {
+                return RouteTabPanel.nextRouteDestinationSystemName(
+                        session.getBaseRouteEntries(),
+                        liveName,
+                        live.getSystemAddress(),
+                        session.getCurrentBaseIndex());
+            }
+        }
+        return RouteTabPanel.nextRouteDestinationSystemName(session);
     }
 }

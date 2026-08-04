@@ -171,7 +171,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private final Timer crosshairTimer;
     private static final int CROSSHAIR_POLL_MS = 8;
     private static final long PASS_THROUGH_CLOSE_DWELL_MS = 900L;
-    private static final long PASS_THROUGH_TOGGLE_DWELL_MS = 700L;
+    /** Shorter than close/menu — mouse-mode is the escape hatch from pass-through. */
+    private static final long PASS_THROUGH_TOGGLE_DWELL_MS = 400L;
     private static final long PASS_THROUGH_MENU_DWELL_MS = 900L;
     private long passThroughCloseHoverStartMs = -1L;
     private long passThroughMinimizeHoverStartMs = -1L;

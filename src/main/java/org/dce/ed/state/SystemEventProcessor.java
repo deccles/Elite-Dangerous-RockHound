@@ -108,10 +108,10 @@ public class SystemEventProcessor {
             fleetCarrierPresence.onPersonalFsdJump(e);
             syncCommanderAboardFleetCarrier();
 
-            // Normal ship FSD jumps have docked == null => always update system.
-            if (e.getDocked() == null || e.getDocked()) {
-                enterSystem(e.getStarSystem(), e.getSystemAddress(), e.getStarPos());
-            }
+            // Personal FSDJump always changes star system. Journal includes Docked:false in open
+            // space; the old `docked == null || docked` guard skipped that common case whenever
+            // Docked was present on the event.
+            enterSystem(e.getStarSystem(), e.getSystemAddress(), e.getStarPos());
             return;
         }
 

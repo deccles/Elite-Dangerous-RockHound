@@ -188,19 +188,24 @@ public class TitleBarPanel extends JPanel {
             }
         });
 
-        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 4));
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
         rightPanel.setOpaque(false);
         rightPanel.add(hammerButton);
         rightPanel.add(settingsButton);
         rightPanel.add(passThroughToggleButton);
         rightPanel.add(minimizeButton);
         rightPanel.add(closeButton);
+        // Keep chrome controls from being crushed when the overlay is very narrow.
+        Dimension chromeMin = rightPanel.getPreferredSize();
+        rightPanel.setMinimumSize(chromeMin);
+        rightPanel.setPreferredSize(chromeMin);
 
         add(leftPanel, BorderLayout.WEST);
         add(rightPanel, BorderLayout.EAST);
 
-        // Tall enough that nothing gets clipped even with DPI scaling
-        setPreferredSize(new Dimension(100, 32));
+        // Tall enough for the larger mouse-mode plate + padding under DPI scaling
+        setPreferredSize(new Dimension(100, 36));
+        setMinimumSize(new Dimension(160, 36));
 
         // Drag-to-move behavior
         MouseAdapter dragListener = new MouseAdapter() {
@@ -372,7 +377,11 @@ public class TitleBarPanel extends JPanel {
         }
         try {
             Point p = passThroughToggleButton.getLocationOnScreen();
-            return new Rectangle(p.x, p.y, passThroughToggleButton.getWidth(), passThroughToggleButton.getHeight());
+            // Inflate dwell hit box — 24–30px next to Close is easy to miss with the game crosshair.
+            Rectangle r = new Rectangle(p.x, p.y, passThroughToggleButton.getWidth(),
+                    passThroughToggleButton.getHeight());
+            r.grow(10, 8);
+            return r;
         } catch (IllegalComponentStateException ex) {
             return null;
         }
@@ -416,7 +425,9 @@ public class TitleBarPanel extends JPanel {
 
         public PassThroughToggleButton() {
             setOpaque(false);
-            setPreferredSize(new Dimension(24, 24));
+            // Larger than other chrome icons — primary escape hatch from pass-through.
+            setPreferredSize(new Dimension(30, 30));
+            setMinimumSize(new Dimension(30, 30));
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             refreshToolTipText();
         }
@@ -475,11 +486,11 @@ public class TitleBarPanel extends JPanel {
                 if (passThroughLike) {
                     // Arrow first, then red strike on top so the bar clearly crosses the pointer.
                     g2.setColor(Color.WHITE);
-                    drawArrowOutline(g2, 2);
+                    drawArrowOutline(g2, 2, w, h);
                     g2.setStroke(new java.awt.BasicStroke(2f, java.awt.BasicStroke.CAP_ROUND,
                             java.awt.BasicStroke.JOIN_ROUND));
                     g2.setColor(EdoUi.User.ERROR);
-                    g2.drawLine(3, 19, 20, 3);
+                    g2.drawLine(Math.max(2, w / 10), h - 5, w - 4, 4);
                     if (mode == MouseInteractionMode.SELECTIVE) {
                         // Unfilled white rectangle over the top half of the pass-through icon.
                         g2.setStroke(new java.awt.BasicStroke(1.4f));
@@ -488,7 +499,7 @@ public class TitleBarPanel extends JPanel {
                     }
                 } else {
                     g2.setColor(Color.WHITE);
-                    drawArrowOutline(g2, 0);
+                    drawArrowOutline(g2, 0, w, h);
                 }
             } finally {
                 g2.dispose();
@@ -497,10 +508,14 @@ public class TitleBarPanel extends JPanel {
 
         /**
          * Outlined pointer arrow (previous iteration’s shape); {@code dx} shifts right with strike-through.
+         * Coordinates are authored for a 24×24 plate and scaled to the current button size.
          */
-        private static void drawArrowOutline(Graphics2D g2, int dx) {
+        private static void drawArrowOutline(Graphics2D g2, int dx, int w, int h) {
             java.awt.geom.AffineTransform prev = g2.getTransform();
-            g2.translate(dx, 0);
+            double sx = w / 24.0;
+            double sy = h / 24.0;
+            g2.translate(dx * sx, 0);
+            g2.scale(sx, sy);
             try {
                 g2.setStroke(new java.awt.BasicStroke(1.7f, java.awt.BasicStroke.CAP_ROUND,
                         java.awt.BasicStroke.JOIN_ROUND));
