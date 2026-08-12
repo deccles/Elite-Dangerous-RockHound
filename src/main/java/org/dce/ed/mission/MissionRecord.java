@@ -93,7 +93,11 @@ public final class MissionRecord {
     public void setSourcedFromStation(String sourcedFromStation) { this.sourcedFromStation = sourcedFromStation; }
 
     public boolean isSelfSourcedCommodityMission() {
-        return name != null && name.toLowerCase(Locale.ROOT).startsWith("mission_sourced");
+        if (name == null) {
+            return false;
+        }
+        String normalized = name.toLowerCase(Locale.ROOT);
+        return normalized.startsWith("mission_sourced") || normalized.startsWith("mission_collect");
     }
 
     public String getTargetFaction() { return targetFaction; }

@@ -812,7 +812,7 @@ public class RouteTabPanel extends JPanel {
 				"Clear the custom route and reload NavRoute.json, or show the current system if none is plotted");
 		clearCustomRouteButton.addActionListener(e -> clearCustomRoute());
 
-		loopCustomRouteButton = new JToggleButton(new CircularArrowIcon(14));
+		loopCustomRouteButton = new JToggleButton(new CircularArrowIcon(16));
 		loopCustomRouteButton.setToolTipText("Loop");
 		loopCustomRouteButton.setSelected(OverlayPreferences.isCustomRouteLoopEnabled());
 		styleLoopCustomRouteButton();

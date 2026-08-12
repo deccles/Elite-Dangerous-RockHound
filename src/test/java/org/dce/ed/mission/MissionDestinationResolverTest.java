@@ -84,6 +84,21 @@ class MissionDestinationResolverTest {
     }
 
     @Test
+    void collectMission_isCommanderSourcedAndDoesNotReuseAcceptanceStation() {
+        MissionRecord r = new MissionRecord(11L);
+        r.setName("Mission_Collect_Industrial");
+        r.setCommodityLocalised("Gold");
+        r.setOriginSystem("Col 285 Sector OK-P a35-2");
+        r.setOriginStation("Preuss City");
+        r.setDestinationSystem("Col 285 Sector OK-P a35-2");
+        r.setDestinationStation("Preuss City");
+
+        assertEquals("—", MissionDestinationResolver.originFor(r).displayLine());
+        assertEquals("Col 285 Sector OK-P a35-2 / Preuss City",
+                MissionDestinationResolver.turnInFor(r).displayLine());
+    }
+
+    @Test
     void passengerObjective_isPassengersNotDestination() {
         MissionRecord r = new MissionRecord(32L);
         r.setName("Mission_PassengerBulk");

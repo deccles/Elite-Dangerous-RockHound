@@ -31,14 +31,15 @@ public final class CircularArrowIcon implements Icon {
             boolean selected = c instanceof AbstractButton b && b.isSelected();
             Color ink = selected ? EdoUi.User.SECONDARY_HIGHLIGHT : EdoUi.User.MAIN_TEXT;
             g2.setColor(ink);
-            g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            double inset = 2.2;
+            g2.setStroke(new BasicStroke(2.15f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            double inset = 2.4;
             double d = size - inset * 2.0;
-            g2.draw(new Arc2D.Double(x + inset, y + inset, d, d, 35, 285, Arc2D.OPEN));
+            // Nearly complete circle with a deliberate gap at upper-right for a bold tangent arrowhead.
+            g2.draw(new Arc2D.Double(x + inset, y + inset, d, d, 52, 292, Arc2D.OPEN));
             Path2D head = new Path2D.Double();
-            head.moveTo(x + size - 1.5, y + size * 0.38);
-            head.lineTo(x + size - 6.0, y + size * 0.30);
-            head.lineTo(x + size - 3.8, y + size * 0.68);
+            head.moveTo(x + size - 1.1, y + size * 0.48);
+            head.lineTo(x + size - 7.0, y + size * 0.31);
+            head.lineTo(x + size - 4.3, y + size * 0.72);
             head.closePath();
             g2.fill(head);
         } finally {
