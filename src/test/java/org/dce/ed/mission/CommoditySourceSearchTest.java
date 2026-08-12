@@ -1,10 +1,18 @@
 package org.dce.ed.mission;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
 class CommoditySourceSearchTest {
+    @Test
+    void queryDoesNotExcludeSellersBelowMissionRequirement() {
+        String query = CommoditySourceSearch.queryParams(5916).toQueryString();
+
+        assertTrue(query.contains("minVolume=1"));
+    }
+
     @Test
     void parse_acceptsDataEnvelopeAndSortsNearestFirst() throws Exception {
         String json = "{\"data\":["

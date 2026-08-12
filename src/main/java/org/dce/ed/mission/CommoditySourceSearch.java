@@ -29,11 +29,15 @@ public final class CommoditySourceSearch {
         if (nearSystem == null || nearSystem.isBlank() || commodity == null || commodity.isBlank()) {
             throw new IOException("System and commodity are required");
         }
-        ArdentQueryParams params = new ArdentQueryParams()
-                .minVolume(Math.max(1, minSupply))
+        ArdentQueryParams params = queryParams(minSupply);
+        return parse(client.getNearbyExports(nearSystem.trim(), commodity.trim(), params));
+    }
+
+    static ArdentQueryParams queryParams(int missionRequirement) {
+        return new ArdentQueryParams()
+                .minVolume(1)
                 .maxDaysAgo(7)
                 .fleetCarriers(Boolean.FALSE);
-        return parse(client.getNearbyExports(nearSystem.trim(), commodity.trim(), params));
     }
 
     public static List<CommoditySourceChoice> parse(String json) throws IOException {
