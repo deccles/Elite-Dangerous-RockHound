@@ -400,6 +400,35 @@ public final class MissionTracker {
         return true;
     }
 
+    record ManualSource(String system, String station) { }
+
+    Map<Long, ManualSource> snapshotManualSources() {
+        Map<Long, ManualSource> sources = new HashMap<>();
+        for (MissionRecord mission : activeById.values()) {
+            if ((mission.getSourcedFromSystem() != null && !mission.getSourcedFromSystem().isBlank())
+                    || (mission.getSourcedFromStation() != null && !mission.getSourcedFromStation().isBlank())) {
+                sources.put(mission.getMissionId(),
+                        new ManualSource(mission.getSourcedFromSystem(), mission.getSourcedFromStation()));
+            }
+        }
+        return sources;
+    }
+
+    void restoreManualSources(Map<Long, ManualSource> sources) {
+        if (sources == null || sources.isEmpty()) return;
+        for (Map.Entry<Long, ManualSource> entry : sources.entrySet()) {
+            MissionRecord mission = activeById.get(entry.getKey());
+            ManualSource source = entry.getValue();
+            if (mission == null || source == null) continue;
+            if (mission.getSourcedFromSystem() == null || mission.getSourcedFromSystem().isBlank()) {
+                mission.setSourcedFromSystem(source.system());
+            }
+            if (mission.getSourcedFromStation() == null || mission.getSourcedFromStation().isBlank()) {
+                mission.setSourcedFromStation(source.station());
+            }
+        }
+    }
+
     private boolean onCargoDepot(CargoDepotEvent e) {
         if (e.getMissionId() == 0L) {
             return false;
@@ -496,6 +525,7 @@ public final class MissionTracker {
                 }
             }
             Runnable savedCallback = changeCallback;
+            Map<Long, ManualSource> savedManualSources = snapshotManualSources();
             Supplier<String> savedSystem = currentSystemSupplier;
             Supplier<String> savedStation = currentStationSupplier;
             final String[] replaySystem = { null };
@@ -524,6 +554,7 @@ public final class MissionTracker {
                     }
                 }
             } finally {
+                restoreManualSources(savedManualSources);
                 changeCallback = savedCallback;
                 currentSystemSupplier = savedSystem;
                 currentStationSupplier = savedStation;

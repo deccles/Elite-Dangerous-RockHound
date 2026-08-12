@@ -46,6 +46,25 @@ class MissionTrackerTest {
     }
 
     @Test
+    void journalHydration_preservesManualSourceWhenMissionIsRemovedAndRecreated() {
+        MissionTracker tracker = new MissionTracker();
+        String accepted = "{\"timestamp\":\"2026-08-12T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":42,\"Name\":\"Mission_Collect_Industrial\","
+                + "\"Commodity_Localised\":\"Gold\",\"Count\":50}";
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accepted));
+        assertTrue(tracker.setSourcedFrom(42L, "Sol", "Galileo"));
+        var manualSources = tracker.snapshotManualSources();
+
+        tracker.applyEvent((MissionCompletedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-12T11:00:00Z\",\"event\":\"MissionCompleted\",\"MissionID\":42}"));
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accepted));
+        tracker.restoreManualSources(manualSources);
+
+        assertEquals("Sol", tracker.findById(42L).getSourcedFromSystem());
+        assertEquals("Galileo", tracker.findById(42L).getSourcedFromStation());
+    }
+
+    @Test
     void acceptAndComplete_removesMission() {
         MissionTracker tracker = new MissionTracker();
         String accept = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
