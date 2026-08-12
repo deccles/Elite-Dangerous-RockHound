@@ -587,19 +587,30 @@ public class RouteTabPanel extends JPanel {
 					sp.setViewportBorder(null);
 				}
 			}
-			@Override
+		@Override
 			protected void paintComponent(Graphics g) {
 				super.paintComponent(g);
 				TransparentViewportUI.clearBelowTableRowsInSelectiveMode(g, this);
 				paintRouteRowDropLine(g);
 			}
+			@Override
+			public Component prepareRenderer(javax.swing.table.TableCellRenderer renderer, int row, int column) {
+				Component component = super.prepareRenderer(renderer, row, column);
+				if (isRowSelected(row) && component instanceof JComponent jc) {
+					jc.setOpaque(true);
+					component.setBackground(getSelectionBackground());
+					component.setForeground(getSelectionForeground());
+				}
+				return component;
+			}
 		};
 		// Belt-and-suspenders: remove editors so nothing can ever enter edit mode.
 		table.setDefaultEditor(Object.class, null);
 		table.setDefaultEditor(String.class, null);
-		// Focusable for Ctrl+V paste; editing stays disabled. Selection stays off (drag uses custom gesture).
+		// Focusable for paste/delete; editing stays disabled. A selected custom-route row can be deleted.
 		table.setFocusable(true);
-		table.setRowSelectionAllowed(false);
+		table.setRowSelectionAllowed(true);
+		table.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
 		table.setColumnSelectionAllowed(false);
 		table.setCellSelectionEnabled(false);
 		table.setSurrendersFocusOnKeystroke(false);
@@ -948,6 +959,7 @@ public class RouteTabPanel extends JPanel {
 			}
 		});
 		installRouteTablePasteBinding();
+		installRouteTableDeleteBinding();
 
 		reloadFromNavRouteFile();
 	}
@@ -2020,6 +2032,35 @@ public class RouteTabPanel extends JPanel {
 				pasteSystemsFromClipboard();
 			}
 		});
+	}
+
+	private void installRouteTableDeleteBinding() {
+		InputMap im = table.getInputMap(JComponent.WHEN_FOCUSED);
+		ActionMap am = table.getActionMap();
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "routeDeleteSelectedSystem");
+		am.put("routeDeleteSelectedSystem", new AbstractAction() {
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				deleteSelectedCustomRouteSystem();
+			}
+		});
+	}
+
+	void deleteSelectedCustomRouteSystem() {
+		if (!customRouteActive || table == null) return;
+		int selectedRow = table.getSelectedRow();
+		int baseIndex = baseIndexForDisplayRow(selectedRow);
+		if (baseIndex < 0 || !routeSession.removeBaseRouteEntry(baseIndex)) return;
+		onCustomRouteMutated();
+		rebuildDisplayedEntries();
+		fireSessionStateChanged();
+		setHeaderLabelText(routeJumpHeader(routeSession.getBaseRouteEntries()));
+		if (table.getRowCount() > 0) {
+			table.setRowSelectionInterval(Math.min(selectedRow, table.getRowCount() - 1),
+					Math.min(selectedRow, table.getRowCount() - 1));
+		}
 	}
 
 	private void pasteSystemsFromClipboard() {

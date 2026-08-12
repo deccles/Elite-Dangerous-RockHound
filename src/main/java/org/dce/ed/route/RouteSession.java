@@ -356,6 +356,19 @@ public final class RouteSession {
         return true;
     }
 
+    public boolean removeBaseRouteEntry(int index) {
+        if (index < 0 || index >= baseRouteEntries.size()) {
+            return false;
+        }
+        baseRouteEntries.remove(index);
+        if (index < currentBaseIndex) {
+            currentBaseIndex--;
+        }
+        renumberBaseIndexes();
+        clampCurrentBaseIndex();
+        return true;
+    }
+
     private void renumberBaseIndexes() {
         for (int i = 0; i < baseRouteEntries.size(); i++) {
             RouteEntry e = baseRouteEntries.get(i);

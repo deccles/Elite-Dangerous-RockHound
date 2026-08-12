@@ -15,6 +15,23 @@ import org.junit.jupiter.api.Test;
 import com.google.gson.JsonObject;
 
 class RouteSessionTest {
+    @Test
+    void removeBaseRouteEntry_adjustsCurrentIndex() {
+        RouteSession session = new RouteSession(null, null);
+        session.replaceBaseRouteEntries(List.of(
+                new RouteEntry(0, "A", 1L, "G", 0.0, RouteScanStatus.UNKNOWN),
+                new RouteEntry(1, "B", 2L, "G", 1.0, RouteScanStatus.UNKNOWN),
+                new RouteEntry(2, "C", 3L, "G", 1.0, RouteScanStatus.UNKNOWN)));
+        session.applyKnownCurrentSystem("B", 2L, null);
+
+        assertTrue(session.removeBaseRouteEntry(0));
+        assertEquals(0, session.getCurrentBaseIndex());
+        assertEquals(List.of("B", "C"), session.getBaseRouteEntries().stream().map(e -> e.systemName).toList());
+        assertTrue(session.removeBaseRouteEntry(0));
+        assertEquals(0, session.getCurrentBaseIndex());
+        assertEquals("C", session.getBaseRouteEntries().get(0).systemName);
+    }
+
 
     private TestJumpFlash flash;
     private RouteSession session;
