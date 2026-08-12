@@ -38,6 +38,8 @@ import java.util.function.Supplier;
 import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -613,6 +615,14 @@ public class RouteTabPanel extends JPanel {
 		table.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
 		table.setColumnSelectionAllowed(false);
 		table.setCellSelectionEnabled(false);
+		table.addFocusListener(new FocusAdapter() {
+			@Override
+			public void focusLost(FocusEvent e) {
+				if (!e.isTemporary()) {
+					table.clearSelection();
+				}
+			}
+		});
 		table.setSurrendersFocusOnKeystroke(false);
 		table.putClientProperty("JTable.autoStartsEdit", Boolean.FALSE);
 		table.setOpaque(false);
@@ -913,6 +923,7 @@ public class RouteTabPanel extends JPanel {
 				int viewRow = table.rowAtPoint(e.getPoint());
 				int fromBase = baseIndexForDisplayRow(viewRow);
 				if (viewRow < 0 || fromBase < 0) {
+					table.clearSelection();
 					clearRouteDragState();
 					return;
 				}
