@@ -1,7 +1,9 @@
 package org.dce.ed.ui;
 
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Window;
 import java.util.List;
@@ -20,6 +22,8 @@ import javax.swing.table.DefaultTableModel;
 import org.dce.ed.mission.CommoditySourceChoice;
 import org.dce.ed.mission.CommoditySourceSearch;
 import org.dce.ed.mission.MissionRecord;
+import org.dce.ed.OverlayPreferences;
+import org.dce.ed.edsm.UtilTable;
 
 /** Modal selector for a self-sourced mission's purchase station. */
 public final class CommoditySourceDialog extends JDialog {
@@ -66,6 +70,7 @@ public final class CommoditySourceDialog extends JDialog {
         add(north, BorderLayout.NORTH);
         add(new JScrollPane(results), BorderLayout.CENTER);
         add(south, BorderLayout.SOUTH);
+        configureResultsTable(results, OverlayPreferences.getUiFont());
         setSize(760, 430);
         setLocationRelativeTo(owner);
 
@@ -108,6 +113,7 @@ public final class CommoditySourceDialog extends JDialog {
                     for (CommoditySourceChoice c : rows) model.addRow(new Object[] {
                             c.station(), c.system(), c.systemDistanceLy(), c.arrivalDistanceLs(),
                             c.price(), c.supply(), c.updatedAt() });
+                    UtilTable.autoSizeTableColumns(results);
                     status.setText(rows.isEmpty() ? "No nearby sellers found; enter one manually."
                             : rows.size() + " nearby sellers found.");
                 } catch (Exception ex) {
@@ -115,5 +121,19 @@ public final class CommoditySourceDialog extends JDialog {
                 }
             }
         }.execute();
+    }
+
+    static void configureResultsTable(JTable table, Font font) {
+        if (font == null) return;
+        table.setFont(font);
+        table.setRowHeight(Math.max(table.getRowHeight(), table.getFontMetrics(font).getHeight() + 6));
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+
+        Font headerFont = font.deriveFont(Font.BOLD);
+        table.getTableHeader().setFont(headerFont);
+        Dimension preferred = table.getTableHeader().getPreferredSize();
+        table.getTableHeader().setPreferredSize(new Dimension(preferred.width,
+                table.getTableHeader().getFontMetrics(headerFont).getHeight() + 6));
+        UtilTable.autoSizeTableColumns(table);
     }
 }
