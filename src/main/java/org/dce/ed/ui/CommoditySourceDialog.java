@@ -98,6 +98,12 @@ public final class CommoditySourceDialog extends JDialog {
             onSave.accept(sys, stn);
             dispose();
         });
+        scheduleInitialSearch(currentSystem, () -> runSearch(search, mission));
+    }
+
+    static void scheduleInitialSearch(String currentSystem, Runnable search) {
+        if (currentSystem == null || currentSystem.isBlank() || search == null) return;
+        javax.swing.SwingUtilities.invokeLater(search);
     }
 
     private void runSearch(CommoditySourceSearch search, MissionRecord mission) {
