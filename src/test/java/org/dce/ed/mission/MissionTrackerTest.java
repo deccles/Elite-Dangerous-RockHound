@@ -14,11 +14,36 @@ import org.dce.ed.logreader.event.MissionAcceptedEvent;
 import org.dce.ed.logreader.event.MissionCompletedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
+import org.dce.ed.session.EdoSessionState;
 import org.junit.jupiter.api.Test;
 
 class MissionTrackerTest {
 
     private final EliteLogParser parser = new EliteLogParser();
+
+    @Test
+    void journalReplayFill_preservesPersistedManualSourceByMissionId() {
+        MissionTracker saved = new MissionTracker();
+        saved.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-12T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":42,\"Name\":\"Mission_Collect_Industrial\","
+                + "\"Commodity_Localised\":\"Gold\",\"Count\":50}"));
+        assertTrue(saved.setSourcedFrom(42L, "Sol", "Galileo"));
+        EdoSessionState state = new EdoSessionState();
+        saved.fillSessionState(state);
+
+        MissionTracker replayed = new MissionTracker();
+        replayed.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-12T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":42,\"Name\":\"Mission_Collect_Industrial\","
+                + "\"Commodity_Localised\":\"Gold\",\"Count\":50}"));
+        replayed.fillSessionState(state);
+
+        MissionTracker restored = new MissionTracker();
+        restored.applySessionState(state);
+        assertEquals("Sol", restored.findById(42L).getSourcedFromSystem());
+        assertEquals("Galileo", restored.findById(42L).getSourcedFromStation());
+    }
 
     @Test
     void acceptAndComplete_removesMission() {

@@ -865,13 +865,28 @@ public final class MissionTracker {
         MissionSessionData data = new MissionSessionData();
         Map<String, MissionRecordPersisted> map = new HashMap<>();
         for (MissionRecord r : activeById.values()) {
-            map.put(Long.toString(r.getMissionId()), toPersisted(r));
+            String id = Long.toString(r.getMissionId());
+            MissionRecordPersisted persisted = toPersisted(r);
+            MissionRecordPersisted previous = state.getMissions() != null
+                    ? state.getMissions().activeByIdOrEmpty().get(id) : null;
+            preserveManualSource(persisted, previous);
+            map.put(id, persisted);
         }
         data.setActiveById(map);
         data.setDismissedRedirectIds(new ArrayList<>(dismissedRedirectIds));
         data.setLastUpdated(lastUpdated != null ? lastUpdated.toString() : null);
         state.setMissions(data);
         state.setVersion(3);
+    }
+
+    private static void preserveManualSource(MissionRecordPersisted target, MissionRecordPersisted previous) {
+        if (target == null || previous == null) return;
+        if (target.getSourcedFromSystem() == null || target.getSourcedFromSystem().isBlank()) {
+            target.setSourcedFromSystem(previous.getSourcedFromSystem());
+        }
+        if (target.getSourcedFromStation() == null || target.getSourcedFromStation().isBlank()) {
+            target.setSourcedFromStation(previous.getSourcedFromStation());
+        }
     }
 
     public void applySessionState(EdoSessionState state) {
