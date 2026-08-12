@@ -99,6 +99,33 @@ class MissionDestinationResolverTest {
     }
 
     @Test
+    void recentProvidedRutileAndSelfSourcedGold_areDistinguishedByMissionType() {
+        MissionRecord providedRutile = new MissionRecord(1063195689L);
+        providedRutile.setName("Mission_DeliveryWing");
+        providedRutile.setCommodityLocalised("Rutile");
+        providedRutile.setCountRequired(5916);
+        providedRutile.setOriginSystem("Gliese 868");
+        providedRutile.setOriginStation("MacLean Terminal");
+        providedRutile.setDestinationSystem("Core Sys Sector FH-M a7-1");
+        providedRutile.setDestinationStation("Wolf Ve Memorial");
+
+        MissionRecord sourcedGold = new MissionRecord(1063198076L);
+        sourcedGold.setName("Mission_Collect_Industrial");
+        sourcedGold.setCommodityLocalised("Gold");
+        sourcedGold.setCountRequired(1863);
+        sourcedGold.setOriginSystem("Col 285 Sector OK-P a35-2");
+        sourcedGold.setOriginStation("Preuss City");
+        sourcedGold.setDestinationSystem("Col 285 Sector OK-P a35-2");
+        sourcedGold.setDestinationStation("Preuss City");
+
+        assertEquals(false, providedRutile.isSelfSourcedCommodityMission());
+        assertEquals("Gliese 868 / MacLean Terminal",
+                MissionDestinationResolver.originFor(providedRutile).displayLine());
+        assertEquals(true, sourcedGold.isSelfSourcedCommodityMission());
+        assertEquals("—", MissionDestinationResolver.originFor(sourcedGold).displayLine());
+    }
+
+    @Test
     void passengerObjective_isPassengersNotDestination() {
         MissionRecord r = new MissionRecord(32L);
         r.setName("Mission_PassengerBulk");
