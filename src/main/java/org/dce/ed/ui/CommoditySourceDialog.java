@@ -1,6 +1,8 @@
 package org.dce.ed.ui;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -17,6 +19,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SwingWorker;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 
 import org.dce.ed.mission.CommoditySourceChoice;
@@ -71,6 +74,8 @@ public final class CommoditySourceDialog extends JDialog {
         add(new JScrollPane(results), BorderLayout.CENTER);
         add(south, BorderLayout.SOUTH);
         configureResultsTable(results, OverlayPreferences.getUiFont());
+        configureSupplyRenderer(results, 5,
+                Math.max(1, mission.getCountRequired() - mission.getItemsDelivered()));
         setSize(760, 430);
         setLocationRelativeTo(owner);
 
@@ -135,5 +140,21 @@ public final class CommoditySourceDialog extends JDialog {
         table.getTableHeader().setPreferredSize(new Dimension(preferred.width,
                 table.getTableHeader().getFontMetrics(headerFont).getHeight() + 6));
         UtilTable.autoSizeTableColumns(table);
+    }
+
+    static void configureSupplyRenderer(JTable table, int column, int required) {
+        table.getColumnModel().getColumn(column).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable source, Object value, boolean selected,
+                    boolean focused, int row, int viewColumn) {
+                Component component = super.getTableCellRendererComponent(
+                        source, value, selected, focused, row, viewColumn);
+                if (!selected) {
+                    component.setForeground(value instanceof Number number && number.longValue() < required
+                            ? Color.RED : source.getForeground());
+                }
+                return component;
+            }
+        });
     }
 }
