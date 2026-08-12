@@ -3730,15 +3730,20 @@ public class RouteTabPanel extends JPanel {
 				} catch (Exception ex) {
 					indent = 0;
 				}
+				boolean bodyChevron = false;
 				// Body/station target: draw the next-stop chevron beside the name, not in COL_MARKER.
 				if (e != null && e.isBodyRow) {
 					RouteMarkerKind kind = e.markerKind;
 					if (kind == RouteMarkerKind.TARGET
 							|| (kind == RouteMarkerKind.PENDING_JUMP && jumpFlashOn)) {
 						l.setIcon(new OutlineTriangleIcon(EdoUi.ED_ORANGE_LESS_TRANS, 10, 10, 2f));
+						// Keep a clear gap; outline stroke can otherwise crowd the name.
+						l.setIconTextGap(6);
+						bodyChevron = true;
 					}
 				}
-				int left = 6 + indent * 14;
+				// With a chevron, stay near the left of the name cell (not full body indent).
+				int left = bodyChevron ? 2 : (6 + indent * 14);
 				l.setBorder(new EmptyBorder(3, left, 3, 4));
 			}
 			return c;
@@ -3917,8 +3922,15 @@ public class RouteTabPanel extends JPanel {
 			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 			g2.setColor(color);
 			g2.setStroke(new BasicStroke(strokeWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-			int[] xs = { x, x, x + w };
-			int[] ys = { y, y + h, y + (h / 2) };
+			// Inset by half the stroke so the tip does not spill into the label text gap.
+			float inset = strokeWidth * 0.5f;
+			int left = Math.round(x + inset);
+			int top = Math.round(y + inset);
+			int right = Math.round(x + w - inset);
+			int bottom = Math.round(y + h - inset);
+			int midY = (top + bottom) / 2;
+			int[] xs = { left, left, right };
+			int[] ys = { top, bottom, midY };
 			g2.drawPolygon(xs, ys, 3);
 			g2.dispose();
 		}
