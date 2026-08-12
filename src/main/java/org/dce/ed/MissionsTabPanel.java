@@ -99,6 +99,7 @@ public class MissionsTabPanel extends JPanel {
     private final Supplier<String> currentStationSupplier;
 
     private Runnable sessionStateChangeCallback;
+    private Runnable immediateSessionStateChangeCallback;
     private Filter filter = Filter.ALL;
 
     private static final int FILTER_HOVER_DELAY_MS = 500;
@@ -272,11 +273,21 @@ public class MissionsTabPanel extends JPanel {
         String current = currentSystemSupplier != null ? currentSystemSupplier.get() : null;
         java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
         new CommoditySourceDialog(owner, mission, current, new CommoditySourceSearch(), (system, station) -> {
-            if (tracker.setSourcedFrom(mission.getMissionId(), system, station)) {
-                refreshUi();
-                if (sessionStateChangeCallback != null) sessionStateChangeCallback.run();
-            }
+            applySourcedFromSelection(mission.getMissionId(), system, station);
         }).setVisible(true);
+    }
+
+    boolean applySourcedFromSelection(long missionId, String system, String station) {
+        if (!tracker.setSourcedFrom(missionId, system, station)) {
+            return false;
+        }
+        refreshUi();
+        if (immediateSessionStateChangeCallback != null) {
+            immediateSessionStateChangeCallback.run();
+        } else if (sessionStateChangeCallback != null) {
+            sessionStateChangeCallback.run();
+        }
+        return true;
     }
 
     private void buildFilterBar(Font base) {
@@ -420,6 +431,11 @@ public class MissionsTabPanel extends JPanel {
                 sessionStateChangeCallback.run();
             }
         });
+    }
+
+    /** Persist manual mission annotations before an IDE/process stop can bypass the debounce timer. */
+    public void setImmediateSessionStateChangeCallback(Runnable callback) {
+        this.immediateSessionStateChangeCallback = callback;
     }
 
     public void fillSessionState(EdoSessionState state) {

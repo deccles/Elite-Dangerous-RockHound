@@ -941,6 +941,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getSystemTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getMiningTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getMissionsTabPanel().setSessionStateChangeCallback(debouncedSave);
+        tabs.getMissionsTabPanel().setImmediateSessionStateChangeCallback(this::flushSessionStateNow);
         tabs.getEngineeringTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getEngineeringTabPanel().setUnplannedCraftWarningCallback(this::warnUnplannedEngineeringCraft);
         tabs.getBiologyTabPanel().setSessionStateChangeCallback(debouncedSave);
