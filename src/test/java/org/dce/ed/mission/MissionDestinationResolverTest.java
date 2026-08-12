@@ -66,6 +66,24 @@ class MissionDestinationResolverTest {
     }
 
     @Test
+    void sourcedMission_originIsEmptyUntilExplicitPurchaseSourceIsSet() {
+        MissionRecord r = new MissionRecord(10L);
+        r.setName("Mission_Sourced_Boom");
+        r.setCommodityLocalised("Gold");
+        r.setOriginSystem("Sol");
+        r.setOriginStation("Galileo");
+        r.setDestinationSystem("Achenar");
+        r.setDestinationStation("Dawes Hub");
+
+        assertEquals("—", MissionDestinationResolver.originFor(r).displayLine());
+
+        r.setSourcedFromSystem("Lave");
+        r.setSourcedFromStation("Lave Station");
+        assertEquals("Lave / Lave Station", MissionDestinationResolver.originFor(r).displayLine());
+        assertEquals("Achenar / Dawes Hub", MissionDestinationResolver.turnInFor(r).displayLine());
+    }
+
+    @Test
     void passengerObjective_isPassengersNotDestination() {
         MissionRecord r = new MissionRecord(32L);
         r.setName("Mission_PassengerBulk");

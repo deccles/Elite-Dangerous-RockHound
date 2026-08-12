@@ -16,6 +16,7 @@ import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseAdapter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -58,6 +59,7 @@ import org.dce.ed.logreader.event.MissionFailedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
 import org.dce.ed.mission.CommodityMissionGroup;
+import org.dce.ed.mission.CommoditySourceSearch;
 import org.dce.ed.mission.MissionCategory;
 import org.dce.ed.mission.MissionDestination;
 import org.dce.ed.mission.MissionDestinationResolver;
@@ -66,6 +68,7 @@ import org.dce.ed.mission.MissionSpeechTracker;
 import org.dce.ed.mission.MissionTracker;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.ui.DestinationCopySupport;
+import org.dce.ed.ui.CommoditySourceDialog;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
@@ -175,6 +178,21 @@ public class MissionsTabPanel extends JPanel {
         missionsTable.setDefaultRenderer(Object.class, renderer);
         missionsTable.getColumnModel().getColumn(MissionsTableModel.COL_PLACES)
                 .setCellRenderer(new PlacesCellRenderer());
+        missionsTable.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                int viewRow = missionsTable.rowAtPoint(e.getPoint());
+                int viewCol = missionsTable.columnAtPoint(e.getPoint());
+                if (viewRow < 0 || viewCol < 0
+                        || missionsTable.convertColumnIndexToModel(viewCol) != MissionsTableModel.COL_PLACES) return;
+                Rectangle cell = missionsTable.getCellRect(viewRow, viewCol, true);
+                if (e.getY() > cell.y + cell.height / 2 || e.getX() < cell.x + cell.width - 125) return;
+                MissionRow row = tableModel.rowAt(missionsTable.convertRowIndexToModel(viewRow));
+                if (row != null && row.record.isSelfSourcedCommodityMission()) {
+                    openCommoditySourceDialog(row.record);
+                    e.consume();
+                }
+            }
+        });
 
         Comparator<String> textCmp = Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER);
         missionsSorter.setComparator(MissionsTableModel.COL_TYPE, textCmp);
@@ -248,6 +266,17 @@ public class MissionsTabPanel extends JPanel {
         if (execButtonStrip != null) {
             execButtonStrip.setExecTriggerService(service);
         }
+    }
+
+    private void openCommoditySourceDialog(MissionRecord mission) {
+        String current = currentSystemSupplier != null ? currentSystemSupplier.get() : null;
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+        new CommoditySourceDialog(owner, mission, current, new CommoditySourceSearch(), (system, station) -> {
+            if (tracker.setSourcedFrom(mission.getMissionId(), system, station)) {
+                refreshUi();
+                if (sessionStateChangeCallback != null) sessionStateChangeCallback.run();
+            }
+        }).setVisible(true);
     }
 
     private void buildFilterBar(Font base) {
@@ -1016,6 +1045,7 @@ public class MissionsTabPanel extends JPanel {
         private final JLabel toBadge = new JLabel("To", SwingConstants.CENTER);
         private final JLabel fromText = new JLabel();
         private final JLabel toText = new JLabel();
+        private final JButton sourcedFromButton = new JButton("Sourced from?");
         private int badgeWidthPx = -1;
 
         PlacesCellRenderer() {
@@ -1038,6 +1068,12 @@ public class MissionsTabPanel extends JPanel {
             gc.weightx = 1;
             gc.fill = java.awt.GridBagConstraints.HORIZONTAL;
             panel.add(fromText, gc);
+            gc.gridx = 2;
+            gc.weightx = 0;
+            gc.fill = java.awt.GridBagConstraints.NONE;
+            OverlayOutlineButtonStyle.applyChipHitSafe(sourcedFromButton, OverlayPreferences.getUiFont(), false);
+            sourcedFromButton.setToolTipText("Set the station where this commodity will be sourced");
+            panel.add(sourcedFromButton, gc);
             gc.gridx = 0;
             gc.gridy = 1;
             gc.weightx = 0;
@@ -1087,11 +1123,13 @@ public class MissionsTabPanel extends JPanel {
             String from = "—";
             String to = "—";
             boolean showFrom = true;
+            boolean showSourcedAction = false;
             if (row >= 0 && table != null) {
                 int modelRow = table.convertRowIndexToModel(row);
                 MissionRow mr = tableModel.rowAt(modelRow);
                 if (mr != null) {
                     showFrom = mr.showsFromPlace();
+                    showSourcedAction = mr.record.isSelfSourcedCommodityMission();
                     if (mr.origin != null && !mr.origin.isEmpty()) {
                         from = mr.origin.displayLine();
                     }
@@ -1102,6 +1140,7 @@ public class MissionsTabPanel extends JPanel {
             }
             fromBadge.setVisible(showFrom);
             fromText.setVisible(showFrom);
+            sourcedFromButton.setVisible(showFrom && showSourcedAction);
             fromText.setText(from);
             toText.setText(to);
             panel.setBorder(missionRowCellBorder(table, row));

@@ -43,6 +43,7 @@ public final class OverlayPreferences {
 
     private static final String KEY_PASSTHROUGH_TOGGLE_KEYCODE = "overlay.passthrough.toggleKeyCode"; // JNativeHook NativeKeyEvent VC_*
     private static final String KEY_NEXT_TAB_KEYCODE = "overlay.tabs.nextShown.keyCode"; // JNativeHook NativeKeyEvent VC_*
+    private static final String KEY_CUSTOM_ROUTE_LOOP = "route.custom.loop";
     private static final String KEY_LOG_AUTO = "log.autoDetect";
     private static final String KEY_LOG_CUSTOM_DIR = "log.customDir";
 
@@ -2214,6 +2215,14 @@ public static Engine getSpeechEngine() {
 
     public static void setUiSecondaryHighlightRgb(int rgb) {
         PREFS.putInt(KEY_UI_SECONDARY_HIGHLIGHT_RGB, rgb & 0x00FFFFFF);
+    }
+
+    public static boolean isCustomRouteLoopEnabled() {
+        return PREFS.getBoolean(KEY_CUSTOM_ROUTE_LOOP, false);
+    }
+
+    public static void setCustomRouteLoopEnabled(boolean enabled) {
+        PREFS.putBoolean(KEY_CUSTOM_ROUTE_LOOP, enabled);
     }
 
     /**

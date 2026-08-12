@@ -44,6 +44,7 @@ public final class RouteSession {
      * at/after this index so custom-route loops (duplicate systems) do not snap back to hop 0.
      */
     private int currentBaseIndex;
+    private boolean customRouteLoopEnabledForArrivals;
     private String pendingJumpSystemName;
     private String pendingJumpLockedName;
     private long pendingJumpLockedAddress;
@@ -132,6 +133,11 @@ public final class RouteSession {
      * which would make {@link RouteGeometry#findSystemRow} match the wrong route row.
      */
     public void applyKnownCurrentSystem(String name, long systemAddress, double[] starPos) {
+        applyKnownCurrentSystem(name, systemAddress, starPos, customRouteLoopEnabledForArrivals);
+    }
+
+    public void applyKnownCurrentSystem(String name, long systemAddress, double[] starPos,
+            boolean customRouteLoopEnabled) {
         if (name == null || name.isBlank()) {
             return;
         }
@@ -142,8 +148,20 @@ public final class RouteSession {
         if (starPos != null && starPos.length >= 3) {
             this.currentStarPos = starPos.clone();
         }
-        advanceCurrentBaseIndexForArrival(this.currentSystemName, this.currentSystemAddress);
+        boolean wrapToStart = customRouteLoopEnabled
+                && baseRouteEntries.size() > 1
+                && currentBaseIndex == baseRouteEntries.size() - 1
+                && RouteGeometry.rowMatchesSystem(baseRouteEntries.get(0), name, systemAddress);
+        if (wrapToStart) {
+            currentBaseIndex = 0;
+        } else {
+            advanceCurrentBaseIndexForArrival(this.currentSystemName, this.currentSystemAddress);
+        }
         targetState.clearTargetIfMatchesArrival(this.currentSystemName, this.currentSystemAddress);
+    }
+
+    public void setCustomRouteLoopEnabledForArrivals(boolean enabled) {
+        customRouteLoopEnabledForArrivals = enabled;
     }
 
     /**

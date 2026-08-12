@@ -1,6 +1,7 @@
 package org.dce.ed.mission;
 
 import java.time.Instant;
+import java.util.Locale;
 
 /**
  * Active mission state merged from {@code MissionAccepted}, {@code CargoDepot}, redirects, and snapshots.
@@ -21,6 +22,8 @@ public final class MissionRecord {
     private String originSystem;
     /** Station where the mission was accepted, when known. */
     private String originStation;
+    private String sourcedFromSystem;
+    private String sourcedFromStation;
     private String targetFaction;
     private String target;
     private String targetType;
@@ -83,6 +86,15 @@ public final class MissionRecord {
 
     public String getOriginStation() { return originStation; }
     public void setOriginStation(String originStation) { this.originStation = originStation; }
+
+    public String getSourcedFromSystem() { return sourcedFromSystem; }
+    public void setSourcedFromSystem(String sourcedFromSystem) { this.sourcedFromSystem = sourcedFromSystem; }
+    public String getSourcedFromStation() { return sourcedFromStation; }
+    public void setSourcedFromStation(String sourcedFromStation) { this.sourcedFromStation = sourcedFromStation; }
+
+    public boolean isSelfSourcedCommodityMission() {
+        return name != null && name.toLowerCase(Locale.ROOT).startsWith("mission_sourced");
+    }
 
     public String getTargetFaction() { return targetFaction; }
     public void setTargetFaction(String targetFaction) { this.targetFaction = targetFaction; }

@@ -57,6 +57,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
+import javax.swing.JToggleButton;
 import javax.swing.JViewport;
 import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
@@ -108,6 +109,7 @@ import org.dce.ed.logreader.event.StatusEvent;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.DistanceToggleIcons;
+import org.dce.ed.ui.CircularArrowIcon;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.StatusCircleIcon;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
@@ -216,6 +218,7 @@ public class RouteTabPanel extends JPanel {
 	private final JPanel customRouteWarningStrip;
 	private final JLabel customRouteWarningLabel;
 	private final JButton clearCustomRouteButton;
+	private final JToggleButton loopCustomRouteButton;
 	/** {@code true} after paste/reorder until a game {@code NavRoute} reload or explicit clear. */
 	private boolean customRouteActive;
 	private final List<JButton> execTabButtons = new ArrayList<>();
@@ -280,6 +283,23 @@ public class RouteTabPanel extends JPanel {
 				session.getCurrentSystemName(),
 				session.getCurrentSystemAddress(),
 				session.getCurrentBaseIndex());
+	}
+
+	public static String nextRouteDestinationSystemName(RouteSession session,
+			boolean customRouteActive,
+			boolean loopEnabled) {
+		String next = nextRouteDestinationSystemName(session);
+		if (next != null || session == null || !customRouteActive || !loopEnabled) {
+			return next;
+		}
+		List<RouteEntry> entries = session.getBaseRouteEntries();
+		if (entries == null || entries.size() < 2 || session.getCurrentBaseIndex() != entries.size() - 1) {
+			return null;
+		}
+		RouteEntry first = entries.get(0);
+		return first != null && !first.isBodyRow && first.systemName != null && !first.systemName.isBlank()
+				? first.systemName.trim()
+				: null;
 	}
 
 	/**
@@ -433,6 +453,10 @@ public class RouteTabPanel extends JPanel {
 		}
 		if (clearCustomRouteButton != null && clearCustomRouteButton.isVisible()
 				&& SelectiveHitSupport.containsScreenPoint(clearCustomRouteButton, screenPoint)) {
+			return true;
+		}
+		if (loopCustomRouteButton != null && loopCustomRouteButton.isVisible()
+				&& SelectiveHitSupport.containsScreenPoint(loopCustomRouteButton, screenPoint)) {
 			return true;
 		}
 		return routeCopyStrip != null && routeCopyStrip.isVisible()
@@ -788,11 +812,24 @@ public class RouteTabPanel extends JPanel {
 				"Clear the custom route and reload NavRoute.json, or show the current system if none is plotted");
 		clearCustomRouteButton.addActionListener(e -> clearCustomRoute());
 
+		loopCustomRouteButton = new JToggleButton(new CircularArrowIcon(14));
+		loopCustomRouteButton.setToolTipText("Loop");
+		loopCustomRouteButton.setSelected(OverlayPreferences.isCustomRouteLoopEnabled());
+		styleLoopCustomRouteButton();
+		loopCustomRouteButton.addActionListener(e -> {
+			OverlayPreferences.setCustomRouteLoopEnabled(loopCustomRouteButton.isSelected());
+			styleLoopCustomRouteButton();
+			fireSessionStateChanged();
+		});
+
 		customRouteWarningStrip = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
 		customRouteWarningStrip.setOpaque(false);
 		customRouteWarningStrip.setBackground(EdoUi.Internal.TRANSPARENT);
 		customRouteWarningStrip.setBorder(new EmptyBorder(4, 4, 0, 4));
 		customRouteWarningStrip.add(customRouteWarningLabel);
+		if (supportsCustomRouteLoop()) {
+			customRouteWarningStrip.add(loopCustomRouteButton);
+		}
 		customRouteWarningStrip.add(clearCustomRouteButton);
 		customRouteWarningStrip.setVisible(false);
 
@@ -1054,6 +1091,29 @@ public class RouteTabPanel extends JPanel {
 		return customRouteActive;
 	}
 
+	/** Ship custom routes can loop; fleet-carrier routes retain their existing terminal behavior. */
+	protected boolean supportsCustomRouteLoop() {
+		return true;
+	}
+
+	private void styleLoopCustomRouteButton() {
+		OverlayOutlineButtonStyle.applyChipHitSafe(
+				loopCustomRouteButton, uiFont, loopCustomRouteButton.isSelected());
+		loopCustomRouteButton.repaint();
+	}
+
+	JToggleButton loopButtonForTests() {
+		return loopCustomRouteButton;
+	}
+
+	JButton clearButtonForTests() {
+		return clearCustomRouteButton;
+	}
+
+	JPanel customRouteWarningStripForTests() {
+		return customRouteWarningStrip;
+	}
+
 	/**
 	 * Selective (hybrid) mode: punch chrome around the Exec/Clear strip and everything below
 	 * that row fully transparent (same idea as Control Panel’s Kill scripts strip).
@@ -1152,6 +1212,8 @@ public class RouteTabPanel extends JPanel {
 			// Status refresh only — do not wipe an active custom route.
 			reloadFromNavRouteFile(false);
 		}
+		routeSession.setCustomRouteLoopEnabledForArrivals(supportsCustomRouteLoop()
+				&& isCustomRouteActive() && OverlayPreferences.isCustomRouteLoopEnabled());
 		RouteJournalApplyOutcome outcome = routeSession.applySecondaryJournalEvent(event);
 		if (outcome.refreshDisplayedRows()) {
 			rebuildDisplayedEntries();
@@ -1178,7 +1240,9 @@ public class RouteTabPanel extends JPanel {
 		if (execTriggerService == null || !firesShipJumpCompleteTrigger()) {
 			return;
 		}
-		String next = nextRouteDestinationSystemName(routeSession);
+		String next = nextRouteDestinationSystemName(routeSession,
+				supportsCustomRouteLoop() && isCustomRouteActive(),
+				OverlayPreferences.isCustomRouteLoopEnabled());
 		execTriggerService.onShipJumpComplete(next);
 		if (isCustomRouteActive()) {
 			execTriggerService.onCustomRouteJumpComplete(next);
@@ -3956,6 +4020,9 @@ public class RouteTabPanel extends JPanel {
 		if (clearCustomRouteButton != null) {
 			OverlayOutlineButtonStyle.applyPrimaryHitSafeCompact(clearCustomRouteButton, uiFont);
 		}
+		if (loopCustomRouteButton != null) {
+			styleLoopCustomRouteButton();
+		}
 		if (lyModeFromCurrentButton != null) {
 			lyModeFromCurrentButton.setForeground(EdoUi.User.MAIN_TEXT);
 			lyModePerLegButton.setForeground(EdoUi.User.MAIN_TEXT);
@@ -4008,7 +4075,9 @@ public class RouteTabPanel extends JPanel {
 	public String copyNextRouteDestinationForExec() {
 		// Session current can lag one hop; align with System tab before resolving next.
 		reconcileRouteCurrentWithLiveCommanderPosition();
-		String next = nextRouteDestinationSystemName(routeSession);
+		String next = nextRouteDestinationSystemName(routeSession,
+				supportsCustomRouteLoop() && isCustomRouteActive(),
+				OverlayPreferences.isCustomRouteLoopEnabled());
 		if (next == null || next.isBlank()) {
 			return null;
 		}

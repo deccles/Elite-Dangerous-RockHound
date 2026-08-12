@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javax.swing.JLabel;
+import javax.swing.JPanel;
 
 import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.route.RouteEntry;
@@ -26,6 +27,26 @@ import com.google.gson.JsonObject;
  * Unit tests for route helper methods: findSystemRow, deepCopy, bestInsertionIndexByCoords, recomputeLegDistances, renumberDisplayIndexes.
  */
 class RouteTabPanelHelperTest {
+
+    @Test
+    void customRouteLoopToggle_isBeforeClearAndPersistsSelection() {
+        boolean saved = OverlayPreferences.isCustomRouteLoopEnabled();
+        try {
+            OverlayPreferences.setCustomRouteLoopEnabled(false);
+            RouteTabPanel panel = new RouteTabPanel();
+            JPanel strip = panel.customRouteWarningStripForTests();
+            assertEquals("Loop", panel.loopButtonForTests().getToolTipText());
+            assertEquals(panel.loopButtonForTests(), strip.getComponent(1));
+            assertEquals(panel.clearButtonForTests(), strip.getComponent(2));
+
+            panel.loopButtonForTests().doClick();
+
+            assertTrue(panel.loopButtonForTests().isSelected());
+            assertTrue(OverlayPreferences.isCustomRouteLoopEnabled());
+        } finally {
+            OverlayPreferences.setCustomRouteLoopEnabled(saved);
+        }
+    }
 
     @Test
     void findSystemRow_emptyList_returnsMinusOne() {

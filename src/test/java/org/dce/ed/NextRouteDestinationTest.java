@@ -74,6 +74,27 @@ class NextRouteDestinationTest {
                         session.getBaseRouteEntries(), "Gyll", 1L, session.getCurrentBaseIndex()));
     }
 
+    @Test
+    void customRouteLoop_atEnd_returnsFirstSystemOnlyWhenEnabled() {
+        session.replaceBaseRouteEntries(List.of(
+                system("Alpha", 1L),
+                system("Beta", 2L)));
+        session.applyKnownCurrentSystem("Alpha", 1L, null);
+        session.applyKnownCurrentSystem("Beta", 2L, null);
+
+        assertEquals("Alpha", RouteTabPanel.nextRouteDestinationSystemName(session, true, true));
+        assertNull(RouteTabPanel.nextRouteDestinationSystemName(session, true, false));
+        assertNull(RouteTabPanel.nextRouteDestinationSystemName(session, false, true));
+    }
+
+    @Test
+    void customRouteLoop_doesNotLoopSingleSystemToItself() {
+        session.replaceBaseRouteEntries(List.of(system("Alpha", 1L)));
+        session.applyKnownCurrentSystem("Alpha", 1L, null);
+
+        assertNull(RouteTabPanel.nextRouteDestinationSystemName(session, true, true));
+    }
+
     private static RouteEntry system(String name, long address) {
         RouteEntry e = new RouteEntry();
         e.systemName = name;

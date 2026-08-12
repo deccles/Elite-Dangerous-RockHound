@@ -226,6 +226,38 @@ class RouteSessionTest {
     }
 
     @Test
+    void enabledCustomRouteLoop_resetsIndexWhenFirstSystemReachedAfterEnd() {
+        session.replaceBaseRouteEntries(List.of(
+                sampleEntry("Alpha", 1L),
+                sampleEntry("Beta", 2L),
+                sampleEntry("Gamma", 3L)));
+        session.applyKnownCurrentSystem("Alpha", 1L, null, true);
+        session.applyKnownCurrentSystem("Beta", 2L, null, true);
+        session.applyKnownCurrentSystem("Gamma", 3L, null, true);
+        assertEquals(2, session.getCurrentBaseIndex());
+
+        session.applyKnownCurrentSystem("Alpha", 1L, null, true);
+
+        assertEquals(0, session.getCurrentBaseIndex());
+    }
+
+    @Test
+    void customRouteLoop_doesNotResetBeforeEndOrWhenDisabled() {
+        session.replaceBaseRouteEntries(List.of(
+                sampleEntry("Alpha", 1L),
+                sampleEntry("Beta", 2L),
+                sampleEntry("Gamma", 3L)));
+        session.applyKnownCurrentSystem("Alpha", 1L, null, true);
+        session.applyKnownCurrentSystem("Beta", 2L, null, true);
+        session.applyKnownCurrentSystem("Alpha", 1L, null, true);
+        assertEquals(1, session.getCurrentBaseIndex());
+
+        session.applyKnownCurrentSystem("Gamma", 3L, null, true);
+        session.applyKnownCurrentSystem("Alpha", 1L, null, false);
+        assertEquals(2, session.getCurrentBaseIndex());
+    }
+
+    @Test
     void persistenceRoundTrip_preservesCurrentBaseIndexOnLoop() {
         session.replaceBaseRouteEntries(List.of(
                 sampleEntry("Gyll", 1L),

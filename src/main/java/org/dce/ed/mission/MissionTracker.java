@@ -380,6 +380,26 @@ public final class MissionTracker {
         return activeById.get(missionId);
     }
 
+    public boolean setSourcedFrom(long missionId, String system, String station) {
+        MissionRecord r = findById(missionId);
+        if (r == null || !r.isSelfSourcedCommodityMission()) {
+            return false;
+        }
+        String nextSystem = system == null ? null : system.trim();
+        String nextStation = station == null ? null : station.trim();
+        if (nextSystem == null || nextSystem.isBlank() || nextStation == null || nextStation.isBlank()) {
+            return false;
+        }
+        if (nextSystem.equals(r.getSourcedFromSystem()) && nextStation.equals(r.getSourcedFromStation())) {
+            return false;
+        }
+        r.setSourcedFromSystem(nextSystem);
+        r.setSourcedFromStation(nextStation);
+        lastUpdated = Instant.now();
+        notifyChanged();
+        return true;
+    }
+
     private boolean onCargoDepot(CargoDepotEvent e) {
         if (e.getMissionId() == 0L) {
             return false;
@@ -907,6 +927,8 @@ public final class MissionTracker {
         p.setDestinationSettlement(r.getDestinationSettlement());
         p.setOriginSystem(r.getOriginSystem());
         p.setOriginStation(r.getOriginStation());
+        p.setSourcedFromSystem(r.getSourcedFromSystem());
+        p.setSourcedFromStation(r.getSourcedFromStation());
         p.setTargetFaction(r.getTargetFaction());
         p.setTarget(r.getTarget());
         p.setTargetType(r.getTargetType());
@@ -949,6 +971,8 @@ public final class MissionTracker {
         r.setDestinationSettlement(p.getDestinationSettlement());
         r.setOriginSystem(p.getOriginSystem());
         r.setOriginStation(p.getOriginStation());
+        r.setSourcedFromSystem(p.getSourcedFromSystem());
+        r.setSourcedFromStation(p.getSourcedFromStation());
         r.setTargetFaction(p.getTargetFaction());
         r.setTarget(p.getTarget());
         r.setTargetType(p.getTargetType());

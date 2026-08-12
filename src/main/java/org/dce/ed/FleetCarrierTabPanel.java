@@ -64,6 +64,10 @@ import com.google.gson.JsonParser;
  * - After each carrier jump, copies the next system name to clipboard (and shows the “Copied: …” toast).
  */
 public class FleetCarrierTabPanel extends RouteTabPanel {
+	@Override
+	protected boolean supportsCustomRouteLoop() {
+		return false;
+	}
 	private static final long serialVersionUID = 1L;
 
 	@Override

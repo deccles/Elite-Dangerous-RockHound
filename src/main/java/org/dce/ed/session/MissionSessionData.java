@@ -61,6 +61,8 @@ public final class MissionSessionData {
         private String destinationSettlement;
         private String originSystem;
         private String originStation;
+        private String sourcedFromSystem;
+        private String sourcedFromStation;
         private String targetFaction;
         private String target;
         private String targetType;
@@ -106,6 +108,10 @@ public final class MissionSessionData {
         public void setOriginSystem(String originSystem) { this.originSystem = originSystem; }
         public String getOriginStation() { return originStation; }
         public void setOriginStation(String originStation) { this.originStation = originStation; }
+        public String getSourcedFromSystem() { return sourcedFromSystem; }
+        public void setSourcedFromSystem(String sourcedFromSystem) { this.sourcedFromSystem = sourcedFromSystem; }
+        public String getSourcedFromStation() { return sourcedFromStation; }
+        public void setSourcedFromStation(String sourcedFromStation) { this.sourcedFromStation = sourcedFromStation; }
         public String getTargetFaction() { return targetFaction; }
         public void setTargetFaction(String targetFaction) { this.targetFaction = targetFaction; }
         public String getTarget() { return target; }

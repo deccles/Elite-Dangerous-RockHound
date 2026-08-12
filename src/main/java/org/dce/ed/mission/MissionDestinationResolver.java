@@ -78,6 +78,9 @@ public final class MissionDestinationResolver {
         if (r == null) {
             return empty();
         }
+        if (r.isSelfSourcedCommodityMission()) {
+            return new MissionDestination(r.getSourcedFromSystem(), r.getSourcedFromStation(), null);
+        }
         return new MissionDestination(r.getOriginSystem(), r.getOriginStation(), null);
     }
 
