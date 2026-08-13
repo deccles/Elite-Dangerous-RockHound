@@ -380,6 +380,10 @@
 										<argument>--java-options</argument>
 										<argument>-Djava.library.path=$APPDIR</argument>
 
+										<!-- Avoid Direct3D surface corruption in translucent overlay windows. -->
+										<argument>--java-options</argument>
+										<argument>-Dsun.java2d.d3d=false</argument>
+
 										<!-- optional JVM tuning -->
 										<argument>--java-options</argument>
 										<argument>-Xms256m</argument>
