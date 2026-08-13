@@ -400,6 +400,28 @@ public final class MissionTracker {
         return true;
     }
 
+    /** Atomically assigns a source only to eligible missions that are still unassigned. */
+    public int setSourcedFromIfUnassigned(List<Long> missionIds, String system, String station) {
+        String nextSystem = system == null ? "" : system.trim();
+        String nextStation = station == null ? "" : station.trim();
+        if (missionIds == null || nextSystem.isBlank() || nextStation.isBlank()) return 0;
+        int changed = 0;
+        for (Long missionId : missionIds) {
+            MissionRecord r = missionId == null ? null : findById(missionId.longValue());
+            if (r == null || !r.isSelfSourcedCommodityMission()) continue;
+            if ((r.getSourcedFromSystem() != null && !r.getSourcedFromSystem().isBlank())
+                    || (r.getSourcedFromStation() != null && !r.getSourcedFromStation().isBlank())) continue;
+            r.setSourcedFromSystem(nextSystem);
+            r.setSourcedFromStation(nextStation);
+            changed++;
+        }
+        if (changed > 0) {
+            lastUpdated = Instant.now();
+            notifyChanged();
+        }
+        return changed;
+    }
+
     record ManualSource(String system, String station) { }
 
     Map<Long, ManualSource> snapshotManualSources() {

@@ -22,6 +22,23 @@ class MissionTrackerTest {
     private final EliteLogParser parser = new EliteLogParser();
 
     @Test
+    void bulkSourceAssignsOnlyStillUnassignedEligibleMissions() {
+        MissionTracker tracker = new MissionTracker();
+        for (long id : List.of(1L, 2L, 3L)) tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-12T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":" + id + ",\"Name\":\"Mission_Collect_Industrial\","
+                + "\"Commodity_Localised\":\"Gold\",\"Count\":50}"));
+        assertTrue(tracker.setSourcedFrom(2L, "Existing", "Assigned"));
+
+        int changed = tracker.setSourcedFromIfUnassigned(List.of(1L, 2L, 3L), "Sol", "Galileo");
+
+        assertEquals(2, changed);
+        assertEquals("Galileo", tracker.findById(1L).getSourcedFromStation());
+        assertEquals("Assigned", tracker.findById(2L).getSourcedFromStation());
+        assertEquals("Galileo", tracker.findById(3L).getSourcedFromStation());
+    }
+
+    @Test
     void journalReplayFill_preservesPersistedManualSourceByMissionId() {
         MissionTracker saved = new MissionTracker();
         saved.applyEvent((MissionAcceptedEvent) parser.parseRecord(

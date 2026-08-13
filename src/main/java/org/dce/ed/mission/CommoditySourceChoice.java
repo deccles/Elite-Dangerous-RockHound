@@ -8,5 +8,8 @@ public record CommoditySourceChoice(
         Double arrivalDistanceLs,
         Integer price,
         Integer supply,
-        String updatedAt) {
+        String updatedAt,
+        String stationType,
+        Integer maxLandingPadSize,
+        Long bodyId) {
 }

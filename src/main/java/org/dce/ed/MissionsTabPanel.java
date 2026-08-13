@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
@@ -69,6 +71,7 @@ import org.dce.ed.mission.MissionTracker;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.ui.DestinationCopySupport;
 import org.dce.ed.ui.CommoditySourceDialog;
+import org.dce.ed.ui.MultiCommoditySourceDialog;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
@@ -113,6 +116,8 @@ public class MissionsTabPanel extends JPanel {
     private final JLabel redirectLabel = new JLabel();
     private final JButton redirectDismiss = new JButton("Dismiss");
     private final JPanel commodityGroupsPanel = new JPanel();
+    private final JPanel sourceAllBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+    private final JButton sourceAllButton = new JButton("Source all");
     private final JPanel contentCenter = new JPanel() {
         private static final long serialVersionUID = 1L;
 
@@ -192,6 +197,10 @@ public class MissionsTabPanel extends JPanel {
 
         commodityGroupsPanel.setLayout(new BoxLayout(commodityGroupsPanel, BoxLayout.Y_AXIS));
         commodityGroupsPanel.setOpaque(false);
+        sourceAllBar.setOpaque(false);
+        OverlayOutlineButtonStyle.applyPrimaryHitSafe(sourceAllButton, base);
+        sourceAllButton.addActionListener(e -> openMultiCommoditySourceDialog());
+        sourceAllBar.add(sourceAllButton);
 
         configureMissionsTable(base);
 
@@ -238,6 +247,7 @@ public class MissionsTabPanel extends JPanel {
         contentCenter.setLayout(new BoxLayout(contentCenter, BoxLayout.Y_AXIS));
         contentCenter.setOpaque(false);
         contentCenter.add(commodityGroupsPanel);
+        contentCenter.add(sourceAllBar);
         tableScroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         tableScroll.setOpaque(false);
         tableScroll.setBackground(EdoUi.Internal.TRANSPARENT);
@@ -293,6 +303,25 @@ public class MissionsTabPanel extends JPanel {
         java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
         new CommoditySourceDialog(owner, mission, current, new CommoditySourceSearch(), (system, station) -> {
             applySourcedFromSelection(mission.getMissionId(), system, station);
+        }).setVisible(true);
+    }
+
+    private void openMultiCommoditySourceDialog() {
+        List<MissionRecord> missions = tracker.getActive();
+        List<org.dce.ed.mission.MultiCommodityMissionNeed> needs = MultiCommoditySourceDialog.buildNeeds(missions);
+        if (needs.isEmpty()) return;
+        Map<String, Integer> hold = new LinkedHashMap<>();
+        for (org.dce.ed.mission.MultiCommodityMissionNeed need : needs)
+            hold.putIfAbsent(need.commodity(), MissionTracker.commodityInHold(need.commodity()));
+        String current = currentSystemSupplier != null ? currentSystemSupplier.get() : null;
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+        new MultiCommoditySourceDialog(owner, missions, current, hold, new CommoditySourceSearch(), assessment -> {
+            int changed = tracker.setSourcedFromIfUnassigned(assessment.allocation().missionIds(),
+                    assessment.station().system(), assessment.station().station());
+            if (changed <= 0) return;
+            refreshUi();
+            if (immediateSessionStateChangeCallback != null) immediateSessionStateChangeCallback.run();
+            else if (sessionStateChangeCallback != null) sessionStateChangeCallback.run();
         }).setVisible(true);
     }
 
@@ -739,6 +768,7 @@ public class MissionsTabPanel extends JPanel {
 
     private void rebuildCommodityGroups() {
         commodityGroupsPanel.removeAll();
+        sourceAllBar.setVisible(false);
         if (filter != Filter.ALL && filter != Filter.CARGO) {
             commodityGroupsPanel.setVisible(false);
             return;
@@ -749,6 +779,7 @@ public class MissionsTabPanel extends JPanel {
             return;
         }
         commodityGroupsPanel.setVisible(true);
+        sourceAllBar.setVisible(!MultiCommoditySourceDialog.buildNeeds(tracker.getActive()).isEmpty());
         Font base = OverlayPreferences.getUiFont();
         for (CommodityMissionGroup g : groups) {
             commodityGroupsPanel.add(buildGroupCard(g, base));

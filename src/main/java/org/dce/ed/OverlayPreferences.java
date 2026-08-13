@@ -44,6 +44,10 @@ public final class OverlayPreferences {
     private static final String KEY_PASSTHROUGH_TOGGLE_KEYCODE = "overlay.passthrough.toggleKeyCode"; // JNativeHook NativeKeyEvent VC_*
     private static final String KEY_NEXT_TAB_KEYCODE = "overlay.tabs.nextShown.keyCode"; // JNativeHook NativeKeyEvent VC_*
     private static final String KEY_CUSTOM_ROUTE_LOOP = "route.custom.loop";
+    private static final String KEY_COMMODITY_SOURCE_PAD_SIZE = "missions.commoditySource.minimumPadSize";
+    private static final String KEY_COMMODITY_SOURCE_STATIONS = "missions.commoditySource.stations";
+    private static final String KEY_COMMODITY_SOURCE_PLANETARY = "missions.commoditySource.planetaryBases";
+    private static final String KEY_COMMODITY_SOURCE_CARRIERS = "missions.commoditySource.fleetCarriers";
     private static final String KEY_LOG_AUTO = "log.autoDetect";
     private static final String KEY_LOG_CUSTOM_DIR = "log.customDir";
 
@@ -2223,6 +2227,38 @@ public static Engine getSpeechEngine() {
 
     public static void setCustomRouteLoopEnabled(boolean enabled) {
         PREFS.putBoolean(KEY_CUSTOM_ROUTE_LOOP, enabled);
+    }
+
+    public static int getCommoditySourceMinimumPadSize() {
+        return Math.max(1, Math.min(3, PREFS.getInt(KEY_COMMODITY_SOURCE_PAD_SIZE, 3)));
+    }
+
+    public static void setCommoditySourceMinimumPadSize(int size) {
+        PREFS.putInt(KEY_COMMODITY_SOURCE_PAD_SIZE, Math.max(1, Math.min(3, size)));
+    }
+
+    public static boolean isCommoditySourceStationsIncluded() {
+        return PREFS.getBoolean(KEY_COMMODITY_SOURCE_STATIONS, true);
+    }
+
+    public static void setCommoditySourceStationsIncluded(boolean included) {
+        PREFS.putBoolean(KEY_COMMODITY_SOURCE_STATIONS, included);
+    }
+
+    public static boolean isCommoditySourcePlanetaryBasesIncluded() {
+        return PREFS.getBoolean(KEY_COMMODITY_SOURCE_PLANETARY, false);
+    }
+
+    public static void setCommoditySourcePlanetaryBasesIncluded(boolean included) {
+        PREFS.putBoolean(KEY_COMMODITY_SOURCE_PLANETARY, included);
+    }
+
+    public static boolean isCommoditySourceFleetCarriersIncluded() {
+        return PREFS.getBoolean(KEY_COMMODITY_SOURCE_CARRIERS, false);
+    }
+
+    public static void setCommoditySourceFleetCarriersIncluded(boolean included) {
+        PREFS.putBoolean(KEY_COMMODITY_SOURCE_CARRIERS, included);
     }
 
     /**
