@@ -144,4 +144,27 @@ class ExecPlaceholderSubstitutorTest {
                 ExecPlaceholderResolver.resolveOne(
                         ctx, null, ExecPlaceholderId.FLEET_CARRIER_DESTINATION));
     }
+
+    @Test
+    void routeNextDestination_wrapsToFirstHopWhenCustomRouteLoopIsEnabled() {
+        org.dce.ed.route.RouteSession ship = new org.dce.ed.route.RouteSession(null, j -> false);
+        ship.replaceBaseRouteEntries(List.of(
+                org.dce.ed.route.RouteEntry.syntheticSystem(
+                        "Alpha", 100L, null, org.dce.ed.route.RouteMarkerKind.NONE),
+                org.dce.ed.route.RouteEntry.syntheticSystem(
+                        "Beta", 200L, null, org.dce.ed.route.RouteMarkerKind.NONE)));
+        ship.setCustomRouteLoopEnabledForArrivals(true);
+        ship.applyKnownCurrentSystem("Alpha", 100L, null);
+        ship.applyKnownCurrentSystem("Beta", 200L, null);
+
+        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+        ctx.setShipRouteSessionSupplier(() -> ship);
+        org.dce.ed.state.SystemState live = new org.dce.ed.state.SystemState();
+        live.setSystemName("Beta");
+        live.setSystemAddress(200L);
+        ctx.setSystemStateSupplier(() -> live);
+
+        assertEquals("Alpha",
+                ExecPlaceholderResolver.resolveOne(ctx, null, ExecPlaceholderId.ROUTE_NEXT_DESTINATION));
+    }
 }

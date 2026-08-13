@@ -12,7 +12,11 @@ import java.util.List;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 
+import org.dce.ed.exec.placeholder.ExecPlaceholderContext;
+import org.dce.ed.exec.placeholder.ExecPlaceholderId;
+import org.dce.ed.exec.placeholder.ExecPlaceholderResolver;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.route.RouteEntry;
 import org.dce.ed.route.RouteMarkerKind;
@@ -43,6 +47,36 @@ class RouteTabPanelHelperTest {
 
             assertTrue(panel.loopButtonForTests().isSelected());
             assertTrue(OverlayPreferences.isCustomRouteLoopEnabled());
+        } finally {
+            OverlayPreferences.setCustomRouteLoopEnabled(saved);
+        }
+    }
+
+    @Test
+    void activatingCustomRouteMakesRememberedLoopStateAvailableToExecVariable() throws Exception {
+        boolean saved = OverlayPreferences.isCustomRouteLoopEnabled();
+        try {
+            OverlayPreferences.setCustomRouteLoopEnabled(true);
+            SwingUtilities.invokeAndWait(() -> {
+                RouteTabPanel panel = new RouteTabPanel();
+                panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                        entry("Alpha", 100L),
+                        entry("Beta", 200L)));
+                panel.onCustomRouteMutated();
+                panel.routeSessionForTests().applyKnownCurrentSystem("Alpha", 100L, null);
+                panel.routeSessionForTests().applyKnownCurrentSystem("Beta", 200L, null);
+
+                SystemState live = new SystemState();
+                live.setSystemName("Beta");
+                live.setSystemAddress(200L);
+                ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+                ctx.setShipRouteSessionSupplier(panel::getRouteSession);
+                ctx.setSystemStateSupplier(() -> live);
+
+                assertEquals("Alpha", ExecPlaceholderResolver.resolveOne(
+                        ctx, null, ExecPlaceholderId.ROUTE_NEXT_DESTINATION));
+            });
+            SwingUtilities.invokeAndWait(() -> { });
         } finally {
             OverlayPreferences.setCustomRouteLoopEnabled(saved);
         }

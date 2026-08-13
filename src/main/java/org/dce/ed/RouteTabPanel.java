@@ -290,18 +290,15 @@ public class RouteTabPanel extends JPanel {
 	public static String nextRouteDestinationSystemName(RouteSession session,
 			boolean customRouteActive,
 			boolean loopEnabled) {
-		String next = nextRouteDestinationSystemName(session);
-		if (next != null || session == null || !customRouteActive || !loopEnabled) {
-			return next;
-		}
-		List<RouteEntry> entries = session.getBaseRouteEntries();
-		if (entries == null || entries.size() < 2 || session.getCurrentBaseIndex() != entries.size() - 1) {
+		if (session == null) {
 			return null;
 		}
-		RouteEntry first = entries.get(0);
-		return first != null && !first.isBodyRow && first.systemName != null && !first.systemName.isBlank()
-				? first.systemName.trim()
-				: null;
+		return nextRouteDestinationSystemName(
+				session.getBaseRouteEntries(),
+				session.getCurrentSystemName(),
+				session.getCurrentSystemAddress(),
+				session.getCurrentBaseIndex(),
+				customRouteActive && loopEnabled);
 	}
 
 	/**
@@ -344,6 +341,29 @@ public class RouteTabPanel extends JPanel {
 			return e.systemName.trim();
 		}
 		return null;
+	}
+
+	public static String nextRouteDestinationSystemName(List<RouteEntry> entries,
+			String currentName,
+			long currentAddress,
+			int fromIndexInclusive,
+			boolean loopEnabled) {
+		String next = nextRouteDestinationSystemName(
+				entries, currentName, currentAddress, fromIndexInclusive);
+		if (next != null || !loopEnabled || entries == null || entries.size() < 2) {
+			return next;
+		}
+		int row = RouteGeometry.findSystemRowFrom(entries, currentName, currentAddress, fromIndexInclusive);
+		if (row < 0) {
+			row = RouteGeometry.findSystemRow(entries, currentName, currentAddress);
+		}
+		if (row != entries.size() - 1) {
+			return null;
+		}
+		RouteEntry first = entries.get(0);
+		return first != null && !first.isBodyRow && first.systemName != null && !first.systemName.isBlank()
+				? first.systemName.trim()
+				: null;
 	}
 
 	static boolean isSameRouteSystem(RouteEntry entry, String systemName, long systemAddress) {
@@ -839,6 +859,7 @@ public class RouteTabPanel extends JPanel {
 		styleLoopCustomRouteButton();
 		loopCustomRouteButton.addActionListener(e -> {
 			OverlayPreferences.setCustomRouteLoopEnabled(loopCustomRouteButton.isSelected());
+			syncCustomRouteLoopState();
 			styleLoopCustomRouteButton();
 			fireSessionStateChanged();
 		});
@@ -1056,6 +1077,7 @@ public class RouteTabPanel extends JPanel {
 	/** Shows or hides the red “Custom Route” warning + Clear under the table. */
 	protected void setCustomRouteActive(boolean active) {
 		customRouteActive = active;
+		syncCustomRouteLoopState();
 		if (customRouteWarningStrip == null) {
 			return;
 		}
@@ -1072,6 +1094,12 @@ public class RouteTabPanel extends JPanel {
 			routeCenterWrapper.revalidate();
 			routeCenterWrapper.repaint();
 		}
+	}
+
+	private void syncCustomRouteLoopState() {
+		routeSession.setCustomRouteLoopEnabledForArrivals(
+				supportsCustomRouteLoop() && customRouteActive
+						&& OverlayPreferences.isCustomRouteLoopEnabled());
 	}
 
 	/**
@@ -1235,8 +1263,7 @@ public class RouteTabPanel extends JPanel {
 			// Status refresh only — do not wipe an active custom route.
 			reloadFromNavRouteFile(false);
 		}
-		routeSession.setCustomRouteLoopEnabledForArrivals(supportsCustomRouteLoop()
-				&& isCustomRouteActive() && OverlayPreferences.isCustomRouteLoopEnabled());
+		syncCustomRouteLoopState();
 		RouteJournalApplyOutcome outcome = routeSession.applySecondaryJournalEvent(event);
 		if (outcome.refreshDisplayedRows()) {
 			rebuildDisplayedEntries();

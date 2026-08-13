@@ -164,6 +164,10 @@ public final class RouteSession {
         customRouteLoopEnabledForArrivals = enabled;
     }
 
+    public boolean isCustomRouteLoopEnabledForArrivals() {
+        return customRouteLoopEnabledForArrivals;
+    }
+
     /**
      * Moves {@link #currentBaseIndex} forward to the first hop at/after the current index that
      * matches the arrival system. Never moves backward (earlier duplicates stay behind).

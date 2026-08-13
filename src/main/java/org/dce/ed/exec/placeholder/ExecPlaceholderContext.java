@@ -150,6 +150,7 @@ public final class ExecPlaceholderContext {
         if (session == null) {
             return null;
         }
+        boolean loopEnabled = session.isCustomRouteLoopEnabledForArrivals();
         // Prefer live System tab position — route session current can lag one hop behind arrival,
         // which makes $ROUTE_NEXT_DESTINATION return the system you are already in.
         SystemState live = ctx.systemState();
@@ -160,9 +161,10 @@ public final class ExecPlaceholderContext {
                         session.getBaseRouteEntries(),
                         liveName,
                         live.getSystemAddress(),
-                        session.getCurrentBaseIndex());
+                        session.getCurrentBaseIndex(),
+                        loopEnabled);
             }
         }
-        return RouteTabPanel.nextRouteDestinationSystemName(session);
+        return RouteTabPanel.nextRouteDestinationSystemName(session, true, loopEnabled);
     }
 }
