@@ -113,6 +113,26 @@ public class MissionsTabPanel extends JPanel {
     private final JLabel redirectLabel = new JLabel();
     private final JButton redirectDismiss = new JButton("Dismiss");
     private final JPanel commodityGroupsPanel = new JPanel();
+    private final JPanel contentCenter = new JPanel() {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (mouseInteractionModeForHost() != MouseInteractionMode.NORMAL) {
+                return;
+            }
+            Color background = EdoUi.User.BACKGROUND;
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setComposite(AlphaComposite.Src);
+                g2.setColor(new Color(background.getRed(), background.getGreen(), background.getBlue(), 255));
+                g2.fillRect(0, 0, getWidth(), getHeight());
+            } finally {
+                g2.dispose();
+            }
+        }
+    };
     private final MissionsTableModel tableModel = new MissionsTableModel();
     /**
      * Full-text tooltips on Summary / Objective / Places (renderer tips are unreliable on overlay).
@@ -215,10 +235,9 @@ public class MissionsTabPanel extends JPanel {
         // Create scroll pane after the custom header is installed so the column header
         // viewport binds to TransparentTableHeader (not the default LAF header).
         tableScroll = new JScrollPane(missionsTable);
-        JPanel center = new JPanel();
-        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
-        center.setOpaque(false);
-        center.add(commodityGroupsPanel);
+        contentCenter.setLayout(new BoxLayout(contentCenter, BoxLayout.Y_AXIS));
+        contentCenter.setOpaque(false);
+        contentCenter.add(commodityGroupsPanel);
         tableScroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         tableScroll.setOpaque(false);
         tableScroll.setBackground(EdoUi.Internal.TRANSPARENT);
@@ -236,7 +255,7 @@ public class MissionsTabPanel extends JPanel {
                 autoSizeMissionsColumns();
             }
         });
-        center.add(tableScroll);
+        contentCenter.add(tableScroll);
 
         JPanel top = new JPanel(new BorderLayout());
         top.setOpaque(false);
@@ -249,7 +268,7 @@ public class MissionsTabPanel extends JPanel {
         top.add(redirectBanner, BorderLayout.SOUTH);
 
         add(top, BorderLayout.NORTH);
-        add(center, BorderLayout.CENTER);
+        add(contentCenter, BorderLayout.CENTER);
         execButtonStrip = new ExecTabButtonStrip(OverlayTabId.MISSIONS, passThroughEnabledSupplier);
         add(execButtonStrip, BorderLayout.SOUTH);
 
@@ -504,6 +523,17 @@ public class MissionsTabPanel extends JPanel {
         } finally {
             g2.dispose();
         }
+    }
+
+    private MouseInteractionMode mouseInteractionModeForHost() {
+        javax.swing.JRootPane root = getRootPane();
+        if (root != null) {
+            Object local = root.getClientProperty(OverlayPreferences.WINDOW_MOUSE_MODE_KEY);
+            if (local instanceof MouseInteractionMode mode) {
+                return mode;
+            }
+        }
+        return OverlayPreferences.getOverlayMouseInteractionMode();
     }
 
     public void applySessionState(EdoSessionState state) {
