@@ -23,6 +23,34 @@ public final class RouteMarkerAssignment {
             String pendingJumpLockedName,
             long pendingJumpLockedAddress,
             boolean chargingActive) {
+        applyMarkerKinds(entries,
+                currentName,
+                currentSystemAddress,
+                currentBaseIndex,
+                targetSystemName,
+                targetSystemAddress,
+                destinationSystemAddress,
+                destinationBodyId,
+                destinationName,
+                pendingJumpLockedName,
+                pendingJumpLockedAddress,
+                chargingActive,
+                false);
+    }
+
+    public static void applyMarkerKinds(List<RouteEntry> entries,
+            String currentName,
+            long currentSystemAddress,
+            int currentBaseIndex,
+            String targetSystemName,
+            long targetSystemAddress,
+            Long destinationSystemAddress,
+            Integer destinationBodyId,
+            String destinationName,
+            String pendingJumpLockedName,
+            long pendingJumpLockedAddress,
+            boolean chargingActive,
+            boolean loopWrapTarget) {
         if (entries == null) {
             return;
         }
@@ -129,9 +157,10 @@ public final class RouteMarkerAssignment {
 
         if (hasSideTripTarget) {
             // Prefer the occurrence at/after CURRENT so looped custom routes do not put the
-            // next-stop TARGET on an earlier duplicate of the same system.
-            int targetStart = currentRow >= 0 ? currentRow + 1 : 0;
-            for (int i = targetStart; i < entries.size(); i++) {
+            // next-stop TARGET on an earlier duplicate, except for the explicit end-to-start wrap.
+            int targetStart = loopWrapTarget ? 0 : (currentRow >= 0 ? currentRow + 1 : 0);
+            int targetEnd = loopWrapTarget && currentRow >= 0 ? currentRow : entries.size();
+            for (int i = targetStart; i < targetEnd; i++) {
                 RouteEntry e = entries.get(i);
                 if (!matchesTarget(e, targetSystemName, targetSystemAddress)) {
                     continue;

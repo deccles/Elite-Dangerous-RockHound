@@ -1,6 +1,7 @@
 package org.dce.ed.route;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -9,6 +10,29 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class RouteSyntheticLayoutTest {
+
+    @Test
+    void loopTargetAtFirstRow_reusesOriginalRowAndKeepsCurrentAtEnd() {
+        RouteSession session = new RouteSession(null, j -> false);
+        session.replaceBaseRouteEntries(List.of(
+                coordRow("Alpha", 1L, 0, 0, 0),
+                coordRow("Beta", 2L, 10, 0, 0),
+                coordRow("Gamma", 3L, 20, 0, 0)));
+        session.setCustomRouteLoopEnabledForArrivals(true);
+        session.applyKnownCurrentSystem("Alpha", 1L, null);
+        session.applyKnownCurrentSystem("Beta", 2L, null);
+        session.applyKnownCurrentSystem("Gamma", 3L, null);
+        session.getTargetState().restoreFromPersistence("Alpha", 1L, null, null, null);
+
+        List<RouteEntry> out = session.buildDisplaySnapshot(null, (n, a, p) -> null, true)
+                .displayedEntries();
+
+        assertEquals(3, out.size());
+        assertFalse(out.stream().anyMatch(e -> e != null && e.isSynthetic));
+        assertEquals(RouteMarkerKind.TARGET, out.get(0).markerKind);
+        assertEquals(RouteMarkerKind.CURRENT, out.get(2).markerKind);
+        assertEquals(20.0, RouteGeometry.cumulativeDistanceLy(out, 0, 2), 0.0001);
+    }
 
     @Test
     void syntheticCurrentInsertedWithKnownCoordsAlongSegment() {

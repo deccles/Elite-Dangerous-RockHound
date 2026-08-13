@@ -47,8 +47,12 @@ public final class RouteLayoutEngine {
             long currentSystemAddress,
             int currentBaseIndex,
             boolean customRouteActive,
+            boolean reuseLoopStartTarget,
             RouteCoordsResolver coordsResolver) {
         if (entries == null || targetSystemName == null || targetSystemName.isBlank()) {
+            return;
+        }
+        if (reuseLoopStartTarget) {
             return;
         }
         // Only treat as "already on route" when the target appears at/after CURRENT; an earlier
@@ -174,16 +178,55 @@ public final class RouteLayoutEngine {
             RouteCoordsResolver coordsResolver,
             boolean customRouteActive,
             boolean chargingActive) {
+        return buildDisplayedEntries(
+                baseRouteEntries,
+                afterDeepCopyBeforeSynthetics,
+                currentSystemName,
+                currentSystemAddress,
+                currentStarPos,
+                currentBaseIndex,
+                targetState,
+                pendingJumpLockedName,
+                pendingJumpLockedAddress,
+                coordsResolver,
+                customRouteActive,
+                false,
+                chargingActive);
+    }
+
+    public static List<RouteEntry> buildDisplayedEntries(List<RouteEntry> baseRouteEntries,
+            Consumer<List<RouteEntry>> afterDeepCopyBeforeSynthetics,
+            String currentSystemName,
+            long currentSystemAddress,
+            double[] currentStarPos,
+            int currentBaseIndex,
+            RouteTargetState targetState,
+            String pendingJumpLockedName,
+            long pendingJumpLockedAddress,
+            RouteCoordsResolver coordsResolver,
+            boolean customRouteActive,
+            boolean customRouteLoopEnabled,
+            boolean chargingActive) {
         List<RouteEntry> working = RouteGeometry.deepCopy(baseRouteEntries);
         if (afterDeepCopyBeforeSynthetics != null) {
             afterDeepCopyBeforeSynthetics.accept(working);
         }
         String tgtName = targetState.getTargetSystemName();
         long tgtAddr = targetState.getTargetSystemAddress();
+        boolean loopWrapTarget = isLoopWrapTarget(
+                baseRouteEntries,
+                currentSystemName,
+                currentSystemAddress,
+                currentBaseIndex,
+                tgtName,
+                tgtAddr,
+                customRouteActive,
+                customRouteLoopEnabled);
         applySyntheticCurrentRow(working, currentSystemName, currentSystemAddress, currentStarPos,
                 currentBaseIndex, coordsResolver);
         applySyntheticTargetRow(working, tgtName, tgtAddr, targetState.getTargetStarClass(),
-                currentSystemName, currentSystemAddress, currentBaseIndex, customRouteActive, coordsResolver);
+                currentSystemName, currentSystemAddress, currentBaseIndex, customRouteActive,
+                loopWrapTarget, coordsResolver);
         applySyntheticDestinationBodyRow(working, currentSystemName, currentSystemAddress,
                 currentBaseIndex,
                 targetState.getDestinationName(),
@@ -203,7 +246,27 @@ public final class RouteLayoutEngine {
                 targetState.getDestinationName(),
                 pendingJumpLockedName,
                 pendingJumpLockedAddress,
-                chargingActive);
+                chargingActive,
+                loopWrapTarget);
         return working;
+    }
+
+    private static boolean isLoopWrapTarget(List<RouteEntry> baseRouteEntries,
+            String currentSystemName,
+            long currentSystemAddress,
+            int currentBaseIndex,
+            String targetSystemName,
+            long targetSystemAddress,
+            boolean customRouteActive,
+            boolean customRouteLoopEnabled) {
+        if (!customRouteActive || !customRouteLoopEnabled
+                || baseRouteEntries == null || baseRouteEntries.size() < 2
+                || currentBaseIndex != baseRouteEntries.size() - 1) {
+            return false;
+        }
+        RouteEntry first = baseRouteEntries.get(0);
+        RouteEntry last = baseRouteEntries.get(baseRouteEntries.size() - 1);
+        return RouteGeometry.rowMatchesSystem(last, currentSystemName, currentSystemAddress)
+                && RouteGeometry.rowMatchesSystem(first, targetSystemName, targetSystemAddress);
     }
 }

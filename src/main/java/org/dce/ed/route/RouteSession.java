@@ -678,6 +678,7 @@ public final class RouteSession {
                 pendingJumpLockedAddress,
                 coordsResolver,
                 customRouteActive,
+                customRouteLoopEnabledForArrivals,
                 jumpFlash.isTimerRunning());
         return new RouteDisplaySnapshot(displayRevision, rows);
     }
