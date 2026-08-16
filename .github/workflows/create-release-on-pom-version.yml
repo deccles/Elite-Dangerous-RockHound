@@ -5,6 +5,8 @@ on:
     branches: [ "main" ]
     paths:
       - "pom.xml"
+      - "edo-system-model/pom.xml"
+      - ".github/workflows/create-release-on-pom-version.yml"
 
 permissions:
   contents: write
