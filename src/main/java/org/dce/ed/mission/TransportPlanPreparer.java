@@ -44,6 +44,7 @@ public final class TransportPlanPreparer {
                     blank(currentStation) ? "Current position" : currentStation, resolver, coords);
             List<TransportShipment> shipments = new ArrayList<>();
             List<TransportVisit> visits = new ArrayList<>();
+            List<TransportPlanProblem> warnings = new ArrayList<>();
             Map<String, Integer> loose = looseCargoByCommodity(active, cargo);
             for (MissionRecord mission : active) {
                 TransportLocation delivery = location(mission.getDestinationSystem(),
@@ -58,17 +59,29 @@ public final class TransportPlanPreparer {
                 int exact = Math.min(remaining,
                         CargoMonitor.countMissionCargoTons(cargo, mission.getMissionId()));
                 String key = commodityKey(mission.getCommodityLocalised());
-                int generic = mission.isSelfSourcedCommodityMission() || isMining(mission)
+                int generic = mission.isManuallySourceableCommodityMission()
                         ? Math.min(remaining - exact, loose.getOrDefault(key, 0)) : 0;
                 loose.put(key, loose.getOrDefault(key, 0) - generic);
                 int aboard = exact + generic;
                 TransportLocation pickup = null;
                 if (aboard < remaining) {
-                    if (isMining(mission)) {
-                        return problem(TransportPlanProblem.Code.CARGO_REQUIRED, mission.getMissionId(),
-                                mission.summaryLine() + " still requires mined cargo before routing.");
+                    if (mission.isManuallySourceableCommodityMission()
+                            && (blank(mission.getSourcedFromSystem())
+                                    || blank(mission.getSourcedFromStation()))) {
+                        int omitted = remaining - aboard;
+                        warnings.add(new TransportPlanProblem(TransportPlanProblem.Code.SOURCE_REQUIRED,
+                                mission.getMissionId(), "Pickup not planned: " + omitted + " t "
+                                        + mission.getCommodityLocalised() + " source has not been set."));
+                        if (aboard > 0) {
+                            shipments.add(TransportShipment.cargo(mission.getMissionId(),
+                                    mission.getCommodityLocalised(), aboard, aboard, null, delivery));
+                        } else {
+                            visits.add(new TransportVisit(mission.getMissionId(),
+                                    mission.getCategory().displayLabel(), delivery));
+                        }
+                        continue;
                     }
-                    pickup = mission.isSelfSourcedCommodityMission()
+                    pickup = mission.isManuallySourceableCommodityMission()
                             ? location(mission.getSourcedFromSystem(), mission.getSourcedFromStation(), resolver, coords)
                             : location(mission.getOriginSystem(), mission.getOriginStation(), resolver, coords);
                 }
@@ -76,7 +89,8 @@ public final class TransportPlanPreparer {
                         mission.getCommodityLocalised(), remaining, aboard, pickup, delivery));
             }
             return new TransportPlanPreparation(
-                    new TransportPlanRequest(start, cargoCapacity, occupied, shipments, visits), List.of());
+                    new TransportPlanRequest(start, cargoCapacity, occupied, shipments, visits),
+                    List.of(), warnings);
         } catch (UnresolvedLocation ex) {
             return problem(TransportPlanProblem.Code.COORDINATES_UNAVAILABLE, ex.missionId, ex.getMessage());
         }
@@ -93,11 +107,6 @@ public final class TransportPlanPreparer {
             if (blank(mission.getDestinationSystem()) || blank(destinationStation(mission))) {
                 out.add(new TransportPlanProblem(TransportPlanProblem.Code.LOCATION_REQUIRED,
                         mission.getMissionId(), mission.summaryLine() + " has no complete destination."));
-            }
-            if (mission.isSelfSourcedCommodityMission() && remaining(mission) > 0
-                    && (blank(mission.getSourcedFromSystem()) || blank(mission.getSourcedFromStation()))) {
-                out.add(new TransportPlanProblem(TransportPlanProblem.Code.SOURCE_REQUIRED,
-                        mission.getMissionId(), mission.summaryLine() + " needs a source system and station."));
             }
         }
         return out;
@@ -134,10 +143,6 @@ public final class TransportPlanPreparer {
         int required = mission.getCountRequired() > 0
                 ? mission.getCountRequired() : mission.getTotalItemsToDeliver();
         return Math.max(0, required - mission.getItemsDelivered());
-    }
-
-    private static boolean isMining(MissionRecord mission) {
-        return mission.getName() != null && mission.getName().startsWith("Mission_Mining");
     }
 
     private static String destinationStation(MissionRecord mission) {

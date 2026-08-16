@@ -15,12 +15,15 @@ class MultiCommoditySourceDialogModelTest {
         assigned.setSourcedFromSystem("Sol");
         assigned.setSourcedFromStation("Galileo");
         MissionRecord complete = mission(3, "Gold", 20, 20);
+        MissionRecord mining = mission(4, "Bromellite", 12, 0);
+        mining.setName("Mission_Mining_Boom");
 
-        var needs = MultiCommoditySourceDialog.buildNeeds(List.of(eligible, assigned, complete));
+        var needs = MultiCommoditySourceDialog.buildNeeds(List.of(eligible, assigned, complete, mining));
 
-        assertEquals(1, needs.size());
+        assertEquals(2, needs.size());
         assertEquals(1L, needs.get(0).missionId());
         assertEquals(40, needs.get(0).tons());
+        assertEquals(4L, needs.get(1).missionId());
     }
 
     private static MissionRecord mission(long id, String commodity, int required, int delivered) {

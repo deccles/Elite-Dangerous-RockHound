@@ -287,20 +287,10 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			}
 		});
 		this.nearbyTab = new NearbyTabPanel(systemTab, hoverSwitchEnabled);
-        this.missionsTab = new MissionsTabPanel(
+		this.missionsTab = new MissionsTabPanel(
 				hoverSwitchEnabled,
 				this::isCurrentlyDocked,
-				() -> {
-					// Prefer System tab state — lastKnownSystemName can lag if Location hasn't fired yet.
-					var state = systemTab.getState();
-					if (state != null) {
-						String n = state.getSystemName();
-						if (n != null && !n.isBlank()) {
-							return n;
-						}
-					}
-					return lastKnownSystemName;
-				},
+				routeTab::getCurrentSystemNameForPlanning,
 				() -> lastKnownStationName,
 				() -> {
 					LoadoutEvent loadout = getLatestLoadout();

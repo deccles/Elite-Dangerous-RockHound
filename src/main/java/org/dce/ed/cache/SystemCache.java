@@ -256,11 +256,54 @@ public final class SystemCache implements SystemStore {
         }
         try {
             ensureSessionMigratedAndLoaded();
+            preserveCacheOwnedCurrentSystemPointer(state);
             warnIfClearingCarrierParkedBodyId(state);
             writeSessionJsonToDb(state);
             tryRebuildSlimGlobalTableIfNeeded();
         } catch (Exception e) {
             System.err.println("SystemCache: saveEdoSessionState failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Full UI-session saves are based on a previously loaded snapshot and may race a journal jump update.
+     * Once the cache owns a current-system pointer, only the cache/journal merge path may change it.
+     */
+    private void preserveCacheOwnedCurrentSystemPointer(EdoSessionState incoming) {
+        try {
+            String json = sqliteReadSessionJsonRaw();
+            if (json == null || json.isBlank()) {
+                return;
+            }
+            EdoSessionState existing = sessionGson.fromJson(json, EdoSessionState.class);
+            if (existing == null) {
+                return;
+            }
+            Long address = existing.getCacheLastSystemAddress();
+            String name = existing.getCacheLastSystemName();
+            if (address != null && address.longValue() != 0L) {
+                incoming.setCacheLastSystemAddress(address);
+            }
+            if (name != null && !name.isBlank()) {
+                incoming.setCacheLastSystemName(name);
+            }
+        } catch (Exception ex) {
+            System.err.println("SystemCache: could not preserve cache current-system pointer: " + ex.getMessage());
+        }
+    }
+
+    /** Cache/journal-owned save path; unlike a UI snapshot save, this may advance the current-system pointer. */
+    private synchronized void saveEdoSessionStateFromCache(EdoSessionState state) {
+        if (!sqliteReady || state == null) {
+            return;
+        }
+        try {
+            ensureSessionMigratedAndLoaded();
+            warnIfClearingCarrierParkedBodyId(state);
+            writeSessionJsonToDb(state);
+            tryRebuildSlimGlobalTableIfNeeded();
+        } catch (Exception e) {
+            System.err.println("SystemCache: cache-owned session save failed: " + e.getMessage());
         }
     }
 
@@ -1958,7 +2001,7 @@ public final class SystemCache implements SystemStore {
             if (state.getBountyCreditsTotalUnclaimed() != null) {
                 s.setBountyCreditsTotalUnclaimed(state.getBountyCreditsTotalUnclaimed());
             }
-            saveEdoSessionState(s);
+            saveEdoSessionStateFromCache(s);
         } catch (Exception ex) {
             System.err.println("SystemCache: mergeEdoSessionBlobFromStoreSystem failed: " + ex.getMessage());
         }

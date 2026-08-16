@@ -13,6 +13,7 @@ import org.dce.ed.cache.SystemCache;
 import org.dce.ed.route.RouteEntry;
 import org.dce.ed.route.RouteScanStatus;
 import org.dce.ed.route.RouteSession;
+import org.dce.ed.state.SystemState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -126,5 +127,25 @@ class EdoSessionSqliteRoundTripTest {
         EdoSessionPersistence.save(s);
         EdoSessionState r = EdoSessionPersistence.load();
         assertEquals(99L, r.getExobiologyCreditsTotalUnsold().longValue());
+    }
+
+    @Test
+    void staleUiSaveCannotRollBackJournalOwnedCachePointer() {
+        SystemCache cache = SystemCache.getInstance();
+        EdoSessionState staleUiSnapshot = new EdoSessionState();
+        staleUiSnapshot.setCacheLastSystemName("Core Sys Sector CB-O a6-2");
+        staleUiSnapshot.setCacheLastSystemAddress(40550396742496L);
+        cache.saveEdoSessionState(staleUiSnapshot);
+
+        SystemState jumped = new SystemState();
+        jumped.setSystemName("Col 285 Sector MK-P a35-0");
+        jumped.setSystemAddress(5364950780776L);
+        cache.mergeCommanderSessionFromReplayedState(jumped);
+
+        cache.saveEdoSessionState(staleUiSnapshot);
+
+        EdoSessionState restored = cache.loadEdoSessionState();
+        assertEquals("Col 285 Sector MK-P a35-0", restored.getCacheLastSystemName());
+        assertEquals(5364950780776L, restored.getCacheLastSystemAddress().longValue());
     }
 }

@@ -122,7 +122,7 @@ public class MissionsTabPanel extends JPanel {
     private final JLabel activeCountLabel = new JLabel("Active: 0");
     private final JButton optimizeStopsButton = new JButton("Optimize Stops");
     private final JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-    private final JButton allTabButton = new JButton("All");
+    private final JButton allTabButton = new JButton("Transport Missions");
     private final JButton optimizedPlanTabButton = new JButton("Optimized Plan");
     private final CardLayout contentCardLayout = new CardLayout();
     private final JPanel contentCards = new JPanel(contentCardLayout);
@@ -250,7 +250,7 @@ public class MissionsTabPanel extends JPanel {
                 Rectangle cell = missionsTable.getCellRect(viewRow, viewCol, true);
                 if (e.getY() > cell.y + cell.height / 2 || e.getX() < cell.x + cell.width - 125) return;
                 MissionRow row = tableModel.rowAt(missionsTable.convertRowIndexToModel(viewRow));
-                if (row != null && row.record.isSelfSourcedCommodityMission()) {
+                if (row != null && row.record.isManuallySourceableCommodityMission()) {
                     openCommoditySourceDialog(row.record);
                     e.consume();
                 }
@@ -336,28 +336,7 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void optimizeStops() {
-        if (lastOptimizedPlan != null) {
-            showOptimizedPlanTab();
-            return;
-        }
         List<MissionRecord> active = tracker.getActive();
-        List<MissionRecord> missing = active.stream()
-                .filter(MissionRecord::isSelfSourcedCommodityMission)
-                .filter(m -> remainingCargoRequirement(m) > 0)
-                .filter(m -> (m.getSourcedFromSystem() == null || m.getSourcedFromSystem().isBlank())
-                        || (m.getSourcedFromStation() == null || m.getSourcedFromStation().isBlank()))
-                .toList();
-        if (!missing.isEmpty()) {
-            String names = missing.stream().map(MissionRecord::summaryLine)
-                    .reduce((a, b) -> a + "\n• " + b).orElse("");
-            Object[] options = { "Set Sources", "Close" };
-            int choice = JOptionPane.showOptionDialog(this,
-                    "Every sourced mission needs a system and station before optimizing.\n\n• " + names,
-                    "Sources required", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE,
-                    null, options, options[0]);
-            if (choice == 0) openMultiCommoditySourceDialog();
-            return;
-        }
         int capacity = cargoCapacitySupplier.getAsInt();
         var snapshot = CargoMonitor.getInstance().getSnapshot();
         var cargo = snapshot != null ? snapshot.getCargoJson() : null;
@@ -383,7 +362,7 @@ public class MissionsTabPanel extends JPanel {
             @Override protected void done() {
                 if (request != optimizeRequestId) return;
                 optimizeStopsButton.setEnabled(true);
-                optimizeStopsButton.setText("Optimize Stops");
+                optimizeStopsButton.setText(lastOptimizedPlan == null ? "Optimize Stops" : "Optimize Plan");
                 try {
                     OptimizationResult result = get();
                     TransportPlanPreparation prepared = result.preparation();
@@ -391,7 +370,7 @@ public class MissionsTabPanel extends JPanel {
                         showPlanProblems(prepared.problems());
                         return;
                     }
-                    displayOptimizedPlan(result.plan());
+                    displayOptimizedPlan(result.plan(), prepared.warnings());
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(MissionsTabPanel.this,
                             "The Transport plan could not be calculated. " + ex.getMessage(),
@@ -402,15 +381,39 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void displayOptimizedPlan(TransportRoutePlan plan) {
+        displayOptimizedPlan(plan, List.of());
+    }
+
+    private void displayOptimizedPlan(TransportRoutePlan plan,
+            List<TransportPlanProblem> warnings) {
         lastOptimizedPlan = plan;
-        optimizeStopsButton.setText("View Optimized Plan");
+        optimizeStopsButton.setText("Optimize Plan");
         optimizedPlanHost.removeAll();
         optimizedPlanPanel = new TransportRoutePlanPanel(plan, cargoCapacitySupplier.getAsInt(),
-                optimizedRouteConsumer);
+                systems -> optimizedRouteConsumer.accept(withCurrentSystemFirst(systems)), warnings);
+        updateOptimizedPlanLocationHighlight();
         optimizedPlanHost.add(optimizedPlanPanel, BorderLayout.CENTER);
         optimizedPlanHost.revalidate();
         optimizedPlanHost.repaint();
         showOptimizedPlanTab();
+    }
+
+    private List<String> withCurrentSystemFirst(List<String> plannedSystems) {
+        List<String> route = new ArrayList<>();
+        String current = currentSystemSupplier.get();
+        if (current != null && !current.isBlank()) route.add(current.trim());
+        if (plannedSystems != null) for (String system : plannedSystems) {
+            if (system == null || system.isBlank()) continue;
+            if (!route.isEmpty() && route.get(route.size() - 1).equalsIgnoreCase(system.trim())) continue;
+            route.add(system.trim());
+        }
+        return List.copyOf(route);
+    }
+
+    private void updateOptimizedPlanLocationHighlight() {
+        if (optimizedPlanPanel == null) return;
+        optimizedPlanPanel.updateCurrentLocation(
+                currentSystemSupplier.get(), currentStationSupplier.get());
     }
 
     private void showPlanProblems(List<TransportPlanProblem> problems) {
@@ -428,12 +431,6 @@ public class MissionsTabPanel extends JPanel {
         optimizeStopsButton.setEnabled(true);
         optimizeStopsButton.setText("Optimize Stops");
         showAllTab();
-    }
-
-    private static int remainingCargoRequirement(MissionRecord mission) {
-        int required = mission.getCountRequired() > 0
-                ? mission.getCountRequired() : mission.getTotalItemsToDeliver();
-        return Math.max(0, required - mission.getItemsDelivered());
     }
 
     private record OptimizationResult(TransportPlanPreparation preparation,
@@ -759,9 +756,11 @@ public class MissionsTabPanel extends JPanel {
         EliteEventType type = event.getType();
         if (type == EliteEventType.LOCATION
                 || type == EliteEventType.FSD_JUMP
-                || type == EliteEventType.CARRIER_JUMP) {
+                || type == EliteEventType.CARRIER_JUMP
+                || type == EliteEventType.DOCKED
+                || type == EliteEventType.UNDOCKED
+                || type == EliteEventType.SUPERCRUISE_EXIT) {
             // Current system/station moved — refresh ready-state highlighting.
-            invalidateOptimizedPlan();
             scheduleRefresh();
         }
         if (event instanceof MissionAcceptedEvent
@@ -789,6 +788,7 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void refreshUi() {
+        updateOptimizedPlanLocationHighlight();
         updateFilterChipStyles();
         List<MissionRecord> active = filterActive(tracker.getActive());
         activeCountLabel.setText("Active: " + active.size());
@@ -1355,7 +1355,7 @@ public class MissionsTabPanel extends JPanel {
                 MissionRow mr = tableModel.rowAt(modelRow);
                 if (mr != null) {
                     showFrom = mr.showsFromPlace();
-                    showSourcedAction = mr.record.isSelfSourcedCommodityMission();
+                    showSourcedAction = mr.record.isManuallySourceableCommodityMission();
                     if (mr.origin != null && !mr.origin.isEmpty()) {
                         from = mr.origin.displayLine();
                     }

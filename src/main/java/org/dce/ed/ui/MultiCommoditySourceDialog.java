@@ -129,7 +129,7 @@ public final class MultiCommoditySourceDialog extends JDialog {
         List<MultiCommodityMissionNeed> out = new ArrayList<>();
         if (missions == null) return List.of();
         for (MissionRecord mission : missions) {
-            if (mission == null || !mission.isSelfSourcedCommodityMission()) continue;
+            if (mission == null || !mission.isManuallySourceableCommodityMission()) continue;
             if ((mission.getSourcedFromSystem() != null && !mission.getSourcedFromSystem().isBlank())
                     || (mission.getSourcedFromStation() != null && !mission.getSourcedFromStation().isBlank())) continue;
             int required = mission.getCountRequired() > 0 ? mission.getCountRequired() : mission.getTotalItemsToDeliver();

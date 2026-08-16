@@ -2154,36 +2154,32 @@ public class RouteTabPanel extends JPanel {
 			previous = name;
 		}
 		if (names.isEmpty()) return;
-		String currentName = routeSession.getCurrentSystemName();
 		Thread thread = new Thread(() -> {
-			RouteEntry currentMetadata = resolvePastedSystem(currentName);
 			List<RouteEntry> resolved = new ArrayList<>();
 			for (String name : names) {
 				RouteEntry entry = resolvePastedSystem(name);
 				if (entry != null) resolved.add(entry);
 			}
-			SwingUtilities.invokeLater(() -> applyResolvedOptimizedRoute(resolved, currentMetadata));
+			SwingUtilities.invokeLater(() -> applyResolvedOptimizedRoute(resolved));
 		}, "TransportOptimizedRoute");
 		thread.setDaemon(true);
 		thread.start();
 	}
 
 	void applyResolvedOptimizedRoute(List<RouteEntry> resolved) {
-		applyResolvedOptimizedRoute(resolved, null);
-	}
-
-	private void applyResolvedOptimizedRoute(List<RouteEntry> resolved, RouteEntry currentMetadata) {
 		if (resolved == null || resolved.isEmpty()) return;
-		String currentName = routeSession.getCurrentSystemName();
-		long currentAddress = routeSession.getCurrentSystemAddress();
-		double[] currentPos = routeSession.getCurrentStarPos();
+		RouteEntry authoritativeCurrent = resolved.get(0);
 		routeSession.replaceBaseRouteEntries(List.of());
-		routeSession.ensureCurrentSystemAtStartIfMissing(currentName, currentAddress, currentPos);
-		if (currentMetadata != null && !routeSession.getBaseRouteEntries().isEmpty()) {
-			applyResolvedRouteMetadata(routeSession.getBaseRouteEntries().get(0), currentMetadata);
-			cacheResolvedCoords(routeSession.getBaseRouteEntries().get(0));
-		}
-		String previous = currentName;
+		double[] currentPosition = authoritativeCurrent.x != null
+				&& authoritativeCurrent.y != null
+				&& authoritativeCurrent.z != null
+				? new double[] { authoritativeCurrent.x, authoritativeCurrent.y, authoritativeCurrent.z }
+				: null;
+		routeSession.applyKnownCurrentSystem(authoritativeCurrent.systemName,
+				authoritativeCurrent.systemAddress,
+				currentPosition);
+		syncTableCurrentFromRouteSession();
+		String previous = null;
 		for (RouteEntry entry : resolved) {
 			if (entry == null || entry.systemName == null || entry.systemName.isBlank()) continue;
 			if (previous != null && previous.equalsIgnoreCase(entry.systemName)) continue;
@@ -3196,6 +3192,11 @@ public class RouteTabPanel extends JPanel {
 		}
 		// Never return null (renderer comparisons should not explode or behave oddly)
 		return "";
+	}
+
+	/** Live route-session location used as the starting point for Transport planning. */
+	String getCurrentSystemNameForPlanning() {
+		return getCurrentSystemName();
 	}
 
 	/**

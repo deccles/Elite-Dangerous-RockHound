@@ -391,7 +391,7 @@ public final class MissionTracker {
 
     public boolean setSourcedFrom(long missionId, String system, String station) {
         MissionRecord r = findById(missionId);
-        if (r == null || !r.isSelfSourcedCommodityMission()) {
+        if (r == null || !r.isManuallySourceableCommodityMission()) {
             return false;
         }
         String nextSystem = system == null ? null : system.trim();
@@ -417,7 +417,7 @@ public final class MissionTracker {
         int changed = 0;
         for (Long missionId : missionIds) {
             MissionRecord r = missionId == null ? null : findById(missionId.longValue());
-            if (r == null || !r.isSelfSourcedCommodityMission()) continue;
+            if (r == null || !r.isManuallySourceableCommodityMission()) continue;
             if ((r.getSourcedFromSystem() != null && !r.getSourcedFromSystem().isBlank())
                     || (r.getSourcedFromStation() != null && !r.getSourcedFromStation().isBlank())) continue;
             r.setSourcedFromSystem(nextSystem);

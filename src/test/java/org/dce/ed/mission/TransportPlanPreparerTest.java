@@ -3,7 +3,9 @@ package org.dce.ed.mission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -12,17 +14,27 @@ import com.google.gson.JsonParser;
 
 class TransportPlanPreparerTest {
     @Test
-    void blocksTheEntirePlanWhenASelfSourcedMissionHasNoSource() {
+    void missingSourceKeepsKnownDeliveryStopWithoutBlockingThePlan() {
         MissionRecord mission = sourcedMission(1L, "Gold", 20);
+        var cargo = JsonParser.parseString("{\"Inventory\":[]}").getAsJsonObject();
 
         TransportPlanPreparation result = TransportPlanPreparer.prepare(
-                List.of(mission), "Sol", "Galileo", 64, null,
-                system -> { throw new AssertionError("coordinates must not be requested"); });
+                List.of(mission), "Sol", "Galileo", 64, cargo,
+                system -> switch (system) {
+                    case "Sol" -> new double[] { 0, 0, 0 };
+                    case "Achenar" -> new double[] { 20, 0, 0 };
+                    default -> throw new AssertionError("unknown source must not be resolved");
+                });
 
-        assertNull(result.request());
-        assertEquals(List.of(TransportPlanProblem.Code.SOURCE_REQUIRED),
-                result.problems().stream().map(TransportPlanProblem::code).toList());
-        assertEquals(1L, result.problems().get(0).missionId());
+        assertTrue(result.problems().isEmpty());
+        assertEquals(0, result.request().shipments().size());
+        assertEquals(1, result.request().visits().size());
+        assertEquals("Achenar", result.request().visits().get(0).destination().system());
+        List<TransportPlanProblem> warnings = warnings(result);
+        assertEquals(1, warnings.size());
+        assertEquals(TransportPlanProblem.Code.SOURCE_REQUIRED, warnings.get(0).code());
+        assertTrue(warnings.get(0).message().contains("Gold"));
+        assertTrue(warnings.get(0).message().contains("Pickup not planned"));
     }
 
     @Test
@@ -126,5 +138,16 @@ class TransportPlanPreparerTest {
         mission.setDestinationSystem("Achenar");
         mission.setDestinationStation("Dawes Hub");
         return mission;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<TransportPlanProblem> warnings(TransportPlanPreparation preparation) {
+        try {
+            Method method = preparation.getClass().getMethod("warnings");
+            return (List<TransportPlanProblem>) method.invoke(preparation);
+        } catch (ReflectiveOperationException ex) {
+            fail("Transport plan preparation should expose advisory warnings", ex);
+            return List.of();
+        }
     }
 }

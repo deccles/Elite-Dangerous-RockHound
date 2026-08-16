@@ -16,10 +16,12 @@ import java.util.List;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 
 import org.dce.ed.mission.TransportLocation;
 import org.dce.ed.mission.TransportPlanAction;
 import org.dce.ed.mission.TransportPlanStop;
+import org.dce.ed.mission.TransportPlanProblem;
 import org.dce.ed.mission.TransportRoutePlan;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.junit.jupiter.api.Test;
@@ -42,7 +44,7 @@ class MissionsTabPanelOptimizerTest {
                 () -> false, () -> false, () -> "Sol", () -> "Galileo",
                 () -> 128, systems -> { });
 
-        assertNotNull(findButton(panel, "All"));
+        assertNotNull(findButton(panel, "Transport Missions"));
         JButton optimizedPlan = findButton(panel, "Optimized Plan");
         assertNotNull(optimizedPlan);
         assertFalse(optimizedPlan.isEnabled());
@@ -66,11 +68,12 @@ class MissionsTabPanelOptimizerTest {
 
         JButton optimizedPlan = findButton(panel, "Optimized Plan");
         assertTrue(optimizedPlan.isEnabled());
+        assertNotNull(findButton(panel, "Optimize Plan"));
         assertTrue(findNamed(panel, "optimizedPlanContent").isVisible());
         JButton apply = findButton(panel, "Apply to Route");
         assertNotNull(apply);
         apply.doClick();
-        assertEquals(List.of(List.of("Lave")), applied);
+        assertEquals(List.of(List.of("Sol", "Lave")), applied);
 
         invoke(panel, "invalidateOptimizedPlan", new Class<?>[0]);
 
@@ -80,7 +83,7 @@ class MissionsTabPanelOptimizerTest {
     }
 
     @Test
-    void changingCurrentLocationInvalidatesThePlan() {
+    void changingCurrentLocationKeepsTheActivePlan() {
         MissionsTabPanel panel = new MissionsTabPanel(
                 () -> false, () -> false, () -> "Sol", () -> "Galileo",
                 () -> 128, systems -> { });
@@ -93,8 +96,28 @@ class MissionsTabPanelOptimizerTest {
         panel.handleLogEvent(new LocationEvent(Instant.now(), new JsonObject(),
                 false, false, false, "Achenar", 2L, new double[] { 20, 0, 0 }, null, 0, null));
 
-        assertFalse(findButton(panel, "Optimized Plan").isEnabled());
-        assertTrue(findNamed(panel, "allMissionsContent").isVisible());
+        assertTrue(findButton(panel, "Optimized Plan").isEnabled());
+        assertTrue(findNamed(panel, "optimizedPlanContent").isVisible());
+    }
+
+    @Test
+    void optimizedPlanDisplaysMissingPickupWarningsInsideTheTab() {
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        TransportLocation achenar = new TransportLocation("Achenar", "Dawes Hub", 20, 0, 0);
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(achenar, List.of(new TransportPlanAction(
+                        TransportPlanAction.Kind.VISIT, 5L, "Mining", 0)), 0)), 20.0, true);
+        List<TransportPlanProblem> warnings = List.of(new TransportPlanProblem(
+                TransportPlanProblem.Code.SOURCE_REQUIRED, 5L,
+                "Pickup not planned: 12 t Bromellite source has not been set."));
+
+        invoke(panel, "displayOptimizedPlan",
+                new Class<?>[] { TransportRoutePlan.class, List.class }, plan, warnings);
+
+        assertNotNull(findLabelContaining(panel, "Pickup not planned"));
+        assertNotNull(findLabelContaining(panel, "Bromellite"));
     }
 
     private static JButton findButton(Container root, String text) {
@@ -113,6 +136,18 @@ class MissionsTabPanelOptimizerTest {
             if (child instanceof JComponent component && name.equals(component.getName())) return component;
             if (child instanceof Container container) {
                 JComponent found = findNamed(container, name);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static JLabel findLabelContaining(Container root, String text) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JLabel label && label.getText() != null
+                    && label.getText().contains(text)) return label;
+            if (child instanceof Container container) {
+                JLabel found = findLabelContaining(container, text);
                 if (found != null) return found;
             }
         }

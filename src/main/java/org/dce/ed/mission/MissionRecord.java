@@ -100,6 +100,11 @@ public final class MissionRecord {
         return normalized.startsWith("mission_sourced") || normalized.startsWith("mission_collect");
     }
 
+    public boolean isManuallySourceableCommodityMission() {
+        if (isSelfSourcedCommodityMission()) return true;
+        return name != null && name.toLowerCase(Locale.ROOT).startsWith("mission_mining");
+    }
+
     public String getTargetFaction() { return targetFaction; }
     public void setTargetFaction(String targetFaction) { this.targetFaction = targetFaction; }
 

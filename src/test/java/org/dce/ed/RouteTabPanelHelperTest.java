@@ -37,6 +37,14 @@ import com.google.gson.JsonObject;
  * Unit tests for route helper methods: findSystemRow, deepCopy, bestInsertionIndexByCoords, recomputeLegDistances, renumberDisplayIndexes.
  */
 class RouteTabPanelHelperTest {
+	@Test
+	void transportPlanningUsesLiveRouteSessionSystem() {
+		RouteTabPanel panel = new RouteTabPanel(() -> false);
+		panel.routeSessionForTests().applyKnownCurrentSystem(
+				"Col 285 Sector MK-P a35-0", 123L, new double[] { 1, 2, 3 });
+
+		assertEquals("Col 285 Sector MK-P a35-0", panel.getCurrentSystemNameForPlanning());
+	}
 
     @Test
     void customRouteLoopToggle_isBeforeClearAndPersistsSelection() {
@@ -171,18 +179,21 @@ class RouteTabPanelHelperTest {
     @Test
     void confirmedOptimizedRouteReplacesCustomStopsAndKeepsCurrentSystemFirst() {
         RouteTabPanel panel = new RouteTabPanel(() -> false);
-        panel.routeSessionForTests().applyKnownCurrentSystem("Sol", 1L, new double[] { 0, 0, 0 });
+        panel.routeSessionForTests().applyKnownCurrentSystem("Stale System", 1L, new double[] { -5, 0, 0 });
+        RouteEntry sol = entryWithCoords("Sol", 0, 0, 0);
+        sol.systemAddress = 2L;
         RouteEntry lave = entryWithCoords("Lave", 10, 0, 0);
         lave.starClass = "K";
         RouteEntry achenar = entryWithCoords("Achenar", 30, 0, 0);
         achenar.starClass = "G";
 
-        panel.applyResolvedOptimizedRoute(List.of(lave, achenar));
+        panel.applyResolvedOptimizedRoute(List.of(sol, lave, achenar));
 
         assertTrue(panel.isCustomRouteActive());
         assertEquals(List.of("Sol", "Lave", "Achenar"),
                 panel.routeSessionForTests().getBaseRouteEntries().stream()
                         .map(e -> e.systemName).toList());
+        assertEquals("Sol", panel.routeSessionForTests().getCurrentSystemName());
         List<RouteEntry> displayed = panel.routeSessionForTests()
                 .buildDisplaySnapshot(null, (n, a, p) -> null, true).displayedEntries();
         assertEquals(10.0, displayed.get(1).distanceLy, 0.0001);
