@@ -15,6 +15,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -57,6 +58,9 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
 
     private static final String MAVEN_GROUP_ID = "org.dce";
     private static final String MAVEN_ARTIFACT_ID = "EliteDangerousOverlay";
+    private static final PendingActivation INSTANCE_ACTIVATION = new PendingActivation();
+
+    private static SingleInstanceCoordinator singleInstanceCoordinator;
 
     private final Preferences prefs;
 
@@ -131,6 +135,20 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
 
     public static void main(String[] args) throws IOException {
 
+        Path instanceDirectory = Path.of(System.getProperty("user.home", "."), ".edo");
+        var coordinator = SingleInstanceCoordinator.tryStart(instanceDirectory, INSTANCE_ACTIVATION::request);
+        if (coordinator.isEmpty()) {
+            return;
+        }
+        singleInstanceCoordinator = coordinator.get();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                singleInstanceCoordinator.close();
+            } catch (IOException e) {
+                System.err.println("[RockHound] Could not release the instance lock: " + e.getMessage());
+            }
+        }, "rockhound-instance-shutdown"));
+
         System.out.println("EDO Overlay version: " + getAppVersion());
 
         ConsoleMonitor consoleMonitor = ConsoleMonitor.getInstance(1000);
@@ -170,6 +188,15 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
         }
         EliteDangerousOverlay app = new EliteDangerousOverlay();
         app.start();
+        INSTANCE_ACTIVATION.register(() -> SwingUtilities.invokeLater(app::bringRunningInstanceToFront));
+    }
+
+    private void bringRunningInstanceToFront() {
+        Window window = passThroughMode ? passThroughFrame : decoratedDialog;
+        if (window instanceof Frame frame) {
+            frame.setExtendedState(frame.getExtendedState() & ~Frame.ICONIFIED);
+        }
+        forceWindowToFront(window);
     }
 
     private static String getAppVersion() {
