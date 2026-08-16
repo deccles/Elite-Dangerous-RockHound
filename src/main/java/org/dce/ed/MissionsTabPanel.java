@@ -2,6 +2,7 @@ package org.dce.ed;
 
 import java.awt.AlphaComposite;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -82,7 +83,7 @@ import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.ui.DestinationCopySupport;
 import org.dce.ed.ui.CommoditySourceDialog;
 import org.dce.ed.ui.MultiCommoditySourceDialog;
-import org.dce.ed.ui.TransportRoutePlanDialog;
+import org.dce.ed.ui.TransportRoutePlanPanel;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
@@ -98,13 +99,11 @@ import org.dce.ed.ui.TransparentViewportUI;
 import org.dce.ed.util.EdsmClient;
 
 /**
- * Transport tab: trucking-style missions (cargo / courier / passenger), From/To places, filters.
+ * Transport tab: mission list and optimized pickup/delivery plan.
  */
 public class MissionsTabPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
-
-    private enum Filter { ALL, CARGO, COURIER, PASSENGER }
 
     private final MissionTracker tracker = new MissionTracker();
     private final BooleanSupplier passThroughEnabledSupplier;
@@ -117,16 +116,18 @@ public class MissionsTabPanel extends JPanel {
 
     private Runnable sessionStateChangeCallback;
     private Runnable immediateSessionStateChangeCallback;
-    private Filter filter = Filter.ALL;
-
     private static final int FILTER_HOVER_DELAY_MS = 500;
     private static final int HEADER_SORT_HOVER_MS = 500;
 
     private final JLabel activeCountLabel = new JLabel("Active: 0");
     private final JButton optimizeStopsButton = new JButton("Optimize Stops");
     private final JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-    private final List<JButton> filterButtons = new ArrayList<>();
-    private final List<Filter> filterButtonFilters = new ArrayList<>();
+    private final JButton allTabButton = new JButton("All");
+    private final JButton optimizedPlanTabButton = new JButton("Optimized Plan");
+    private final CardLayout contentCardLayout = new CardLayout();
+    private final JPanel contentCards = new JPanel(contentCardLayout);
+    private final JPanel optimizedPlanHost = new JPanel(new BorderLayout());
+    private boolean showingOptimizedPlan;
     private final JPanel redirectBanner = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
     private final JLabel redirectLabel = new JLabel();
     private final JButton redirectDismiss = new JButton("Dismiss");
@@ -188,6 +189,7 @@ public class MissionsTabPanel extends JPanel {
     private JScrollPane tableScroll;
     private final Timer refreshTimer;
     private TransportRoutePlan lastOptimizedPlan;
+    private TransportRoutePlanPanel optimizedPlanPanel;
     private int optimizeRequestId;
 
     public MissionsTabPanel(BooleanSupplier passThroughEnabledSupplier,
@@ -276,6 +278,7 @@ public class MissionsTabPanel extends JPanel {
         // viewport binds to TransparentTableHeader (not the default LAF header).
         tableScroll = new JScrollPane(missionsTable);
         contentCenter.setLayout(new BoxLayout(contentCenter, BoxLayout.Y_AXIS));
+        contentCenter.setName("allMissionsContent");
         contentCenter.setOpaque(false);
         contentCenter.add(commodityGroupsPanel);
         contentCenter.add(sourceAllBar);
@@ -313,7 +316,12 @@ public class MissionsTabPanel extends JPanel {
         top.add(redirectBanner, BorderLayout.SOUTH);
 
         add(top, BorderLayout.NORTH);
-        add(contentCenter, BorderLayout.CENTER);
+        contentCards.setOpaque(false);
+        optimizedPlanHost.setOpaque(false);
+        optimizedPlanHost.setName("optimizedPlanContent");
+        contentCards.add(contentCenter, "all");
+        contentCards.add(optimizedPlanHost, "plan");
+        add(contentCards, BorderLayout.CENTER);
         execButtonStrip = new ExecTabButtonStrip(OverlayTabId.MISSIONS, passThroughEnabledSupplier);
         add(execButtonStrip, BorderLayout.SOUTH);
 
@@ -329,7 +337,7 @@ public class MissionsTabPanel extends JPanel {
 
     private void optimizeStops() {
         if (lastOptimizedPlan != null) {
-            showOptimizedPlan(lastOptimizedPlan);
+            showOptimizedPlanTab();
             return;
         }
         List<MissionRecord> active = tracker.getActive();
@@ -383,9 +391,7 @@ public class MissionsTabPanel extends JPanel {
                         showPlanProblems(prepared.problems());
                         return;
                     }
-                    lastOptimizedPlan = result.plan();
-                    optimizeStopsButton.setText("View Optimized Plan");
-                    showOptimizedPlan(lastOptimizedPlan);
+                    displayOptimizedPlan(result.plan());
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(MissionsTabPanel.this,
                             "The Transport plan could not be calculated. " + ex.getMessage(),
@@ -395,10 +401,16 @@ public class MissionsTabPanel extends JPanel {
         }.execute();
     }
 
-    private void showOptimizedPlan(TransportRoutePlan plan) {
-        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
-        new TransportRoutePlanDialog(owner, plan, cargoCapacitySupplier.getAsInt(),
-                optimizedRouteConsumer).setVisible(true);
+    private void displayOptimizedPlan(TransportRoutePlan plan) {
+        lastOptimizedPlan = plan;
+        optimizeStopsButton.setText("View Optimized Plan");
+        optimizedPlanHost.removeAll();
+        optimizedPlanPanel = new TransportRoutePlanPanel(plan, cargoCapacitySupplier.getAsInt(),
+                optimizedRouteConsumer);
+        optimizedPlanHost.add(optimizedPlanPanel, BorderLayout.CENTER);
+        optimizedPlanHost.revalidate();
+        optimizedPlanHost.repaint();
+        showOptimizedPlanTab();
     }
 
     private void showPlanProblems(List<TransportPlanProblem> problems) {
@@ -411,8 +423,11 @@ public class MissionsTabPanel extends JPanel {
     private void invalidateOptimizedPlan() {
         optimizeRequestId++;
         lastOptimizedPlan = null;
+        optimizedPlanPanel = null;
+        optimizedPlanHost.removeAll();
         optimizeStopsButton.setEnabled(true);
         optimizeStopsButton.setText("Optimize Stops");
+        showAllTab();
     }
 
     private static int remainingCargoRequirement(MissionRecord mission) {
@@ -472,35 +487,37 @@ public class MissionsTabPanel extends JPanel {
 
     private void buildFilterBar(Font base) {
         filterBar.setOpaque(false);
-        addFilterChip("All", Filter.ALL, base);
-        addFilterChip("Cargo", Filter.CARGO, base);
-        addFilterChip("Courier", Filter.COURIER, base);
-        addFilterChip("Passenger", Filter.PASSENGER, base);
-    }
-
-    private void addFilterChip(String label, Filter f, Font base) {
-        JButton b = new JButton(label);
-        OverlayOutlineButtonStyle.applyChip(b, base, filter == f);
-        b.addActionListener(e -> selectFilter(f));
-        HoverClickPoller.register(b, FILTER_HOVER_DELAY_MS, () -> selectFilter(f), passThroughEnabledSupplier);
-        filterButtons.add(b);
-        filterButtonFilters.add(f);
-        filterBar.add(b);
-    }
-
-    private void selectFilter(Filter f) {
-        filter = f;
-        updateFilterChipStyles();
-        refreshUi();
+        OverlayOutlineButtonStyle.applyChip(allTabButton, base, true);
+        OverlayOutlineButtonStyle.applyChip(optimizedPlanTabButton, base, false);
+        optimizedPlanTabButton.setEnabled(false);
+        allTabButton.addActionListener(e -> showAllTab());
+        optimizedPlanTabButton.addActionListener(e -> showOptimizedPlanTab());
+        HoverClickPoller.register(allTabButton, FILTER_HOVER_DELAY_MS,
+                this::showAllTab, passThroughEnabledSupplier);
+        HoverClickPoller.register(optimizedPlanTabButton, FILTER_HOVER_DELAY_MS,
+                this::showOptimizedPlanTab, passThroughEnabledSupplier);
+        filterBar.add(allTabButton);
+        filterBar.add(optimizedPlanTabButton);
     }
 
     private void updateFilterChipStyles() {
         Font base = OverlayPreferences.getUiFont();
-        for (int i = 0; i < filterButtons.size(); i++) {
-            JButton b = filterButtons.get(i);
-            Filter f = filterButtonFilters.get(i);
-            OverlayOutlineButtonStyle.applyChip(b, base, filter == f);
-        }
+        OverlayOutlineButtonStyle.applyChip(allTabButton, base, !showingOptimizedPlan);
+        OverlayOutlineButtonStyle.applyChip(optimizedPlanTabButton, base, showingOptimizedPlan);
+        optimizedPlanTabButton.setEnabled(lastOptimizedPlan != null);
+    }
+
+    private void showAllTab() {
+        showingOptimizedPlan = false;
+        contentCardLayout.show(contentCards, "all");
+        updateFilterChipStyles();
+    }
+
+    private void showOptimizedPlanTab() {
+        if (lastOptimizedPlan == null) return;
+        showingOptimizedPlan = true;
+        contentCardLayout.show(contentCards, "plan");
+        updateFilterChipStyles();
     }
 
     private void configureMissionsTable(Font base) {
@@ -636,6 +653,10 @@ public class MissionsTabPanel extends JPanel {
         if (SelectiveHitSupport.containsScreenPoint(optimizeStopsButton, screenPoint)) {
             return true;
         }
+        if (optimizedPlanPanel != null
+                && optimizedPlanPanel.isPointerOverInteractiveRegion(screenPoint)) {
+            return true;
+        }
         if (SelectiveHitSupport.isOverTableHeader(missionsTable, screenPoint)) {
             return true;
         }
@@ -740,6 +761,7 @@ public class MissionsTabPanel extends JPanel {
                 || type == EliteEventType.FSD_JUMP
                 || type == EliteEventType.CARRIER_JUMP) {
             // Current system/station moved — refresh ready-state highlighting.
+            invalidateOptimizedPlan();
             scheduleRefresh();
         }
         if (event instanceof MissionAcceptedEvent
@@ -894,21 +916,12 @@ public class MissionsTabPanel extends JPanel {
         if (r == null || !r.getCategory().isTransport()) {
             return false;
         }
-        return switch (filter) {
-            case ALL -> true;
-            case CARGO -> r.getCategory() == MissionCategory.COMMODITY;
-            case COURIER -> r.getCategory() == MissionCategory.COURIER;
-            case PASSENGER -> r.getCategory() == MissionCategory.PASSENGER;
-        };
+        return true;
     }
 
     private void rebuildCommodityGroups() {
         commodityGroupsPanel.removeAll();
         sourceAllBar.setVisible(false);
-        if (filter != Filter.ALL && filter != Filter.CARGO) {
-            commodityGroupsPanel.setVisible(false);
-            return;
-        }
         List<CommodityMissionGroup> groups = tracker.getCommodityGroups(MissionTracker::commodityInHold);
         if (groups.isEmpty()) {
             commodityGroupsPanel.setVisible(false);
