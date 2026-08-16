@@ -409,6 +409,22 @@ public final class MissionTracker {
         return true;
     }
 
+    public boolean clearSourcedFrom(long missionId) {
+        MissionRecord r = findById(missionId);
+        if (r == null || !r.isManuallySourceableCommodityMission()) {
+            return false;
+        }
+        if ((r.getSourcedFromSystem() == null || r.getSourcedFromSystem().isBlank())
+                && (r.getSourcedFromStation() == null || r.getSourcedFromStation().isBlank())) {
+            return false;
+        }
+        r.setSourcedFromSystem(null);
+        r.setSourcedFromStation(null);
+        lastUpdated = Instant.now();
+        notifyChanged();
+        return true;
+    }
+
     /** Atomically assigns a source only to eligible missions that are still unassigned. */
     public int setSourcedFromIfUnassigned(List<Long> missionIds, String system, String station) {
         String nextSystem = system == null ? "" : system.trim();
@@ -926,6 +942,8 @@ public final class MissionTracker {
         if (state == null) {
             return;
         }
+        var previousPlan = state.getMissions() != null
+                ? state.getMissions().getOptimizedTransportPlan() : null;
         MissionSessionData data = new MissionSessionData();
         Map<String, MissionRecordPersisted> map = new HashMap<>();
         for (MissionRecord r : activeById.values()) {
@@ -939,6 +957,7 @@ public final class MissionTracker {
         data.setActiveById(map);
         data.setDismissedRedirectIds(new ArrayList<>(dismissedRedirectIds));
         data.setLastUpdated(lastUpdated != null ? lastUpdated.toString() : null);
+        data.setOptimizedTransportPlan(previousPlan);
         state.setMissions(data);
         state.setVersion(3);
     }

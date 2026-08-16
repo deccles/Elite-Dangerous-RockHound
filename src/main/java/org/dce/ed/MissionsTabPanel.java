@@ -20,11 +20,9 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseAdapter;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.IntSupplier;
@@ -49,6 +47,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
@@ -77,9 +76,11 @@ import org.dce.ed.mission.MissionTracker;
 import org.dce.ed.mission.TransportPlanPreparation;
 import org.dce.ed.mission.TransportPlanPreparer;
 import org.dce.ed.mission.TransportPlanProblem;
+import org.dce.ed.mission.TransportPlanRequest;
 import org.dce.ed.mission.TransportRoutePlan;
 import org.dce.ed.mission.TransportRoutePlanner;
 import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.session.TransportPlanSessionData;
 import org.dce.ed.ui.DestinationCopySupport;
 import org.dce.ed.ui.CommoditySourceDialog;
 import org.dce.ed.ui.MultiCommoditySourceDialog;
@@ -131,7 +132,25 @@ public class MissionsTabPanel extends JPanel {
     private final JPanel redirectBanner = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
     private final JLabel redirectLabel = new JLabel();
     private final JButton redirectDismiss = new JButton("Dismiss");
-    private final JPanel commodityGroupsPanel = new JPanel();
+    private final DefaultTableModel commoditySummaryModel = new DefaultTableModel(
+            new String[] { "Commodity", "Progress", "Cargo", "Turn-in", "Due" }, 0) {
+        private static final long serialVersionUID = 1L;
+        @Override public boolean isCellEditable(int row, int column) { return false; }
+    };
+    private final JTable commoditySummaryTable = new JTable(commoditySummaryModel) {
+        private static final long serialVersionUID = 1L;
+        @Override public String getToolTipText(MouseEvent event) {
+            int viewRow = rowAtPoint(event.getPoint());
+            int viewColumn = columnAtPoint(event.getPoint());
+            if (viewRow < 0 || viewColumn != 3 || viewRow >= commoditySummaryGroups.size()) return null;
+            CommodityMissionGroup group = commoditySummaryGroups.get(convertRowIndexToModel(viewRow));
+            if (group.isMultipleTurnIns()) return "Multiple turn-in destinations";
+            MissionDestination destination = group.getTurnInDest();
+            return destination != null ? destination.displayLine() : null;
+        }
+    };
+    private final JScrollPane commoditySummaryScroll = new JScrollPane(commoditySummaryTable);
+    private List<CommodityMissionGroup> commoditySummaryGroups = List.of();
     private final JPanel sourceAllBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
     private final JButton sourceAllButton = new JButton("Source all");
     private final JPanel contentCenter = new JPanel() {
@@ -189,6 +208,7 @@ public class MissionsTabPanel extends JPanel {
     private JScrollPane tableScroll;
     private final Timer refreshTimer;
     private TransportRoutePlan lastOptimizedPlan;
+    private TransportPlanSessionData lastOptimizedPlanData;
     private TransportRoutePlanPanel optimizedPlanPanel;
     private int optimizeRequestId;
 
@@ -228,12 +248,29 @@ public class MissionsTabPanel extends JPanel {
         buildFilterBar(base);
         buildRedirectBanner(base);
 
-        commodityGroupsPanel.setLayout(new BoxLayout(commodityGroupsPanel, BoxLayout.Y_AXIS));
-        commodityGroupsPanel.setOpaque(false);
+        commoditySummaryTable.setName("commoditySummaryTable");
+        commoditySummaryTable.setFont(base);
+        commoditySummaryTable.setRowHeight(Math.max(20,
+                commoditySummaryTable.getFontMetrics(base).getHeight() + 4));
+        commoditySummaryTable.setShowGrid(false);
+        commoditySummaryTable.setFillsViewportHeight(false);
+        commoditySummaryTable.getTableHeader().setFont(base.deriveFont(Font.BOLD));
+        commoditySummaryTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        commoditySummaryTable.setDefaultRenderer(Object.class, new CommoditySummaryRenderer());
+        commoditySummaryScroll.setOpaque(false);
+        commoditySummaryScroll.getViewport().setOpaque(false);
+        commoditySummaryScroll.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        commoditySummaryScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        commoditySummaryScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        commoditySummaryScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        resizeCommoditySummary(1);
         sourceAllBar.setOpaque(false);
         OverlayOutlineButtonStyle.applyPrimaryHitSafe(sourceAllButton, base);
         sourceAllButton.addActionListener(e -> openMultiCommoditySourceDialog());
         sourceAllBar.add(sourceAllButton);
+        sourceAllBar.setAlignmentX(Component.LEFT_ALIGNMENT);
+        sourceAllBar.setMaximumSize(new Dimension(Integer.MAX_VALUE,
+                sourceAllBar.getPreferredSize().height));
 
         configureMissionsTable(base);
 
@@ -251,7 +288,11 @@ public class MissionsTabPanel extends JPanel {
                 if (e.getY() > cell.y + cell.height / 2 || e.getX() < cell.x + cell.width - 125) return;
                 MissionRow row = tableModel.rowAt(missionsTable.convertRowIndexToModel(viewRow));
                 if (row != null && row.record.isManuallySourceableCommodityMission()) {
-                    openCommoditySourceDialog(row.record);
+                    if (hasManualSource(row.record)) {
+                        clearSourcedFromSelection(row.record.getMissionId());
+                    } else {
+                        openCommoditySourceDialog(row.record);
+                    }
                     e.consume();
                 }
             }
@@ -277,10 +318,11 @@ public class MissionsTabPanel extends JPanel {
         // Create scroll pane after the custom header is installed so the column header
         // viewport binds to TransparentTableHeader (not the default LAF header).
         tableScroll = new JScrollPane(missionsTable);
+        tableScroll.setName("missionsTableScroll");
         contentCenter.setLayout(new BoxLayout(contentCenter, BoxLayout.Y_AXIS));
         contentCenter.setName("allMissionsContent");
         contentCenter.setOpaque(false);
-        contentCenter.add(commodityGroupsPanel);
+        contentCenter.add(commoditySummaryScroll);
         contentCenter.add(sourceAllBar);
         tableScroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         tableScroll.setOpaque(false);
@@ -326,7 +368,7 @@ public class MissionsTabPanel extends JPanel {
         add(execButtonStrip, BorderLayout.SOUTH);
 
         tracker.setChangeCallback(() -> { invalidateOptimizedPlan(); scheduleRefresh(); });
-        CargoMonitor.getInstance().addListener(s -> { invalidateOptimizedPlan(); scheduleRefresh(); });
+        CargoMonitor.getInstance().addListener(s -> scheduleRefresh());
 
         refreshTimer = new Timer(30_000, e -> refreshUi());
         refreshTimer.setRepeats(true);
@@ -370,7 +412,7 @@ public class MissionsTabPanel extends JPanel {
                         showPlanProblems(prepared.problems());
                         return;
                     }
-                    displayOptimizedPlan(result.plan(), prepared.warnings());
+                    displayOptimizedPlan(result.plan(), prepared.request(), prepared.warnings());
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(MissionsTabPanel.this,
                             "The Transport plan could not be calculated. " + ex.getMessage(),
@@ -381,21 +423,52 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void displayOptimizedPlan(TransportRoutePlan plan) {
-        displayOptimizedPlan(plan, List.of());
+        displayOptimizedPlan(plan, null, List.of());
     }
 
     private void displayOptimizedPlan(TransportRoutePlan plan,
             List<TransportPlanProblem> warnings) {
+        displayOptimizedPlan(plan, null, warnings);
+    }
+
+    private void displayOptimizedPlan(TransportRoutePlan plan,
+            TransportPlanRequest request, List<TransportPlanProblem> warnings) {
+        org.dce.ed.mission.TransportLocation start = request != null
+                ? request.start() : currentPlanStart();
+        int initialHoldTons = request != null ? request.occupiedCargo() : 0;
+        int capacity = cargoCapacitySupplier.getAsInt();
+        lastOptimizedPlanData = TransportPlanSessionData.from(
+                plan, start, initialHoldTons, capacity, warnings);
+        installOptimizedPlan(plan, start, initialHoldTons, capacity, warnings, true);
+        if (sessionStateChangeCallback != null) sessionStateChangeCallback.run();
+    }
+
+    private void installOptimizedPlan(TransportRoutePlan plan,
+            org.dce.ed.mission.TransportLocation start, int initialHoldTons, int capacity,
+            List<TransportPlanProblem> warnings, boolean openPlanTab) {
         lastOptimizedPlan = plan;
         optimizeStopsButton.setText("Optimize Plan");
         optimizedPlanHost.removeAll();
-        optimizedPlanPanel = new TransportRoutePlanPanel(plan, cargoCapacitySupplier.getAsInt(),
+        optimizedPlanPanel = new TransportRoutePlanPanel(plan, capacity,
+                start, initialHoldTons,
                 systems -> optimizedRouteConsumer.accept(withCurrentSystemFirst(systems)), warnings);
         updateOptimizedPlanLocationHighlight();
         optimizedPlanHost.add(optimizedPlanPanel, BorderLayout.CENTER);
         optimizedPlanHost.revalidate();
         optimizedPlanHost.repaint();
-        showOptimizedPlanTab();
+        if (openPlanTab) showOptimizedPlanTab();
+        else {
+            showAllTab();
+            updateFilterChipStyles();
+        }
+    }
+
+    private org.dce.ed.mission.TransportLocation currentPlanStart() {
+        String system = currentSystemSupplier.get();
+        String station = currentStationSupplier.get();
+        if (system == null || system.isBlank()) return null;
+        if (station == null || station.isBlank()) station = "Current position";
+        return new org.dce.ed.mission.TransportLocation(system, station, 0, 0, 0);
     }
 
     private List<String> withCurrentSystemFirst(List<String> plannedSystems) {
@@ -424,13 +497,16 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void invalidateOptimizedPlan() {
+        boolean hadPlan = lastOptimizedPlan != null || lastOptimizedPlanData != null;
         optimizeRequestId++;
         lastOptimizedPlan = null;
+        lastOptimizedPlanData = null;
         optimizedPlanPanel = null;
         optimizedPlanHost.removeAll();
         optimizeStopsButton.setEnabled(true);
         optimizeStopsButton.setText("Optimize Stops");
         showAllTab();
+        if (hadPlan && sessionStateChangeCallback != null) sessionStateChangeCallback.run();
     }
 
     private record OptimizationResult(TransportPlanPreparation preparation,
@@ -480,6 +556,27 @@ public class MissionsTabPanel extends JPanel {
             sessionStateChangeCallback.run();
         }
         return true;
+    }
+
+    boolean clearSourcedFromSelection(long missionId) {
+        if (!tracker.clearSourcedFrom(missionId)) {
+            return false;
+        }
+        refreshUi();
+        if (immediateSessionStateChangeCallback != null) {
+            immediateSessionStateChangeCallback.run();
+        } else if (sessionStateChangeCallback != null) {
+            sessionStateChangeCallback.run();
+        }
+        return true;
+    }
+
+    private static boolean hasManualSource(MissionRecord mission) {
+        return mission != null
+                && mission.getSourcedFromSystem() != null
+                && !mission.getSourcedFromSystem().isBlank()
+                && mission.getSourcedFromStation() != null
+                && !mission.getSourcedFromStation().isBlank();
     }
 
     private void buildFilterBar(Font base) {
@@ -634,6 +731,9 @@ public class MissionsTabPanel extends JPanel {
 
     public void fillSessionState(EdoSessionState state) {
         tracker.fillSessionState(state);
+        if (state != null && state.getMissions() != null) {
+            state.getMissions().setOptimizedTransportPlan(lastOptimizedPlanData);
+        }
     }
 
     /** Selective mouse mode: filters, Dismiss, sort headers, Objective/Places cells. */
@@ -720,6 +820,22 @@ public class MissionsTabPanel extends JPanel {
 
     public void applySessionState(EdoSessionState state) {
         tracker.applySessionState(state);
+        TransportPlanSessionData persisted = state != null && state.getMissions() != null
+                ? state.getMissions().getOptimizedTransportPlan() : null;
+        if (persisted != null) {
+            try {
+                TransportRoutePlan restored = persisted.toPlan();
+                int capacity = persisted.getCapacity() > 0
+                        ? persisted.getCapacity() : cargoCapacitySupplier.getAsInt();
+                lastOptimizedPlanData = persisted;
+                installOptimizedPlan(restored, persisted.startLocation(),
+                        persisted.getInitialHoldTons(), capacity,
+                        persisted.warningProblems(), false);
+            } catch (RuntimeException ex) {
+                lastOptimizedPlan = null;
+                lastOptimizedPlanData = null;
+            }
+        }
         scheduleRefresh();
     }
 
@@ -920,100 +1036,70 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void rebuildCommodityGroups() {
-        commodityGroupsPanel.removeAll();
         sourceAllBar.setVisible(false);
         List<CommodityMissionGroup> groups = tracker.getCommodityGroups(MissionTracker::commodityInHold);
+        commoditySummaryGroups = List.copyOf(groups);
+        commoditySummaryModel.setRowCount(0);
         if (groups.isEmpty()) {
-            commodityGroupsPanel.setVisible(false);
+            commoditySummaryScroll.setVisible(false);
             return;
         }
-        commodityGroupsPanel.setVisible(true);
+        commoditySummaryScroll.setVisible(true);
         sourceAllBar.setVisible(!MultiCommoditySourceDialog.buildNeeds(tracker.getActive()).isEmpty());
-        Font base = OverlayPreferences.getUiFont();
         for (CommodityMissionGroup g : groups) {
-            commodityGroupsPanel.add(buildGroupCard(g, base));
-            commodityGroupsPanel.add(Box.createVerticalStrut(4));
+            int gathered = g.totalGathered();
+            int required = g.getTotalRequired();
+            int percent = (int) Math.round(g.progressFraction() * 100.0);
+            commoditySummaryModel.addRow(new Object[] {
+                    g.getCommodityLocalised() + " · " + g.getMissionCount(),
+                    gathered + "/" + required + " · " + percent + "%",
+                    "H " + g.getTotalInHold() + " · D " + g.getTotalDelivered(),
+                    conciseTurnIn(g),
+                    g.getSoonestExpiry() != null ? formatExpiry(g.getSoonestExpiry()) : "—"
+            });
         }
-        commodityGroupsPanel.revalidate();
-        commodityGroupsPanel.repaint();
+        resizeCommoditySummary(groups.size());
+        UtilTable.autoSizeTableColumns(commoditySummaryTable);
+        commoditySummaryScroll.revalidate();
+        commoditySummaryScroll.repaint();
     }
 
-    private JPanel buildGroupCard(CommodityMissionGroup g, Font base) {
-        JPanel card = new JPanel();
-        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        boolean transparent = OverlayPreferences.overlayChromeRequestsTransparency(this);
-        card.setOpaque(!transparent);
-        card.setBackground(transparent ? EdoUi.Internal.TRANSPARENT : EdoUi.Internal.BLACK_ALPHA_140);
-        card.setBorder(new EmptyBorder(6, 8, 6, 8));
-        boolean enough = g.hasEnoughGathered();
-        if (isGroupReady(g) || enough) {
-            card.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(EdoUi.User.PRIMARY_HIGHLIGHT, 1),
-                    new EmptyBorder(6, 8, 6, 8)));
-        }
-        int y = g.totalGathered();
-        int x = g.getTotalRequired();
-        int pct = (int) Math.round(g.progressFraction() * 100.0);
-
-        JLabel title = new JLabel(g.getCommodityLocalised() + "  ·  " + g.getMissionCount() + " missions");
-        title.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize()));
-        title.setForeground(EdoUi.User.MAIN_TEXT);
-        title.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JLabel progress = new JLabel(y + " / " + x + " t required  ·  " + pct + "%");
-        progress.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize()));
-        progress.setForeground(enough ? EdoUi.User.PRIMARY_HIGHLIGHT : EdoUi.User.MAIN_TEXT);
-        progress.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JLabel holdDelivered = new JLabel("Hold " + g.getTotalInHold() + " t · Delivered "
-                + g.getTotalDelivered() + " t");
-        holdDelivered.setFont(base.deriveFont(Font.PLAIN, OverlayPreferences.getUiFontSize() - 1));
-        holdDelivered.setForeground(enough ? EdoUi.User.PRIMARY_HIGHLIGHT : EdoUi.User.MAIN_TEXT);
-        holdDelivered.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        card.add(title);
-        card.add(progress);
-        card.add(holdDelivered);
-        addTurnInLines(card, g, base);
-        if (g.getSoonestExpiry() != null) {
-            JLabel exp = new JLabel("⏱ " + formatExpiry(g.getSoonestExpiry()));
-            exp.setFont(base.deriveFont(Font.PLAIN, OverlayPreferences.getUiFontSize() - 1));
-            exp.setForeground(EdoUi.User.MAIN_TEXT);
-            exp.setAlignmentX(Component.LEFT_ALIGNMENT);
-            card.add(exp);
-        }
-        return card;
+    private void resizeCommoditySummary(int groupCount) {
+        int visibleRows = Math.max(1, Math.min(4, groupCount));
+        int headerHeight = commoditySummaryTable.getTableHeader() != null
+                ? commoditySummaryTable.getTableHeader().getPreferredSize().height : 24;
+        int height = commoditySummaryTable.getRowHeight() * visibleRows + headerHeight + 8;
+        Dimension size = new Dimension(100, height);
+        commoditySummaryScroll.setMinimumSize(new Dimension(0, 0));
+        commoditySummaryScroll.setPreferredSize(size);
+        commoditySummaryScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
     }
 
-    private void addTurnInLines(JPanel card, CommodityMissionGroup g, Font base) {
-        Font turnInFont = base.deriveFont(Font.PLAIN, OverlayPreferences.getUiFontSize() - 1);
-        if (g.isMultipleTurnIns()) {
-            JLabel header = new JLabel("Turn-in: Multiple destinations");
-            header.setFont(turnInFont);
-            header.setForeground(EdoUi.User.MAIN_TEXT);
-            header.setAlignmentX(Component.LEFT_ALIGNMENT);
-            card.add(header);
-            Set<String> seen = new LinkedHashSet<>();
-            for (MissionRecord m : g.getMissions()) {
-                MissionDestination dest = MissionDestinationResolver.turnInFor(m);
-                String line = dest != null ? dest.displayLine() : "—";
-                if (line.equals("—") || !seen.add(line)) {
-                    continue;
-                }
-                JLabel sub = new JLabel("    " + line);
-                sub.setFont(turnInFont);
-                sub.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-                sub.setAlignmentX(Component.LEFT_ALIGNMENT);
-                card.add(sub);
-            }
-            return;
+    private static String conciseTurnIn(CommodityMissionGroup group) {
+        if (group.isMultipleTurnIns()) return "Multiple destinations";
+        MissionDestination turnIn = group.getTurnInDest();
+        if (turnIn == null) return "—";
+        if (turnIn.getStation() != null && !turnIn.getStation().isBlank()) return turnIn.getStation();
+        return turnIn.getSystem() != null ? turnIn.getSystem() : "—";
+    }
+
+    private final class CommoditySummaryRenderer extends DefaultTableCellRenderer {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            JLabel label = (JLabel) super.getTableCellRendererComponent(
+                    table, value, false, false, row, column);
+            int modelRow = table.convertRowIndexToModel(row);
+            CommodityMissionGroup group = modelRow >= 0 && modelRow < commoditySummaryGroups.size()
+                    ? commoditySummaryGroups.get(modelRow) : null;
+            boolean ready = group != null && (group.hasEnoughGathered() || isGroupReady(group));
+            label.setOpaque(false);
+            label.setForeground(ready ? EdoUi.User.PRIMARY_HIGHLIGHT : EdoUi.User.MAIN_TEXT);
+            label.setBorder(new EmptyBorder(1, 4, 1, 4));
+            return label;
         }
-        MissionDestination turnIn = g.getTurnInDest();
-        JLabel turnInLine = new JLabel("Turn-in: " + (turnIn != null ? turnIn.displayLine() : "—"));
-        turnInLine.setFont(turnInFont);
-        turnInLine.setForeground(EdoUi.User.MAIN_TEXT);
-        turnInLine.setAlignmentX(Component.LEFT_ALIGNMENT);
-        card.add(turnInLine);
     }
 
     private static String formatExpiry(java.time.Instant exp) {
@@ -1356,6 +1442,11 @@ public class MissionsTabPanel extends JPanel {
                 if (mr != null) {
                     showFrom = mr.showsFromPlace();
                     showSourcedAction = mr.record.isManuallySourceableCommodityMission();
+                    boolean assigned = hasManualSource(mr.record);
+                    sourcedFromButton.setText(assigned ? "Clear Source" : "Sourced from?");
+                    sourcedFromButton.setToolTipText(assigned
+                            ? "Clear the station assigned as this commodity source"
+                            : "Set the station where this commodity will be sourced");
                     if (mr.origin != null && !mr.origin.isEmpty()) {
                         from = mr.origin.displayLine();
                     }

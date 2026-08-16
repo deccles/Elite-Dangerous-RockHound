@@ -130,6 +130,36 @@ class TransportPlanPreparerTest {
         assertEquals(0, result.request().shipments().get(0).tonsAboard());
     }
 
+    @Test
+    void explainsWhenUnrelatedCargoLeavesNoSpaceForPendingPickups() {
+        MissionRecord mission = sourcedMission(11L, "Food Cartridges", 1190);
+        mission.setSourcedFromSystem("Core Sys Sector FW-N a6-0");
+        mission.setSourcedFromStation("Davy Vision");
+        var cargo = JsonParser.parseString("""
+                {"Inventory":[
+                  {"Name":"gold","Name_Localised":"Gold","Count":138},
+                  {"Name":"animalmonitors","Name_Localised":"Animal Monitors","Count":918}
+                ]}
+                """).getAsJsonObject();
+
+        TransportPlanPreparation result = TransportPlanPreparer.prepare(
+                List.of(mission), "Gliese 868", "MacLean Terminal", 1056, cargo,
+                system -> switch (system) {
+                    case "Gliese 868" -> new double[] { 0, 0, 0 };
+                    case "Core Sys Sector FW-N a6-0" -> new double[] { 10, 0, 0 };
+                    case "Achenar" -> new double[] { 20, 0, 0 };
+                    default -> null;
+                });
+
+        assertNull(result.request());
+        assertEquals(1, result.problems().size());
+        TransportPlanProblem problem = result.problems().get(0);
+        assertEquals(TransportPlanProblem.Code.CARGO_SPACE_REQUIRED, problem.code());
+        assertTrue(problem.message().contains("1,056 t"));
+        assertTrue(problem.message().contains("not assigned to these missions"));
+        assertTrue(problem.message().contains("Sell or discard"));
+    }
+
     private static MissionRecord sourcedMission(long id, String commodity, int count) {
         MissionRecord mission = new MissionRecord(id);
         mission.setName("Mission_Sourced_Boom");

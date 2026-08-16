@@ -88,6 +88,18 @@ public final class TransportPlanPreparer {
                 shipments.add(TransportShipment.cargo(mission.getMissionId(),
                         mission.getCommodityLocalised(), remaining, aboard, pickup, delivery));
             }
+            int missionCargoAboard = shipments.stream().mapToInt(TransportShipment::tonsAboard).sum();
+            int unrelatedCargo = Math.max(0, occupied - missionCargoAboard);
+            boolean hasPendingPickup = shipments.stream()
+                    .anyMatch(shipment -> shipment.pickup() != null
+                            && shipment.tonsRemaining() > shipment.tonsAboard());
+            if (hasPendingPickup && unrelatedCargo >= cargoCapacity) {
+                return problem(TransportPlanProblem.Code.CARGO_SPACE_REQUIRED, 0,
+                        "No cargo space is available. Your hold contains "
+                                + String.format(Locale.US, "%,d", unrelatedCargo)
+                                + " t of cargo not assigned to these missions. "
+                                + "Sell or discard some cargo, then optimize again.");
+            }
             return new TransportPlanPreparation(
                     new TransportPlanRequest(start, cargoCapacity, occupied, shipments, visits),
                     List.of(), warnings);

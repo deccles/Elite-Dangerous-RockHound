@@ -1,6 +1,7 @@
 package org.dce.ed.mission;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
@@ -19,12 +20,35 @@ import org.dce.ed.logreader.event.MissionCompletedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
 import org.dce.ed.session.EdoSessionState;
+import org.dce.ed.session.MissionSessionData;
+import org.dce.ed.session.TransportPlanSessionData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class MissionTrackerTest {
 
     private final EliteLogParser parser = new EliteLogParser();
+
+    @Test
+    void journalReplayFillPreservesSavedTransportPlan() {
+        EdoSessionState state = new EdoSessionState();
+        MissionSessionData missions = new MissionSessionData();
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.VISIT, 1L, "Courier", 0)), 0)),
+                10.0, true);
+        missions.setOptimizedTransportPlan(TransportPlanSessionData.from(
+                plan, new TransportLocation("Sol", "Galileo", 0, 0, 0),
+                0, 128, List.of()));
+        state.setMissions(missions);
+
+        new MissionTracker().fillSessionState(state);
+
+        assertNotNull(state.getMissions().getOptimizedTransportPlan());
+        assertEquals("Lave", state.getMissions().getOptimizedTransportPlan()
+                .toPlan().stops().get(0).location().system());
+    }
 
     @Test
     void bulkSourceAssignsOnlyStillUnassignedEligibleMissions() {

@@ -14,6 +14,7 @@ public final class MissionSessionData {
     private Map<String, MissionRecordPersisted> activeById = new HashMap<>();
     private List<Long> dismissedRedirectIds = new ArrayList<>();
     private String lastUpdated;
+    private TransportPlanSessionData optimizedTransportPlan;
 
     public Map<String, MissionRecordPersisted> getActiveById() {
         return activeById;
@@ -37,6 +38,14 @@ public final class MissionSessionData {
 
     public void setLastUpdated(String lastUpdated) {
         this.lastUpdated = lastUpdated;
+    }
+
+    public TransportPlanSessionData getOptimizedTransportPlan() {
+        return optimizedTransportPlan;
+    }
+
+    public void setOptimizedTransportPlan(TransportPlanSessionData optimizedTransportPlan) {
+        this.optimizedTransportPlan = optimizedTransportPlan;
     }
 
     public Map<String, MissionRecordPersisted> activeByIdOrEmpty() {

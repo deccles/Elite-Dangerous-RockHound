@@ -16,11 +16,13 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
+import javax.swing.JTextArea;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.mission.TransportPlanAction;
+import org.dce.ed.mission.TransportLocation;
 import org.dce.ed.mission.TransportPlanProblem;
 import org.dce.ed.mission.TransportPlanStop;
 import org.dce.ed.mission.TransportRoutePlan;
@@ -31,8 +33,10 @@ public final class TransportRoutePlanPanel extends JPanel {
 
     private final JButton applyButton = new JButton("Apply to Route");
     private final TransportRoutePlan plan;
+    private final TransportLocation start;
     private final JTable table;
     private int highlightedRow = -1;
+    private int reachedPlanStop = -1;
 
     public TransportRoutePlanPanel(TransportRoutePlan plan, int capacity,
             Consumer<List<String>> onApply) {
@@ -41,14 +45,27 @@ public final class TransportRoutePlanPanel extends JPanel {
 
     public TransportRoutePlanPanel(TransportRoutePlan plan, int capacity,
             Consumer<List<String>> onApply, List<TransportPlanProblem> warnings) {
+        this(plan, capacity, null, 0, onApply, warnings);
+    }
+
+    public TransportRoutePlanPanel(TransportRoutePlan plan, int capacity,
+            TransportLocation start, int initialHoldTons,
+            Consumer<List<String>> onApply, List<TransportPlanProblem> warnings) {
         super(new BorderLayout(8, 8));
         this.plan = plan;
+        this.start = start;
         setOpaque(false);
         DefaultTableModel model = new DefaultTableModel(
                 new String[] { "#", "System / Station", "Action", "Hold" }, 0) {
             private static final long serialVersionUID = 1L;
             @Override public boolean isCellEditable(int row, int column) { return false; }
         };
+        if (start != null) {
+            model.addRow(new Object[] { 0,
+                    start.system() + " / " + start.station(), "",
+                    initialHoldTons + " / " + capacity + " t" });
+            highlightedRow = 0;
+        }
         int index = 1;
         for (TransportPlanStop stop : plan.stops()) {
             model.addRow(new Object[] { index++,
@@ -71,7 +88,14 @@ public final class TransportRoutePlanPanel extends JPanel {
                 return component;
             }
         };
+        table.getColumnModel().getColumn(2).setCellRenderer(new MultilineActionRenderer());
         CommoditySourceDialog.configureResultsTable(table, OverlayPreferences.getUiFont());
+        int baseRowHeight = table.getRowHeight();
+        for (int row = 0; row < table.getRowCount(); row++) {
+            String actions = String.valueOf(table.getValueAt(row, 2));
+            int lines = actions.isEmpty() ? 1 : actions.split("\\R", -1).length;
+            table.setRowHeight(row, baseRowHeight * lines);
+        }
         JLabel summary = new JLabel((plan.optimal() ? "Optimal route" : "Best route found")
                 + "  ·  " + String.format("%.2f Ly", plan.totalDistanceLy())
                 + "  ·  " + plan.stops().size() + " station visits");
@@ -102,23 +126,36 @@ public final class TransportRoutePlanPanel extends JPanel {
         add(south, BorderLayout.SOUTH);
     }
 
-    /** Moves the orange plan-row border to the live system/station, without changing the plan. */
+    /** Advances the plan-row border in schedule order as the live location reaches each stop. */
     public void updateCurrentLocation(String system, String station) {
-        int firstSystemRow = -1;
-        int exactStationRow = -1;
-        if (system != null && !system.isBlank()) {
-            for (int row = 0; row < plan.stops().size(); row++) {
-                TransportPlanStop stop = plan.stops().get(row);
-                if (!sameLocationText(system, stop.location().system())) continue;
-                if (firstSystemRow < 0) firstSystemRow = row;
-                if (sameLocationText(station, stop.location().station())) {
-                    exactStationRow = row;
-                    break;
-                }
+        int rowOffset = start == null ? 0 : 1;
+        int next = reachedPlanStop + 1;
+        if (next < plan.stops().size()) {
+            TransportLocation nextLocation = plan.stops().get(next).location();
+            boolean nextSystem = sameLocationText(system, nextLocation.system());
+            boolean nextStation = sameLocationText(station, nextLocation.station());
+            if (nextSystem && (reachedPlanStop < 0 || nextStation
+                    || !sameLocationText(system, currentReachedSystem()))) {
+                reachedPlanStop = next;
+                highlightedRow = rowOffset + reachedPlanStop;
+                table.repaint();
+                return;
             }
         }
-        highlightedRow = exactStationRow >= 0 ? exactStationRow : firstSystemRow;
+        if (reachedPlanStop >= 0 && sameLocationText(system, currentReachedSystem())) {
+            highlightedRow = rowOffset + reachedPlanStop;
+        } else if (reachedPlanStop < 0 && start != null
+                && sameLocationText(system, start.system())) {
+            highlightedRow = 0;
+        } else {
+            highlightedRow = -1;
+        }
         table.repaint();
+    }
+
+    private String currentReachedSystem() {
+        return reachedPlanStop >= 0 && reachedPlanStop < plan.stops().size()
+                ? plan.stops().get(reachedPlanStop).location().system() : null;
     }
 
     private static boolean sameLocationText(String left, String right) {
@@ -154,6 +191,30 @@ public final class TransportRoutePlanPanel extends JPanel {
             case PICK_UP -> "Pick up " + action.tons() + " t " + action.commodity();
             case DELIVER -> "Deliver " + action.tons() + " t " + action.commodity();
             case VISIT -> action.commodity();
-        }).reduce((a, b) -> a + "; " + b).orElse("");
+        }).reduce((a, b) -> a + "\n" + b).orElse("");
+    }
+
+    private static final class MultilineActionRenderer extends JTextArea
+            implements TableCellRenderer {
+        private static final long serialVersionUID = 1L;
+
+        MultilineActionRenderer() {
+            setEditable(false);
+            setLineWrap(false);
+            setWrapStyleWord(false);
+            setBorder(BorderFactory.createEmptyBorder(3, 1, 3, 1));
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable source, Object value,
+                boolean selected, boolean focused, int row, int column) {
+            setText(value == null ? "" : value.toString());
+            setFont(source.getFont());
+            setForeground(selected ? source.getSelectionForeground() : source.getForeground());
+            setBackground(selected ? source.getSelectionBackground() : source.getBackground());
+            setOpaque(selected || source.isOpaque());
+            setBorder(BorderFactory.createEmptyBorder(3, 1, 3, 1));
+            return this;
+        }
     }
 }

@@ -43,7 +43,7 @@ class MissionsTabPanelTransparencyTest {
             root.setSize(640, 480);
             layoutTree(root);
 
-            JScrollPane scroll = findDescendant(panel, JScrollPane.class);
+            JScrollPane scroll = findNamedScroll(panel, "missionsTableScroll");
             assertTrue(scroll != null, "Transport missions scroll pane must exist");
             JViewport viewport = scroll.getViewport();
             assertTrue(viewport.getWidth() > 20 && viewport.getHeight() > 20,
@@ -72,16 +72,12 @@ class MissionsTabPanelTransparencyTest {
         }
     }
 
-    private static <T extends Component> T findDescendant(Container root, Class<T> type) {
+    private static JScrollPane findNamedScroll(Container root, String name) {
         for (Component child : root.getComponents()) {
-            if (type.isInstance(child)) {
-                return type.cast(child);
-            }
+            if (child instanceof JScrollPane scroll && name.equals(scroll.getName())) return scroll;
             if (child instanceof Container container) {
-                T found = findDescendant(container, type);
-                if (found != null) {
-                    return found;
-                }
+                JScrollPane found = findNamedScroll(container, name);
+                if (found != null) return found;
             }
         }
         return null;

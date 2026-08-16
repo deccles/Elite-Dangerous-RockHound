@@ -23,10 +23,13 @@ import org.dce.ed.mission.TransportPlanAction;
 import org.dce.ed.mission.TransportPlanStop;
 import org.dce.ed.mission.TransportPlanProblem;
 import org.dce.ed.mission.TransportRoutePlan;
+import org.dce.ed.mission.TransportPlanRequest;
+import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.junit.jupiter.api.Test;
 
 import com.google.gson.JsonObject;
+import com.google.gson.Gson;
 
 class MissionsTabPanelOptimizerTest {
     @Test
@@ -101,6 +104,35 @@ class MissionsTabPanelOptimizerTest {
     }
 
     @Test
+    void cargoPurchaseKeepsTheActivePlan() throws Exception {
+        JsonObject beforePurchase = new JsonObject();
+        beforePurchase.add("Inventory", new com.google.gson.JsonArray());
+        CargoMonitor.getInstance().setDebugSnapshot(beforePurchase);
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.PICK_UP, 1L, "Gold", 8)), 8)),
+                10.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
+
+        Thread.sleep(2L);
+        JsonObject afterPurchase = new JsonObject();
+        com.google.gson.JsonArray inventory = new com.google.gson.JsonArray();
+        JsonObject gold = new JsonObject();
+        gold.addProperty("Name_Localised", "Gold");
+        gold.addProperty("Count", 8);
+        inventory.add(gold);
+        afterPurchase.add("Inventory", inventory);
+        CargoMonitor.getInstance().setDebugSnapshot(afterPurchase);
+
+        assertTrue(findButton(panel, "Optimized Plan").isEnabled());
+        assertTrue(findNamed(panel, "optimizedPlanContent").isVisible());
+    }
+
+    @Test
     void optimizedPlanDisplaysMissingPickupWarningsInsideTheTab() {
         MissionsTabPanel panel = new MissionsTabPanel(
                 () -> false, () -> false, () -> "Sol", () -> "Galileo",
@@ -118,6 +150,46 @@ class MissionsTabPanelOptimizerTest {
 
         assertNotNull(findLabelContaining(panel, "Pickup not planned"));
         assertNotNull(findLabelContaining(panel, "Bromellite"));
+    }
+
+    @Test
+    void lastOptimizedPlanRestoresFromSessionWithoutOpeningThePlanTab() {
+        MissionsTabPanel saved = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        TransportLocation start = new TransportLocation("Sol", "Galileo", 0, 0, 0);
+        TransportLocation lave = new TransportLocation("Lave", "Lave Station", 10, 0, 0);
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(lave, List.of(new TransportPlanAction(
+                        TransportPlanAction.Kind.PICK_UP, 1L, "Gold", 8)), 20)), 10.0, true);
+        TransportPlanRequest request = new TransportPlanRequest(start, 128, 12, List.of());
+        List<TransportPlanProblem> warnings = List.of(new TransportPlanProblem(
+                TransportPlanProblem.Code.SOURCE_REQUIRED, 2L,
+                "Pickup not planned: source has not been set."));
+        invoke(saved, "displayOptimizedPlan",
+                new Class<?>[] { TransportRoutePlan.class, TransportPlanRequest.class, List.class },
+                plan, request, warnings);
+        EdoSessionState state = new EdoSessionState();
+        saved.fillSessionState(state);
+        state = new Gson().fromJson(new Gson().toJson(state), EdoSessionState.class);
+
+        MissionsTabPanel restored = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        restored.applySessionState(state);
+
+        JButton planTab = findButton(restored, "Optimized Plan");
+        assertTrue(planTab.isEnabled());
+        assertTrue(findNamed(restored, "allMissionsContent").isVisible());
+        planTab.doClick();
+        assertTrue(findNamed(restored, "optimizedPlanContent").isVisible());
+        assertNotNull(findLabelContaining(restored, "source has not been set"));
+        javax.swing.JTable table = findTableWithColumn(restored, "Action");
+        assertNotNull(table);
+        assertEquals("Sol / Galileo", table.getValueAt(0, 1));
+        assertEquals("12 / 128 t", table.getValueAt(0, 3));
+        assertEquals("Lave / Lave Station", table.getValueAt(1, 1));
+        assertEquals("Pick up 8 t Gold", table.getValueAt(1, 2));
     }
 
     private static JButton findButton(Container root, String text) {
@@ -148,6 +220,21 @@ class MissionsTabPanelOptimizerTest {
                     && label.getText().contains(text)) return label;
             if (child instanceof Container container) {
                 JLabel found = findLabelContaining(container, text);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static javax.swing.JTable findTableWithColumn(Container root, String column) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof javax.swing.JTable table) {
+                for (int i = 0; i < table.getColumnCount(); i++) {
+                    if (column.equals(table.getColumnName(i))) return table;
+                }
+            }
+            if (child instanceof Container container) {
+                javax.swing.JTable found = findTableWithColumn(container, column);
                 if (found != null) return found;
             }
         }
