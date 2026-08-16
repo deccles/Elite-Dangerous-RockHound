@@ -25,6 +25,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 import javax.swing.BorderFactory;
@@ -32,12 +34,14 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JViewport;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import javax.swing.Timer;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
@@ -69,10 +73,16 @@ import org.dce.ed.mission.MissionDestinationResolver;
 import org.dce.ed.mission.MissionRecord;
 import org.dce.ed.mission.MissionSpeechTracker;
 import org.dce.ed.mission.MissionTracker;
+import org.dce.ed.mission.TransportPlanPreparation;
+import org.dce.ed.mission.TransportPlanPreparer;
+import org.dce.ed.mission.TransportPlanProblem;
+import org.dce.ed.mission.TransportRoutePlan;
+import org.dce.ed.mission.TransportRoutePlanner;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.ui.DestinationCopySupport;
 import org.dce.ed.ui.CommoditySourceDialog;
 import org.dce.ed.ui.MultiCommoditySourceDialog;
+import org.dce.ed.ui.TransportRoutePlanDialog;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
@@ -85,6 +95,7 @@ import org.dce.ed.ui.TableHeaderSortSupport;
 import org.dce.ed.ui.TransparentTableHeader;
 import org.dce.ed.ui.TransparentTableHeaderUI;
 import org.dce.ed.ui.TransparentViewportUI;
+import org.dce.ed.util.EdsmClient;
 
 /**
  * Transport tab: trucking-style missions (cargo / courier / passenger), From/To places, filters.
@@ -101,6 +112,8 @@ public class MissionsTabPanel extends JPanel {
     private final Supplier<Boolean> dockedSupplier;
     private final Supplier<String> currentSystemSupplier;
     private final Supplier<String> currentStationSupplier;
+    private final IntSupplier cargoCapacitySupplier;
+    private final Consumer<List<String>> optimizedRouteConsumer;
 
     private Runnable sessionStateChangeCallback;
     private Runnable immediateSessionStateChangeCallback;
@@ -110,6 +123,7 @@ public class MissionsTabPanel extends JPanel {
     private static final int HEADER_SORT_HOVER_MS = 500;
 
     private final JLabel activeCountLabel = new JLabel("Active: 0");
+    private final JButton optimizeStopsButton = new JButton("Optimize Stops");
     private final JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
     private final List<JButton> filterButtons = new ArrayList<>();
     private final List<Filter> filterButtonFilters = new ArrayList<>();
@@ -173,16 +187,30 @@ public class MissionsTabPanel extends JPanel {
     /** Created after the custom header is installed (see constructor). */
     private JScrollPane tableScroll;
     private final Timer refreshTimer;
+    private TransportRoutePlan lastOptimizedPlan;
+    private int optimizeRequestId;
 
     public MissionsTabPanel(BooleanSupplier passThroughEnabledSupplier,
             Supplier<Boolean> dockedSupplier,
             Supplier<String> currentSystemSupplier,
             Supplier<String> currentStationSupplier) {
+        this(passThroughEnabledSupplier, dockedSupplier, currentSystemSupplier, currentStationSupplier,
+                () -> 0, systems -> { });
+    }
+
+    public MissionsTabPanel(BooleanSupplier passThroughEnabledSupplier,
+            Supplier<Boolean> dockedSupplier,
+            Supplier<String> currentSystemSupplier,
+            Supplier<String> currentStationSupplier,
+            IntSupplier cargoCapacitySupplier,
+            Consumer<List<String>> optimizedRouteConsumer) {
         super(new BorderLayout());
         this.passThroughEnabledSupplier = passThroughEnabledSupplier;
         this.dockedSupplier = dockedSupplier;
         this.currentSystemSupplier = currentSystemSupplier;
         this.currentStationSupplier = currentStationSupplier;
+        this.cargoCapacitySupplier = cargoCapacitySupplier;
+        this.optimizedRouteConsumer = optimizedRouteConsumer;
         tracker.setCurrentSystemSupplier(currentSystemSupplier);
         tracker.setCurrentStationSupplier(currentStationSupplier);
 
@@ -192,6 +220,8 @@ public class MissionsTabPanel extends JPanel {
         Font base = OverlayPreferences.getUiFont();
         activeCountLabel.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize()));
         activeCountLabel.setForeground(EdoUi.User.MAIN_TEXT);
+        OverlayOutlineButtonStyle.applyPrimaryHitSafe(optimizeStopsButton, base);
+        optimizeStopsButton.addActionListener(e -> optimizeStops());
 
         buildFilterBar(base);
         buildRedirectBanner(base);
@@ -274,7 +304,11 @@ public class MissionsTabPanel extends JPanel {
         JPanel topRow = new JPanel(new BorderLayout());
         topRow.setOpaque(false);
         topRow.add(filterBar, BorderLayout.WEST);
-        topRow.add(activeCountLabel, BorderLayout.EAST);
+        JPanel optimizeAndCount = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        optimizeAndCount.setOpaque(false);
+        optimizeAndCount.add(optimizeStopsButton);
+        optimizeAndCount.add(activeCountLabel);
+        topRow.add(optimizeAndCount, BorderLayout.EAST);
         top.add(topRow, BorderLayout.NORTH);
         top.add(redirectBanner, BorderLayout.SOUTH);
 
@@ -283,8 +317,8 @@ public class MissionsTabPanel extends JPanel {
         execButtonStrip = new ExecTabButtonStrip(OverlayTabId.MISSIONS, passThroughEnabledSupplier);
         add(execButtonStrip, BorderLayout.SOUTH);
 
-        tracker.setChangeCallback(this::scheduleRefresh);
-        CargoMonitor.getInstance().addListener(s -> scheduleRefresh());
+        tracker.setChangeCallback(() -> { invalidateOptimizedPlan(); scheduleRefresh(); });
+        CargoMonitor.getInstance().addListener(s -> { invalidateOptimizedPlan(); scheduleRefresh(); });
 
         refreshTimer = new Timer(30_000, e -> refreshUi());
         refreshTimer.setRepeats(true);
@@ -292,6 +326,103 @@ public class MissionsTabPanel extends JPanel {
 
         refreshUi();
     }
+
+    private void optimizeStops() {
+        if (lastOptimizedPlan != null) {
+            showOptimizedPlan(lastOptimizedPlan);
+            return;
+        }
+        List<MissionRecord> active = tracker.getActive();
+        List<MissionRecord> missing = active.stream()
+                .filter(MissionRecord::isSelfSourcedCommodityMission)
+                .filter(m -> remainingCargoRequirement(m) > 0)
+                .filter(m -> (m.getSourcedFromSystem() == null || m.getSourcedFromSystem().isBlank())
+                        || (m.getSourcedFromStation() == null || m.getSourcedFromStation().isBlank()))
+                .toList();
+        if (!missing.isEmpty()) {
+            String names = missing.stream().map(MissionRecord::summaryLine)
+                    .reduce((a, b) -> a + "\n• " + b).orElse("");
+            Object[] options = { "Set Sources", "Close" };
+            int choice = JOptionPane.showOptionDialog(this,
+                    "Every sourced mission needs a system and station before optimizing.\n\n• " + names,
+                    "Sources required", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE,
+                    null, options, options[0]);
+            if (choice == 0) openMultiCommoditySourceDialog();
+            return;
+        }
+        int capacity = cargoCapacitySupplier.getAsInt();
+        var snapshot = CargoMonitor.getInstance().getSnapshot();
+        var cargo = snapshot != null ? snapshot.getCargoJson() : null;
+        String currentSystem = currentSystemSupplier.get();
+        String currentStation = currentStationSupplier.get();
+        int request = ++optimizeRequestId;
+        optimizeStopsButton.setEnabled(false);
+        optimizeStopsButton.setText("Optimizing…");
+        new SwingWorker<OptimizationResult, Void>() {
+            @Override protected OptimizationResult doInBackground() {
+                EdsmClient edsm = new EdsmClient();
+                TransportPlanPreparation prepared = TransportPlanPreparer.prepare(active,
+                        currentSystem, currentStation, capacity, cargo, system -> {
+                            var response = edsm.getSystem(system);
+                            return response != null && response.coords != null
+                                    ? new double[] { response.coords.x, response.coords.y, response.coords.z }
+                                    : null;
+                        });
+                if (prepared.request() == null) return new OptimizationResult(prepared, null);
+                return new OptimizationResult(prepared, TransportRoutePlanner.plan(prepared.request()));
+            }
+
+            @Override protected void done() {
+                if (request != optimizeRequestId) return;
+                optimizeStopsButton.setEnabled(true);
+                optimizeStopsButton.setText("Optimize Stops");
+                try {
+                    OptimizationResult result = get();
+                    TransportPlanPreparation prepared = result.preparation();
+                    if (!prepared.problems().isEmpty()) {
+                        showPlanProblems(prepared.problems());
+                        return;
+                    }
+                    lastOptimizedPlan = result.plan();
+                    optimizeStopsButton.setText("View Optimized Plan");
+                    showOptimizedPlan(lastOptimizedPlan);
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(MissionsTabPanel.this,
+                            "The Transport plan could not be calculated. " + ex.getMessage(),
+                            "Optimization failed", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    private void showOptimizedPlan(TransportRoutePlan plan) {
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+        new TransportRoutePlanDialog(owner, plan, cargoCapacitySupplier.getAsInt(),
+                optimizedRouteConsumer).setVisible(true);
+    }
+
+    private void showPlanProblems(List<TransportPlanProblem> problems) {
+        String message = problems.stream().map(TransportPlanProblem::message)
+                .reduce((a, b) -> a + "\n• " + b).orElse("The plan is incomplete.");
+        JOptionPane.showMessageDialog(this, "• " + message, "Cannot optimize stops",
+                JOptionPane.WARNING_MESSAGE);
+    }
+
+    private void invalidateOptimizedPlan() {
+        optimizeRequestId++;
+        lastOptimizedPlan = null;
+        optimizeStopsButton.setEnabled(true);
+        optimizeStopsButton.setText("Optimize Stops");
+    }
+
+    private static int remainingCargoRequirement(MissionRecord mission) {
+        int required = mission.getCountRequired() > 0
+                ? mission.getCountRequired() : mission.getTotalItemsToDeliver();
+        return Math.max(0, required - mission.getItemsDelivered());
+    }
+
+    private record OptimizationResult(TransportPlanPreparation preparation,
+            TransportRoutePlan plan) { }
 
     public void setExecTriggerService(ExecTriggerService service) {
         if (execButtonStrip != null) {
@@ -500,6 +631,9 @@ public class MissionsTabPanel extends JPanel {
             return true;
         }
         if (SelectiveHitSupport.containsScreenPoint(redirectDismiss, screenPoint)) {
+            return true;
+        }
+        if (SelectiveHitSupport.containsScreenPoint(optimizeStopsButton, screenPoint)) {
             return true;
         }
         if (SelectiveHitSupport.isOverTableHeader(missionsTable, screenPoint)) {

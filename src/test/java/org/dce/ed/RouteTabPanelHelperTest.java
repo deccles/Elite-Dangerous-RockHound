@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,13 +19,17 @@ import javax.swing.SwingUtilities;
 import org.dce.ed.exec.placeholder.ExecPlaceholderContext;
 import org.dce.ed.exec.placeholder.ExecPlaceholderId;
 import org.dce.ed.exec.placeholder.ExecPlaceholderResolver;
+import org.dce.ed.edsm.SystemResponse;
+import org.dce.ed.logreader.EliteLogEvent.NavRouteEvent;
 import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.route.RouteEntry;
+import org.dce.ed.route.FuelScoopStarClass;
 import org.dce.ed.route.RouteMarkerKind;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.FleetCarrierSessionMapper;
 import org.dce.ed.state.SystemState;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.google.gson.JsonObject;
 
@@ -140,6 +146,50 @@ class RouteTabPanelHelperTest {
     }
 
     @Test
+    void customRouteEdsmMetadataPopulatesFuelClassAndLegDistanceInputs() {
+        RouteEntry entry = entry("Lave", 0L);
+        SystemResponse response = new SystemResponse();
+        response.name = "Lave";
+        response.id64 = 123L;
+        response.coords = new SystemResponse.Coordinates();
+        response.coords.x = 10.0;
+        response.coords.y = 20.0;
+        response.coords.z = 30.0;
+        response.primaryStar = new SystemResponse.PrimaryStar();
+        response.primaryStar.type = "K";
+
+        RouteTabPanel.applyEdsmSystemMetadata(entry, response);
+
+        assertEquals(123L, entry.systemAddress);
+        assertEquals("K", entry.starClass);
+        assertEquals(10.0, entry.x);
+        assertEquals(20.0, entry.y);
+        assertEquals(30.0, entry.z);
+        assertTrue(FuelScoopStarClass.isFuelScoopable(entry.starClass));
+    }
+
+    @Test
+    void confirmedOptimizedRouteReplacesCustomStopsAndKeepsCurrentSystemFirst() {
+        RouteTabPanel panel = new RouteTabPanel(() -> false);
+        panel.routeSessionForTests().applyKnownCurrentSystem("Sol", 1L, new double[] { 0, 0, 0 });
+        RouteEntry lave = entryWithCoords("Lave", 10, 0, 0);
+        lave.starClass = "K";
+        RouteEntry achenar = entryWithCoords("Achenar", 30, 0, 0);
+        achenar.starClass = "G";
+
+        panel.applyResolvedOptimizedRoute(List.of(lave, achenar));
+
+        assertTrue(panel.isCustomRouteActive());
+        assertEquals(List.of("Sol", "Lave", "Achenar"),
+                panel.routeSessionForTests().getBaseRouteEntries().stream()
+                        .map(e -> e.systemName).toList());
+        List<RouteEntry> displayed = panel.routeSessionForTests()
+                .buildDisplaySnapshot(null, (n, a, p) -> null, true).displayedEntries();
+        assertEquals(10.0, displayed.get(1).distanceLy, 0.0001);
+        assertEquals(20.0, displayed.get(2).distanceLy, 0.0001);
+    }
+
+    @Test
     void renumberDisplayIndexes_startsAtZeroAndSkipsBodyRows() {
         List<RouteEntry> entries = new ArrayList<>();
         entries.add(entry("A", 1L));
@@ -190,6 +240,11 @@ class RouteTabPanelHelperTest {
                 entry("Sol", 1L),
                 entry("Achenar", 2L),
                 entry("Shinrarta Dezhra", 3L)));
+        panel.routeSessionForTests().applyKnownCurrentSystem("Sol", 1L, null);
+        panel.routeSessionForTests().replaceCustomNavRouteEntries(List.of(
+                entry("Sol", 1L),
+                entry("Generated Midpoint", 99L),
+                entry("Achenar", 2L)));
         panel.setCustomRouteActive(true);
 
         panel.handleLogEvent(new NavRouteClearEvent(Instant.parse("2026-01-01T00:00:00Z"), new JsonObject()));
@@ -197,6 +252,85 @@ class RouteTabPanelHelperTest {
         assertTrue(panel.isCustomRouteActive());
         assertEquals(3, panel.routeSessionForTests().getBaseRouteEntries().size());
         assertEquals("Achenar", panel.routeSessionForTests().getBaseRouteEntries().get(1).systemName);
+        assertTrue(panel.routeSessionForTests()
+                .buildDisplaySnapshot(null, (n, a, p) -> null, true)
+                .displayedEntries().stream()
+                .noneMatch(e -> "Generated Midpoint".equals(e.systemName)));
+    }
+
+    @Test
+    void navRouteToCustomDestination_displaysEveryGeneratedIntermediate(@TempDir Path journalDir)
+            throws Exception {
+        String savedClientKey = EliteDangerousOverlay.clientKey;
+        String clientKey = "route-custom-intermediates-test";
+        boolean savedAuto = OverlayPreferences.isAutoLogDir(clientKey);
+        String savedCustom = OverlayPreferences.getCustomLogDir(clientKey);
+        Files.writeString(journalDir.resolve("Journal.2026-08-15T200000.01.log"), "");
+        Files.writeString(journalDir.resolve("NavRoute.json"), """
+                {"Route":[
+                  {"StarSystem":"Gliese 868","SystemAddress":1,"StarClass":"K","StarPos":[0,0,0]},
+                  {"StarSystem":"LTT 569","SystemAddress":2,"StarClass":"M","StarPos":[10,0,0]},
+                  {"StarSystem":"Arietis Sector ZE-A d89","SystemAddress":3,"StarClass":"K","StarPos":[20,0,0]},
+                  {"StarSystem":"Arietis Sector CO-P b5-1","SystemAddress":4,"StarClass":"F","StarPos":[30,0,0]}
+                ]}
+                """);
+
+        try {
+            EliteDangerousOverlay.clientKey = clientKey;
+            OverlayPreferences.setAutoLogDir(clientKey, false);
+            OverlayPreferences.setCustomLogDir(clientKey, journalDir.toString());
+            RouteTabPanel panel = new RouteTabPanel(() -> false);
+            panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                    entry("Gliese 868", 1L),
+                    entry("Arietis Sector CO-P b5-1", 4L),
+                    entry("Col 285 Sector CC-J b23-3", 5L)));
+            panel.routeSessionForTests().applyKnownCurrentSystem("Gliese 868", 1L, null);
+            panel.setCustomRouteActive(true);
+
+            panel.handleLogEvent(new NavRouteEvent(
+                    Instant.parse("2026-08-15T20:00:00Z"), new JsonObject()));
+
+            List<RouteEntry> displayed = panel.routeSessionForTests()
+                    .buildDisplaySnapshot(null, (n, a, p) -> null, true)
+                    .displayedEntries();
+            assertEquals(List.of(
+                    "Gliese 868",
+                    "LTT 569",
+                    "Arietis Sector ZE-A d89",
+                    "Arietis Sector CO-P b5-1",
+                    "Col 285 Sector CC-J b23-3"),
+                    displayed.stream().map(e -> e.systemName).toList());
+            assertTrue(displayed.get(1).isSynthetic);
+            assertNull(displayed.get(1).displayIndex);
+            assertTrue(displayed.get(2).isSynthetic);
+            assertNull(displayed.get(2).displayIndex);
+            assertEquals(Integer.valueOf(1), displayed.get(3).displayIndex);
+            assertEquals(3, panel.routeSessionForTests().getBaseRouteEntries().size());
+
+            Files.writeString(journalDir.resolve("NavRoute.json"), """
+                    {"Route":[
+                      {"StarSystem":"Gliese 868","SystemAddress":1,"StarClass":"K","StarPos":[0,0,0]},
+                      {"StarSystem":"HIP 22550","SystemAddress":6,"StarClass":"M","StarPos":[15,0,0]},
+                      {"StarSystem":"Arietis Sector CO-P b5-1","SystemAddress":4,"StarClass":"F","StarPos":[30,0,0]}
+                    ]}
+                    """);
+            panel.handleLogEvent(new NavRouteEvent(
+                    Instant.parse("2026-08-15T20:01:00Z"), new JsonObject()));
+
+            displayed = panel.routeSessionForTests()
+                    .buildDisplaySnapshot(null, (n, a, p) -> null, true)
+                    .displayedEntries();
+            assertEquals(List.of(
+                    "Gliese 868",
+                    "HIP 22550",
+                    "Arietis Sector CO-P b5-1",
+                    "Col 285 Sector CC-J b23-3"),
+                    displayed.stream().map(e -> e.systemName).toList());
+        } finally {
+            EliteDangerousOverlay.clientKey = savedClientKey;
+            OverlayPreferences.setAutoLogDir(clientKey, savedAuto);
+            OverlayPreferences.setCustomLogDir(clientKey, savedCustom != null ? savedCustom : "");
+        }
     }
 
     @Test

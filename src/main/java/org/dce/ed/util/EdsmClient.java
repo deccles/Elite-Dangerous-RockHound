@@ -213,7 +213,7 @@ public class EdsmClient {
     public SystemResponse getSystem(String name) throws IOException, InterruptedException {
         String url = BASE_URL + "/api-v1/system"
                 + "?showId=1&showCoordinates=1&showPermit=1"
-        		+ "&showInformation=1"
+                + "&showInformation=1&showPrimaryStar=1"
                 + "&systemName=" + encode(name);
         return get(url, SystemResponse.class);
     }
@@ -221,7 +221,7 @@ public class EdsmClient {
     public SystemResponse[] getSystems(String... names) throws IOException, InterruptedException {
         String joined = String.join(",", names);
         String url = BASE_URL + "/api-v1/systems"
-                + "?showId=1&showCoordinates=1&showPermit=1"
+                + "?showId=1&showCoordinates=1&showPermit=1&showPrimaryStar=1"
                 + "&systemName=" + encode(joined);
         return get(url, SystemResponse[].class);
     }

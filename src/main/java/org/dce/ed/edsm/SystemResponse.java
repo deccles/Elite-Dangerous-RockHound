@@ -8,6 +8,7 @@ public class SystemResponse {
     public Coordinates coords;
     public String permit;
     public Information information;
+    public PrimaryStar primaryStar;
 
     public static class Coordinates {
         public double x;
@@ -22,5 +23,11 @@ public class SystemResponse {
         public String security;
         public long population;
         public String faction;
+    }
+
+    public static class PrimaryStar {
+        public String name;
+        public String type;
+        public Boolean isScoopable;
     }
 }

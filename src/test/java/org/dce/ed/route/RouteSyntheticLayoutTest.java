@@ -348,6 +348,58 @@ class RouteSyntheticLayoutTest {
         assertEquals(Integer.valueOf(2), out.get(3).displayIndex);
     }
 
+    @Test
+    void customRoute_arrivalAtGeneratedIntermediateMarksThatRowCurrent() {
+        RouteSession session = new RouteSession(null, j -> false);
+        session.replaceBaseRouteEntries(List.of(
+                coordRow("Gliese 868", 1L, 0, 0, 0),
+                coordRow("Arietis Sector CO-P b5-1", 4L, 30, 0, 0),
+                coordRow("Col 285 Sector CC-J b23-3", 5L, 60, 0, 0)));
+        session.replaceCustomNavRouteEntries(List.of(
+                coordRow("Gliese 868", 1L, 0, 0, 0),
+                coordRow("LTT 569", 2L, 10, 0, 0),
+                coordRow("Arietis Sector ZE-A d70", 3L, 20, 0, 0),
+                coordRow("Arietis Sector CO-P b5-1", 4L, 30, 0, 0)));
+        session.applyKnownCurrentSystem("Gliese 868", 1L, null);
+        session.applyKnownCurrentSystem("LTT 569", 2L, new double[] { 10, 0, 0 });
+
+        RouteCoordsResolver resolver = (n, a, p) -> p == null
+                ? null
+                : new Double[] { p[0], p[1], p[2] };
+        List<RouteEntry> out = session.buildDisplaySnapshot(null, resolver, true)
+                .displayedEntries();
+
+        int glieseRow = RouteGeometry.findSystemRow(out, "Gliese 868", 1L);
+        int lttRow = RouteGeometry.findSystemRow(out, "LTT 569", 2L);
+        int destinationRow = RouteGeometry.findSystemRow(out, "Arietis Sector CO-P b5-1", 4L);
+        assertEquals(RouteMarkerKind.NONE, out.get(glieseRow).markerKind);
+        assertEquals(RouteMarkerKind.CURRENT, out.get(lttRow).markerKind);
+        assertTrue(out.get(lttRow).isSynthetic);
+        assertEquals(20.0, RouteGeometry.cumulativeDistanceLy(out, lttRow, destinationRow), 0.0001);
+    }
+
+    @Test
+    void customRoute_unknownSessionCurrentDoesNotDropFirstGameRouteRow() {
+        List<RouteEntry> displayed = new ArrayList<>(List.of(
+                coordRow("Stale Current", 99L, -10, 0, 0),
+                coordRow("Destination", 3L, 20, 0, 0)));
+        List<RouteEntry> gameRoute = List.of(
+                coordRow("Actual Current", 1L, 0, 0, 0),
+                coordRow("Intermediate", 2L, 10, 0, 0),
+                coordRow("Destination", 3L, 20, 0, 0));
+
+        RouteLayoutEngine.applyCustomNavRouteRows(
+                displayed, gameRoute, "Stale Current", 99L, 0, (n, a, p) -> null);
+
+        RouteEntry actual = displayed.stream()
+                .filter(e -> e != null && "Actual Current".equals(e.systemName))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(actual.isSynthetic);
+        assertTrue(displayed.stream().anyMatch(
+                e -> e != null && e.isSynthetic && "Intermediate".equals(e.systemName)));
+    }
+
     private static RouteEntry coordRow(String name, long addr, double x, double y, double z) {
         RouteEntry e = new RouteEntry();
         e.systemName = name;

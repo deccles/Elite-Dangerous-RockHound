@@ -301,7 +301,12 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 					}
 					return lastKnownSystemName;
 				},
-				() -> lastKnownStationName);
+				() -> lastKnownStationName,
+				() -> {
+					LoadoutEvent loadout = getLatestLoadout();
+					return loadout != null ? loadout.getCargoCapacity() : 0;
+				},
+				routeTab::applyOptimizedRouteSystems);
 		miningTab.setMissionTracker(missionsTab.getTracker(), hoverSwitchEnabled);
 		this.combatTab = new CombatTabPanel(hoverSwitchEnabled);
 		this.combatTab.setMissionTracker(missionsTab.getTracker());

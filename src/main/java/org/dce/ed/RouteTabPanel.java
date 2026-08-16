@@ -1077,6 +1077,9 @@ public class RouteTabPanel extends JPanel {
 	/** Shows or hides the red “Custom Route” warning + Clear under the table. */
 	protected void setCustomRouteActive(boolean active) {
 		customRouteActive = active;
+		if (!active && routeSession != null) {
+			routeSession.clearCustomNavRouteEntries();
+		}
 		syncCustomRouteLoopState();
 		if (customRouteWarningStrip == null) {
 			return;
@@ -1251,6 +1254,8 @@ public class RouteTabPanel extends JPanel {
 			if (isCustomRouteActive()) {
 				// Game clears its NavRoute when you arrive at a hop; keep the custom list.
 				routeSession.getTargetState().applyNavRouteClear();
+				routeSession.clearCustomNavRouteEntries();
+				rebuildDisplayedEntries();
 			} else {
 				reloadFromNavRouteFile(true, true);
 				routeSession.clearAfterNavRouteClearEvent();
@@ -1306,6 +1311,7 @@ public class RouteTabPanel extends JPanel {
 
 	/** Called after paste / drag reorder so subclasses (Fleet Carrier) can latch custom-route state. */
 	protected void onCustomRouteMutated() {
+		routeSession.clearCustomNavRouteEntries();
 		setCustomRouteActive(true);
 	}
 
@@ -1889,7 +1895,13 @@ public class RouteTabPanel extends JPanel {
 		if (customRouteActive && replaceCustomRoute && !forceReplaceCustomRoute
 				&& (entries.isEmpty()
 						|| RouteGeometry.navRouteDestinationOnCustomRoute(entries, routeSession.getBaseRouteEntries()))) {
-			// Keep paste/reorder list; FSDTarget/Status still update via applySecondaryJournalEvent.
+			// Keep the numbered custom list, but mirror Elite's generated hops as display-only rows.
+			if (entries.isEmpty()) {
+				routeSession.clearCustomNavRouteEntries();
+			} else {
+				routeSession.replaceCustomNavRouteEntries(entries);
+			}
+			rebuildDisplayedEntries();
 			return;
 		}
 		headerLabel.setText(entries.isEmpty()
@@ -2114,7 +2126,9 @@ public class RouteTabPanel extends JPanel {
 		}
 		setHeaderLabelText("Adding " + names.size() + " system" + (names.size() == 1 ? "" : "s") + "…");
 		final List<String> namesFinal = List.copyOf(names);
+		final String currentName = routeSession.getCurrentSystemName();
 		Thread t = new Thread(() -> {
+			RouteEntry currentMetadata = resolvePastedSystem(currentName);
 			List<RouteEntry> resolved = new ArrayList<>();
 			for (String name : namesFinal) {
 				RouteEntry entry = resolvePastedSystem(name);
@@ -2122,13 +2136,69 @@ public class RouteTabPanel extends JPanel {
 					resolved.add(entry);
 				}
 			}
-			SwingUtilities.invokeLater(() -> applyPastedRouteEntries(resolved, namesFinal.size()));
+			SwingUtilities.invokeLater(() -> applyPastedRouteEntries(
+					resolved, namesFinal.size(), currentMetadata));
 		}, "RoutePasteSystems");
 		t.setDaemon(true);
 		t.start();
 	}
 
-	private void applyPastedRouteEntries(List<RouteEntry> resolved, int requestedCount) {
+	/** Resolves and replaces the custom route with a confirmed Transport stop order. */
+	public void applyOptimizedRouteSystems(List<String> systemNames) {
+		List<String> names = new ArrayList<>();
+		String previous = null;
+		if (systemNames != null) for (String value : systemNames) {
+			String name = value == null ? "" : value.trim();
+			if (name.isBlank() || (previous != null && previous.equalsIgnoreCase(name))) continue;
+			names.add(name);
+			previous = name;
+		}
+		if (names.isEmpty()) return;
+		String currentName = routeSession.getCurrentSystemName();
+		Thread thread = new Thread(() -> {
+			RouteEntry currentMetadata = resolvePastedSystem(currentName);
+			List<RouteEntry> resolved = new ArrayList<>();
+			for (String name : names) {
+				RouteEntry entry = resolvePastedSystem(name);
+				if (entry != null) resolved.add(entry);
+			}
+			SwingUtilities.invokeLater(() -> applyResolvedOptimizedRoute(resolved, currentMetadata));
+		}, "TransportOptimizedRoute");
+		thread.setDaemon(true);
+		thread.start();
+	}
+
+	void applyResolvedOptimizedRoute(List<RouteEntry> resolved) {
+		applyResolvedOptimizedRoute(resolved, null);
+	}
+
+	private void applyResolvedOptimizedRoute(List<RouteEntry> resolved, RouteEntry currentMetadata) {
+		if (resolved == null || resolved.isEmpty()) return;
+		String currentName = routeSession.getCurrentSystemName();
+		long currentAddress = routeSession.getCurrentSystemAddress();
+		double[] currentPos = routeSession.getCurrentStarPos();
+		routeSession.replaceBaseRouteEntries(List.of());
+		routeSession.ensureCurrentSystemAtStartIfMissing(currentName, currentAddress, currentPos);
+		if (currentMetadata != null && !routeSession.getBaseRouteEntries().isEmpty()) {
+			applyResolvedRouteMetadata(routeSession.getBaseRouteEntries().get(0), currentMetadata);
+			cacheResolvedCoords(routeSession.getBaseRouteEntries().get(0));
+		}
+		String previous = currentName;
+		for (RouteEntry entry : resolved) {
+			if (entry == null || entry.systemName == null || entry.systemName.isBlank()) continue;
+			if (previous != null && previous.equalsIgnoreCase(entry.systemName)) continue;
+			routeSession.appendBaseRouteEntry(entry);
+			cacheResolvedCoords(entry);
+			previous = entry.systemName;
+		}
+		onCustomRouteMutated();
+		rebuildDisplayedEntries();
+		fireSessionStateChanged();
+		setHeaderLabelText(routeJumpHeader(routeSession.getBaseRouteEntries()));
+	}
+
+	private void applyPastedRouteEntries(List<RouteEntry> resolved, int requestedCount,
+			RouteEntry currentMetadata) {
 		if (resolved == null || resolved.isEmpty()) {
 			setHeaderLabelText("Could not resolve pasted system name" + (requestedCount == 1 ? "" : "s") + ".");
 			return;
@@ -2137,11 +2207,24 @@ public class RouteTabPanel extends JPanel {
 				routeSession.getCurrentSystemName(),
 				routeSession.getCurrentSystemAddress(),
 				routeSession.getCurrentStarPos());
+		if (currentMetadata != null) {
+			int currentIndex = RouteGeometry.findSystemRow(
+					routeSession.getBaseRouteEntries(), currentMetadata.systemName,
+					currentMetadata.systemAddress);
+			if (currentIndex < 0) {
+				currentIndex = RouteGeometry.findSystemRow(
+						routeSession.getBaseRouteEntries(), routeSession.getCurrentSystemName(),
+						routeSession.getCurrentSystemAddress());
+			}
+			if (currentIndex >= 0) {
+				RouteEntry current = routeSession.getBaseRouteEntries().get(currentIndex);
+				applyResolvedRouteMetadata(current, currentMetadata);
+				cacheResolvedCoords(current);
+			}
+		}
 		for (RouteEntry entry : resolved) {
 			routeSession.appendBaseRouteEntry(entry);
-			if (entry.systemName != null && entry.x != null) {
-				resolvedCoordsCache.put(entry.systemName, new Double[] { entry.x, entry.y, entry.z });
-			}
+			cacheResolvedCoords(entry);
 		}
 		onCustomRouteMutated();
 		rebuildDisplayedEntries();
@@ -2165,21 +2248,46 @@ public class RouteTabPanel extends JPanel {
 		entry.status = RouteScanStatus.UNKNOWN;
 		try {
 			org.dce.ed.edsm.SystemResponse sys = edsmClient.getSystem(name);
-			if (sys != null && sys.name != null && !sys.name.isBlank()) {
-				entry.systemName = sys.name;
-				if (sys.id64 != null) {
-					entry.systemAddress = sys.id64.longValue();
-				}
-				if (sys.coords != null) {
-					entry.x = Double.valueOf(sys.coords.x);
-					entry.y = Double.valueOf(sys.coords.y);
-					entry.z = Double.valueOf(sys.coords.z);
-				}
-			}
+			applyEdsmSystemMetadata(entry, sys);
 		} catch (Exception ignored) {
 			// Keep the pasted name even if EDSM is unreachable.
 		}
 		return entry;
+	}
+
+	static void applyEdsmSystemMetadata(RouteEntry entry,
+			org.dce.ed.edsm.SystemResponse system) {
+		if (entry == null || system == null) return;
+		if (system.name != null && !system.name.isBlank()) entry.systemName = system.name.trim();
+		if (system.id64 != null) entry.systemAddress = system.id64.longValue();
+		if (system.coords != null) {
+			entry.x = Double.valueOf(system.coords.x);
+			entry.y = Double.valueOf(system.coords.y);
+			entry.z = Double.valueOf(system.coords.z);
+		}
+		if (system.primaryStar != null && system.primaryStar.type != null
+				&& !system.primaryStar.type.isBlank()) {
+			entry.starClass = system.primaryStar.type.trim();
+		}
+	}
+
+	private static void applyResolvedRouteMetadata(RouteEntry target, RouteEntry resolved) {
+		if (target == null || resolved == null) return;
+		if (resolved.systemAddress != 0L) target.systemAddress = resolved.systemAddress;
+		if (resolved.starClass != null && !resolved.starClass.isBlank()
+				&& !"?".equals(resolved.starClass)) target.starClass = resolved.starClass;
+		if (resolved.x != null && resolved.y != null && resolved.z != null) {
+			target.x = resolved.x;
+			target.y = resolved.y;
+			target.z = resolved.z;
+		}
+	}
+
+	private void cacheResolvedCoords(RouteEntry entry) {
+		if (entry != null && entry.systemName != null
+				&& entry.x != null && entry.y != null && entry.z != null) {
+			resolvedCoordsCache.put(entry.systemName, new Double[] { entry.x, entry.y, entry.z });
+		}
 	}
 
 	/** Splits clipboard text into candidate system names (newlines / commas / semicolons). */

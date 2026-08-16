@@ -160,6 +160,53 @@ public final class RouteLayoutEngine {
     }
 
     /**
+     * Inserts Elite's intermediate NavRoute systems after CURRENT, preserving game-route order.
+     * These rows are synthetic so they stay unnumbered and out of persistence.
+     */
+    static void applyCustomNavRouteRows(List<RouteEntry> entries,
+            List<RouteEntry> navRouteEntries,
+            String currentSystemName,
+            long currentSystemAddress,
+            int currentBaseIndex,
+            RouteCoordsResolver coordsResolver) {
+        if (entries == null || navRouteEntries == null || navRouteEntries.isEmpty()) {
+            return;
+        }
+        int insertAt = insertionIndexAfterCurrent(
+                entries, currentSystemName, currentSystemAddress, currentBaseIndex, null);
+        int currentNavRow = RouteGeometry.findSystemRow(
+                navRouteEntries, currentSystemName, currentSystemAddress);
+        // If the live session identity briefly lags the file, retain the first game-route row
+        // instead of silently dropping it.
+        int firstIntermediate = currentNavRow >= 0 ? currentNavRow + 1 : 0;
+        int destinationRow = navRouteEntries.size() - 1;
+        while (destinationRow >= 0) {
+            RouteEntry candidate = navRouteEntries.get(destinationRow);
+            if (candidate != null && !candidate.isBodyRow) {
+                break;
+            }
+            destinationRow--;
+        }
+        for (int i = firstIntermediate; i < destinationRow; i++) {
+            RouteEntry nav = navRouteEntries.get(i);
+            if (nav == null || nav.isBodyRow || nav.systemName == null || nav.systemName.isBlank()) {
+                continue;
+            }
+            Double[] coords = null;
+            if (nav.x != null && nav.y != null && nav.z != null) {
+                coords = new Double[] { nav.x, nav.y, nav.z };
+            } else if (coordsResolver != null) {
+                coords = coordsResolver.resolve(nav.systemName, nav.systemAddress, null);
+            }
+            RouteEntry synthetic = RouteEntry.syntheticSystem(
+                    nav.systemName, nav.systemAddress, coords, RouteMarkerKind.NONE);
+            synthetic.starClass = nav.starClass != null ? nav.starClass : "";
+            entries.add(Math.min(insertAt, entries.size()), synthetic);
+            insertAt++;
+        }
+    }
+
+    /**
      * Full pipeline: copy base → optional hook (e.g. remembered scan status) → synthetics → leg distances → display # → markers.
      *
      * @param currentBaseIndex monotonic CURRENT hop in the base list (custom-route loops)
@@ -207,6 +254,37 @@ public final class RouteLayoutEngine {
             boolean customRouteActive,
             boolean customRouteLoopEnabled,
             boolean chargingActive) {
+        return buildDisplayedEntries(
+                baseRouteEntries,
+                afterDeepCopyBeforeSynthetics,
+                currentSystemName,
+                currentSystemAddress,
+                currentStarPos,
+                currentBaseIndex,
+                targetState,
+                pendingJumpLockedName,
+                pendingJumpLockedAddress,
+                coordsResolver,
+                List.of(),
+                customRouteActive,
+                customRouteLoopEnabled,
+                chargingActive);
+    }
+
+    public static List<RouteEntry> buildDisplayedEntries(List<RouteEntry> baseRouteEntries,
+            Consumer<List<RouteEntry>> afterDeepCopyBeforeSynthetics,
+            String currentSystemName,
+            long currentSystemAddress,
+            double[] currentStarPos,
+            int currentBaseIndex,
+            RouteTargetState targetState,
+            String pendingJumpLockedName,
+            long pendingJumpLockedAddress,
+            RouteCoordsResolver coordsResolver,
+            List<RouteEntry> customNavRouteEntries,
+            boolean customRouteActive,
+            boolean customRouteLoopEnabled,
+            boolean chargingActive) {
         List<RouteEntry> working = RouteGeometry.deepCopy(baseRouteEntries);
         if (afterDeepCopyBeforeSynthetics != null) {
             afterDeepCopyBeforeSynthetics.accept(working);
@@ -224,6 +302,10 @@ public final class RouteLayoutEngine {
                 customRouteLoopEnabled);
         applySyntheticCurrentRow(working, currentSystemName, currentSystemAddress, currentStarPos,
                 currentBaseIndex, coordsResolver);
+        if (customRouteActive) {
+            applyCustomNavRouteRows(working, customNavRouteEntries,
+                    currentSystemName, currentSystemAddress, currentBaseIndex, coordsResolver);
+        }
         applySyntheticTargetRow(working, tgtName, tgtAddr, targetState.getTargetStarClass(),
                 currentSystemName, currentSystemAddress, currentBaseIndex, customRouteActive,
                 loopWrapTarget, coordsResolver);

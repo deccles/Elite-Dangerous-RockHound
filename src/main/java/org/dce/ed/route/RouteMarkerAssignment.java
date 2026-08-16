@@ -66,16 +66,31 @@ public final class RouteMarkerAssignment {
         }
 
         int currentRow = -1;
-        // Prefer the base-route hop tagged with currentBaseIndex (survives deepCopy via entry.index).
-        // Trust the index even when session name briefly disagrees — reconcile owns fixing the cursor.
+        // An off-base custom-route intermediate cannot advance currentBaseIndex. Prefer its
+        // synthetic row when it matches the live system.
         for (int i = 0; i < entries.size(); i++) {
             RouteEntry e = entries.get(i);
-            if (e == null || e.isBodyRow || e.isSynthetic) {
+            if (e == null || e.isBodyRow || !e.isSynthetic) {
                 continue;
             }
-            if (e.index == currentBaseIndex) {
+            if (RouteGeometry.rowMatchesSystem(e, currentName, currentSystemAddress)) {
                 currentRow = i;
                 break;
+            }
+        }
+
+        // Prefer the base-route hop tagged with currentBaseIndex (survives deepCopy via entry.index).
+        // Trust the index even when session name briefly disagrees — reconcile owns fixing the cursor.
+        if (currentRow < 0) {
+            for (int i = 0; i < entries.size(); i++) {
+                RouteEntry e = entries.get(i);
+                if (e == null || e.isBodyRow || e.isSynthetic) {
+                    continue;
+                }
+                if (e.index == currentBaseIndex) {
+                    currentRow = i;
+                    break;
+                }
             }
         }
         if (currentRow < 0) {

@@ -36,6 +36,8 @@ public final class RouteSession {
     private final RouteTargetState targetState = new RouteTargetState();
 
     private List<RouteEntry> baseRouteEntries = new ArrayList<>();
+    /** Current Elite-generated path to a numbered custom destination; display-only and not persisted. */
+    private List<RouteEntry> customNavRouteEntries = new ArrayList<>();
     private String currentSystemName;
     private long currentSystemAddress;
     private double[] currentStarPos;
@@ -219,6 +221,7 @@ public final class RouteSession {
      */
     public void applyNavRouteReloadParsed(List<RouteEntry> parsedEntries) {
         baseRouteEntries = RouteGeometry.deepCopy(parsedEntries != null ? parsedEntries : List.of());
+        clearCustomNavRouteEntries();
         renumberBaseIndexes();
         targetState.applyNavRouteClear();
         resetCurrentBaseIndex();
@@ -232,6 +235,7 @@ public final class RouteSession {
      */
     public void clearAfterNavRouteClearEvent() {
         baseRouteEntries.clear();
+        clearCustomNavRouteEntries();
         targetState.applyNavRouteClear();
         pendingJumpSystemName = null;
         pendingJumpLockedName = null;
@@ -246,6 +250,7 @@ public final class RouteSession {
      */
     public void applySpanshImport(List<RouteEntry> entries) {
         baseRouteEntries = RouteGeometry.deepCopy(entries != null ? entries : List.of());
+        clearCustomNavRouteEntries();
         renumberBaseIndexes();
         targetState.applyNavRouteClear();
         pendingJumpSystemName = null;
@@ -266,6 +271,7 @@ public final class RouteSession {
      */
     public void replaceBaseRouteEntries(List<RouteEntry> entries) {
         baseRouteEntries = RouteGeometry.deepCopy(entries != null ? entries : List.of());
+        clearCustomNavRouteEntries();
         renumberBaseIndexes();
         clampCurrentBaseIndex();
         if (currentSystemName != null && !currentSystemName.isBlank()) {
@@ -275,6 +281,15 @@ public final class RouteSession {
                 advanceCurrentBaseIndexForArrival(currentSystemName, currentSystemAddress);
             }
         }
+    }
+
+    /** Replaces the transient game plot shown between numbered custom-route destinations. */
+    public void replaceCustomNavRouteEntries(List<RouteEntry> entries) {
+        customNavRouteEntries = RouteGeometry.deepCopy(entries != null ? entries : List.of());
+    }
+
+    public void clearCustomNavRouteEntries() {
+        customNavRouteEntries.clear();
     }
 
     /**
@@ -677,6 +692,7 @@ public final class RouteSession {
                 pendingJumpLockedName,
                 pendingJumpLockedAddress,
                 coordsResolver,
+                customNavRouteEntries,
                 customRouteActive,
                 customRouteLoopEnabledForArrivals,
                 jumpFlash.isTimerRunning());

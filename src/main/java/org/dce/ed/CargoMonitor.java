@@ -266,6 +266,66 @@ public class CargoMonitor {
 		return total;
 	}
 
+	/** Total occupied hold tonnage reported by Cargo.json, including limpets and non-mission goods. */
+	public static int totalCargoTons(JsonObject cargo) {
+		JsonArray inventory = inventoryArray(cargo);
+		if (inventory == null) return 0;
+		int total = 0;
+		for (JsonElement element : inventory) {
+			if (element != null && element.isJsonObject()) {
+				total += Math.max(0, intField(element.getAsJsonObject(), "Count"));
+			}
+		}
+		return total;
+	}
+
+	/** Cargo explicitly tagged by Elite with the supplied mission id. */
+	public static int countMissionCargoTons(JsonObject cargo, long missionId) {
+		if (missionId == 0L) return 0;
+		JsonArray inventory = inventoryArray(cargo);
+		if (inventory == null) return 0;
+		int total = 0;
+		for (JsonElement element : inventory) {
+			if (element == null || !element.isJsonObject()) continue;
+			JsonObject item = element.getAsJsonObject();
+			if (longField(item, "MissionID") == missionId) {
+				total += Math.max(0, intField(item, "Count"));
+			}
+		}
+		return total;
+	}
+
+	/** Commodity tonnage that Elite has not tagged to any mission. */
+	public static int countUnassignedCommodityTons(JsonObject cargo, String commodityLocalised) {
+		if (commodityLocalised == null || commodityLocalised.isBlank()) return 0;
+		JsonArray inventory = inventoryArray(cargo);
+		if (inventory == null) return 0;
+		String want = commodityLocalised.trim().toLowerCase();
+		int total = 0;
+		for (JsonElement element : inventory) {
+			if (element == null || !element.isJsonObject()) continue;
+			JsonObject item = element.getAsJsonObject();
+			String localized = stringField(item, "Name_Localised");
+			if (localized == null) localized = stringField(item, "Name");
+			if (localized != null && localized.trim().toLowerCase().equals(want)
+					&& longField(item, "MissionID") == 0L) {
+				total += Math.max(0, intField(item, "Count"));
+			}
+		}
+		return total;
+	}
+
+	private static JsonArray inventoryArray(JsonObject cargo) {
+		if (cargo == null) return null;
+		if (cargo.has("Inventory") && cargo.get("Inventory").isJsonArray()) {
+			return cargo.getAsJsonArray("Inventory");
+		}
+		if (cargo.has("inventory") && cargo.get("inventory").isJsonArray()) {
+			return cargo.getAsJsonArray("inventory");
+		}
+		return null;
+	}
+
 	private static String stringField(JsonObject o, String key) {
 		if (o == null || !o.has(key) || o.get(key).isJsonNull()) {
 			return null;
@@ -285,6 +345,15 @@ public class CargoMonitor {
 			return (int) o.get(key).getAsLong();
 		} catch (Exception e) {
 			return 0;
+		}
+	}
+
+	private static long longField(JsonObject o, String key) {
+		if (o == null || !o.has(key) || o.get(key).isJsonNull()) return 0L;
+		try {
+			return o.get(key).getAsLong();
+		} catch (Exception e) {
+			return 0L;
 		}
 	}
 }
