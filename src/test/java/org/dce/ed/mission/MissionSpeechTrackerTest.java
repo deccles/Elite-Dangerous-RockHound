@@ -9,6 +9,7 @@ import org.dce.ed.OverlayPreferences;
 import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
+import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.MissionAcceptedEvent;
 import org.dce.ed.logreader.event.MissionCompletedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
@@ -53,6 +54,27 @@ class MissionSpeechTrackerTest {
         assertTrue(MissionSpeechTracker.getInstance()
                 .announceAfterLiveApply(tracker, bounty, null, false)
                 .isEmpty());
+    }
+
+    @Test
+    void factionKillBond_announcesConflictMissionProgress() {
+        tracker.setCurrentSystemSupplier(() -> "Gliese 868");
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-13T19:51:59Z\",\"event\":\"MissionAccepted\","
+                        + "\"MissionID\":1063278166,\"Name\":\"Mission_Massacre_Conflict_War\","
+                        + "\"TargetFaction\":\"Union of Gliese 868 Green Party\",\"KillCount\":36,"
+                        + "\"DestinationSystem\":\"Gliese 868\"}"));
+        FactionKillBondEvent bond = (FactionKillBondEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-13T20:02:14Z\",\"event\":\"FactionKillBond\","
+                        + "\"Reward\":41881,\"VictimFaction\":\"Union of Gliese 868 Green Party\"}");
+        tracker.applyEvent(bond);
+
+        Optional<MissionSpeechTracker.SpeechRequest> req = MissionSpeechTracker.getInstance()
+                .announceAfterLiveApply(tracker, bond, null, false);
+
+        assertTrue(req.isPresent());
+        assertEquals(MissionSpeechTracker.TARGET_DESTROYED_SPEECH, req.get().getTemplate());
+        assertEquals(35, req.get().getN1());
     }
 
     @Test

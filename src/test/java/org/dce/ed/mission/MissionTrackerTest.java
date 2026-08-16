@@ -3,19 +3,24 @@ package org.dce.ed.mission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.dce.ed.OverlayPreferences;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
+import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.MissionAcceptedEvent;
 import org.dce.ed.logreader.event.MissionCompletedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
 import org.dce.ed.session.EdoSessionState;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class MissionTrackerTest {
 
@@ -156,6 +161,61 @@ class MissionTrackerTest {
         assertEquals(1, r.getKillsCompleted());
         assertEquals("1/5 pirates", MissionDestinationResolver.objectiveFor(r).displayLine());
         assertEquals(4, tracker.consumeLastMassacreKillRemaining().orElse(-1));
+    }
+
+    @Test
+    void factionKillBond_advancesConflictMassacreProgress() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Gliese 868");
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-13T19:51:59Z\",\"event\":\"MissionAccepted\","
+                        + "\"MissionID\":1063278166,\"Name\":\"Mission_Massacre_Conflict_War\","
+                        + "\"Faction\":\"Gliese 868 Services\","
+                        + "\"TargetFaction\":\"Union of Gliese 868 Green Party\",\"KillCount\":36,"
+                        + "\"DestinationSystem\":\"Gliese 868\"}"));
+
+        tracker.applyEvent((FactionKillBondEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-13T20:02:14Z\",\"event\":\"FactionKillBond\","
+                        + "\"Reward\":41881,\"AwardingFaction\":\"Gliese 868 Services\","
+                        + "\"VictimFaction\":\"Union of Gliese 868 Green Party\"}"));
+
+        MissionRecord mission = tracker.findById(1063278166L);
+        assertEquals(1, mission.getKillsCompleted());
+        assertEquals(35, tracker.consumeLastMassacreKillRemaining().orElse(-1));
+    }
+
+    @Test
+    void journalRebuild_restoresConflictMassacreProgressFromFactionKillBonds(@TempDir Path journalDir)
+            throws Exception {
+        String clientKey = "mission-tracker-combat-bond-rebuild-test";
+        boolean savedAuto = OverlayPreferences.isAutoLogDir(clientKey);
+        String savedCustom = OverlayPreferences.getCustomLogDir(clientKey);
+        String accepted = "{\"timestamp\":\"2026-08-13T19:51:59Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":1063278166,\"Name\":\"Mission_Massacre_Conflict_War\","
+                + "\"Faction\":\"Gliese 868 Services\","
+                + "\"TargetFaction\":\"Union of Gliese 868 Green Party\",\"KillCount\":36,"
+                + "\"DestinationSystem\":\"Gliese 868\"}";
+        Files.writeString(
+                journalDir.resolve("Journal.2026-08-13T090823.01.log"),
+                "{\"timestamp\":\"2026-08-13T19:50:00Z\",\"event\":\"Location\","
+                        + "\"StarSystem\":\"Gliese 868\",\"SystemAddress\":1}\n"
+                        + accepted + "\n"
+                        + "{\"timestamp\":\"2026-08-13T20:02:14Z\",\"event\":\"FactionKillBond\","
+                        + "\"Reward\":41881,\"AwardingFaction\":\"Gliese 868 Services\","
+                        + "\"VictimFaction\":\"Union of Gliese 868 Green Party\"}\n");
+
+        try {
+            OverlayPreferences.setAutoLogDir(clientKey, false);
+            OverlayPreferences.setCustomLogDir(clientKey, journalDir.toString());
+            MissionTracker tracker = new MissionTracker();
+            tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(accepted));
+
+            assertTrue(tracker.rebuildMassacreKillProgressFromJournals(clientKey));
+            assertEquals(1, tracker.findById(1063278166L).getKillsCompleted());
+        } finally {
+            OverlayPreferences.setAutoLogDir(clientKey, savedAuto);
+            OverlayPreferences.setCustomLogDir(clientKey, savedCustom);
+        }
     }
 
     @Test

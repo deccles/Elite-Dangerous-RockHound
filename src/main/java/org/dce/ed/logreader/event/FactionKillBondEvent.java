@@ -11,14 +11,20 @@ import com.google.gson.JsonObject;
 public final class FactionKillBondEvent extends EliteLogEvent implements CombatRewardEvent {
 
     private final long reward;
+    private final String victimFaction;
 
     public FactionKillBondEvent(Instant timestamp, JsonObject rawJson, long reward) {
         super(timestamp, EliteEventType.FACTION_KILL_BOND, rawJson);
         this.reward = Math.max(0L, reward);
+        this.victimFaction = stringField(rawJson, "VictimFaction");
     }
 
     public long getReward() {
         return reward;
+    }
+
+    public String getVictimFaction() {
+        return victimFaction;
     }
 
     @Override
@@ -35,6 +41,18 @@ public final class FactionKillBondEvent extends EliteLogEvent implements CombatR
             return Math.max(0L, Math.round(rawJson.get("Reward").getAsDouble()));
         } catch (RuntimeException ignored) {
             return 0L;
+        }
+    }
+
+    private static String stringField(JsonObject rawJson, String key) {
+        if (rawJson == null || key == null || !rawJson.has(key) || rawJson.get(key).isJsonNull()) {
+            return null;
+        }
+        try {
+            String value = rawJson.get(key).getAsString();
+            return value != null && !value.isBlank() ? value.trim() : null;
+        } catch (RuntimeException ignored) {
+            return null;
         }
     }
 }

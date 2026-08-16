@@ -24,6 +24,7 @@ import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
 import org.dce.ed.logreader.event.CarrierJumpEvent;
+import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.MissionAbandonedEvent;
@@ -89,6 +90,8 @@ public final class MissionTracker {
             changed = onCargoDepot(e);
         } else if (event instanceof BountyEvent e) {
             changed = onBounty(e);
+        } else if (event instanceof FactionKillBondEvent e) {
+            changed = onFactionKillBond(e);
         } else if (event instanceof MissionsEvent e) {
             changed = onMissionsSnapshot(e);
         }
@@ -269,11 +272,17 @@ public final class MissionTracker {
      * progress oldest-first rather than sharing the same kill, matching how the game credits them.
      */
     private boolean onBounty(BountyEvent e) {
-        String victimFaction = e.getVictimFaction();
+        return onCombatKill(e, e.getVictimFaction(), e.getTarget());
+    }
+
+    private boolean onFactionKillBond(FactionKillBondEvent e) {
+        return onCombatKill(e, e.getVictimFaction(), null);
+    }
+
+    private boolean onCombatKill(EliteLogEvent event, String victimFaction, String target) {
         if (victimFaction == null || victimFaction.isBlank()) {
             return false;
         }
-        String target = e.getTarget();
         if (target != null && target.equalsIgnoreCase("Skimmer")) {
             return false;
         }
@@ -281,7 +290,7 @@ public final class MissionTracker {
         if (currentSystem == null || currentSystem.isBlank()) {
             return false;
         }
-        Instant killedAt = eventTimestamp(e);
+        Instant killedAt = eventTimestamp(event);
         Map<String, MissionRecord> matchedByIssuer = new LinkedHashMap<>();
         for (MissionRecord r : activeById.values()) {
             if (!isMassacreKillCandidate(r, victimFaction, currentSystem, killedAt)) {
@@ -660,7 +669,8 @@ public final class MissionTracker {
     }
 
     /**
-     * Rebuilds incomplete massacre {@code killsCompleted} from journal {@code Bounty} events,
+     * Rebuilds incomplete massacre {@code killsCompleted} from journal {@code Bounty} and
+     * {@code FactionKillBond} events,
      * gated by hunt {@code DestinationSystem} + {@code TargetFaction}. Safe to call after session
      * restore or full rescan when live attribution may have missed kills (overlay off / wrong system).
      */
@@ -684,7 +694,8 @@ public final class MissionTracker {
                     "MissionCompleted",
                     "MissionFailed",
                     "MissionAbandoned",
-                    "Bounty");
+                    "Bounty",
+                    "FactionKillBond");
             List<EliteLogEvent> events = reader.readEventsFromLastNJournalFiles(Integer.MAX_VALUE, include);
             if (events.isEmpty()) {
                 return false;

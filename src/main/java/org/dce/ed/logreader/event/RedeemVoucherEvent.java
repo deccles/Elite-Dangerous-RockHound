@@ -32,4 +32,8 @@ public final class RedeemVoucherEvent extends EliteLogEvent {
     public boolean isBountyRedemption() {
         return voucherType != null && "bounty".equalsIgnoreCase(voucherType.trim());
     }
+
+    public boolean isCombatBondRedemption() {
+        return voucherType != null && "CombatBond".equalsIgnoreCase(voucherType.trim());
+    }
 }

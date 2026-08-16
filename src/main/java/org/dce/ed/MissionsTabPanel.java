@@ -54,6 +54,7 @@ import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
+import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.MissionAbandonedEvent;
 import org.dce.ed.logreader.event.MissionAcceptedEvent;
 import org.dce.ed.logreader.event.MissionCompletedEvent;
@@ -614,7 +615,8 @@ public class MissionsTabPanel extends JPanel {
                 || event instanceof MissionRedirectedEvent
                 || event instanceof CargoDepotEvent
                 || event instanceof MissionsEvent
-                || event instanceof BountyEvent) {
+                || event instanceof BountyEvent
+                || event instanceof FactionKillBondEvent) {
             MissionRecord completedPrior = null;
             if (event instanceof MissionCompletedEvent completed) {
                 completedPrior = tracker.findById(completed.getMissionId());

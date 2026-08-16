@@ -9,6 +9,7 @@ import org.dce.ed.OverlayPreferences;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
+import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.MissionCompletedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
@@ -61,7 +62,7 @@ public final class MissionSpeechTracker {
         }
 
         Optional<SpeechRequest> req = Optional.empty();
-        if (event instanceof BountyEvent) {
+        if (event instanceof BountyEvent || event instanceof FactionKillBondEvent) {
             req = massacreKillSpeech(tracker);
         } else if (event instanceof MissionRedirectedEvent e) {
             req = combatCompleteIfNeeded(tracker.findById(e.getMissionId()), e.getMissionId());

@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.List;
 
 import org.dce.ed.logreader.event.BountyEvent;
+import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.RedeemVoucherEvent;
 import org.dce.ed.logreader.event.ShipTargetedEvent;
 import org.dce.ed.session.EdoSessionState;
@@ -97,6 +98,68 @@ class CombatTargetTrackerTest {
     }
 
     @Test
+    void combatBondKillListClearsOnCombatBondRedeem() {
+        JsonObject raw = JsonParser.parseString(
+                "{\"Reward\":41881,\"VictimFaction\":\"Union of Gliese 868 Green Party\"}")
+                .getAsJsonObject();
+        tracker.applyJournalEvent(new FactionKillBondEvent(
+                Instant.parse("2026-08-13T20:02:14Z"), raw, 41_881L));
+        assertEquals(1, tracker.getKills().size());
+
+        tracker.applyJournalEvent(new RedeemVoucherEvent(
+                Instant.parse("2026-08-13T21:00:00Z"),
+                new JsonObject(),
+                "CombatBond",
+                41_881L));
+
+        assertTrue(tracker.getKills().isEmpty());
+    }
+
+    @Test
+    void combatBondRedeemKeepsUnredeemedBountyState() {
+        tracker.applyBounty(bounty(
+                "{\"TotalReward\":10000,\"Target\":\"eagle\",\"VictimFaction\":\"Pirates\"}",
+                10_000L));
+        JsonObject raw = JsonParser.parseString(
+                "{\"Reward\":41881,\"VictimFaction\":\"Union of Gliese 868 Green Party\"}")
+                .getAsJsonObject();
+        tracker.applyJournalEvent(new FactionKillBondEvent(
+                Instant.parse("2026-08-13T20:02:14Z"), raw, 41_881L));
+
+        tracker.applyJournalEvent(new RedeemVoucherEvent(
+                Instant.parse("2026-08-13T21:00:00Z"),
+                new JsonObject(),
+                "CombatBond",
+                41_881L));
+
+        assertEquals(1, tracker.getKills().size());
+        assertEquals(10_000L, tracker.getKills().get(0).getTotalReward());
+        assertEquals(10_000L, tracker.getTotalBountiesEarned());
+    }
+
+    @Test
+    void bountyRedeemKeepsUnredeemedCombatBondKills() {
+        tracker.applyBounty(bounty(
+                "{\"TotalReward\":10000,\"Target\":\"eagle\",\"VictimFaction\":\"Pirates\"}",
+                10_000L));
+        JsonObject raw = JsonParser.parseString(
+                "{\"Reward\":41881,\"VictimFaction\":\"Union of Gliese 868 Green Party\"}")
+                .getAsJsonObject();
+        tracker.applyJournalEvent(new FactionKillBondEvent(
+                Instant.parse("2026-08-13T20:02:14Z"), raw, 41_881L));
+
+        tracker.applyJournalEvent(new RedeemVoucherEvent(
+                Instant.parse("2026-08-13T21:00:00Z"),
+                new JsonObject(),
+                "bounty",
+                10_000L));
+
+        assertEquals(1, tracker.getKills().size());
+        assertTrue(tracker.getKills().get(0).isCombatBond());
+        assertEquals(41_881L, tracker.getKills().get(0).getTotalReward());
+    }
+
+    @Test
     void killUsesLocalisedShipNameFromPriorScan() {
         tracker.applyShipTargeted(new ShipTargetedEvent(
                 Instant.parse("2026-06-22T13:04:47Z"),
@@ -126,6 +189,41 @@ class CombatTargetTrackerTest {
         assertTrue(tracker.getScannedWantedShips().isEmpty(),
                 "Killed pilots should leave the scanned (living) list");
         assertNull(tracker.getLockedTarget());
+    }
+
+    @Test
+    void factionKillBondAddsLockedConflictTargetToKills() {
+        tracker.applyShipTargeted(new ShipTargetedEvent(
+                Instant.parse("2026-08-13T20:02:06Z"),
+                new JsonObject(),
+                true,
+                3,
+                "Federal Navy Ship",
+                "$ShipName_Military_Federation;",
+                Long.valueOf(0L),
+                "federation_dropship_mkii",
+                "Federal Assault Ship",
+                "Lawless",
+                "Union of Gliese 868 Green Party",
+                "Competent",
+                null,
+                null,
+                null,
+                false));
+        JsonObject raw = JsonParser.parseString(
+                "{\"Reward\":41881,\"AwardingFaction\":\"Gliese 868 Services\","
+                        + "\"VictimFaction\":\"Union of Gliese 868 Green Party\"}")
+                .getAsJsonObject();
+
+        tracker.applyJournalEvent(new FactionKillBondEvent(
+                Instant.parse("2026-08-13T20:02:14Z"), raw, 41_881L));
+
+        assertEquals(1, tracker.getKills().size());
+        CombatTargetTracker.KillVictim kill = tracker.getKills().get(0);
+        assertEquals("Federal Navy Ship", kill.getPilotName());
+        assertEquals("Federal Assault Ship", kill.getShipDisplay());
+        assertEquals("Union of Gliese 868 Green Party", kill.getVictimFaction());
+        assertEquals(41_881L, kill.getTotalReward());
     }
 
     @Test
@@ -221,6 +319,32 @@ class CombatTargetTrackerTest {
         assertEquals("Dana", tracker.getKills().get(0).getPilotName());
         assertEquals(10_000L, tracker.getTotalBountiesEarned());
         assertEquals(3_000L, tracker.getTotalOtherBounties());
+    }
+
+    @Test
+    void sessionRoundTripPreservesRewardTypeForSelectiveRedemption() {
+        tracker.applyBounty(bounty(
+                "{\"TotalReward\":10000,\"Target\":\"eagle\",\"VictimFaction\":\"Pirates\"}",
+                10_000L));
+        JsonObject raw = JsonParser.parseString(
+                "{\"Reward\":41881,\"VictimFaction\":\"Union of Gliese 868 Green Party\"}")
+                .getAsJsonObject();
+        tracker.applyJournalEvent(new FactionKillBondEvent(
+                Instant.parse("2026-08-13T20:02:14Z"), raw, 41_881L));
+        EdoSessionState state = new EdoSessionState();
+        tracker.fillSessionState(state);
+
+        tracker.resetForTests();
+        tracker.applySessionState(state);
+        tracker.applyJournalEvent(new RedeemVoucherEvent(
+                Instant.parse("2026-08-13T21:00:00Z"),
+                new JsonObject(),
+                "bounty",
+                10_000L));
+
+        assertEquals(1, tracker.getKills().size());
+        assertTrue(tracker.getKills().get(0).isCombatBond());
+        assertEquals(41_881L, tracker.getKills().get(0).getTotalReward());
     }
 
     private static ShipTargetedEvent stage3(String pilot, long bounty, String legal, boolean player) {

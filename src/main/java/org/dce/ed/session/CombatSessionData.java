@@ -172,6 +172,7 @@ public final class CombatSessionData {
         private long totalReward;
         private long otherReward;
         private int sharedWithOthers;
+        private boolean combatBond;
 
         public String getTimestamp() { return timestamp; }
         public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
@@ -189,5 +190,7 @@ public final class CombatSessionData {
         public void setOtherReward(long otherReward) { this.otherReward = otherReward; }
         public int getSharedWithOthers() { return sharedWithOthers; }
         public void setSharedWithOthers(int sharedWithOthers) { this.sharedWithOthers = sharedWithOthers; }
+        public boolean isCombatBond() { return combatBond; }
+        public void setCombatBond(boolean combatBond) { this.combatBond = combatBond; }
     }
 }

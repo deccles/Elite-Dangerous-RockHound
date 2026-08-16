@@ -12,6 +12,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.BountyEvent;
+import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.RedeemVoucherEvent;
 import org.dce.ed.logreader.event.ShipTargetedEvent;
@@ -120,9 +121,11 @@ public final class CombatTargetTracker {
         private final long totalReward;
         private final long otherReward;
         private final int sharedWithOthers;
+        private final boolean combatBond;
 
         public KillVictim(Instant timestamp, String target, String shipDisplay, String pilotName,
-                String victimFaction, long totalReward, long otherReward, int sharedWithOthers) {
+                String victimFaction, long totalReward, long otherReward, int sharedWithOthers,
+                boolean combatBond) {
             this.timestamp = timestamp;
             this.target = target;
             this.shipDisplay = shipDisplay;
@@ -131,6 +134,7 @@ public final class CombatTargetTracker {
             this.totalReward = totalReward;
             this.otherReward = otherReward;
             this.sharedWithOthers = sharedWithOthers;
+            this.combatBond = combatBond;
         }
 
         public Instant getTimestamp() { return timestamp; }
@@ -146,6 +150,7 @@ public final class CombatTargetTracker {
         public long getTotalReward() { return totalReward; }
         public long getOtherReward() { return otherReward; }
         public int getSharedWithOthers() { return sharedWithOthers; }
+        public boolean isCombatBond() { return combatBond; }
     }
 
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
@@ -255,6 +260,7 @@ public final class CombatTargetTracker {
                 row.setTotalReward(k.getTotalReward());
                 row.setOtherReward(k.getOtherReward());
                 row.setSharedWithOthers(k.getSharedWithOthers());
+                row.setCombatBond(k.isCombatBond());
                 killsOut.add(row);
             }
         }
@@ -319,7 +325,8 @@ public final class CombatTargetTracker {
                         row.getVictimFaction(),
                         Math.max(0L, row.getTotalReward()),
                         Math.max(0L, row.getOtherReward()),
-                        Math.max(0, row.getSharedWithOthers())));
+                        Math.max(0, row.getSharedWithOthers()),
+                        row.isCombatBond()));
             }
         }
         totalBountiesEarned = Math.max(0L, combat.getTotalBountiesEarned());
@@ -354,8 +361,16 @@ public final class CombatTargetTracker {
             applyBounty(bounty);
             return;
         }
-        if (event instanceof RedeemVoucherEvent redeem && redeem.isBountyRedemption()) {
-            clearKillsAndScansOnRedeem();
+        if (event instanceof FactionKillBondEvent bond) {
+            applyFactionKillBond(bond);
+            return;
+        }
+        if (event instanceof RedeemVoucherEvent redeem) {
+            if (redeem.isBountyRedemption()) {
+                clearBountyStateOnRedeem();
+            } else if (redeem.isCombatBondRedemption()) {
+                clearCombatBondKillsOnRedeem();
+            }
         }
     }
 
@@ -477,13 +492,48 @@ public final class CombatTargetTracker {
                 event.getVictimFaction(),
                 total,
                 other,
-                shared);
+                shared,
+                false);
         synchronized (kills) {
             kills.add(victim);
         }
         totalBountiesEarned += total;
         totalOtherBounties += other;
         notifyListeners();
+    }
+
+    void applyFactionKillBond(FactionKillBondEvent event) {
+        if (event == null || event.getReward() <= 0L) {
+            return;
+        }
+        LockedTarget target = lockedTarget;
+        String pilot = target != null ? target.getPilotName() : null;
+        String shipDisplay = target != null ? target.getShipDisplay() : null;
+        removeScannedVictim(pilot);
+        KillVictim victim = new KillVictim(
+                event.getTimestamp(),
+                null,
+                shipDisplay,
+                pilot,
+                event.getVictimFaction(),
+                event.getReward(),
+                0L,
+                0,
+                true);
+        synchronized (kills) {
+            kills.add(victim);
+        }
+        notifyListeners();
+    }
+
+    private void clearCombatBondKillsOnRedeem() {
+        boolean changed;
+        synchronized (kills) {
+            changed = kills.removeIf(KillVictim::isCombatBond);
+        }
+        if (changed) {
+            notifyListeners();
+        }
     }
 
     /**
@@ -513,13 +563,10 @@ public final class CombatTargetTracker {
         }
     }
 
-    void clearKillsAndScansOnRedeem() {
+    void clearBountyStateOnRedeem() {
         boolean changed = false;
         synchronized (kills) {
-            if (!kills.isEmpty()) {
-                kills.clear();
-                changed = true;
-            }
+            changed = kills.removeIf(kill -> !kill.isCombatBond());
         }
         if (!scannedWanted.isEmpty()) {
             scannedWanted.clear();

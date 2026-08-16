@@ -17,6 +17,7 @@ import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.CarrierJumpRequestEvent;
 import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
+import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
 import org.dce.ed.logreader.event.MissionAbandonedEvent;
@@ -277,7 +278,7 @@ public class RescanJournalsMain {
 		EdoSessionState missionReplaySeed = EdoSessionPersistence.load();
 		missionReplayTracker.applySessionState(missionReplaySeed);
 		/*
-		 * Full-history replay can rebuild massacre progress from Bounty + DestinationSystem.
+		 * Full-history replay can rebuild massacre progress from combat rewards + DestinationSystem.
 		 * Incremental windows must not: resetting would drop prior kills, and applying without
 		 * reset would double-count kills already stored in session.
 		 */
@@ -396,7 +397,8 @@ public class RescanJournalsMain {
 					|| event instanceof MissionRedirectedEvent
 					|| event instanceof CargoDepotEvent
 					|| event instanceof MissionsEvent
-					|| (rebuildMassacreFromBounties && event instanceof BountyEvent)) {
+					|| (rebuildMassacreFromBounties
+							&& (event instanceof BountyEvent || event instanceof FactionKillBondEvent))) {
 				missionReplayTracker.applyEvent(event);
 			}
 
