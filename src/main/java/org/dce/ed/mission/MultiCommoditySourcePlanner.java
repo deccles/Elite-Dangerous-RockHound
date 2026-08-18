@@ -31,16 +31,22 @@ public final class MultiCommoditySourcePlanner {
             MultiCommodityAllocation allocation = MultiCommoditySourceAllocator.allocate(needs, inHold, b.stock);
             Map<String, Integer> required = requiredByCommodity(needs);
             Map<String, Integer> held = normalizedQuantities(inHold);
-            String text = required.entrySet().stream().sorted(Map.Entry.comparingByKey())
-                    .map(e -> displayCommodity(needs, e.getKey()) + " "
-                            + Math.min(e.getValue(), held.getOrDefault(e.getKey(), 0)
-                                    + b.stock.getOrDefault(e.getKey(), 0))
-                            + "/" + e.getValue())
-                    .reduce((a, c) -> a + "; " + c).orElse("");
-            out.add(new MultiCommodityStationAssessment(b.station, allocation, Map.copyOf(b.stock), text, b.oldest));
+            List<MultiCommodityCoverage> coverages = required.entrySet().stream().map(e -> {
+                int heldTons = held.getOrDefault(e.getKey(), 0);
+                int stationTons = b.stock.getOrDefault(e.getKey(), 0);
+                MultiCommodityCoverage.Status status = heldTons + stationTons >= e.getValue()
+                        ? MultiCommodityCoverage.Status.COMPLETE
+                        : stationTons > 0 ? MultiCommodityCoverage.Status.PARTIAL
+                                : MultiCommodityCoverage.Status.MISSING;
+                return new MultiCommodityCoverage(displayCommodity(needs, e.getKey()), heldTons,
+                        stationTons, e.getValue(), status);
+            }).toList();
+            out.add(new MultiCommodityStationAssessment(b.station, allocation, Map.copyOf(b.stock),
+                    coverages, b.oldest));
         }
-        out.sort(Comparator.comparingInt((MultiCommodityStationAssessment a) -> a.allocation().missionIds().size()).reversed()
-                .thenComparingInt(a -> a.allocation().purchaseTons())
+        out.sort(Comparator.comparingInt(MultiCommodityStationAssessment::completeCommodityCount).reversed()
+                .thenComparing(Comparator.comparingInt(MultiCommodityStationAssessment::partialCommodityCount).reversed())
+                .thenComparingInt(MultiCommodityStationAssessment::missingCommodityCount)
                 .thenComparing(a -> a.station().systemDistanceLy(), Comparator.nullsLast(Double::compareTo)));
         return List.copyOf(out);
     }

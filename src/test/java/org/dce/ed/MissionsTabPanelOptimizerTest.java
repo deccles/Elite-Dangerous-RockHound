@@ -13,10 +13,13 @@ import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.SwingUtilities;
 
 import org.dce.ed.mission.TransportLocation;
 import org.dce.ed.mission.TransportPlanAction;
@@ -26,6 +29,10 @@ import org.dce.ed.mission.TransportRoutePlan;
 import org.dce.ed.mission.TransportPlanRequest;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.logreader.event.LocationEvent;
+import org.dce.ed.logreader.event.FsdJumpEvent;
+import org.dce.ed.logreader.EliteLogParser;
+import org.dce.ed.logreader.EliteEventType;
+import org.dce.ed.logreader.EliteLogEvent;
 import org.junit.jupiter.api.Test;
 
 import com.google.gson.JsonObject;
@@ -33,12 +40,34 @@ import com.google.gson.Gson;
 
 class MissionsTabPanelOptimizerTest {
     @Test
+    void undockingWarnsAboutUnfinishedWorkAtTheCurrentPlanStop() {
+        AtomicReference<String> spoken = new AtomicReference<>();
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Lave", () -> "Lave Station",
+                () -> 64, systems -> { });
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.VISIT, 1L, "Courier", 0)), 0)), 10.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
+        invoke(panel, "updateOptimizedPlanLocationHighlight",
+                new Class<?>[] { String.class, String.class }, "Lave", "Lave Station");
+        writeField(panel, "latestJournalSystem", "Lave");
+        writeField(panel, "latestJournalStation", "Lave Station");
+        writeField(panel, "departureReminderSpeaker", (Consumer<String>) spoken::set);
+
+        panel.handleLogEvent(new EliteLogEvent.GenericEvent(
+                Instant.now(), EliteEventType.UNDOCKED, new JsonObject()));
+
+        assertEquals("Did you forget your delivery again, Commander?", spoken.get());
+    }
+    @Test
     void transportTabProvidesOptimizeStopsButton() {
         MissionsTabPanel panel = new MissionsTabPanel(
                 () -> false, () -> false, () -> "Sol", () -> "Galileo",
                 () -> 128, systems -> { });
 
-        assertNotNull(findButton(panel, "Optimize Stops"));
+        assertNotNull(findButton(panel, "Create Plan"));
     }
 
     @Test
@@ -71,7 +100,7 @@ class MissionsTabPanelOptimizerTest {
 
         JButton optimizedPlan = findButton(panel, "Optimized Plan");
         assertTrue(optimizedPlan.isEnabled());
-        assertNotNull(findButton(panel, "Optimize Plan"));
+        assertNotNull(findButton(panel, "Update Plan"));
         assertTrue(findNamed(panel, "optimizedPlanContent").isVisible());
         JButton apply = findButton(panel, "Apply to Route");
         assertNotNull(apply);
@@ -104,6 +133,55 @@ class MissionsTabPanelOptimizerTest {
     }
 
     @Test
+    void enteringSystemHighlightsPlanFromEventBeforeSharedLocationCatchesUp() throws Exception {
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        TransportLocation achenar = new TransportLocation("Achenar", "Dawes Hub", 20, 0, 0);
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(achenar, List.of(new TransportPlanAction(
+                        TransportPlanAction.Kind.VISIT, 1L, "Courier", 0)), 0)), 20.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
+
+        panel.handleLogEvent(new LocationEvent(Instant.now(), new JsonObject(),
+                false, false, false, "Achenar", 2L, new double[] { 20, 0, 0 }, null, 0, null));
+        SwingUtilities.invokeAndWait(() -> { });
+
+        Object planPanel = readField(panel, "optimizedPlanPanel");
+        Method highlighted = planPanel.getClass().getDeclaredMethod("highlightedRowForTests");
+        highlighted.setAccessible(true);
+        assertEquals(1, highlighted.invoke(planPanel));
+        SwingUtilities.invokeAndWait(() -> { });
+        assertEquals(1, highlighted.invoke(planPanel));
+    }
+
+    @Test
+    void fsdJumpAdvancesHighlightFromPickupToNextDeliverySystem() throws Exception {
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Start", () -> "Start Port",
+                () -> 128, systems -> { });
+        TransportPlanAction visit = new TransportPlanAction(
+                TransportPlanAction.Kind.VISIT, 1L, "Courier", 0);
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation("Source", "Market", 10, 0, 0), List.of(visit), 0),
+                new TransportPlanStop(new TransportLocation("Gliese 868", "MacLean Terminal", 20, 0, 0),
+                        List.of(visit), 0)), 20.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
+        panel.handleLogEvent(new LocationEvent(Instant.now(), new JsonObject(),
+                false, false, false, "Source", 2L, new double[] { 10, 0, 0 }, null, 0, null));
+        SwingUtilities.invokeAndWait(() -> { });
+
+        panel.handleLogEvent(new FsdJumpEvent(Instant.now(), new JsonObject(), "Gliese 868", 3L,
+                new double[] { 20, 0, 0 }, "Gliese 868", 0, "Star", 10, 1, 10, false));
+        SwingUtilities.invokeAndWait(() -> { });
+
+        Object planPanel = readField(panel, "optimizedPlanPanel");
+        Method highlighted = planPanel.getClass().getDeclaredMethod("highlightedRowForTests");
+        highlighted.setAccessible(true);
+        assertEquals(2, highlighted.invoke(planPanel));
+    }
+
+    @Test
     void cargoPurchaseKeepsTheActivePlan() throws Exception {
         JsonObject beforePurchase = new JsonObject();
         beforePurchase.add("Inventory", new com.google.gson.JsonArray());
@@ -130,6 +208,33 @@ class MissionsTabPanelOptimizerTest {
 
         assertTrue(findButton(panel, "Optimized Plan").isEnabled());
         assertTrue(findNamed(panel, "optimizedPlanContent").isVisible());
+    }
+
+    @Test
+    void cargoDepotProgressKeepsTheActivePlan() {
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Gliese 868", () -> "MacLean Terminal",
+                () -> 1056, systems -> { });
+        EliteLogParser parser = new EliteLogParser();
+        panel.handleLogEvent(parser.parseRecord("""
+                {"timestamp":"2026-08-17T15:50:00Z","event":"MissionAccepted",
+                 "Name":"Mission_Delivery","Commodity_Localised":"Haematite","Count":196,
+                 "DestinationSystem":"Lave","DestinationStation":"Lave Station","MissionID":42}
+                """));
+        TransportLocation depot = new TransportLocation("Gliese 868", "MacLean Terminal", 0, 0, 0);
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(depot, List.of(new TransportPlanAction(
+                        TransportPlanAction.Kind.PICK_UP, 42L, "Haematite", 196)), 196)), 0.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
+
+        panel.handleLogEvent(parser.parseRecord("""
+                {"timestamp":"2026-08-17T15:55:00Z","event":"CargoDepot","MissionID":42,
+                 "UpdateType":"Collect","CargoType":"Haematite","Count":196,
+                 "ItemsCollected":196,"ItemsDelivered":0,"TotalItemsToDeliver":196}
+                """));
+
+        assertTrue(findButton(panel, "Optimized Plan").isEnabled());
+        assertNotNull(findButton(panel, "Update Plan"));
     }
 
     @Test
@@ -186,10 +291,51 @@ class MissionsTabPanelOptimizerTest {
         assertNotNull(findLabelContaining(restored, "source has not been set"));
         javax.swing.JTable table = findTableWithColumn(restored, "Action");
         assertNotNull(table);
-        assertEquals("Sol / Galileo", table.getValueAt(0, 1));
-        assertEquals("12 / 128 t", table.getValueAt(0, 3));
-        assertEquals("Lave / Lave Station", table.getValueAt(1, 1));
-        assertEquals("Pick up 8 t Gold", table.getValueAt(1, 2));
+        assertEquals("Sol", table.getValueAt(0, 2));
+        assertEquals("Galileo", table.getValueAt(0, 3));
+        assertEquals("12 / 128 t", table.getValueAt(0, 5));
+        assertEquals("Lave", table.getValueAt(1, 2));
+        assertEquals("Lave Station", table.getValueAt(1, 3));
+        assertEquals("Pick up 8 t Gold", table.getValueAt(1, 4));
+    }
+
+    @Test
+    void completedStopCheckSurvivesSessionRoundTrip() {
+        AtomicReference<String> system = new AtomicReference<>("Sol");
+        AtomicReference<String> station = new AtomicReference<>("Galileo");
+        MissionsTabPanel saved = new MissionsTabPanel(
+                () -> false, () -> false, system::get, station::get,
+                () -> 128, systems -> { });
+        TransportPlanAction visit = new TransportPlanAction(
+                TransportPlanAction.Kind.VISIT, 1L, "Courier", 0);
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                        List.of(visit), 0),
+                new TransportPlanStop(new TransportLocation("Leesti", "George Lucas", 20, 0, 0),
+                        List.of(visit), 0)), 20.0, true);
+        invoke(saved, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
+        system.set("Lave");
+        station.set("Lave Station");
+        invoke(saved, "updateOptimizedPlanLocationHighlight", new Class<?>[0]);
+        system.set("Leesti");
+        station.set("George Lucas");
+        invoke(saved, "updateOptimizedPlanLocationHighlight", new Class<?>[0]);
+        EdoSessionState state = new EdoSessionState();
+        saved.fillSessionState(state);
+        state = new Gson().fromJson(new Gson().toJson(state), EdoSessionState.class);
+
+        MissionsTabPanel restored = new MissionsTabPanel(
+                () -> false, () -> false, system::get, station::get,
+                () -> 128, systems -> { });
+        restored.applySessionState(state);
+        findButton(restored, "Optimized Plan").doClick();
+
+        javax.swing.JTable table = findTableWithColumn(restored, "Action");
+        assertNotNull(table);
+        assertEquals(true, table.getValueAt(1, 0));
+        assertEquals(1, table.getValueAt(1, 1));
+        assertEquals(false, table.getValueAt(2, 0));
+        assertEquals(2, table.getValueAt(2, 1));
     }
 
     private static JButton findButton(Container root, String text) {
@@ -248,6 +394,27 @@ class MissionsTabPanelOptimizerTest {
             method.invoke(target, args);
         } catch (ReflectiveOperationException ex) {
             fail("Expected UI behavior method " + name, ex);
+        }
+    }
+
+    private static Object readField(Object target, String name) {
+        try {
+            var field = target.getClass().getDeclaredField(name);
+            field.setAccessible(true);
+            return field.get(target);
+        } catch (ReflectiveOperationException ex) {
+            fail("Expected UI state field " + name, ex);
+            return null;
+        }
+    }
+
+    private static void writeField(Object target, String name, Object value) {
+        try {
+            var field = target.getClass().getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(target, value);
+        } catch (ReflectiveOperationException ex) {
+            fail("Expected UI state field " + name, ex);
         }
     }
 }

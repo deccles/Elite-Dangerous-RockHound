@@ -29,17 +29,22 @@ public final class CommoditySourceSearch {
     }
 
     public List<CommoditySourceChoice> search(String nearSystem, String commodity, int minSupply) throws IOException {
-        return search(nearSystem, commodity, minSupply, 50);
+        return search(nearSystem, commodity, null, minSupply, 50);
     }
 
     public List<CommoditySourceChoice> search(String nearSystem, String commodity, int minSupply, int radiusLy)
             throws IOException {
+        return search(nearSystem, commodity, null, minSupply, radiusLy);
+    }
+
+    public List<CommoditySourceChoice> search(String nearSystem, String commodity, String canonicalCommodity,
+            int minSupply, int radiusLy) throws IOException {
         if (nearSystem == null || nearSystem.isBlank() || commodity == null || commodity.isBlank()) {
             throw new IOException("System and commodity are required");
         }
         ArdentQueryParams params = queryParams(minSupply, radiusLy);
         String system = nearSystem.trim();
-        String commodityName = commodityApiName(commodity);
+        String commodityName = commodityApiName(commodity, canonicalCommodity);
         List<CommoditySourceChoice> nearby = parse(client.getNearbyExports(system, commodityName, params));
         try {
             List<CommoditySourceChoice> origin = parse(client.getSystemCommodity(system, commodityName, params));
@@ -73,7 +78,22 @@ public final class CommoditySourceSearch {
     }
 
     static String commodityApiName(String displayName) {
-        return displayName.trim().replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+        return commodityApiName(displayName, null);
+    }
+
+    static String commodityApiName(String displayName, String canonicalName) {
+        if (canonicalName != null && !canonicalName.isBlank()) {
+            String canonical = canonicalName.trim()
+                    .replaceFirst("^\\$", "")
+                    .replaceFirst("(?i)_Name;$", "")
+                    .replaceAll("[^A-Za-z0-9]", "")
+                    .toLowerCase(Locale.ROOT);
+            if (!canonical.isBlank()) return canonical;
+        }
+        String normalized = displayName.trim().replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+        // Compatibility for missions saved before their canonical journal token was retained.
+        if ("hesuits".equals(normalized)) return "hazardousenvironmentsuits";
+        return normalized;
     }
 
     static ArdentQueryParams queryParams(int missionRequirement) {

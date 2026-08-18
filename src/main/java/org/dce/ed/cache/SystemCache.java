@@ -23,7 +23,6 @@ import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.session.EdoSessionState;
-import org.dce.ed.systemmap.SystemMapJournalEnricher;
 import org.dce.ed.systemmodel.SystemModelService;
 import org.dce.systemmodel.build.SystemModelBuilder;
 import org.dce.systemmodel.model.SystemModel;
@@ -49,6 +48,7 @@ import com.google.gson.GsonBuilder;
 
 
 public final class SystemCache implements SystemStore {
+    private static final double METRES_PER_AU = 149_597_870_700.0;
     private CachedSystem lastLoadedSystem;
 
     private static final String CACHE_DB_FILE_NAME = "ed-overlay-systems-v1.db";
@@ -644,12 +644,18 @@ public final class SystemCache implements SystemStore {
 
         // Build a lookup of star name by EDSM *bodyId* (NOT EDSM "id")
         Map<Long, String> starNameByBodyId = new HashMap<>();
+        Map<Long, Integer> localBodyIdByEdsmId = new HashMap<>();
         for (BodiesResponse.Body b : edsm.bodies) {
             if (b == null) {
                 continue;
             }
             if (b.type != null && b.type.equalsIgnoreCase("Star")) {
                 starNameByBodyId.put(b.id, b.name);
+            }
+            Integer localId = EdsmJournalBodyIdBridge.isArrivalStar(b, state.getSystemName())
+                    ? Integer.valueOf(0) : toBodyKey(b.id);
+            if (localId != null) {
+                localBodyIdByEdsmId.put(Long.valueOf(b.id), localId);
             }
         }
 
@@ -790,7 +796,7 @@ public final class SystemCache implements SystemStore {
             }
             if (info.getSemiMajorAxisM() == null && remote.semiMajorAxis != null
                     && Double.isFinite(remote.semiMajorAxis.doubleValue()) && remote.semiMajorAxis.doubleValue() > 0) {
-                info.setSemiMajorAxisM(remote.semiMajorAxis);
+                info.setSemiMajorAxisM(remote.semiMajorAxis.doubleValue() * METRES_PER_AU);
             }
             if (info.getOrbitalPeriod() == null && remote.orbitalPeriod != null
                     && Double.isFinite(remote.orbitalPeriod.doubleValue())) {
@@ -803,6 +809,35 @@ public final class SystemCache implements SystemStore {
             if (info.getOrbitalInclination() == null && remote.orbitalInclination != null
                     && Double.isFinite(remote.orbitalInclination.doubleValue())) {
                 info.setOrbitalInclination(remote.orbitalInclination);
+            }
+            if (info.getPeriapsis() == null && remote.argOfPeriapsis != null
+                    && Double.isFinite(remote.argOfPeriapsis.doubleValue())) {
+                info.setPeriapsis(remote.argOfPeriapsis);
+            }
+
+            if (info.getJournalParentRefs().isEmpty() && remote.parents != null) {
+                List<String> refs = new ArrayList<>();
+                Integer immediate = null;
+                for (BodiesResponse.ParentRef parent : remote.parents) {
+                    if (parent == null) continue;
+                    if (parent.Planet != null) {
+                        int id = mappedParentId(parent.Planet, localBodyIdByEdsmId);
+                        refs.add("Planet:" + id);
+                        if (immediate == null) immediate = Integer.valueOf(id);
+                    } else if (parent.Null != null) {
+                        int id = mappedParentId(parent.Null, localBodyIdByEdsmId);
+                        refs.add("Null:" + id);
+                        if (immediate == null) immediate = Integer.valueOf(id);
+                    } else if (parent.Star != null) {
+                        int id = mappedParentId(parent.Star, localBodyIdByEdsmId);
+                        refs.add("Star:" + id);
+                        if (immediate == null) immediate = Integer.valueOf(id);
+                    }
+                }
+                if (!refs.isEmpty()) {
+                    info.setJournalParentRefs(refs);
+                    info.setImmediateParentBodyId(immediate.intValue());
+                }
             }
 
             // Parent star: EDSM parents list uses {"Star": <bodyId>}
@@ -861,6 +896,11 @@ public final class SystemCache implements SystemStore {
         return null;
     }
 
+    private static int mappedParentId(Integer edsmId, Map<Long, Integer> localBodyIdByEdsmId) {
+        Integer mapped = localBodyIdByEdsmId.get(Long.valueOf(edsmId.longValue()));
+        return mapped != null ? mapped.intValue() : edsmId.intValue();
+    }
+
     private static String toLower(String s) {
         return (s == null) ? "" : s.toLowerCase(Locale.ROOT);
     }
@@ -893,11 +933,6 @@ public final class SystemCache implements SystemStore {
         if (!isJournalReplaceSystemWrite()) {
             mergeJournalEventLogFromCache(state, existing);
         }
-        // Bulk journal rescan already replays every event; per-system journal replay here would re-read all logs.
-        if (!isBulkSystemWrite()) {
-            SystemMapJournalEnricher.enrichStateFromJournalIfSparse(state, existing);
-        }
-
         boolean replaceWrite = isJournalReplaceSystemWrite();
         Map<Integer, CachedBody> existingBodies = new HashMap<>();
         Map<String, CachedBody> existingBodiesByName = new HashMap<>();

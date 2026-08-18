@@ -2,6 +2,7 @@ package org.dce.ed.systemmap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -77,7 +78,7 @@ class CoeusCacheIntegrationTest {
     }
 
     @Test
-    void sparseCache_loaderMergesJournalRingBodies(@TempDir Path journalDir) throws IOException {
+    void sparseCache_loaderDoesNotReplayJournalForRingBodies(@TempDir Path journalDir) throws IOException {
         System.clearProperty(SystemMapJournalEnricher.SKIP_PROPERTY);
         SystemMapFixture full = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         SystemCache cache = SystemCache.getInstance();
@@ -87,13 +88,10 @@ class CoeusCacheIntegrationTest {
         cache.storeSystem(systemStateFromBodies(partial, full.name));
         System.clearProperty(SystemMapJournalEnricher.SKIP_PROPERTY);
         Loaded loaded = SystemMapSystemLoader.load(SYSTEM, Source.CACHE, journalDir);
-        assertEquals("cache+journal", loaded.loadedFrom);
-        assertEquals(partial.size(), loaded.cacheBodyCount);
-        assertTrue(loaded.journalBodiesAdded >= 2,
-                "journal should add A 2 ring belts missing from sparse cache");
-        assertNotNull(findBodyByShortName(loaded.bodies, "A 2 A Ring"));
-        assertNotNull(findBodyByShortName(loaded.bodies, "A 2 B Ring"));
-        assertTrue(loaded.bodies.size() >= partial.size() + 2);
+        assertEquals("cache", loaded.loadedFrom);
+        assertEquals(partial.size(), loaded.bodies.size());
+        assertNull(findBodyByShortName(loaded.bodies, "A 2 A Ring"));
+        assertNull(findBodyByShortName(loaded.bodies, "A 2 B Ring"));
 
         SystemSession session = SystemSessionFactory.open(loaded);
         Graph graph = SystemModelHierarchyBuilder.buildForSession(session);
@@ -101,7 +99,7 @@ class CoeusCacheIntegrationTest {
     }
 
     @Test
-    void sparseCache_loaderMergesJournalBodies(@TempDir Path journalDir) throws IOException {
+    void sparseCache_loaderDoesNotReplayJournalBodies(@TempDir Path journalDir) throws IOException {
         System.clearProperty(SystemMapJournalEnricher.SKIP_PROPERTY);
         SystemMapFixture full = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         SystemCache cache = SystemCache.getInstance();
@@ -112,13 +110,13 @@ class CoeusCacheIntegrationTest {
         copyTestJournalSnippet(journalDir, "coeus-extra-body.log");
 
         Loaded loaded = SystemMapSystemLoader.load(SYSTEM, Source.CACHE, journalDir);
-        assertEquals("cache+journal", loaded.loadedFrom);
-        assertNotNull(findBodyByShortName(loaded.bodies, "B"), "journal merge should add Coeus B");
-        assertNotNull(findBodyByShortName(loaded.bodies, "A 1"), "journal merge should add Coeus A 1");
+        assertEquals("cache", loaded.loadedFrom);
+        assertNull(findBodyByShortName(loaded.bodies, "B"));
+        assertNull(findBodyByShortName(loaded.bodies, "A 1"));
     }
 
     @Test
-    void sparseCache_storeSystemRepairsFromJournal(@TempDir Path journalDir) throws IOException {
+    void sparseCache_storeSystemDoesNotReplayJournal(@TempDir Path journalDir) throws IOException {
         SystemMapFixture full = SystemMapFixtureLoader.loadClasspath("coeus-a-branch-planet-binary.json");
         SystemCache cache = SystemCache.getInstance();
         Map<Integer, BodyInfo> partial = sparseCoeusFiveBodies(full);
@@ -140,14 +138,12 @@ class CoeusCacheIntegrationTest {
 
         CachedSystem cs = cache.get(SYSTEM_ADDRESS, SYSTEM);
         assertNotNull(cs);
-        int expectedMin = partial.size() + 2;
-        assertTrue(cs.bodies.size() >= expectedMin,
-                "storeSystem should union journal scans into sparse Coeus cache (was "
-                        + partial.size() + ", +B +A 1, need >= " + expectedMin + ", got " + cs.bodies.size() + ")");
+        assertEquals(partial.size(), cs.bodies.size(),
+                "ordinary cache saves must never replay full journal history");
         SystemState loaded = new SystemState();
         cache.loadInto(loaded, cs);
-        assertNotNull(findBodyByShortName(loaded.getBodies(), "B"));
-        assertNotNull(findBodyByShortName(loaded.getBodies(), "A 1"));
+        assertNull(findBodyByShortName(loaded.getBodies(), "B"));
+        assertNull(findBodyByShortName(loaded.getBodies(), "A 1"));
     }
 
     private static Map<Integer, BodyInfo> sparseCoeusFiveBodies(SystemMapFixture full) {

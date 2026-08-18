@@ -36,6 +36,10 @@ class SystemCacheEdsmStandaloneMergeTest {
         planet.subType = "High metal content world";
         planet.atmosphereType = "Carbon dioxide-rich";
         planet.distanceToArrival = 199.0;
+        planet.semiMajorAxis = 1.25;
+        planet.orbitalEccentricity = 0.12;
+        planet.orbitalInclination = 3.5;
+        planet.argOfPeriapsis = 47.0;
         planet.parents = List.of(new BodiesResponse.ParentRef());
         planet.parents.get(0).Star = 1;
 
@@ -53,6 +57,12 @@ class SystemCacheEdsmStandaloneMergeTest {
                 .orElseThrow();
         assertTrue(firstPlanet.isEdsmFssBackfill());
         assertTrue(firstPlanet.isJournalScanned());
+        assertEquals(1.25 * 149_597_870_700.0, firstPlanet.getSemiMajorAxisM(), 1.0);
+        assertEquals(0.12, firstPlanet.getEccentricity(), 0.000001);
+        assertEquals(3.5, firstPlanet.getOrbitalInclination(), 0.000001);
+        assertEquals(47.0, firstPlanet.getPeriapsis(), 0.000001);
+        assertEquals(0, firstPlanet.getImmediateParentBodyId());
+        assertEquals(List.of("Star:0"), firstPlanet.getJournalParentRefs());
     }
 
     @Test

@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 class MissionCategoryTest {
-
     @Test
     void fromMissionName_suffixlessMiningIsCommodity() {
         assertEquals(MissionCategory.COMMODITY, MissionCategory.fromMissionName("Mission_Mining"));
@@ -42,12 +41,12 @@ class MissionCategoryTest {
     }
 
     @Test
-    void isTransport_includesCargoCourierPassengerOnly() {
+    void isTransport_includesCargoCourierDonationAndPassenger() {
         assertTrue(MissionCategory.COMMODITY.isTransport());
         assertTrue(MissionCategory.COURIER.isTransport());
         assertTrue(MissionCategory.PASSENGER.isTransport());
         assertTrue(!MissionCategory.COMBAT.isTransport());
-        assertTrue(!MissionCategory.DONATION.isTransport());
+        assertTrue(MissionCategory.DONATION.isTransport());
         assertTrue(!MissionCategory.UNKNOWN.isTransport());
     }
 

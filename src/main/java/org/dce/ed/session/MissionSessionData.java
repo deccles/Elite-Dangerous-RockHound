@@ -63,6 +63,7 @@ public final class MissionSessionData {
         private String name;
         private String localisedName;
         private String category;
+        private String commodity;
         private String commodityLocalised;
         private int countRequired;
         private String destinationSystem;
@@ -105,6 +106,8 @@ public final class MissionSessionData {
         public void setCategory(String category) { this.category = category; }
         public String getCommodityLocalised() { return commodityLocalised; }
         public void setCommodityLocalised(String commodityLocalised) { this.commodityLocalised = commodityLocalised; }
+        public String getCommodity() { return commodity; }
+        public void setCommodity(String commodity) { this.commodity = commodity; }
         public int getCountRequired() { return countRequired; }
         public void setCountRequired(int countRequired) { this.countRequired = countRequired; }
         public String getDestinationSystem() { return destinationSystem; }

@@ -110,6 +110,9 @@ public final class MissionTracker {
         r.setFaction(e.getFaction());
         r.setName(e.getName());
         r.setLocalisedName(e.getLocalisedName());
+        if (e.getCommodity() != null && !e.getCommodity().isBlank()) {
+            r.setCommodity(e.getCommodity());
+        }
         if (e.getCommodityLocalised() != null && !e.getCommodityLocalised().isBlank()) {
             r.setCommodityLocalised(e.getCommodityLocalised());
         }
@@ -1018,6 +1021,7 @@ public final class MissionTracker {
         p.setName(r.getName());
         p.setLocalisedName(r.getLocalisedName());
         p.setCategory(r.getCategory().name());
+        p.setCommodity(r.getCommodity());
         p.setCommodityLocalised(r.getCommodityLocalised());
         p.setCountRequired(r.getCountRequired());
         p.setDestinationSystem(r.getDestinationSystem());
@@ -1062,6 +1066,7 @@ public final class MissionTracker {
                 r.setCategory(MissionCategory.fromMissionName(p.getName()));
             }
         }
+        r.setCommodity(p.getCommodity());
         r.setCommodityLocalised(p.getCommodityLocalised());
         r.setCountRequired(p.getCountRequired());
         r.setDestinationSystem(p.getDestinationSystem());

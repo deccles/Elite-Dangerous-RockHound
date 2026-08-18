@@ -18,11 +18,12 @@ class EliteLogParserMissionTest {
         String line = "{\"timestamp\":\"2026-05-22T10:00:00Z\",\"event\":\"MissionAccepted\","
                 + "\"MissionID\":1055486629,\"Faction\":\"ICU Colonial\","
                 + "\"Name\":\"Mission_Mining_Boom\",\"LocalisedName\":\"Mining rush\","
-                + "\"Commodity_Localised\":\"Bromellite\",\"Count\":36,"
+                + "\"Commodity\":\"$Bromellite_Name;\",\"Commodity_Localised\":\"Bromellite\",\"Count\":36,"
                 + "\"DestinationSystem\":\"Coeus\",\"DestinationStation\":\"Foster Terminal\","
                 + "\"Reward\":9200000}";
         MissionAcceptedEvent e = assertInstanceOf(MissionAcceptedEvent.class, parser.parseRecord(line));
         assertEquals(1055486629L, e.getMissionId());
+        assertEquals("$Bromellite_Name;", e.getCommodity());
         assertEquals("Bromellite", e.getCommodityLocalised());
         assertEquals(36, e.getCount());
         assertEquals("Coeus", e.getDestinationSystem());

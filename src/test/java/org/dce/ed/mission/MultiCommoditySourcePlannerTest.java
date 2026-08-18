@@ -21,8 +21,48 @@ class MultiCommoditySourcePlannerTest {
 
         assertEquals("Galileo", rows.get(0).station().station());
         assertEquals(2, rows.get(0).allocation().missionIds().size());
-        assertEquals("Gold 20/20; Silver 30/30", rows.get(0).commoditiesText());
+        assertEquals(List.of(MultiCommodityCoverage.Status.COMPLETE,
+                        MultiCommodityCoverage.Status.COMPLETE),
+                rows.get(0).coverages().stream().map(MultiCommodityCoverage::status).toList());
         assertEquals(1, rows.get(1).allocation().missionIds().size());
+    }
+
+    @Test
+    void coverageUsesHoldAndDistinguishesCompletePartialAndMissing() {
+        var needs = List.of(new MultiCommodityMissionNeed(1, "Gold", 100, null),
+                new MultiCommodityMissionNeed(2, "Silver", 50, null),
+                new MultiCommodityMissionNeed(3, "Water Purifiers", 25, null));
+        var rows = MultiCommoditySourcePlanner.assess(needs, Map.of("gold", 40), Map.of(
+                "gold", List.of(choice("Sol", "Complete Port", "Gold", 60, 4.0),
+                        choice("Lave", "Partial Port", "Gold", 30, 2.0)),
+                "silver", List.of(choice("Sol", "Complete Port", "Silver", 50, 4.0),
+                        choice("Lave", "Partial Port", "Silver", 10, 2.0)),
+                "water purifiers", List.of(choice("Sol", "Complete Port", "Water Purifiers", 25, 4.0))));
+
+        assertEquals("Complete Port", rows.get(0).station().station());
+        assertEquals(3, rows.get(0).completeCommodityCount());
+        assertEquals(0, rows.get(0).partialCommodityCount());
+        assertEquals(0, rows.get(0).missingCommodityCount());
+        assertEquals(List.of(MultiCommodityCoverage.Status.PARTIAL,
+                        MultiCommodityCoverage.Status.PARTIAL,
+                        MultiCommodityCoverage.Status.MISSING),
+                rows.get(1).coverages().stream().map(MultiCommodityCoverage::status).toList());
+        assertEquals(40, rows.get(1).coverages().get(0).heldTons());
+        assertEquals(30, rows.get(1).coverages().get(0).stationTons());
+        assertEquals(100, rows.get(1).coverages().get(0).requiredTons());
+    }
+
+    @Test
+    void stationsRankByCompleteThenPartialThenMissingBeforeDistance() {
+        var needs = List.of(new MultiCommodityMissionNeed(1, "Gold", 20, null),
+                new MultiCommodityMissionNeed(2, "Silver", 30, null));
+        var rows = MultiCommoditySourcePlanner.assess(needs, Map.of(), Map.of(
+                "gold", List.of(choice("Far", "One Complete", "Gold", 20, 20.0),
+                        choice("Near", "Two Partial", "Gold", 10, 1.0)),
+                "silver", List.of(choice("Near", "Two Partial", "Silver", 10, 1.0))));
+
+        assertEquals(List.of("One Complete", "Two Partial"),
+                rows.stream().map(row -> row.station().station()).toList());
     }
 
     private static CommoditySourceChoice choice(String system, String station, String commodity,

@@ -164,11 +164,66 @@ public final class TransportRoutePlanner {
 
         private List<int[]> pickupAllocations(int[] waiting, List<Integer> eligible, int free) {
             if (free <= 0 || eligible.isEmpty()) return new ArrayList<>();
+            if (Arrays.stream(waiting).sum() <= free) {
+                int[] allocation = new int[shipments.size()];
+                for (int index : eligible) allocation[index] = waiting[index];
+                return new ArrayList<>(List.of(allocation));
+            }
+            // Missions collected here and delivered to the same place are route-equivalent.
+            // Their loading order cannot affect distance or capacity, so choose one stable
+            // allocation instead of exploring every permutation of mission IDs.
+            TransportLocation sharedDelivery = shipments.get(eligible.get(0)).delivery();
+            if (eligible.stream().allMatch(index -> sameLocation(sharedDelivery, shipments.get(index).delivery()))) {
+                int[] allocation = new int[shipments.size()];
+                int remainingFree = free;
+                for (int index : eligible) {
+                    allocation[index] = Math.min(waiting[index], remainingFree);
+                    remainingFree -= allocation[index];
+                    if (remainingFree == 0) break;
+                }
+                return new ArrayList<>(List.of(allocation));
+            }
+            Map<String, List<Integer>> byDelivery = new LinkedHashMap<>();
+            for (int index : eligible) {
+                byDelivery.computeIfAbsent(locationKey(shipments.get(index).delivery()), key -> new ArrayList<>())
+                        .add(index);
+            }
+            if (byDelivery.size() < eligible.size()) {
+                List<int[]> out = new ArrayList<>();
+                Set<String> keys = new HashSet<>();
+                List<List<Integer>> groups = new ArrayList<>(byDelivery.values());
+                buildGroupAllocations(waiting, groups, free, new boolean[groups.size()],
+                        new int[shipments.size()], out, keys);
+                return out;
+            }
             List<int[]> out = new ArrayList<>();
             Set<String> keys = new HashSet<>();
             buildAllocations(waiting, eligible, free, new boolean[shipments.size()],
                     new int[shipments.size()], out, keys);
             return out;
+        }
+
+        private void buildGroupAllocations(int[] waiting, List<List<Integer>> groups, int free,
+                boolean[] used, int[] allocation, List<int[]> out, Set<String> keys) {
+            for (int groupIndex = 0; groupIndex < groups.size(); groupIndex++) {
+                if (used[groupIndex] || free <= 0) continue;
+                List<Integer> group = groups.get(groupIndex);
+                int remainingFree = free;
+                int loaded = 0;
+                for (int shipmentIndex : group) {
+                    int amount = Math.min(waiting[shipmentIndex], remainingFree);
+                    allocation[shipmentIndex] = amount;
+                    loaded += amount;
+                    remainingFree -= amount;
+                    if (remainingFree == 0) break;
+                }
+                used[groupIndex] = true;
+                String key = Arrays.toString(allocation);
+                if (keys.add(key)) out.add(allocation.clone());
+                buildGroupAllocations(waiting, groups, free - loaded, used, allocation, out, keys);
+                for (int shipmentIndex : group) allocation[shipmentIndex] = 0;
+                used[groupIndex] = false;
+            }
         }
 
         private void buildAllocations(int[] waiting, List<Integer> eligible, int free,

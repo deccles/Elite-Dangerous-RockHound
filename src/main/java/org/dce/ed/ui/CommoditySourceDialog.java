@@ -160,7 +160,7 @@ public final class CommoditySourceDialog extends JDialog {
         new SwingWorker<List<CommoditySourceChoice>, Void>() {
             @Override protected List<CommoditySourceChoice> doInBackground() throws Exception {
                 int remaining = Math.max(1, mission.getCountRequired() - mission.getItemsDelivered());
-                return search.search(near, mission.getCommodityLocalised(), remaining);
+                return search.search(near, mission.getCommodityLocalised(), mission.getCommodity(), remaining, 50);
             }
             @Override protected void done() {
                 if (id != requestId || !isDisplayable()) return;
@@ -193,7 +193,7 @@ public final class CommoditySourceDialog extends JDialog {
         new SwingWorker<List<CommoditySourceChoice>, Void>() {
             @Override protected List<CommoditySourceChoice> doInBackground() throws Exception {
                 int remaining = Math.max(1, mission.getCountRequired() - mission.getItemsDelivered());
-                return search.search(near, mission.getCommodityLocalised(), remaining, radius);
+                return search.search(near, mission.getCommodityLocalised(), mission.getCommodity(), remaining, radius);
             }
 
             @Override protected void done() {

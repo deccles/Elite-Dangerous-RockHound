@@ -1,9 +1,12 @@
 package org.dce.ed.ui;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.GridLayout;
 import java.awt.Window;
 import java.time.Instant;
@@ -14,6 +17,8 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import javax.swing.JButton;
+import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
@@ -24,9 +29,9 @@ import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SwingWorker;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
 
 import org.dce.ed.OverlayPreferences;
-import org.dce.ed.edsm.UtilTable;
 import org.dce.ed.mission.CommoditySourceChoice;
 import org.dce.ed.mission.CommoditySourceFilters;
 import org.dce.ed.mission.CommoditySourceResults;
@@ -34,6 +39,7 @@ import org.dce.ed.mission.CommoditySourceSearch;
 import org.dce.ed.mission.MissionRecord;
 import org.dce.ed.mission.MissionTracker;
 import org.dce.ed.mission.MultiCommodityMissionNeed;
+import org.dce.ed.mission.MultiCommodityCoverage;
 import org.dce.ed.mission.MultiCommoditySourcePlanner;
 import org.dce.ed.mission.MultiCommodityStationAssessment;
 
@@ -52,10 +58,7 @@ public final class MultiCommoditySourceDialog extends JDialog {
     private final JLabel status = new JLabel(" ");
     private final JLabel selectionDetail = new JLabel("Select a station to see assigned missions.");
     private final JButton save = new JButton("Save");
-    private final DefaultTableModel model = new DefaultTableModel(new String[] {
-            "Station", "System", "Type", "Ly", "Arrival Ls", "Missions", "Commodities", "Buy", "Updated" }, 0) {
-        @Override public boolean isCellEditable(int row, int column) { return false; }
-    };
+    private final DefaultTableModel model = createResultsModel();
     private final JTable table = new JTable(model);
     private List<MultiCommodityStationAssessment> displayed = List.of();
     private int radius;
@@ -89,6 +92,7 @@ public final class MultiCommoditySourceDialog extends JDialog {
 
         JScrollPane scroll = new JScrollPane(table);
         CommoditySourceDialog.configureResultsTable(table, OverlayPreferences.getUiFont());
+        configureCoverageTable(table);
         JButton cancel = new JButton("Cancel");
         CommoditySourceDialog.configureActionButtons(searchButton, cancel, save, OverlayPreferences.getUiFont());
         save.setEnabled(false);
@@ -141,6 +145,31 @@ public final class MultiCommoditySourceDialog extends JDialog {
         return List.copyOf(out);
     }
 
+    static DefaultTableModel createResultsModel() {
+        return new DefaultTableModel(new String[] { "Station", "System", "Type", "Ly", "Arrival Ls",
+                "Coverage", "Available", "Missing", "Buy", "Updated" }, 0) {
+            @Override public boolean isCellEditable(int row, int column) { return false; }
+        };
+    }
+
+    static List<String> availableLines(MultiCommodityStationAssessment assessment) {
+        if (assessment == null) return List.of();
+        return assessment.coverages().stream().filter(c -> c.stationTons() > 0).map(c -> {
+            String quantities = c.stationTons() + " here"
+                    + (c.heldTons() > 0 ? " + " + c.heldTons() + " aboard" : "")
+                    + " / " + c.requiredTons();
+            return c.commodity() + " · " + quantities + (c.status() == MultiCommodityCoverage.Status.COMPLETE
+                    ? " · ready" : " · " + c.shortTons() + " short");
+        }).toList();
+    }
+
+    static List<String> missingLines(MultiCommodityStationAssessment assessment) {
+        if (assessment == null) return List.of();
+        return assessment.coverages().stream()
+                .filter(c -> c.status() == MultiCommodityCoverage.Status.MISSING)
+                .map(c -> c.commodity() + " · " + c.shortTons() + " short").toList();
+    }
+
     private void restartSearch() {
         if (nearSystem.getText().trim().isBlank() || needs.isEmpty()) return;
         radius = 0;
@@ -165,7 +194,12 @@ public final class MultiCommoditySourceDialog extends JDialog {
                 boolean capped = false;
                 CommoditySourceFilters filter = currentFilters();
                 for (String commodity : needs.stream().map(MultiCommodityMissionNeed::commodity).distinct().toList()) {
-                    List<CommoditySourceChoice> raw = search.search(nearSystem.getText().trim(), commodity, 1, requestedRadius);
+                    String canonical = missions.stream()
+                            .filter(m -> commodity.equalsIgnoreCase(m.getCommodityLocalised()))
+                            .map(MissionRecord::getCommodity).filter(v -> v != null && !v.isBlank())
+                            .findFirst().orElse(null);
+                    List<CommoditySourceChoice> raw = search.search(nearSystem.getText().trim(), commodity,
+                            canonical, 1, requestedRadius);
                     capped |= raw.size() >= CommoditySourceResults.ARDENT_RESULT_CAP;
                     offers.put(commodity, raw.stream().filter(filter::matches).toList());
                 }
@@ -203,11 +237,29 @@ public final class MultiCommoditySourceDialog extends JDialog {
         for (MultiCommodityStationAssessment row : displayed) model.addRow(new Object[] {
                 row.station().station(), row.station().system(), row.station().stationType(),
                 row.station().systemDistanceLy(), CommoditySourceDialog.formatArrivalDistance(row.station().arrivalDistanceLs()),
-                row.allocation().missionIds().size() + " / " + needs.size(), row.commoditiesText(),
+                row, row, row,
                 row.allocation().purchaseTons(), CommoditySourceDialog.formatUpdated(row.oldestUpdatedAt(), now) });
+        resizeRows();
         table.clearSelection(); save.setEnabled(false);
-        UtilTable.autoSizeTableColumns(table);
         status.setText(displayed.size() + " stations assessed within " + radius + " ly.");
+    }
+
+    private static void configureCoverageTable(JTable table) {
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        int[] widths = { 190, 250, 105, 55, 100, 220, 370, 240, 80, 105 };
+        for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        table.getColumnModel().getColumn(5).setCellRenderer(new CoverageRenderer());
+        table.getColumnModel().getColumn(6).setCellRenderer(new CommodityLinesRenderer(false));
+        table.getColumnModel().getColumn(7).setCellRenderer(new CommodityLinesRenderer(true));
+    }
+
+    private void resizeRows() {
+        int lineHeight = table.getFontMetrics(table.getFont()).getHeight() + 4;
+        for (int row = 0; row < displayed.size(); row++) {
+            MultiCommodityStationAssessment assessment = displayed.get(row);
+            int lines = Math.max(2, Math.max(availableLines(assessment).size(), missingLines(assessment).size()));
+            table.setRowHeight(row, Math.max(table.getRowHeight(), lines * lineHeight + 6));
+        }
     }
 
     private MultiCommodityStationAssessment selected() {
@@ -241,4 +293,91 @@ public final class MultiCommoditySourceDialog extends JDialog {
     }
 
     private record SearchBatch(Map<String, List<CommoditySourceChoice>> offers, boolean capped) { }
+
+    private static final class CoverageRenderer extends JPanel implements TableCellRenderer {
+        private MultiCommodityStationAssessment assessment;
+        private boolean selected;
+
+        CoverageRenderer() {
+            setOpaque(true);
+        }
+
+        @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                boolean hasFocus, int row, int column) {
+            assessment = value instanceof MultiCommodityStationAssessment a ? a : null;
+            selected = isSelected;
+            setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+            setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+            setFont(table.getFont());
+            return this;
+        }
+
+        @Override protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (assessment == null || assessment.coverages().isEmpty()) return;
+            int total = assessment.coverages().size();
+            int complete = assessment.completeCommodityCount();
+            int partial = assessment.partialCommodityCount();
+            int missing = assessment.missingCommodityCount();
+            int x = 6, y = 5, width = Math.max(1, getWidth() - 12), height = 7;
+            int completeWidth = width * complete / total;
+            int partialWidth = width * partial / total;
+            g.setColor(EdoUi.User.SUCCESS); g.fillRect(x, y, completeWidth, height);
+            g.setColor(EdoUi.User.WARNING); g.fillRect(x + completeWidth, y, partialWidth, height);
+            g.setColor(EdoUi.User.ERROR); g.fillRect(x + completeWidth + partialWidth, y,
+                    width - completeWidth - partialWidth, height);
+            g.setColor(selected ? getForeground() : tableTextColor());
+            String headline = missing == 0 && partial == 0 ? "ALL READY" : complete + " of " + total + " ready";
+            g.drawString(headline, x, y + height + getFontMetrics(getFont()).getAscent() + 3);
+            String detail = complete + " ready · " + partial + " partial · " + missing + " missing";
+            g.drawString(detail, x, y + height + getFontMetrics(getFont()).getHeight() * 2 + 3);
+        }
+
+        private Color tableTextColor() {
+            return getForeground();
+        }
+    }
+
+    private static final class CommodityLinesRenderer extends JPanel implements TableCellRenderer {
+        private final boolean missing;
+
+        CommodityLinesRenderer(boolean missing) {
+            this.missing = missing;
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+            setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
+            setOpaque(true);
+        }
+
+        @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                boolean hasFocus, int row, int column) {
+            removeAll();
+            setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+            MultiCommodityStationAssessment assessment = value instanceof MultiCommodityStationAssessment a ? a : null;
+            if (assessment == null) return this;
+            List<MultiCommodityCoverage> entries = assessment.coverages().stream()
+                    .filter(c -> missing ? c.status() == MultiCommodityCoverage.Status.MISSING : c.stationTons() > 0)
+                    .toList();
+            for (MultiCommodityCoverage coverage : entries) {
+                JLabel line = new JLabel((missing ? "● " : coverage.status() == MultiCommodityCoverage.Status.COMPLETE
+                        ? "● " : "▲ ") + lineFor(coverage));
+                line.setFont(table.getFont());
+                line.setForeground(isSelected ? table.getSelectionForeground()
+                        : missing ? EdoUi.User.ERROR
+                                : coverage.status() == MultiCommodityCoverage.Status.COMPLETE
+                                        ? EdoUi.User.SUCCESS : EdoUi.User.WARNING);
+                add(line);
+            }
+            return this;
+        }
+
+        private String lineFor(MultiCommodityCoverage coverage) {
+            if (missing) return coverage.commodity() + " · " + coverage.shortTons() + " short";
+            String quantities = coverage.stationTons() + " here"
+                    + (coverage.heldTons() > 0 ? " + " + coverage.heldTons() + " aboard" : "")
+                    + " / " + coverage.requiredTons();
+            return coverage.commodity() + " · " + quantities
+                    + (coverage.status() == MultiCommodityCoverage.Status.COMPLETE
+                            ? " · ready" : " · " + coverage.shortTons() + " short");
+        }
+    }
 }

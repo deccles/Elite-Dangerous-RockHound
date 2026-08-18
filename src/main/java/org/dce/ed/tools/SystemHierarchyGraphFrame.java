@@ -493,7 +493,7 @@ public final class SystemHierarchyGraphFrame extends JFrame {
                     if (graph == null) {
                         graph = SystemModelHierarchyBuilder.buildForLoaded(loaded);
                     }
-                    if (graph == null && loadSource != Source.CACHE) {
+                    if (graph == null && loadSource == Source.JOURNAL) {
                         SystemState journalState = JournalSystemMapLoader.loadFromJournal(
                                 JournalSystemMapLoader.defaultJournalDirectory(), trimmed);
                         graph = SystemModelHierarchyBuilder.buildFromState(journalState);

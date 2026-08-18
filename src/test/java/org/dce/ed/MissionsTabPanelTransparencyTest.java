@@ -9,6 +9,7 @@ import java.awt.Container;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.image.BufferedImage;
+import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.JRootPane;
@@ -28,6 +29,32 @@ class MissionsTabPanelTransparencyTest {
     @Test
     void selectiveMouseMode_keepsUnusedTransportAreaTransparent() throws Exception {
         assertEquals(0, renderUnusedTableAreaAlpha(MouseInteractionMode.SELECTIVE));
+    }
+
+    @Test
+    void normalWindowStaysSolidEvenIfGlobalModeStillSaysSelective() throws Exception {
+        MouseInteractionMode originalMode = OverlayPreferences.getOverlayMouseInteractionMode();
+        boolean originalActive = OverlayPreferences.isPassThroughWindowActive();
+        try {
+            OverlayPreferences.setOverlayMouseInteractionMode(MouseInteractionMode.SELECTIVE);
+            OverlayPreferences.setPassThroughWindowActive(true);
+            assertEquals(255, renderUnusedTableAreaAlpha(MouseInteractionMode.NORMAL));
+        } finally {
+            OverlayPreferences.setOverlayMouseInteractionMode(originalMode);
+            OverlayPreferences.setPassThroughWindowActive(originalActive);
+        }
+    }
+
+    @Test
+    void unusedAreaClearingUsesTheWindowModeNotTheGlobalMode() throws Exception {
+        Method method = MissionsTabPanel.class.getDeclaredMethod("shouldClearUnusedTransportArea",
+                MouseInteractionMode.class, MouseInteractionMode.class, boolean.class);
+        method.setAccessible(true);
+
+        assertEquals(false, method.invoke(null,
+                MouseInteractionMode.NORMAL, MouseInteractionMode.SELECTIVE, true));
+        assertEquals(true, method.invoke(null,
+                MouseInteractionMode.SELECTIVE, MouseInteractionMode.NORMAL, true));
     }
 
     private static int renderUnusedTableAreaAlpha(MouseInteractionMode mode) throws Exception {

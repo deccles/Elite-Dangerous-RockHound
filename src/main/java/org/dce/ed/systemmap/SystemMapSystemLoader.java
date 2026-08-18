@@ -20,7 +20,7 @@ public final class SystemMapSystemLoader {
         CACHE,
         /** Replay Scan + ScanBaryCentre from journal directory. */
         JOURNAL,
-        /** Cache first, then journal if cache has no bodies. */
+        /** Automatic UI load. Uses cache only; journal replay must be explicitly selected. */
         AUTO
     }
 
@@ -85,23 +85,14 @@ public final class SystemMapSystemLoader {
             Path dir = SystemMapJournalEnricher.resolveJournalDirectory();
             return loadFromJournal(trimmed, dir);
         }
-        if (source == Source.CACHE) {
+        if (source == Source.CACHE || source == Source.AUTO) {
             Loaded cached = loadFromCache(trimmed);
             if (cached == null) {
                 throw new IOException("No cached bodies for: " + trimmed);
             }
-            Loaded enriched = enrichFromJournalIfSparse(cached);
-            persistRepairedCacheIfEnriched(enriched, source);
-            return enriched;
+            return cached;
         }
-        Loaded cached = loadFromCache(trimmed);
-        if (cached != null && !cached.bodies.isEmpty()) {
-            Loaded enriched = enrichFromJournalIfSparse(cached);
-            persistRepairedCacheIfEnriched(enriched, source);
-            return enriched;
-        }
-        Path dir = SystemMapJournalEnricher.resolveJournalDirectory();
-        return loadFromJournal(trimmed, dir);
+        throw new IOException("Unsupported system-map source: " + source);
     }
 
     public static Loaded loadFromCache(String systemName) {
@@ -124,51 +115,6 @@ public final class SystemMapSystemLoader {
         }
         String name = cs.systemName != null ? cs.systemName : systemName;
         return new Loaded(name, state.getBodies(), "cache");
-    }
-
-    /**
-     * Union journal {@code Scan}/{@code ScanBaryCentre} when the cache row is sparser than journal history
-     * (truncated partial saves, incremental rescan skipping older lines).
-     */
-    static Loaded enrichFromJournalIfSparse(Loaded cached) {
-        if (cached == null || cached.bodies == null || cached.bodies.isEmpty()) {
-            return cached;
-        }
-        Map<Integer, BodyInfo> merged = new java.util.HashMap<>(cached.bodies);
-        int cacheBodies = cached.bodies.size();
-        int added = SystemMapJournalEnricher.mergeMissingBodiesFromJournal(merged, cached.systemName);
-        if (added <= 0) {
-            return cached;
-        }
-        return new Loaded(cached.systemName, merged, "cache+journal", cacheBodies, added);
-    }
-
-    /**
-     * After CACHE load unioned journal scans, write the repaired body map back to SQLite so the next
-     * CACHE-only load is complete.
-     */
-    static void persistRepairedCacheIfEnriched(Loaded loaded, Source source) {
-        if (source != Source.CACHE || loaded == null || loaded.journalBodiesAdded <= 0) {
-            return;
-        }
-        CachedSystem cs = SystemCache.getInstance().get(0L, loaded.systemName);
-        long addr = cs != null ? cs.systemAddress : 0L;
-        if (addr == 0L) {
-            return;
-        }
-        SystemState state = new SystemState();
-        state.setSystemName(loaded.systemName);
-        state.setSystemAddress(addr);
-        for (Map.Entry<Integer, BodyInfo> e : loaded.bodies.entrySet()) {
-            BodyInfo b = e.getValue();
-            if (b == null) {
-                continue;
-            }
-            int id = e.getKey().intValue();
-            b.setBodyId(id);
-            state.getBodies().put(Integer.valueOf(id), b);
-        }
-        SystemCache.getInstance().storeSystem(state);
     }
 
     public static Loaded loadFromJournal(String systemName) throws IOException {

@@ -50,8 +50,8 @@ public enum MissionCategory {
         };
     }
 
-    /** Trucking-style jobs shown on the Transport tab (not combat / donate / unknown). */
+    /** Jobs that require visiting a destination and belong on the Transport plan. */
     public boolean isTransport() {
-        return this == COMMODITY || this == COURIER || this == PASSENGER;
+        return this == COMMODITY || this == COURIER || this == DONATION || this == PASSENGER;
     }
 }

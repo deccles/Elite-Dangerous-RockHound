@@ -14,7 +14,28 @@ import com.google.gson.JsonParser;
 
 class TransportPlanPreparerTest {
     @Test
-    void missingSourceKeepsKnownDeliveryStopWithoutBlockingThePlan() {
+    void donationMissionCreatesAnActionablePaymentStop() {
+        MissionRecord mission = new MissionRecord(77L);
+        mission.setName("Mission_Altruism");
+        mission.setDonation(500_000L);
+        mission.setDestinationSystem("Lave");
+        mission.setDestinationStation("Lave Station");
+        var cargo = JsonParser.parseString("{\"Inventory\":[]}").getAsJsonObject();
+
+        TransportPlanPreparation result = TransportPlanPreparer.prepare(
+                List.of(mission), "Sol", "Galileo", 64, cargo,
+                system -> switch (system) {
+                    case "Sol" -> new double[] { 0, 0, 0 };
+                    case "Lave" -> new double[] { 10, 0, 0 };
+                    default -> null;
+                });
+
+        assertTrue(result.problems().isEmpty());
+        assertEquals(1, result.request().visits().size());
+        assertEquals("Donate 500,000 Cr", result.request().visits().get(0).label());
+    }
+    @Test
+    void missingSourceWarnsWithoutCreatingANonActionableDeliveryStop() {
         MissionRecord mission = sourcedMission(1L, "Gold", 20);
         var cargo = JsonParser.parseString("{\"Inventory\":[]}").getAsJsonObject();
 
@@ -28,8 +49,7 @@ class TransportPlanPreparerTest {
 
         assertTrue(result.problems().isEmpty());
         assertEquals(0, result.request().shipments().size());
-        assertEquals(1, result.request().visits().size());
-        assertEquals("Achenar", result.request().visits().get(0).destination().system());
+        assertEquals(0, result.request().visits().size());
         List<TransportPlanProblem> warnings = warnings(result);
         assertEquals(1, warnings.size());
         assertEquals(TransportPlanProblem.Code.SOURCE_REQUIRED, warnings.get(0).code());

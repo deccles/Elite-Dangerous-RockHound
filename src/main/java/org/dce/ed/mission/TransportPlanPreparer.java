@@ -51,7 +51,7 @@ public final class TransportPlanPreparer {
                         destinationStation(mission), resolver, coords);
                 if (mission.getCategory() != MissionCategory.COMMODITY) {
                     visits.add(new TransportVisit(mission.getMissionId(),
-                            mission.getCategory().displayLabel(), delivery));
+                            visitLabel(mission), delivery));
                     continue;
                 }
                 int remaining = remaining(mission);
@@ -75,9 +75,6 @@ public final class TransportPlanPreparer {
                         if (aboard > 0) {
                             shipments.add(TransportShipment.cargo(mission.getMissionId(),
                                     mission.getCommodityLocalised(), aboard, aboard, null, delivery));
-                        } else {
-                            visits.add(new TransportVisit(mission.getMissionId(),
-                                    mission.getCategory().displayLabel(), delivery));
                         }
                         continue;
                     }
@@ -106,6 +103,15 @@ public final class TransportPlanPreparer {
         } catch (UnresolvedLocation ex) {
             return problem(TransportPlanProblem.Code.COORDINATES_UNAVAILABLE, ex.missionId, ex.getMessage());
         }
+    }
+
+    private static String visitLabel(MissionRecord mission) {
+        if (mission.getCategory() == MissionCategory.DONATION) {
+            return mission.getDonation() > 0
+                    ? "Donate " + String.format(Locale.US, "%,d", mission.getDonation()) + " Cr"
+                    : "Donate credits";
+        }
+        return mission.getCategory().displayLabel();
     }
 
     private static List<TransportPlanProblem> validate(List<MissionRecord> missions,

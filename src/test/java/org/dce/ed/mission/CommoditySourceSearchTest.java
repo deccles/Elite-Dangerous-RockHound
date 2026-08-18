@@ -28,6 +28,12 @@ class CommoditySourceSearchTest {
     }
 
     @Test
+    void commodityApiName_prefersCanonicalJournalNameOverLocalizedDisplayName() {
+        assertEquals("hazardousenvironmentsuits", CommoditySourceSearch.commodityApiName(
+                "H.E. Suits", "$HazardousEnvironmentSuits_Name;"));
+    }
+
+    @Test
     void parse_acceptsDataEnvelopeAndSortsNearestFirst() throws Exception {
         String json = "{\"data\":["
                 + "{\"systemName\":\"Far\",\"stationName\":\"B\",\"distance\":9.0},"

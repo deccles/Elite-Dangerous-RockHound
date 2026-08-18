@@ -77,6 +77,7 @@ import javax.swing.table.TableColumnModel;
 import org.dce.ed.cache.CachedSystem;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.edsm.BodiesResponse;
+import org.dce.ed.edsm.EdsmMapGeometry;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteJournalReader;
@@ -2295,7 +2296,8 @@ public class SystemTabPanel extends JPanel {
             try {
                 BodiesResponse edsmBodies = edsmClient.showBodies(systemName);
                 if (edsmBodies != null) {
-                    boolean allowStandalone = fssCompleteEmptyEdsmBackfill;
+                    boolean wantsStandaloneMap = sparseEdsmBackfill || fssCompleteEmptyEdsmBackfill;
+                    boolean allowStandalone = wantsStandaloneMap && EdsmMapGeometry.isComplete(edsmBodies);
                     SystemCache.getInstance().mergeBodiesFromEdsm(state, edsmBodies, allowStandalone);
                 }
             } catch (Exception ex) {

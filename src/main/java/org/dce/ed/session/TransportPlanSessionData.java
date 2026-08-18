@@ -18,9 +18,16 @@ public final class TransportPlanSessionData {
     private int initialHoldTons;
     private int capacity;
     private List<ProblemData> warnings = new ArrayList<>();
+    private Integer reachedPlanStop;
 
     public static TransportPlanSessionData from(TransportRoutePlan plan, TransportLocation start,
             int initialHoldTons, int capacity, List<TransportPlanProblem> warnings) {
+        return from(plan, start, initialHoldTons, capacity, warnings, -1);
+    }
+
+    public static TransportPlanSessionData from(TransportRoutePlan plan, TransportLocation start,
+            int initialHoldTons, int capacity, List<TransportPlanProblem> warnings,
+            int reachedPlanStop) {
         if (plan == null) return null;
         TransportPlanSessionData data = new TransportPlanSessionData();
         data.totalDistanceLy = plan.totalDistanceLy();
@@ -28,6 +35,7 @@ public final class TransportPlanSessionData {
         data.start = LocationData.from(start);
         data.initialHoldTons = initialHoldTons;
         data.capacity = capacity;
+        data.reachedPlanStop = reachedPlanStop;
         for (TransportPlanStop stop : plan.stops()) data.stops.add(StopData.from(stop));
         if (warnings != null) for (TransportPlanProblem warning : warnings) {
             data.warnings.add(ProblemData.from(warning));
@@ -59,6 +67,8 @@ public final class TransportPlanSessionData {
 
     public int getInitialHoldTons() { return initialHoldTons; }
     public int getCapacity() { return capacity; }
+    public int getReachedPlanStop() { return reachedPlanStop != null ? reachedPlanStop : -1; }
+    public void setReachedPlanStop(int reachedPlanStop) { this.reachedPlanStop = reachedPlanStop; }
 
     private static final class LocationData {
         private String system;

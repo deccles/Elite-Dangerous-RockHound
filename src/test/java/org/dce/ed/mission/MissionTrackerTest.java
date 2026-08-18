@@ -92,6 +92,23 @@ class MissionTrackerTest {
     }
 
     @Test
+    void canonicalCommodityNameSurvivesSessionPersistence() {
+        MissionTracker saved = new MissionTracker();
+        saved.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-08-17T10:00:00Z\",\"event\":\"MissionAccepted\","
+                + "\"MissionID\":43,\"Name\":\"Mission_Collect_Industrial\","
+                + "\"Commodity\":\"$HazardousEnvironmentSuits_Name;\","
+                + "\"Commodity_Localised\":\"H.E. Suits\",\"Count\":50}"));
+        EdoSessionState state = new EdoSessionState();
+        saved.fillSessionState(state);
+
+        MissionTracker restored = new MissionTracker();
+        restored.applySessionState(state);
+
+        assertEquals("$HazardousEnvironmentSuits_Name;", restored.findById(43L).getCommodity());
+    }
+
+    @Test
     void journalHydration_preservesManualSourceWhenMissionIsRemovedAndRecreated() {
         MissionTracker tracker = new MissionTracker();
         String accepted = "{\"timestamp\":\"2026-08-12T10:00:00Z\",\"event\":\"MissionAccepted\","

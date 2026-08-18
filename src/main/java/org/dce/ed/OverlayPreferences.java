@@ -203,6 +203,8 @@ public final class OverlayPreferences {
     private static final String KEY_MINING_PANEL_SPLIT_OUTER = "mining.panel.splitOuter";
     /** Vertical split: fraction of the lower pane for prospector (top of inner split). */
     private static final String KEY_MINING_PANEL_SPLIT_INNER = "mining.panel.splitInner";
+    /** Vertical split: fraction of Transport missions tab for the commodity summary. */
+    private static final String KEY_TRANSPORT_MISSIONS_SPLIT = "transport.missions.splitSummary";
     /** Vertical split: fraction of System tab height for the bodies table (top pane). */
     private static final String KEY_SYSTEM_TAB_PANEL_TABLE_SPLIT = "system.panel.splitTable";
     /** Vertical split: fraction of Biology tab height for the specimen table (top pane). */
@@ -1692,6 +1694,20 @@ public static Engine getSpeechEngine() {
 
     public static void setMiningPanelSplitInnerRatio(double ratio) {
         PREFS.put(KEY_MINING_PANEL_SPLIT_INNER, Double.toString(clampSplitRatio(ratio)));
+    }
+
+    /** Fraction of the Transport missions area used by the top commodity summary. */
+    public static double getTransportMissionsSplitRatio() {
+        String s = PREFS.get(KEY_TRANSPORT_MISSIONS_SPLIT, "0.34");
+        try {
+            return clampSplitRatio(Double.parseDouble(s.trim()));
+        } catch (Exception e) {
+            return 0.34;
+        }
+    }
+
+    public static void setTransportMissionsSplitRatio(double ratio) {
+        PREFS.put(KEY_TRANSPORT_MISSIONS_SPLIT, Double.toString(clampSplitRatio(ratio)));
     }
 
     /**

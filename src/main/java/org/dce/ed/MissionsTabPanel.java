@@ -37,6 +37,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
+import javax.swing.JSplitPane;
 import javax.swing.JViewport;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -58,7 +59,10 @@ import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.CargoDepotEvent;
+import org.dce.ed.logreader.event.CarrierJumpEvent;
 import org.dce.ed.logreader.event.FactionKillBondEvent;
+import org.dce.ed.logreader.event.FsdJumpEvent;
+import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.MissionAbandonedEvent;
 import org.dce.ed.logreader.event.MissionAcceptedEvent;
 import org.dce.ed.logreader.event.MissionCompletedEvent;
@@ -85,7 +89,10 @@ import org.dce.ed.ui.DestinationCopySupport;
 import org.dce.ed.ui.CommoditySourceDialog;
 import org.dce.ed.ui.MultiCommoditySourceDialog;
 import org.dce.ed.ui.TransportRoutePlanPanel;
+import org.dce.ed.tts.PollyTtsCached;
+import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoUi;
+import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.SelectiveHitSupport;
@@ -114,6 +121,10 @@ public class MissionsTabPanel extends JPanel {
     private final Supplier<String> currentStationSupplier;
     private final IntSupplier cargoCapacitySupplier;
     private final Consumer<List<String>> optimizedRouteConsumer;
+    private String latestJournalSystem;
+    private String latestJournalStation;
+    private static final TtsSprintf DEPARTURE_TTS = new TtsSprintf(new PollyTtsCached());
+    private Consumer<String> departureReminderSpeaker = MissionsTabPanel::speakDepartureReminder;
 
     private Runnable sessionStateChangeCallback;
     private Runnable immediateSessionStateChangeCallback;
@@ -121,7 +132,7 @@ public class MissionsTabPanel extends JPanel {
     private static final int HEADER_SORT_HOVER_MS = 500;
 
     private final JLabel activeCountLabel = new JLabel("Active: 0");
-    private final JButton optimizeStopsButton = new JButton("Optimize Stops");
+    private final JButton optimizeStopsButton = new JButton("Create Plan");
     private final JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
     private final JButton allTabButton = new JButton("Transport Missions");
     private final JButton optimizedPlanTabButton = new JButton("Optimized Plan");
@@ -152,6 +163,7 @@ public class MissionsTabPanel extends JPanel {
     private final JScrollPane commoditySummaryScroll = new JScrollPane(commoditySummaryTable);
     private List<CommodityMissionGroup> commoditySummaryGroups = List.of();
     private final JPanel sourceAllBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+    private JSplitPane transportMissionsSplit;
     private final JButton sourceAllButton = new JButton("Source all");
     private final JPanel contentCenter = new JPanel() {
         private static final long serialVersionUID = 1L;
@@ -319,11 +331,15 @@ public class MissionsTabPanel extends JPanel {
         // viewport binds to TransparentTableHeader (not the default LAF header).
         tableScroll = new JScrollPane(missionsTable);
         tableScroll.setName("missionsTableScroll");
-        contentCenter.setLayout(new BoxLayout(contentCenter, BoxLayout.Y_AXIS));
+        contentCenter.setLayout(new BorderLayout());
         contentCenter.setName("allMissionsContent");
         contentCenter.setOpaque(false);
-        contentCenter.add(commoditySummaryScroll);
-        contentCenter.add(sourceAllBar);
+        JPanel summaryPanel = new JPanel();
+        summaryPanel.setLayout(new BoxLayout(summaryPanel, BoxLayout.Y_AXIS));
+        summaryPanel.setOpaque(false);
+        summaryPanel.setMinimumSize(new Dimension(0, 70));
+        summaryPanel.add(commoditySummaryScroll);
+        summaryPanel.add(sourceAllBar);
         tableScroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         tableScroll.setOpaque(false);
         tableScroll.setBackground(EdoUi.Internal.TRANSPARENT);
@@ -341,7 +357,21 @@ public class MissionsTabPanel extends JPanel {
                 autoSizeMissionsColumns();
             }
         });
-        contentCenter.add(tableScroll);
+        tableScroll.setMinimumSize(new Dimension(0, 100));
+        double splitRatio = OverlayPreferences.getTransportMissionsSplitRatio();
+        transportMissionsSplit = new JSplitPane(
+                JSplitPane.VERTICAL_SPLIT, summaryPanel, tableScroll);
+        transportMissionsSplit.setName("transportMissionsSplit");
+        configureTransportSplitPane(transportMissionsSplit, splitRatio);
+        EdoMiningSplitPaneUi.install(transportMissionsSplit);
+        transportMissionsSplit.addPropertyChangeListener(
+                JSplitPane.DIVIDER_LOCATION_PROPERTY, event -> saveTransportSplitRatio());
+        contentCenter.add(transportMissionsSplit, BorderLayout.CENTER);
+        SwingUtilities.invokeLater(() -> {
+            transportMissionsSplit.setResizeWeight(splitRatio);
+            transportMissionsSplit.setDividerLocation(splitRatio);
+            EdoMiningSplitPaneUi.applyDividerTheme(transportMissionsSplit);
+        });
 
         JPanel top = new JPanel(new BorderLayout());
         top.setOpaque(false);
@@ -367,7 +397,7 @@ public class MissionsTabPanel extends JPanel {
         execButtonStrip = new ExecTabButtonStrip(OverlayTabId.MISSIONS, passThroughEnabledSupplier);
         add(execButtonStrip, BorderLayout.SOUTH);
 
-        tracker.setChangeCallback(() -> { invalidateOptimizedPlan(); scheduleRefresh(); });
+        tracker.setChangeCallback(this::scheduleRefresh);
         CargoMonitor.getInstance().addListener(s -> scheduleRefresh());
 
         refreshTimer = new Timer(30_000, e -> refreshUi());
@@ -404,7 +434,7 @@ public class MissionsTabPanel extends JPanel {
             @Override protected void done() {
                 if (request != optimizeRequestId) return;
                 optimizeStopsButton.setEnabled(true);
-                optimizeStopsButton.setText(lastOptimizedPlan == null ? "Optimize Stops" : "Optimize Plan");
+                optimizeStopsButton.setText(lastOptimizedPlan == null ? "Create Plan" : "Update Plan");
                 try {
                     OptimizationResult result = get();
                     TransportPlanPreparation prepared = result.preparation();
@@ -447,11 +477,14 @@ public class MissionsTabPanel extends JPanel {
             org.dce.ed.mission.TransportLocation start, int initialHoldTons, int capacity,
             List<TransportPlanProblem> warnings, boolean openPlanTab) {
         lastOptimizedPlan = plan;
-        optimizeStopsButton.setText("Optimize Plan");
+        optimizeStopsButton.setText("Update Plan");
         optimizedPlanHost.removeAll();
         optimizedPlanPanel = new TransportRoutePlanPanel(plan, capacity,
                 start, initialHoldTons,
                 systems -> optimizedRouteConsumer.accept(withCurrentSystemFirst(systems)), warnings);
+        if (lastOptimizedPlanData != null) {
+            optimizedPlanPanel.restoreReachedPlanStop(lastOptimizedPlanData.getReachedPlanStop());
+        }
         updateOptimizedPlanLocationHighlight();
         optimizedPlanHost.add(optimizedPlanPanel, BorderLayout.CENTER);
         optimizedPlanHost.revalidate();
@@ -484,9 +517,40 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void updateOptimizedPlanLocationHighlight() {
+        updateOptimizedPlanLocationHighlight(currentHighlightSystem(), currentHighlightStation());
+    }
+
+    private void updateOptimizedPlanLocationHighlight(String system, String station) {
         if (optimizedPlanPanel == null) return;
-        optimizedPlanPanel.updateCurrentLocation(
-                currentSystemSupplier.get(), currentStationSupplier.get());
+        int previousStop = optimizedPlanPanel.reachedPlanStop();
+        optimizedPlanPanel.updateCurrentLocation(system, station);
+        int reachedStop = optimizedPlanPanel.reachedPlanStop();
+        if (reachedStop != previousStop && lastOptimizedPlanData != null) {
+            lastOptimizedPlanData.setReachedPlanStop(reachedStop);
+            if (sessionStateChangeCallback != null) sessionStateChangeCallback.run();
+        }
+        var snapshot = CargoMonitor.getInstance().getSnapshot();
+        optimizedPlanPanel.updateCurrentCargo(snapshot != null ? snapshot.getCargoJson() : null);
+    }
+
+    private String currentHighlightSystem() {
+        return latestJournalSystem != null && !latestJournalSystem.isBlank()
+                ? latestJournalSystem : currentSystemSupplier.get();
+    }
+
+    private String currentHighlightStation() {
+        return latestJournalStation != null ? latestJournalStation : currentStationSupplier.get();
+    }
+
+    private void scheduleImmediatePlanLocationHighlight(String system, String station) {
+        SwingUtilities.invokeLater(() -> {
+            updateOptimizedPlanLocationHighlight(system, station);
+            if (optimizedPlanPanel != null && optimizedPlanPanel.isShowing()) {
+                optimizedPlanPanel.paintImmediately(
+                        0, 0, optimizedPlanPanel.getWidth(), optimizedPlanPanel.getHeight());
+            }
+            SwingUtilities.invokeLater(this::refreshUi);
+        });
     }
 
     private void showPlanProblems(List<TransportPlanProblem> problems) {
@@ -504,7 +568,7 @@ public class MissionsTabPanel extends JPanel {
         optimizedPlanPanel = null;
         optimizedPlanHost.removeAll();
         optimizeStopsButton.setEnabled(true);
-        optimizeStopsButton.setText("Optimize Stops");
+        optimizeStopsButton.setText("Create Plan");
         showAllTab();
         if (hadPlan && sessionStateChangeCallback != null) sessionStateChangeCallback.run();
     }
@@ -750,6 +814,11 @@ public class MissionsTabPanel extends JPanel {
         if (SelectiveHitSupport.containsScreenPoint(optimizeStopsButton, screenPoint)) {
             return true;
         }
+        if (transportMissionsSplit != null
+                && transportMissionsSplit.getUI() instanceof javax.swing.plaf.basic.BasicSplitPaneUI ui
+                && SelectiveHitSupport.containsScreenPoint(ui.getDivider(), screenPoint)) {
+            return true;
+        }
         if (optimizedPlanPanel != null
                 && optimizedPlanPanel.isPointerOverInteractiveRegion(screenPoint)) {
             return true;
@@ -776,8 +845,9 @@ public class MissionsTabPanel extends JPanel {
 
     private void clearBelowMissionsTableInSelectiveMode(Graphics g) {
         if (g == null
-                || OverlayPreferences.getOverlayMouseInteractionMode() != MouseInteractionMode.SELECTIVE
-                || !OverlayPreferences.isPassThroughWindowActive()
+                || !shouldClearUnusedTransportArea(mouseInteractionModeForHost(),
+                        OverlayPreferences.getOverlayMouseInteractionMode(),
+                        OverlayPreferences.isPassThroughWindowActive())
                 || missionsTable == null || !missionsTable.isShowing()) {
             return;
         }
@@ -839,6 +909,25 @@ public class MissionsTabPanel extends JPanel {
         scheduleRefresh();
     }
 
+    private static void configureTransportSplitPane(JSplitPane split, double resizeWeight) {
+        split.setOpaque(false);
+        split.setBorder(null);
+        split.setContinuousLayout(true);
+        split.setOneTouchExpandable(false);
+        split.setDividerSize(9);
+        split.setResizeWeight(Math.max(0.05, Math.min(0.95, resizeWeight)));
+    }
+
+    private void saveTransportSplitRatio() {
+        if (transportMissionsSplit == null || transportMissionsSplit.getHeight() < 32) return;
+        int usable = Math.max(1,
+                transportMissionsSplit.getHeight() - transportMissionsSplit.getDividerSize());
+        double ratio = transportMissionsSplit.getDividerLocation() / (double) usable;
+        ratio = Math.max(0.05, Math.min(0.95, ratio));
+        OverlayPreferences.setTransportMissionsSplitRatio(ratio);
+        transportMissionsSplit.setResizeWeight(ratio);
+    }
+
     /**
      * After tab rebuild or sparse persisted state, rebuild the board from journals.
      */
@@ -870,10 +959,35 @@ public class MissionsTabPanel extends JPanel {
             MissionSpeechTracker.getInstance().resetSession();
         }
         EliteEventType type = event.getType();
-        if (type == EliteEventType.LOCATION
-                || type == EliteEventType.FSD_JUMP
-                || type == EliteEventType.CARRIER_JUMP
-                || type == EliteEventType.DOCKED
+        if (type == EliteEventType.UNDOCKED) {
+            if (optimizedPlanPanel != null) {
+                var snapshot = CargoMonitor.getInstance().getSnapshot();
+                optimizedPlanPanel.updateCurrentCargo(snapshot != null ? snapshot.getCargoJson() : null);
+                optimizedPlanPanel.departureReminderAt(latestJournalSystem, latestJournalStation)
+                        .ifPresent(departureReminderSpeaker);
+            }
+            latestJournalStation = null;
+        }
+        String enteredSystem = null;
+        String enteredStation = null;
+        if (event instanceof LocationEvent location) {
+            enteredSystem = location.getStarSystem();
+            if (location.isDocked() && event.getRawJson() != null
+                    && event.getRawJson().has("StationName")
+                    && !event.getRawJson().get("StationName").isJsonNull()) {
+                enteredStation = event.getRawJson().get("StationName").getAsString();
+            }
+        } else if (event instanceof FsdJumpEvent jump) {
+            enteredSystem = jump.getStarSystem();
+        } else if (event instanceof CarrierJumpEvent jump) {
+            enteredSystem = jump.getStarSystem();
+            enteredStation = jump.isDocked() ? jump.getStationName() : null;
+        }
+        if (enteredSystem != null && !enteredSystem.isBlank()) {
+            latestJournalSystem = enteredSystem;
+            latestJournalStation = enteredStation;
+            scheduleImmediatePlanLocationHighlight(enteredSystem, enteredStation);
+        } else if (type == EliteEventType.DOCKED
                 || type == EliteEventType.UNDOCKED
                 || type == EliteEventType.SUPERCRUISE_EXIT) {
             // Current system/station moved — refresh ready-state highlighting.
@@ -893,6 +1007,13 @@ public class MissionsTabPanel extends JPanel {
                 completedPrior = tracker.findById(completed.getMissionId());
             }
             tracker.applyEvent(event);
+            if (event instanceof MissionCompletedEvent completed && optimizedPlanPanel != null) {
+                optimizedPlanPanel.updateMissionCompleted(completed.getMissionId());
+            }
+            if (event instanceof CargoDepotEvent depot && optimizedPlanPanel != null) {
+                optimizedPlanPanel.updateCargoDepotProgress(
+                        depot.getMissionId(), depot.getUpdateType(), depot.getCount());
+            }
             MissionSpeechTracker.getInstance().announceAfterLiveApply(
                     tracker, event, completedPrior, true);
             scheduleRefresh();
@@ -1064,6 +1185,23 @@ public class MissionsTabPanel extends JPanel {
         commoditySummaryScroll.repaint();
     }
 
+    private static void speakDepartureReminder(String reminder) {
+        if (!OverlayPreferences.isSpeechEnabled() || reminder == null) return;
+        switch (reminder) {
+            case "Did you forget your delivery again, Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your delivery again, Commander?");
+            case "Did you forget your deliveries again, Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your deliveries again, Commander?");
+            case "Did you forget your donations again, Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your donations again, Commander?");
+            case "Did you forget your delivery and donations again, Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your delivery and donations again, Commander?");
+            case "Did you forget your deliveries and donations again, Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your deliveries and donations again, Commander?");
+            default -> { }
+        }
+    }
+
     private void resizeCommoditySummary(int groupCount) {
         int visibleRows = Math.max(1, Math.min(4, groupCount));
         int headerHeight = commoditySummaryTable.getTableHeader() != null
@@ -1072,7 +1210,7 @@ public class MissionsTabPanel extends JPanel {
         Dimension size = new Dimension(100, height);
         commoditySummaryScroll.setMinimumSize(new Dimension(0, 0));
         commoditySummaryScroll.setPreferredSize(size);
-        commoditySummaryScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
+        commoditySummaryScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
     }
 
     private static String conciseTurnIn(CommodityMissionGroup group) {
@@ -1100,6 +1238,11 @@ public class MissionsTabPanel extends JPanel {
             label.setBorder(new EmptyBorder(1, 4, 1, 4));
             return label;
         }
+    }
+
+    static boolean shouldClearUnusedTransportArea(MouseInteractionMode windowMode,
+            MouseInteractionMode globalMode, boolean passThroughWindowActive) {
+        return windowMode == MouseInteractionMode.SELECTIVE && passThroughWindowActive;
     }
 
     private static String formatExpiry(java.time.Instant exp) {

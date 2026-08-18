@@ -9,6 +9,7 @@ import java.awt.Container;
 import java.awt.Dimension;
 
 import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 
@@ -17,7 +18,36 @@ import org.junit.jupiter.api.Test;
 
 class MissionsTabPanelCommoditySummaryTest {
     @Test
-    void commoditySummaryIsConciseAndCappedAtFourVisibleRows() throws Exception {
+    void transportSummaryAndMissionTableUseMiningStyleDraggableSplit() {
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 1056, systems -> { });
+
+        JSplitPane split = findNamedSplitPane(panel, "transportMissionsSplit");
+
+        assertNotNull(split);
+        assertEquals(JSplitPane.VERTICAL_SPLIT, split.getOrientation());
+        assertEquals(9, split.getDividerSize());
+        assertNotNull(findNamedTable((Container) split.getTopComponent(), "commoditySummaryTable"));
+        assertNotNull(findNamedScrollPane((Container) split.getBottomComponent(), "missionsTableScroll"));
+    }
+
+    @Test
+    void transportSplitPreferencePersistsAClampedRatio() throws Exception {
+        var getter = OverlayPreferences.class.getMethod("getTransportMissionsSplitRatio");
+        var setter = OverlayPreferences.class.getMethod("setTransportMissionsSplitRatio", double.class);
+        double original = (double) getter.invoke(null);
+        try {
+            setter.invoke(null, 0.63);
+            assertEquals(0.63, (double) getter.invoke(null), 0.0001);
+            setter.invoke(null, 2.0);
+            assertEquals(0.95, (double) getter.invoke(null), 0.0001);
+        } finally {
+            setter.invoke(null, original);
+        }
+    }
+    @Test
+    void commoditySummaryStartsAtFourRowsButCanExpandWithTheDivider() throws Exception {
         MissionsTabPanel panel = new MissionsTabPanel(
                 () -> false, () -> false, () -> "Sol", () -> "Galileo",
                 () -> 1056, systems -> { });
@@ -51,7 +81,8 @@ class MissionsTabPanelCommoditySummaryTest {
         assertNotNull(scroll);
         int fourRowsAndHeader = summary.getRowHeight() * 4
                 + summary.getTableHeader().getPreferredSize().height + 12;
-        assertTrue(scroll.getMaximumSize().height <= fourRowsAndHeader);
+        assertTrue(scroll.getPreferredSize().height <= fourRowsAndHeader);
+        assertTrue(scroll.getMaximumSize().height > fourRowsAndHeader);
     }
 
     @Test
@@ -88,6 +119,7 @@ class MissionsTabPanelCommoditySummaryTest {
     }
 
     private static JScrollPane findNamedScrollPane(Container root, String name) {
+        if (root instanceof JScrollPane scroll && name.equals(scroll.getName())) return scroll;
         for (Component child : root.getComponents()) {
             if (child instanceof JScrollPane scroll && name.equals(scroll.getName())) return scroll;
             if (child instanceof Container container) {
@@ -103,6 +135,17 @@ class MissionsTabPanelCommoditySummaryTest {
             if (child instanceof JTable table && name.equals(table.getName())) return table;
             if (child instanceof Container container) {
                 JTable found = findNamedTable(container, name);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static JSplitPane findNamedSplitPane(Container root, String name) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JSplitPane split && name.equals(split.getName())) return split;
+            if (child instanceof Container container) {
+                JSplitPane found = findNamedSplitPane(container, name);
                 if (found != null) return found;
             }
         }

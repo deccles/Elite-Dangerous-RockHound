@@ -13,6 +13,8 @@ public final class MissionRecord {
     private String name;
     private String localisedName;
     private MissionCategory category;
+    /** Elite's canonical journal commodity token, e.g. $HazardousEnvironmentSuits_Name;. */
+    private String commodity;
     private String commodityLocalised;
     private int countRequired;
     private String destinationSystem;
@@ -68,6 +70,9 @@ public final class MissionRecord {
 
     public String getCommodityLocalised() { return commodityLocalised; }
     public void setCommodityLocalised(String commodityLocalised) { this.commodityLocalised = commodityLocalised; }
+
+    public String getCommodity() { return commodity; }
+    public void setCommodity(String commodity) { this.commodity = commodity; }
 
     public int getCountRequired() { return countRequired; }
     public void setCountRequired(int countRequired) { this.countRequired = countRequired; }
