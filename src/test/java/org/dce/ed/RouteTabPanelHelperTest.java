@@ -538,7 +538,11 @@ class RouteTabPanelHelperTest {
         assertEquals(2, panel.routeSessionForTests().getCurrentBaseIndex());
         var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
                 .displayedEntries();
-        assertEquals(RouteMarkerKind.CURRENT, displayed.get(2).markerKind);
+        var currentLoopHop = displayed.stream()
+                .filter(e -> e != null && !e.isSynthetic && !e.isBodyRow && e.index == 2)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(RouteMarkerKind.CURRENT, currentLoopHop.markerKind);
     }
 
     private static final class JournalFirstRouteTabPanel extends RouteTabPanel {
