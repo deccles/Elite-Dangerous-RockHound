@@ -4,7 +4,7 @@
 	<parent>
 		<groupId>org.dce</groupId>
 		<artifactId>elite-dangerous-overlay-parent</artifactId>
-		<version>1.4.70</version>
+		<version>1.4.71</version>
 		<relativePath>reactor/pom.xml</relativePath>
 	</parent>
 
