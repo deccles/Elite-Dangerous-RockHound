@@ -25,6 +25,7 @@ import org.dce.ed.logreader.EliteLogEvent.NavRouteClearEvent;
 import org.dce.ed.route.RouteEntry;
 import org.dce.ed.route.FuelScoopStarClass;
 import org.dce.ed.route.RouteMarkerKind;
+import org.dce.ed.route.RouteSession;
 import org.dce.ed.session.EdoSessionState;
 import org.dce.ed.session.FleetCarrierSessionMapper;
 import org.dce.ed.state.SystemState;
@@ -404,96 +405,67 @@ class RouteTabPanelHelperTest {
     }
 
     @Test
-    void rebuild_adoptsLiveSystemStateWhenSessionCurrentLagsOneHop() {
-        RouteTabPanel panel = new RouteTabPanel(() -> false) {
-            @Override
-            protected boolean resolveCurrentSystemFromJournal() {
-                return false;
-            }
-        };
-        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+    void routeSession_adoptsLiveSystemStateWhenCurrentLagsOneHop() {
+        RouteSession session = new RouteSession(null, null);
+        session.replaceBaseRouteEntries(List.of(
                 entry("Kuan Ti", 100L),
                 entry("Cemiess", 200L),
                 entry("Achenar", 300L)));
-        panel.routeSessionForTests().applyKnownCurrentSystem("Kuan Ti", 100L, null);
+        session.applyKnownCurrentSystem("Kuan Ti", 100L, null);
 
-        SystemState live = new SystemState();
-        live.setSystemName("Cemiess");
-        live.setSystemAddress(200L);
-        panel.setLiveSystemStateSupplier(() -> live);
+        session.reconcileCurrentWithLiveCommanderPosition("Cemiess", 200L, null);
 
-        panel.rebuildDisplayedEntries();
-
-        assertEquals("Cemiess", panel.routeSessionForTests().getCurrentSystemName());
-        assertEquals(200L, panel.routeSessionForTests().getCurrentSystemAddress());
-        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
+        assertEquals("Cemiess", session.getCurrentSystemName());
+        assertEquals(200L, session.getCurrentSystemAddress());
+        var displayed = session.buildDisplaySnapshot(null, (n, a, p) -> null, false)
                 .displayedEntries();
         assertEquals(RouteMarkerKind.CURRENT, displayed.get(1).markerKind);
         assertEquals(RouteMarkerKind.PENDING_JUMP, displayed.get(2).markerKind);
     }
 
     @Test
-    void rebuild_doesNotRegressCursorWhenLiveSystemStateLagsJournalArrival() {
-        RouteTabPanel panel = new RouteTabPanel(() -> false) {
-            @Override
-            protected boolean resolveCurrentSystemFromJournal() {
-                return false;
-            }
-        };
+    void routeSession_doesNotRegressCursorWhenLiveSystemStateLagsJournalArrival() {
+        RouteSession session = new RouteSession(null, null);
         // Non-looping route: previous hop must not reappear later, or a lagging SystemState
         // would look identical to arriving at a future revisit.
-        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+        session.replaceBaseRouteEntries(List.of(
                 entry("Core Sys Sector CB-O a6-1", 100L),
                 entry("Gliese 868", 200L),
                 entry("Sol", 300L)));
-        panel.routeSessionForTests().applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
-        panel.routeSessionForTests().applyKnownCurrentSystem("Gliese 868", 200L, null);
-        assertEquals(1, panel.routeSessionForTests().getCurrentBaseIndex());
+        session.applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
+        session.applyKnownCurrentSystem("Gliese 868", 200L, null);
+        assertEquals(1, session.getCurrentBaseIndex());
 
         // System tab still briefly reports the previous hop.
-        SystemState live = new SystemState();
-        live.setSystemName("Core Sys Sector CB-O a6-1");
-        live.setSystemAddress(100L);
-        panel.setLiveSystemStateSupplier(() -> live);
+        session.reconcileCurrentWithLiveCommanderPosition(
+                "Core Sys Sector CB-O a6-1", 100L, null);
 
-        panel.rebuildDisplayedEntries();
-
-        assertEquals("Gliese 868", panel.routeSessionForTests().getCurrentSystemName());
-        assertEquals(1, panel.routeSessionForTests().getCurrentBaseIndex());
-        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
+        assertEquals("Gliese 868", session.getCurrentSystemName());
+        assertEquals(1, session.getCurrentBaseIndex());
+        var displayed = session.buildDisplaySnapshot(null, (n, a, p) -> null, false)
                 .displayedEntries();
         assertEquals(RouteMarkerKind.CURRENT, displayed.get(1).markerKind);
         assertEquals(RouteMarkerKind.PENDING_JUMP, displayed.get(2).markerKind);
     }
 
     @Test
-    void rebuild_advancesLoopCursorWhenLiveArrivesAtRevisitedSystem() {
-        RouteTabPanel panel = new RouteTabPanel(() -> false) {
-            @Override
-            protected boolean resolveCurrentSystemFromJournal() {
-                return false;
-            }
-        };
-        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+    void routeSession_advancesLoopCursorWhenLiveArrivesAtRevisitedSystem() {
+        RouteSession session = new RouteSession(null, null);
+        session.replaceBaseRouteEntries(List.of(
                 entry("Gliese 868", 200L),
                 entry("Core Sys Sector CB-O a6-1", 100L),
                 entry("Gliese 868", 200L),
                 entry("Core Sys Sector CB-O a6-1", 100L)));
-        panel.routeSessionForTests().applyKnownCurrentSystem("Gliese 868", 200L, null);
-        panel.routeSessionForTests().applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
-        assertEquals(1, panel.routeSessionForTests().getCurrentBaseIndex());
+        session.applyKnownCurrentSystem("Gliese 868", 200L, null);
+        session.applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
+        assertEquals(1, session.getCurrentBaseIndex());
 
         // Arrived back in Gliese — SystemState is ahead of a sticky route session.
-        SystemState live = new SystemState();
-        live.setSystemName("Gliese 868");
-        live.setSystemAddress(200L);
-        panel.setLiveSystemStateSupplier(() -> live);
+        session.reconcileCurrentWithLiveCommanderPosition("Gliese 868", 200L, null);
 
-        panel.rebuildDisplayedEntries();
-
-        assertEquals("Gliese 868", panel.routeSessionForTests().getCurrentSystemName());
-        assertEquals(2, panel.routeSessionForTests().getCurrentBaseIndex());
-        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
+        assertEquals("Gliese 868", session.getCurrentSystemName());
+        assertEquals(2, session.getCurrentBaseIndex());
+        var displayed = session.buildDisplaySnapshot(null, (n, a, p) -> null, false)
                 .displayedEntries();
         assertEquals(RouteMarkerKind.NONE, displayed.get(0).markerKind);
         assertEquals(RouteMarkerKind.NONE, displayed.get(1).markerKind);
@@ -502,24 +474,18 @@ class RouteTabPanelHelperTest {
     }
 
     @Test
-    void rebuild_resyncsLoopCursorWhenNameMatchesLiveButIndexStuck() throws Exception {
-        RouteTabPanel panel = new RouteTabPanel(() -> false) {
-            @Override
-            protected boolean resolveCurrentSystemFromJournal() {
-                return false;
-            }
-        };
-        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+    void routeSession_resyncsLoopCursorWhenNameMatchesLiveButIndexStuck() throws Exception {
+        RouteSession session = new RouteSession(null, null);
+        session.replaceBaseRouteEntries(List.of(
                 entry("Gliese 868", 200L),
                 entry("Core Sys Sector CB-O a6-1", 100L),
                 entry("Gliese 868", 200L),
                 entry("Core Sys Sector CB-O a6-1", 100L)));
-        panel.routeSessionForTests().applyKnownCurrentSystem("Gliese 868", 200L, null);
-        panel.routeSessionForTests().applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
-        assertEquals(1, panel.routeSessionForTests().getCurrentBaseIndex());
+        session.applyKnownCurrentSystem("Gliese 868", 200L, null);
+        session.applyKnownCurrentSystem("Core Sys Sector CB-O a6-1", 100L, null);
+        assertEquals(1, session.getCurrentBaseIndex());
 
         // Simulate desync: identity already says Gliese but cursor still on Core.
-        var session = panel.routeSessionForTests();
         session.applyKnownCurrentSystem("Gliese 868", 200L, null);
         assertEquals(2, session.getCurrentBaseIndex());
         var indexField = session.getClass().getDeclaredField("currentBaseIndex");
@@ -528,15 +494,10 @@ class RouteTabPanelHelperTest {
         assertEquals(1, session.getCurrentBaseIndex());
         assertEquals("Gliese 868", session.getCurrentSystemName());
 
-        SystemState live = new SystemState();
-        live.setSystemName("Gliese 868");
-        live.setSystemAddress(200L);
-        panel.setLiveSystemStateSupplier(() -> live);
+        session.reconcileCurrentWithLiveCommanderPosition("Gliese 868", 200L, null);
 
-        panel.rebuildDisplayedEntries();
-
-        assertEquals(2, panel.routeSessionForTests().getCurrentBaseIndex());
-        var displayed = panel.routeSessionForTests().buildDisplaySnapshot(null, (n, a, p) -> null, false)
+        assertEquals(2, session.getCurrentBaseIndex());
+        var displayed = session.buildDisplaySnapshot(null, (n, a, p) -> null, false)
                 .displayedEntries();
         var currentLoopHop = displayed.stream()
                 .filter(e -> e != null && !e.isSynthetic && !e.isBodyRow && e.index == 2)

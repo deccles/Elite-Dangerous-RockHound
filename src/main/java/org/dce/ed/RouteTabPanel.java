@@ -3252,30 +3252,8 @@ public class RouteTabPanel extends JPanel {
 			return;
 		}
 		long liveAddr = live.getSystemAddress();
-		List<RouteEntry> base = routeSession.getBaseRouteEntries();
-		int cursor = routeSession.getCurrentBaseIndex();
-		boolean cursorMatchesLive = base != null && !base.isEmpty()
-				&& cursor >= 0 && cursor < base.size()
-				&& RouteGeometry.rowMatchesSystem(base.get(cursor), liveName, liveAddr);
-		String sessionName = routeSession.getCurrentSystemName();
-		long sessionAddr = routeSession.getCurrentSystemAddress();
-		boolean sameName = liveName.equals(sessionName);
-		boolean sameAddr = liveAddr == 0L || sessionAddr == 0L || liveAddr == sessionAddr;
-		if (sameName && sameAddr && cursorMatchesLive) {
-			return;
-		}
-		if (base != null && !base.isEmpty()) {
-			int liveAtOrAfter = RouteGeometry.findSystemRowFrom(base, liveName, liveAddr, cursor);
-			if (liveAtOrAfter >= 0) {
-				routeSession.applyKnownCurrentSystem(liveName, liveAddr, live.getStarPos());
-				return;
-			}
-			int liveAny = RouteGeometry.findSystemRow(base, liveName, liveAddr);
-			if (liveAny >= 0 && liveAny < cursor) {
-				return;
-			}
-		}
-		routeSession.applyKnownCurrentSystem(liveName, liveAddr, live.getStarPos());
+		routeSession.reconcileCurrentWithLiveCommanderPosition(
+				liveName, liveAddr, live.getStarPos());
 	}
 
 	protected boolean resolveCurrentSystemFromJournal() {

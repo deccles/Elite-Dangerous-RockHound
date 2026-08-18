@@ -118,6 +118,41 @@ public final class RouteSession {
         return inHyperspace;
     }
 
+    /**
+     * Aligns the monotonic base-route cursor with the authoritative live commander location.
+     * Earlier duplicate systems are ignored so a briefly lagging live snapshot cannot move a
+     * looped custom route backward.
+     */
+    public void reconcileCurrentWithLiveCommanderPosition(String liveName, long liveAddress,
+            double[] liveStarPos) {
+        if (liveName == null || liveName.isBlank()) {
+            return;
+        }
+        int cursor = currentBaseIndex;
+        boolean cursorMatchesLive = baseRouteEntries != null && !baseRouteEntries.isEmpty()
+                && cursor >= 0 && cursor < baseRouteEntries.size()
+                && RouteGeometry.rowMatchesSystem(baseRouteEntries.get(cursor), liveName, liveAddress);
+        boolean sameName = liveName.equals(currentSystemName);
+        boolean sameAddress = liveAddress == 0L || currentSystemAddress == 0L
+                || liveAddress == currentSystemAddress;
+        if (sameName && sameAddress && cursorMatchesLive) {
+            return;
+        }
+        if (baseRouteEntries != null && !baseRouteEntries.isEmpty()) {
+            int liveAtOrAfter = RouteGeometry.findSystemRowFrom(
+                    baseRouteEntries, liveName, liveAddress, cursor);
+            if (liveAtOrAfter >= 0) {
+                applyKnownCurrentSystem(liveName, liveAddress, liveStarPos);
+                return;
+            }
+            int liveAny = RouteGeometry.findSystemRow(baseRouteEntries, liveName, liveAddress);
+            if (liveAny >= 0 && liveAny < cursor) {
+                return;
+            }
+        }
+        applyKnownCurrentSystem(liveName, liveAddress, liveStarPos);
+    }
+
     public long getDisplayRevision() {
         return displayRevision;
     }
