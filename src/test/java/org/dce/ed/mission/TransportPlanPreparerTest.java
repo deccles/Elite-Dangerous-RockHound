@@ -14,12 +14,12 @@ import com.google.gson.JsonParser;
 
 class TransportPlanPreparerTest {
     @Test
-    void donationMissionCreatesAnActionablePaymentStop() {
+    void donationMissionUsesAcceptanceLocationAsPaymentStop() {
         MissionRecord mission = new MissionRecord(77L);
         mission.setName("Mission_Altruism");
         mission.setDonation(500_000L);
-        mission.setDestinationSystem("Lave");
-        mission.setDestinationStation("Lave Station");
+        mission.setOriginSystem("Lave");
+        mission.setOriginStation("Lave Station");
         var cargo = JsonParser.parseString("{\"Inventory\":[]}").getAsJsonObject();
 
         TransportPlanPreparation result = TransportPlanPreparer.prepare(
@@ -33,6 +33,8 @@ class TransportPlanPreparerTest {
         assertTrue(result.problems().isEmpty());
         assertEquals(1, result.request().visits().size());
         assertEquals("Donate 500,000 Cr", result.request().visits().get(0).label());
+        assertEquals("Lave", result.request().visits().get(0).destination().system());
+        assertEquals("Lave Station", result.request().visits().get(0).destination().station());
     }
     @Test
     void missingSourceWarnsWithoutCreatingANonActionableDeliveryStop() {

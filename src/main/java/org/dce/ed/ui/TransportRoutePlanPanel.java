@@ -13,6 +13,7 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -38,7 +39,10 @@ import javax.swing.table.TableCellRenderer;
 
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.CargoMonitor;
+import org.dce.ed.EliteDangerousOverlay;
+import org.dce.ed.market.CommodityMarketOrder;
 import org.dce.ed.mission.TransportPlanAction;
+import org.dce.ed.mission.TransportPlanActionCompletion;
 import org.dce.ed.mission.TransportLocation;
 import org.dce.ed.mission.TransportPlanProblem;
 import org.dce.ed.mission.TransportPlanStop;
@@ -53,11 +57,12 @@ public final class TransportRoutePlanPanel extends JPanel {
     private final JButton applyButton = new JButton("Apply to Route");
     private final TransportRoutePlan plan;
     private final TransportLocation start;
+    private final CommodityMarketOrder commodityMarketOrder;
     private final JTable table;
     private int highlightedRow = -1;
     private int reachedPlanStop = -1;
     private final Set<Integer> cargoCompletedStops = new HashSet<>();
-    private final Set<ActionKey> completedActions = new HashSet<>();
+    private final Set<TransportPlanActionCompletion> completedActions = new HashSet<>();
 
     public TransportRoutePlanPanel(TransportRoutePlan plan, int capacity,
             Consumer<List<String>> onApply) {
@@ -72,9 +77,18 @@ public final class TransportRoutePlanPanel extends JPanel {
     public TransportRoutePlanPanel(TransportRoutePlan plan, int capacity,
             TransportLocation start, int initialHoldTons,
             Consumer<List<String>> onApply, List<TransportPlanProblem> warnings) {
+        this(plan, capacity, start, initialHoldTons, onApply, warnings,
+                loadActiveCommodityMarketOrder());
+    }
+
+    TransportRoutePlanPanel(TransportRoutePlan plan, int capacity,
+            TransportLocation start, int initialHoldTons,
+            Consumer<List<String>> onApply, List<TransportPlanProblem> warnings,
+            CommodityMarketOrder commodityMarketOrder) {
         super(new BorderLayout(8, 8));
         this.plan = plan;
         this.start = start;
+        this.commodityMarketOrder = commodityMarketOrder;
         setOpaque(false);
         DefaultTableModel model = new DefaultTableModel(
                 new String[] { "", "#", "System", "Station", "Action", "Hold" }, 0) {
@@ -83,13 +97,13 @@ public final class TransportRoutePlanPanel extends JPanel {
         };
         if (start != null) {
             model.addRow(new Object[] { false, 0, start.system(), start.station(), "",
-                    initialHoldTons + " / " + capacity + " t" });
+                    holdText(initialHoldTons, capacity) });
             highlightedRow = 0;
         }
         int index = 1;
         for (TransportPlanStop stop : plan.stops()) {
             model.addRow(new Object[] { false, index++, stop.location().system(), stop.location().station(),
-                    actionsText(stop.actions()), stop.holdAfterTons() + " / " + capacity + " t" });
+                    actionsText(stop.actions()), holdText(stop.holdAfterTons(), capacity) });
         }
         table = new JTable(model) {
             private static final long serialVersionUID = 1L;
@@ -110,6 +124,7 @@ public final class TransportRoutePlanPanel extends JPanel {
         table.getColumnModel().getColumn(0).setCellRenderer(new CompletionRenderer());
         table.getColumnModel().getColumn(1).setCellRenderer(new RouteNumberRenderer());
         table.getColumnModel().getColumn(4).setCellRenderer(new ActionStatusRenderer());
+        table.getColumnModel().getColumn(5).setCellRenderer(new HoldRenderer());
         CommoditySourceDialog.configureResultsTable(table, OverlayPreferences.getUiFont());
         table.setRowSelectionAllowed(false);
         table.setColumnSelectionAllowed(false);
@@ -137,7 +152,9 @@ public final class TransportRoutePlanPanel extends JPanel {
         int baseRowHeight = table.getRowHeight();
         for (int row = 0; row < table.getRowCount(); row++) {
             String actions = String.valueOf(table.getValueAt(row, 4));
-            int lines = actions.isEmpty() ? 1 : actions.split("\\R", -1).length;
+            int actionLines = actions.isEmpty() ? 1 : actions.split("\\R", -1).length;
+            int holdLines = String.valueOf(table.getValueAt(row, 5)).split("\\R", -1).length;
+            int lines = Math.max(actionLines, holdLines);
             table.setRowHeight(row, baseRowHeight * lines);
         }
         JLabel summary = new JLabel((plan.optimal() ? "Optimal route" : "Best route found")
@@ -170,9 +187,29 @@ public final class TransportRoutePlanPanel extends JPanel {
         add(south, BorderLayout.SOUTH);
     }
 
-    /** Advances the plan-row border in schedule order as the live location reaches each stop. */
+    /** Moves the plan-row border to the current stop without inferring completion from route order. */
     public void updateCurrentLocation(String system, String station) {
         int rowOffset = start == null ? 0 : 1;
+        boolean atStart = reachedPlanStop < 0 && start != null
+                && sameLocationText(system, start.system())
+                && (station == null || station.isBlank()
+                        || sameLocationText(station, start.station()));
+        boolean atFirstPlannedStop = station != null && !station.isBlank()
+                && !plan.stops().isEmpty()
+                && sameLocation(system, station, plan.stops().get(0).location());
+        if (atStart && !atFirstPlannedStop) {
+            highlightedRow = 0;
+            table.repaint();
+            return;
+        }
+        int exactStop = matchingStationStop(system, station);
+        if (exactStop >= 0) {
+            reachedPlanStop = exactStop;
+            highlightedRow = rowOffset + exactStop;
+            refreshCompletionMarkers();
+            table.repaint();
+            return;
+        }
         int next = reachedPlanStop + 1;
         if (next < plan.stops().size()) {
             TransportLocation nextLocation = plan.stops().get(next).location();
@@ -198,7 +235,32 @@ public final class TransportRoutePlanPanel extends JPanel {
         table.repaint();
     }
 
-    /** Restores monotonic progress so repeated systems remain unambiguous after restart. */
+    private int matchingStationStop(String system, String station) {
+        if (station == null || station.isBlank()) return -1;
+        if (reachedPlanStop >= 0 && reachedPlanStop < plan.stops().size()
+                && sameLocation(system, station, plan.stops().get(reachedPlanStop).location())) {
+            return reachedPlanStop;
+        }
+        for (int stopIndex = 0; stopIndex < plan.stops().size(); stopIndex++) {
+            if (!cargoCompletedStops.contains(stopIndex)
+                    && sameLocation(system, station, plan.stops().get(stopIndex).location())) {
+                return stopIndex;
+            }
+        }
+        for (int stopIndex = 0; stopIndex < plan.stops().size(); stopIndex++) {
+            if (sameLocation(system, station, plan.stops().get(stopIndex).location())) {
+                return stopIndex;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean sameLocation(String system, String station, TransportLocation location) {
+        return sameLocationText(system, location.system())
+                && sameLocationText(station, location.station());
+    }
+
+    /** Restores the last current plan occurrence so repeated systems remain unambiguous. */
     public void restoreReachedPlanStop(int stopIndex) {
         reachedPlanStop = Math.max(-1, Math.min(stopIndex, plan.stops().size() - 1));
         highlightedRow = reachedPlanStop >= 0
@@ -212,11 +274,41 @@ public final class TransportRoutePlanPanel extends JPanel {
         return reachedPlanStop;
     }
 
+    public List<TransportPlanActionCompletion> completedActionCompletions() {
+        List<TransportPlanActionCompletion> result = new ArrayList<>(completedActions);
+        result.sort(Comparator.comparingInt(TransportPlanActionCompletion::stopIndex)
+                .thenComparingInt(completion -> completion.kind().ordinal())
+                .thenComparingLong(TransportPlanActionCompletion::missionId));
+        return List.copyOf(result);
+    }
+
+    public void restoreCompletedActionCompletions(
+            List<TransportPlanActionCompletion> completions) {
+        completedActions.clear();
+        cargoCompletedStops.clear();
+        if (completions != null) for (TransportPlanActionCompletion completion : completions) {
+            if (completion != null && actionExists(completion)) completedActions.add(completion);
+        }
+        for (int stopIndex = 0; stopIndex < plan.stops().size(); stopIndex++) {
+            markStopCompleteIfNeeded(stopIndex);
+        }
+        refreshCompletionMarkers();
+        table.repaint();
+    }
+
+    private boolean actionExists(TransportPlanActionCompletion completion) {
+        if (completion.stopIndex() < 0 || completion.stopIndex() >= plan.stops().size()
+                || completion.kind() == null) return false;
+        return plan.stops().get(completion.stopIndex()).actions().stream().anyMatch(action ->
+                action.kind() == completion.kind() && action.missionId() == completion.missionId());
+    }
+
     /** Checks the current depot pickup as soon as its mission cargo is aboard. */
-    public void updateCurrentCargo(JsonObject cargo) {
-        if (cargo == null || reachedPlanStop < 0 || reachedPlanStop >= plan.stops().size()) return;
+    public boolean updateCurrentCargo(JsonObject cargo) {
+        if (cargo == null || reachedPlanStop < 0 || reachedPlanStop >= plan.stops().size()) return false;
         TransportPlanStop stop = plan.stops().get(reachedPlanStop);
-        if (stop.actions().stream().noneMatch(a -> a.kind() == TransportPlanAction.Kind.PICK_UP)) return;
+        if (stop.actions().stream().noneMatch(a -> a.kind() == TransportPlanAction.Kind.PICK_UP)) return false;
+        int completedBefore = completedActions.size();
         Map<Long, Integer> requiredByMission = new LinkedHashMap<>();
         for (TransportPlanAction action : stop.actions()) {
             requiredByMission.merge(action.missionId(), action.tons(), Integer::sum);
@@ -226,7 +318,8 @@ public final class TransportRoutePlanPanel extends JPanel {
                 for (TransportPlanAction action : stop.actions()) {
                     if (action.kind() == TransportPlanAction.Kind.PICK_UP
                             && action.missionId() == entry.getKey()) {
-                        completedActions.add(new ActionKey(reachedPlanStop, action.kind(), action.missionId()));
+                        completedActions.add(new TransportPlanActionCompletion(
+                                reachedPlanStop, action.kind(), action.missionId()));
                     }
                 }
             }
@@ -244,52 +337,61 @@ public final class TransportRoutePlanPanel extends JPanel {
             String commodity = commodityActions.get(0).commodity();
             if (CargoMonitor.countCommodityTons(cargo, commodity) >= required) {
                 for (TransportPlanAction action : commodityActions) {
-                    completedActions.add(new ActionKey(reachedPlanStop, action.kind(), action.missionId()));
+                    completedActions.add(new TransportPlanActionCompletion(
+                            reachedPlanStop, action.kind(), action.missionId()));
                 }
             }
         }
         boolean complete = stop.actions().stream().allMatch(action -> completedActions.contains(
-                new ActionKey(reachedPlanStop, action.kind(), action.missionId())));
+                new TransportPlanActionCompletion(
+                        reachedPlanStop, action.kind(), action.missionId())));
         if (complete) {
             cargoCompletedStops.add(reachedPlanStop);
         }
         refreshCompletionMarkers();
         table.repaint();
+        return completedActions.size() != completedBefore;
     }
 
     /** Checks the current collect/deliver action from its CargoDepot transaction. */
-    public void updateCargoDepotProgress(long missionId, String updateType, int count) {
-        if (reachedPlanStop < 0 || reachedPlanStop >= plan.stops().size() || count <= 0) return;
+    public boolean updateCargoDepotProgress(long missionId, String updateType, int count) {
+        if (reachedPlanStop < 0 || reachedPlanStop >= plan.stops().size() || count <= 0) return false;
         TransportPlanAction.Kind kind = "Collect".equalsIgnoreCase(updateType)
                 ? TransportPlanAction.Kind.PICK_UP
                 : "Deliver".equalsIgnoreCase(updateType) ? TransportPlanAction.Kind.DELIVER : null;
-        if (kind == null) return;
+        if (kind == null) return false;
+        int completedBefore = completedActions.size();
         for (TransportPlanAction action : plan.stops().get(reachedPlanStop).actions()) {
             if (action.kind() == kind && action.missionId() == missionId && count >= action.tons()) {
-                completedActions.add(new ActionKey(reachedPlanStop, kind, missionId));
+                completedActions.add(new TransportPlanActionCompletion(
+                        reachedPlanStop, kind, missionId));
             }
         }
         TransportPlanStop stop = plan.stops().get(reachedPlanStop);
         if (!stop.actions().isEmpty() && stop.actions().stream().allMatch(action ->
-                completedActions.contains(new ActionKey(
+                completedActions.contains(new TransportPlanActionCompletion(
                         reachedPlanStop, action.kind(), action.missionId())))) {
             cargoCompletedStops.add(reachedPlanStop);
         }
         refreshCompletionMarkers();
         table.repaint();
+        return completedActions.size() != completedBefore;
     }
 
     /** Marks courier, passenger, or donation work complete when Elite completes the mission. */
-    public void updateMissionCompleted(long missionId) {
-        if (reachedPlanStop < 0 || reachedPlanStop >= plan.stops().size()) return;
+    public boolean updateMissionCompleted(long missionId) {
+        if (reachedPlanStop < 0 || reachedPlanStop >= plan.stops().size()) return false;
+        int completedBefore = completedActions.size();
         for (TransportPlanAction action : plan.stops().get(reachedPlanStop).actions()) {
             if (action.missionId() == missionId) {
-                completedActions.add(new ActionKey(reachedPlanStop, action.kind(), missionId));
+                completedActions.add(new TransportPlanActionCompletion(
+                        reachedPlanStop, action.kind(), missionId));
             }
         }
         markCurrentStopCompleteIfNeeded();
         refreshCompletionMarkers();
         table.repaint();
+        return completedActions.size() != completedBefore;
     }
 
     /** Returns the prerecorded reminder appropriate for unfinished work at the current plan stop. */
@@ -301,7 +403,8 @@ public final class TransportRoutePlanPanel extends JPanel {
         Set<Long> deliveries = new HashSet<>();
         boolean donations = false;
         for (TransportPlanAction action : stop.actions()) {
-            if (completedActions.contains(new ActionKey(reachedPlanStop, action.kind(), action.missionId()))) continue;
+            if (completedActions.contains(new TransportPlanActionCompletion(
+                    reachedPlanStop, action.kind(), action.missionId()))) continue;
             if (isDonation(action)) donations = true;
             else deliveries.add(action.missionId());
         }
@@ -318,19 +421,23 @@ public final class TransportRoutePlanPanel extends JPanel {
     }
 
     private void markCurrentStopCompleteIfNeeded() {
-        TransportPlanStop stop = plan.stops().get(reachedPlanStop);
+        markStopCompleteIfNeeded(reachedPlanStop);
+    }
+
+    private void markStopCompleteIfNeeded(int stopIndex) {
+        if (stopIndex < 0 || stopIndex >= plan.stops().size()) return;
+        TransportPlanStop stop = plan.stops().get(stopIndex);
         if (!stop.actions().isEmpty() && stop.actions().stream().allMatch(action ->
-                completedActions.contains(new ActionKey(
-                        reachedPlanStop, action.kind(), action.missionId())))) {
-            cargoCompletedStops.add(reachedPlanStop);
+                completedActions.contains(new TransportPlanActionCompletion(
+                        stopIndex, action.kind(), action.missionId())))) {
+            cargoCompletedStops.add(stopIndex);
         }
     }
 
     private void refreshCompletionMarkers() {
         int rowOffset = start == null ? 0 : 1;
         for (int stopIndex = 0; stopIndex < plan.stops().size(); stopIndex++) {
-            table.setValueAt(Boolean.valueOf(stopIndex < reachedPlanStop
-                            || cargoCompletedStops.contains(stopIndex)),
+            table.setValueAt(Boolean.valueOf(cargoCompletedStops.contains(stopIndex)),
                     rowOffset + stopIndex, 0);
         }
     }
@@ -377,12 +484,17 @@ public final class TransportRoutePlanPanel extends JPanel {
         return List.copyOf(systems);
     }
 
-    private static String actionsText(List<TransportPlanAction> actions) {
+    private String actionsText(List<TransportPlanAction> actions) {
         return actionGroups(actions).stream().map(ActionGroup::text)
                 .reduce((a, b) -> a + "\n" + b).orElse("");
     }
 
-    private static List<ActionGroup> actionGroups(List<TransportPlanAction> actions) {
+    private static String holdText(int usedTons, int capacityTons) {
+        return usedTons + " / " + capacityTons + " t\nFree "
+                + Math.max(0, capacityTons - usedTons) + " t";
+    }
+
+    private List<ActionGroup> actionGroups(List<TransportPlanAction> actions) {
         Map<String, ActionGroup> groups = new LinkedHashMap<>();
         int visitIndex = 0;
         for (TransportPlanAction action : actions) {
@@ -391,7 +503,24 @@ public final class TransportRoutePlanPanel extends JPanel {
                     : action.kind() + ":" + action.commodity().toLowerCase(Locale.ROOT);
             groups.computeIfAbsent(key, ignored -> new ActionGroup(action)).add(action);
         }
-        return List.copyOf(groups.values());
+        List<ActionGroup> ordered = new ArrayList<>(groups.values());
+        Comparator<String> commodityComparator = commodityMarketOrder.comparator();
+        Comparator<ActionGroup> comparator = Comparator.comparingInt(ActionGroup::phaseOrder)
+                .thenComparing((left, right) -> left.isVisit() ? 0
+                        : commodityComparator.compare(left.commodity(), right.commodity()));
+        ordered.sort(comparator);
+        return List.copyOf(ordered);
+    }
+
+    private static CommodityMarketOrder loadActiveCommodityMarketOrder() {
+        try {
+            java.nio.file.Path journalDirectory = OverlayPreferences.resolveJournalDirectory(
+                    EliteDangerousOverlay.clientKey);
+            return CommodityMarketOrder.load(journalDirectory == null
+                    ? null : journalDirectory.resolve("Market.json"));
+        } catch (Exception ignored) {
+            return CommodityMarketOrder.load(null);
+        }
     }
 
     private static final class ActionGroup {
@@ -418,15 +547,29 @@ public final class TransportRoutePlanPanel extends JPanel {
             String missions = missionIds.size() > 1 ? " (" + missionIds.size() + " missions)" : "";
             return prefix + tons + " t " + commodity + missions;
         }
+
+        String commodity() {
+            return commodity;
+        }
+
+        boolean isVisit() {
+            return kind == TransportPlanAction.Kind.VISIT;
+        }
+
+        int phaseOrder() {
+            return switch (kind) {
+                case DELIVER -> 0;
+                case VISIT -> 1;
+                case PICK_UP -> 2;
+            };
+        }
     }
 
     private boolean actionGroupComplete(int stopIndex, ActionGroup group) {
-        if (stopIndex < reachedPlanStop) return true;
         return !group.actions.isEmpty() && group.actions.stream().allMatch(action ->
-                completedActions.contains(new ActionKey(stopIndex, action.kind(), action.missionId())));
+                completedActions.contains(new TransportPlanActionCompletion(
+                        stopIndex, action.kind(), action.missionId())));
     }
-
-    private record ActionKey(int stopIndex, TransportPlanAction.Kind kind, long missionId) { }
 
     private final class ActionStatusRenderer extends JPanel implements TableCellRenderer {
         private static final long serialVersionUID = 1L;
@@ -499,6 +642,32 @@ public final class TransportRoutePlanPanel extends JPanel {
             super.getTableCellRendererComponent(source, value, selected, focused, row, column);
             setHorizontalAlignment(SwingConstants.LEFT);
             setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
+            return this;
+        }
+    }
+
+    private static final class HoldRenderer extends JPanel implements TableCellRenderer {
+        private static final long serialVersionUID = 1L;
+
+        HoldRenderer() {
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable source, Object value,
+                boolean selected, boolean focused, int row, int column) {
+            removeAll();
+            setBackground(selected ? source.getSelectionBackground() : source.getBackground());
+            setOpaque(selected || source.isOpaque());
+            setBorder(BorderFactory.createEmptyBorder(1, 1, 1, 1));
+            String[] lines = String.valueOf(value).split("\\R", -1);
+            for (String line : lines) {
+                JLabel label = new JLabel(line);
+                label.setFont(source.getFont());
+                label.setForeground(selected
+                        ? source.getSelectionForeground() : source.getForeground());
+                add(label);
+            }
             return this;
         }
     }

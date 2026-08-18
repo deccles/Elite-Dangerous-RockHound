@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.awt.Component;
 import java.util.List;
 
+import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -14,6 +15,7 @@ import javax.swing.JTable;
 import javax.swing.border.MatteBorder;
 import javax.swing.border.CompoundBorder;
 
+import org.dce.ed.market.CommodityMarketOrder;
 import org.dce.ed.mission.TransportLocation;
 import org.dce.ed.mission.TransportPlanAction;
 import org.dce.ed.mission.TransportPlanStop;
@@ -77,7 +79,7 @@ class TransportRoutePlanPanelHighlightTest {
         assertEquals("Gliese 868", table.getValueAt(0, 2));
         assertEquals("MacLean Terminal", table.getValueAt(0, 3));
         assertEquals("", table.getValueAt(0, 4));
-        assertEquals("0 / 1056 t", table.getValueAt(0, 5));
+        assertEquals("0 / 1056 t\nFree 1056 t", table.getValueAt(0, 5));
         assertEquals(0, panel.highlightedRowForTests());
         assertEquals(false, table.getRowSelectionAllowed());
         assertEquals(false, table.getColumnSelectionAllowed());
@@ -120,6 +122,7 @@ class TransportRoutePlanPanelHighlightTest {
         panel.updateCurrentLocation("Core Sys Sector FW-N a6-0", "Davy Vision");
         assertEquals(false, table.getValueAt(1, 0));
         assertEquals(1, table.getValueAt(1, 1));
+        panel.updateMissionCompleted(1L);
 
         panel.updateCurrentLocation("Gliese 868", "MacLean Terminal");
         assertEquals(true, table.getValueAt(1, 0));
@@ -130,6 +133,7 @@ class TransportRoutePlanPanelHighlightTest {
         assertTrue(completed instanceof JLabel);
         assertTrue(((JLabel) completed).getIcon() != null);
         assertTrue(table.getColumnModel().getColumn(0).getPreferredWidth() >= 20);
+        panel.updateMissionCompleted(1L);
 
         panel.updateCurrentLocation("Core Sys Sector FW-N a6-0", "Davy Vision");
         assertEquals(true, table.getValueAt(2, 0));
@@ -137,6 +141,97 @@ class TransportRoutePlanPanelHighlightTest {
         assertEquals(false, table.getValueAt(3, 0));
         assertEquals(3, table.getValueAt(3, 1));
         assertEquals(3, panel.highlightedRowForTests());
+    }
+
+    @Test
+    void visitingLaterStationFirstDoesNotCompleteSkippedDelivery() {
+        TransportLocation start = new TransportLocation(
+                "Gliese 868", "Current position", 0, 0, 0);
+        TransportPlanStop source = new TransportPlanStop(
+                new TransportLocation("Core Sys Sector AQ-P a5-1", "Rock Vision", 10, 0, 0),
+                List.of(
+                        new TransportPlanAction(TransportPlanAction.Kind.PICK_UP,
+                                10L, "Clothing", 27),
+                        new TransportPlanAction(TransportPlanAction.Kind.PICK_UP,
+                                20L, "Water Purifiers", 63)),
+                90);
+        TransportPlanStop macLean = new TransportPlanStop(
+                new TransportLocation("Gliese 868", "MacLean Terminal", 0, 0, 0),
+                List.of(new TransportPlanAction(TransportPlanAction.Kind.DELIVER,
+                        10L, "Clothing", 27)), 63);
+        TransportPlanStop braun = new TransportPlanStop(
+                new TransportLocation("Gliese 868", "Braun Station", 0, 0, 0),
+                List.of(new TransportPlanAction(TransportPlanAction.Kind.DELIVER,
+                        20L, "Water Purifiers", 63)), 0);
+        TransportRoutePlanPanel panel = new TransportRoutePlanPanel(
+                new TransportRoutePlan(List.of(source, macLean, braun), 20.0, true), 1056,
+                start, 0, systems -> { }, List.of());
+        JTable table = panel.tableForTests();
+
+        panel.updateCurrentLocation("Core Sys Sector AQ-P a5-1", "Rock Vision");
+        panel.updateCurrentCargo(JsonParser.parseString("""
+                {"Inventory":[
+                  {"Name_Localised":"Clothing","Count":27,"MissionID":10},
+                  {"Name_Localised":"Water Purifiers","Count":63,"MissionID":20}
+                ]}
+                """).getAsJsonObject());
+        panel.updateCurrentLocation("Gliese 868", null);
+        panel.updateCurrentLocation("Gliese 868", "Braun Station");
+
+        assertEquals(3, panel.highlightedRowForTests());
+        assertEquals(false, table.getValueAt(2, 0));
+        assertTrue(actionStatusIcon(table, 2, 0) == null);
+
+        panel.updateCargoDepotProgress(20L, "Deliver", 63);
+        assertEquals(true, table.getValueAt(3, 0));
+        assertTrue(actionStatusIcon(table, 3, 0) != null);
+        assertEquals(false, table.getValueAt(2, 0));
+
+        panel.updateCurrentLocation("Gliese 868", "MacLean Terminal");
+        assertEquals(2, panel.highlightedRowForTests());
+        panel.updateCargoDepotProgress(10L, "Deliver", 27);
+        assertEquals(true, table.getValueAt(2, 0));
+        assertTrue(actionStatusIcon(table, 2, 0) != null);
+    }
+
+    private static Icon actionStatusIcon(JTable table, int row, int actionLine) {
+        JPanel rendered = (JPanel) table.prepareRenderer(table.getCellRenderer(row, 4), row, 4);
+        JPanel line = (JPanel) rendered.getComponent(actionLine);
+        return ((JLabel) line.getComponent(0)).getIcon();
+    }
+
+    @Test
+    void commodityActionsFollowTheInGameMarketOrder() {
+        TransportPlanStop stop = new TransportPlanStop(
+                new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                List.of(
+                        new TransportPlanAction(TransportPlanAction.Kind.PICK_UP,
+                                1L, "Gold", 20),
+                        new TransportPlanAction(TransportPlanAction.Kind.PICK_UP,
+                                2L, "Domestic Appliances", 48),
+                        new TransportPlanAction(TransportPlanAction.Kind.PICK_UP,
+                                3L, "Mineral Oil", 18),
+                        new TransportPlanAction(TransportPlanAction.Kind.PICK_UP,
+                                4L, "Water Purifiers", 27),
+                        new TransportPlanAction(TransportPlanAction.Kind.PICK_UP,
+                                5L, "Agronomic Treatment", 14),
+                        new TransportPlanAction(TransportPlanAction.Kind.PICK_UP,
+                                6L, "Food Cartridges", 18),
+                        new TransportPlanAction(TransportPlanAction.Kind.PICK_UP,
+                                7L, "Clothing", 72)),
+                217);
+        TransportRoutePlanPanel panel = new TransportRoutePlanPanel(
+                new TransportRoutePlan(List.of(stop), 10.0, true), 1056,
+                null, 0, systems -> { }, List.of(), marketOrder());
+
+        assertEquals("Pick up 14 t Agronomic Treatment\n"
+                        + "Pick up 18 t Mineral Oil\n"
+                        + "Pick up 72 t Clothing\n"
+                        + "Pick up 48 t Domestic Appliances\n"
+                        + "Pick up 18 t Food Cartridges\n"
+                        + "Pick up 27 t Water Purifiers\n"
+                        + "Pick up 20 t Gold",
+                panel.tableForTests().getValueAt(0, 4));
     }
 
     @Test
@@ -152,12 +247,37 @@ class TransportRoutePlanPanelHighlightTest {
                                 3L, "Water Purifiers", 106)),
                 984);
         TransportRoutePlanPanel panel = new TransportRoutePlanPanel(
-                new TransportRoutePlan(List.of(stop), 10.0, true), 1056, systems -> { });
+                new TransportRoutePlan(List.of(stop), 10.0, true), 1056,
+                null, 0, systems -> { }, List.of(), marketOrder());
         JTable table = panel.tableForTests();
 
-        assertEquals("Pick up 740 t Animal Monitors\nPick up 138 t Gold\nPick up 106 t Water Purifiers",
+        assertEquals("Pick up 740 t Animal Monitors\nPick up 106 t Water Purifiers\nPick up 138 t Gold",
                 table.getValueAt(0, 4));
         assertTrue(table.getRowHeight(0) >= table.getRowHeight() * 3);
+    }
+
+    @Test
+    void holdColumnShowsPredictedFreeSpaceOnASecondLine() {
+        TransportLocation start = new TransportLocation("Sol", "Galileo", 0, 0, 0);
+        TransportPlanStop stop = new TransportPlanStop(
+                new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                List.of(new TransportPlanAction(
+                        TransportPlanAction.Kind.PICK_UP, 1L, "Gold", 884)),
+                984);
+        TransportRoutePlanPanel panel = new TransportRoutePlanPanel(
+                new TransportRoutePlan(List.of(stop), 10.0, true), 1056,
+                start, 100, systems -> { }, List.of());
+        JTable table = panel.tableForTests();
+
+        assertEquals("100 / 1056 t\nFree 956 t", table.getValueAt(0, 5));
+        assertEquals("984 / 1056 t\nFree 72 t", table.getValueAt(1, 5));
+        assertTrue(table.getRowHeight(0) >= table.getRowHeight() * 2);
+        assertTrue(table.getRowHeight(1) >= table.getRowHeight() * 2);
+
+        JPanel rendered = (JPanel) table.prepareRenderer(table.getCellRenderer(1, 5), 1, 5);
+        assertEquals(2, rendered.getComponentCount());
+        assertEquals("984 / 1056 t", ((JLabel) rendered.getComponent(0)).getText());
+        assertEquals("Free 72 t", ((JLabel) rendered.getComponent(1)).getText());
     }
 
     @Test
@@ -172,12 +292,29 @@ class TransportRoutePlanPanelHighlightTest {
                         new TransportPlanAction(TransportPlanAction.Kind.PICK_UP, 5L, "Gold", 20)),
                 214);
         TransportRoutePlanPanel panel = new TransportRoutePlanPanel(
-                new TransportRoutePlan(List.of(stop), 10.0, true), 1056, systems -> { });
+                new TransportRoutePlan(List.of(stop), 10.0, true), 1056,
+                null, 0, systems -> { }, List.of(), marketOrder());
 
         assertEquals("Pick up 162 t Clothing (2 missions)\n"
                         + "Pick up 32 t Basic Medicines (2 missions)\n"
                         + "Pick up 20 t Gold",
                 panel.tableForTests().getValueAt(0, 4));
+    }
+
+    private static CommodityMarketOrder marketOrder() {
+        return CommodityMarketOrder.fromMarketSnapshot(JsonParser.parseString("""
+                {"Items":[
+                  {"Name_Localised":"Agronomic Treatment","Category":"$MARKET_category_chemicals;"},
+                  {"Name_Localised":"Mineral Oil","Category":"$MARKET_category_chemicals;"},
+                  {"Name_Localised":"Animal Monitors","Category":"$MARKET_category_consumer_items;"},
+                  {"Name_Localised":"Clothing","Category":"$MARKET_category_consumer_items;"},
+                  {"Name_Localised":"Domestic Appliances","Category":"$MARKET_category_consumer_items;"},
+                  {"Name_Localised":"Food Cartridges","Category":"$MARKET_category_foods;"},
+                  {"Name_Localised":"Water Purifiers","Category":"$MARKET_category_industrial_materials;"},
+                  {"Name_Localised":"Basic Medicines","Category":"$MARKET_category_medicines;"},
+                  {"Name_Localised":"Gold","Category":"$MARKET_category_metals;"}
+                ]}
+                """).getAsJsonObject());
     }
 
     @Test

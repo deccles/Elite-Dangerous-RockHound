@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.dce.ed.mission.TransportLocation;
 import org.dce.ed.mission.TransportPlanAction;
+import org.dce.ed.mission.TransportPlanActionCompletion;
 import org.dce.ed.mission.TransportPlanProblem;
 import org.dce.ed.mission.TransportPlanStop;
 import org.dce.ed.mission.TransportRoutePlan;
@@ -19,6 +20,7 @@ public final class TransportPlanSessionData {
     private int capacity;
     private List<ProblemData> warnings = new ArrayList<>();
     private Integer reachedPlanStop;
+    private List<CompletedActionData> completedActions = new ArrayList<>();
 
     public static TransportPlanSessionData from(TransportRoutePlan plan, TransportLocation start,
             int initialHoldTons, int capacity, List<TransportPlanProblem> warnings) {
@@ -69,6 +71,23 @@ public final class TransportPlanSessionData {
     public int getCapacity() { return capacity; }
     public int getReachedPlanStop() { return reachedPlanStop != null ? reachedPlanStop : -1; }
     public void setReachedPlanStop(int reachedPlanStop) { this.reachedPlanStop = reachedPlanStop; }
+
+    public List<TransportPlanActionCompletion> completedActionCompletions() {
+        List<TransportPlanActionCompletion> restored = new ArrayList<>();
+        if (completedActions != null) for (CompletedActionData completion : completedActions) {
+            TransportPlanActionCompletion converted = completion != null ? completion.toCompletion() : null;
+            if (converted != null) restored.add(converted);
+        }
+        return List.copyOf(restored);
+    }
+
+    public void setCompletedActionCompletions(
+            List<TransportPlanActionCompletion> completions) {
+        completedActions = new ArrayList<>();
+        if (completions != null) for (TransportPlanActionCompletion completion : completions) {
+            if (completion != null) completedActions.add(CompletedActionData.from(completion));
+        }
+    }
 
     private static final class LocationData {
         private String system;
@@ -141,6 +160,29 @@ public final class TransportPlanSessionData {
             try {
                 return new TransportPlanAction(TransportPlanAction.Kind.valueOf(kind),
                         missionId, commodity, tons);
+            } catch (RuntimeException ex) {
+                return null;
+            }
+        }
+    }
+
+    private static final class CompletedActionData {
+        private int stopIndex;
+        private String kind;
+        private long missionId;
+
+        static CompletedActionData from(TransportPlanActionCompletion completion) {
+            CompletedActionData data = new CompletedActionData();
+            data.stopIndex = completion.stopIndex();
+            data.kind = completion.kind().name();
+            data.missionId = completion.missionId();
+            return data;
+        }
+
+        TransportPlanActionCompletion toCompletion() {
+            try {
+                return new TransportPlanActionCompletion(stopIndex,
+                        TransportPlanAction.Kind.valueOf(kind), missionId);
             } catch (RuntimeException ex) {
                 return null;
             }

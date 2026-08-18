@@ -293,10 +293,51 @@ class MissionsTabPanelOptimizerTest {
         assertNotNull(table);
         assertEquals("Sol", table.getValueAt(0, 2));
         assertEquals("Galileo", table.getValueAt(0, 3));
-        assertEquals("12 / 128 t", table.getValueAt(0, 5));
+        assertEquals("12 / 128 t\nFree 116 t", table.getValueAt(0, 5));
         assertEquals("Lave", table.getValueAt(1, 2));
         assertEquals("Lave Station", table.getValueAt(1, 3));
         assertEquals("Pick up 8 t Gold", table.getValueAt(1, 4));
+    }
+
+    @Test
+    void outOfOrderCompletionSurvivesRestartWithoutCheckingSkippedStop() {
+        AtomicReference<String> system = new AtomicReference<>("Core Sys Sector AQ-P a5-1");
+        AtomicReference<String> station = new AtomicReference<>("Rock Vision");
+        MissionsTabPanel saved = new MissionsTabPanel(
+                () -> false, () -> false, system::get, station::get,
+                () -> 128, systems -> { });
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation(
+                        "Gliese 868", "MacLean Terminal", 10, 0, 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.VISIT, 10L, "Courier", 0)), 0),
+                new TransportPlanStop(new TransportLocation(
+                        "Gliese 868", "Braun Station", 10, 0, 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.VISIT, 20L, "Courier", 0)), 0)),
+                10.0, true);
+        invoke(saved, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
+        system.set("Gliese 868");
+        station.set("Braun Station");
+        invoke(saved, "updateOptimizedPlanLocationHighlight", new Class<?>[0]);
+        saved.handleLogEvent(new EliteLogParser().parseRecord("""
+                {"timestamp":"2026-08-18T01:00:00Z","event":"MissionCompleted",
+                 "MissionID":20}
+                """));
+
+        EdoSessionState state = new EdoSessionState();
+        saved.fillSessionState(state);
+        state = new Gson().fromJson(new Gson().toJson(state), EdoSessionState.class);
+        MissionsTabPanel restored = new MissionsTabPanel(
+                () -> false, () -> false, system::get, station::get,
+                () -> 128, systems -> { });
+        restored.applySessionState(state);
+        findButton(restored, "Optimized Plan").doClick();
+
+        javax.swing.JTable table = findTableWithColumn(restored, "Action");
+        assertNotNull(table);
+        assertEquals(false, table.getValueAt(1, 0));
+        assertEquals(true, table.getValueAt(2, 0));
     }
 
     @Test
@@ -306,17 +347,21 @@ class MissionsTabPanelOptimizerTest {
         MissionsTabPanel saved = new MissionsTabPanel(
                 () -> false, () -> false, system::get, station::get,
                 () -> 128, systems -> { });
-        TransportPlanAction visit = new TransportPlanAction(
-                TransportPlanAction.Kind.VISIT, 1L, "Courier", 0);
         TransportRoutePlan plan = new TransportRoutePlan(List.of(
                 new TransportPlanStop(new TransportLocation("Lave", "Lave Station", 10, 0, 0),
-                        List.of(visit), 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.VISIT, 1L, "Courier", 0)), 0),
                 new TransportPlanStop(new TransportLocation("Leesti", "George Lucas", 20, 0, 0),
-                        List.of(visit), 0)), 20.0, true);
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.VISIT, 2L, "Courier", 0)), 0)), 20.0, true);
         invoke(saved, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
         system.set("Lave");
         station.set("Lave Station");
         invoke(saved, "updateOptimizedPlanLocationHighlight", new Class<?>[0]);
+        saved.handleLogEvent(new EliteLogParser().parseRecord("""
+                {"timestamp":"2026-08-18T01:05:00Z","event":"MissionCompleted",
+                 "MissionID":1}
+                """));
         system.set("Leesti");
         station.set("George Lucas");
         invoke(saved, "updateOptimizedPlanLocationHighlight", new Class<?>[0]);

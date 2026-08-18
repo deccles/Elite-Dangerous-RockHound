@@ -484,6 +484,8 @@ public class MissionsTabPanel extends JPanel {
                 systems -> optimizedRouteConsumer.accept(withCurrentSystemFirst(systems)), warnings);
         if (lastOptimizedPlanData != null) {
             optimizedPlanPanel.restoreReachedPlanStop(lastOptimizedPlanData.getReachedPlanStop());
+            optimizedPlanPanel.restoreCompletedActionCompletions(
+                    lastOptimizedPlanData.completedActionCompletions());
         }
         updateOptimizedPlanLocationHighlight();
         optimizedPlanHost.add(optimizedPlanPanel, BorderLayout.CENTER);
@@ -525,12 +527,18 @@ public class MissionsTabPanel extends JPanel {
         int previousStop = optimizedPlanPanel.reachedPlanStop();
         optimizedPlanPanel.updateCurrentLocation(system, station);
         int reachedStop = optimizedPlanPanel.reachedPlanStop();
-        if (reachedStop != previousStop && lastOptimizedPlanData != null) {
-            lastOptimizedPlanData.setReachedPlanStop(reachedStop);
-            if (sessionStateChangeCallback != null) sessionStateChangeCallback.run();
-        }
         var snapshot = CargoMonitor.getInstance().getSnapshot();
-        optimizedPlanPanel.updateCurrentCargo(snapshot != null ? snapshot.getCargoJson() : null);
+        boolean completionChanged = optimizedPlanPanel.updateCurrentCargo(
+                snapshot != null ? snapshot.getCargoJson() : null);
+        if (reachedStop != previousStop || completionChanged) persistOptimizedPlanProgress();
+    }
+
+    private void persistOptimizedPlanProgress() {
+        if (optimizedPlanPanel == null || lastOptimizedPlanData == null) return;
+        lastOptimizedPlanData.setReachedPlanStop(optimizedPlanPanel.reachedPlanStop());
+        lastOptimizedPlanData.setCompletedActionCompletions(
+                optimizedPlanPanel.completedActionCompletions());
+        if (sessionStateChangeCallback != null) sessionStateChangeCallback.run();
     }
 
     private String currentHighlightSystem() {
@@ -962,7 +970,10 @@ public class MissionsTabPanel extends JPanel {
         if (type == EliteEventType.UNDOCKED) {
             if (optimizedPlanPanel != null) {
                 var snapshot = CargoMonitor.getInstance().getSnapshot();
-                optimizedPlanPanel.updateCurrentCargo(snapshot != null ? snapshot.getCargoJson() : null);
+                if (optimizedPlanPanel.updateCurrentCargo(
+                        snapshot != null ? snapshot.getCargoJson() : null)) {
+                    persistOptimizedPlanProgress();
+                }
                 optimizedPlanPanel.departureReminderAt(latestJournalSystem, latestJournalStation)
                         .ifPresent(departureReminderSpeaker);
             }
@@ -1008,11 +1019,15 @@ public class MissionsTabPanel extends JPanel {
             }
             tracker.applyEvent(event);
             if (event instanceof MissionCompletedEvent completed && optimizedPlanPanel != null) {
-                optimizedPlanPanel.updateMissionCompleted(completed.getMissionId());
+                if (optimizedPlanPanel.updateMissionCompleted(completed.getMissionId())) {
+                    persistOptimizedPlanProgress();
+                }
             }
             if (event instanceof CargoDepotEvent depot && optimizedPlanPanel != null) {
-                optimizedPlanPanel.updateCargoDepotProgress(
-                        depot.getMissionId(), depot.getUpdateType(), depot.getCount());
+                if (optimizedPlanPanel.updateCargoDepotProgress(
+                        depot.getMissionId(), depot.getUpdateType(), depot.getCount())) {
+                    persistOptimizedPlanProgress();
+                }
             }
             MissionSpeechTracker.getInstance().announceAfterLiveApply(
                     tracker, event, completedPrior, true);

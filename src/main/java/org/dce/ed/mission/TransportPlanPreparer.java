@@ -47,8 +47,8 @@ public final class TransportPlanPreparer {
             List<TransportPlanProblem> warnings = new ArrayList<>();
             Map<String, Integer> loose = looseCargoByCommodity(active, cargo);
             for (MissionRecord mission : active) {
-                TransportLocation delivery = location(mission.getDestinationSystem(),
-                        destinationStation(mission), resolver, coords);
+                TransportLocation delivery = location(turnInSystem(mission),
+                        turnInStation(mission), resolver, coords);
                 if (mission.getCategory() != MissionCategory.COMMODITY) {
                     visits.add(new TransportVisit(mission.getMissionId(),
                             visitLabel(mission), delivery));
@@ -122,9 +122,9 @@ public final class TransportPlanPreparer {
         if (blank(currentSystem)) out.add(new TransportPlanProblem(TransportPlanProblem.Code.LOCATION_REQUIRED, 0,
                 "Current system is unknown."));
         for (MissionRecord mission : missions) {
-            if (blank(mission.getDestinationSystem()) || blank(destinationStation(mission))) {
+            if (blank(turnInSystem(mission)) || blank(turnInStation(mission))) {
                 out.add(new TransportPlanProblem(TransportPlanProblem.Code.LOCATION_REQUIRED,
-                        mission.getMissionId(), mission.summaryLine() + " has no complete destination."));
+                        mission.getMissionId(), mission.summaryLine() + " has no complete turn-in location."));
             }
         }
         return out;
@@ -166,6 +166,16 @@ public final class TransportPlanPreparer {
     private static String destinationStation(MissionRecord mission) {
         return blank(mission.getDestinationStation())
                 ? mission.getDestinationSettlement() : mission.getDestinationStation();
+    }
+
+    private static String turnInSystem(MissionRecord mission) {
+        return mission.getCategory() == MissionCategory.DONATION
+                ? mission.getOriginSystem() : mission.getDestinationSystem();
+    }
+
+    private static String turnInStation(MissionRecord mission) {
+        return mission.getCategory() == MissionCategory.DONATION
+                ? mission.getOriginStation() : destinationStation(mission);
     }
 
     private static String commodityKey(String commodity) {
