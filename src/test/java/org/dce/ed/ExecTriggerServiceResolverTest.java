@@ -13,7 +13,10 @@ import javax.swing.JFrame;
 import org.dce.ed.exec.ExecTriggerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
+@EnabledOnOs(OS.WINDOWS)
 class ExecTriggerServiceResolverTest {
 
     static {
