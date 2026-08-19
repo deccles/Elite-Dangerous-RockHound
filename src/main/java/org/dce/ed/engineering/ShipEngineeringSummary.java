@@ -745,7 +745,7 @@ public final class ShipEngineeringSummary {
      * Compact size/mount for Loadout UI: {@code HugeHardpoint1} → {@code Huge},
      * {@code Slot09_Size4} / {@code Slot 09 Size 4} → {@code Size 4}.
      */
-    static String shortSlotSize(String slotOrLabel) {
+    public static String shortSlotSize(String slotOrLabel) {
         if (slotOrLabel == null || slotOrLabel.isBlank()) {
             return "";
         }

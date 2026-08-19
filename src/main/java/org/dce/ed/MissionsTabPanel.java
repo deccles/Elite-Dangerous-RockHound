@@ -27,6 +27,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -79,8 +80,11 @@ import org.dce.ed.mission.MissionSpeechTracker;
 import org.dce.ed.mission.MissionTracker;
 import org.dce.ed.mission.TransportPlanPreparation;
 import org.dce.ed.mission.TransportPlanPreparer;
+import org.dce.ed.mission.TransportPlanAction;
+import org.dce.ed.mission.TransportPlanActionCompletion;
 import org.dce.ed.mission.TransportPlanProblem;
 import org.dce.ed.mission.TransportPlanRequest;
+import org.dce.ed.mission.TransportPlanStop;
 import org.dce.ed.mission.TransportRoutePlan;
 import org.dce.ed.mission.TransportRoutePlanner;
 import org.dce.ed.session.EdoSessionState;
@@ -125,6 +129,8 @@ public class MissionsTabPanel extends JPanel {
     private String latestJournalStation;
     private static final TtsSprintf DEPARTURE_TTS = new TtsSprintf(new PollyTtsCached());
     private Consumer<String> departureReminderSpeaker = MissionsTabPanel::speakDepartureReminder;
+    private Consumer<String> planStatusSpeaker = MissionsTabPanel::speakPlanStatus;
+    private Runnable manualRerouteAction = this::runManualPlanUpdate;
 
     private Runnable sessionStateChangeCallback;
     private Runnable immediateSessionStateChangeCallback;
@@ -139,6 +145,8 @@ public class MissionsTabPanel extends JPanel {
     private final CardLayout contentCardLayout = new CardLayout();
     private final JPanel contentCards = new JPanel(contentCardLayout);
     private final JPanel optimizedPlanHost = new JPanel(new BorderLayout());
+    private final JPanel optimizedPlanBody = new JPanel(new BorderLayout());
+    private final JLabel planStatusLabel = new JLabel("No transport plan yet");
     private boolean showingOptimizedPlan;
     private final JPanel redirectBanner = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
     private final JLabel redirectLabel = new JLabel();
@@ -165,6 +173,7 @@ public class MissionsTabPanel extends JPanel {
     private final JPanel sourceAllBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
     private JSplitPane transportMissionsSplit;
     private final JButton sourceAllButton = new JButton("Source all");
+    private final JLabel sourceReadinessLabel = new JLabel();
     private final JPanel contentCenter = new JPanel() {
         private static final long serialVersionUID = 1L;
 
@@ -255,7 +264,7 @@ public class MissionsTabPanel extends JPanel {
         activeCountLabel.setFont(base.deriveFont(Font.BOLD, OverlayPreferences.getUiFontSize()));
         activeCountLabel.setForeground(EdoUi.User.MAIN_TEXT);
         OverlayOutlineButtonStyle.applyPrimaryHitSafe(optimizeStopsButton, base);
-        optimizeStopsButton.addActionListener(e -> optimizeStops());
+        optimizeStopsButton.addActionListener(e -> beginManualReroute());
 
         buildFilterBar(base);
         buildRedirectBanner(base);
@@ -277,8 +286,11 @@ public class MissionsTabPanel extends JPanel {
         commoditySummaryScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
         resizeCommoditySummary(1);
         sourceAllBar.setOpaque(false);
+        sourceReadinessLabel.setFont(base);
+        sourceReadinessLabel.setForeground(EdoUi.User.MAIN_TEXT);
         OverlayOutlineButtonStyle.applyPrimaryHitSafe(sourceAllButton, base);
         sourceAllButton.addActionListener(e -> openMultiCommoditySourceDialog());
+        sourceAllBar.add(sourceReadinessLabel);
         sourceAllBar.add(sourceAllButton);
         sourceAllBar.setAlignmentX(Component.LEFT_ALIGNMENT);
         sourceAllBar.setMaximumSize(new Dimension(Integer.MAX_VALUE,
@@ -381,7 +393,6 @@ public class MissionsTabPanel extends JPanel {
         topRow.add(filterBar, BorderLayout.WEST);
         JPanel optimizeAndCount = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         optimizeAndCount.setOpaque(false);
-        optimizeAndCount.add(optimizeStopsButton);
         optimizeAndCount.add(activeCountLabel);
         topRow.add(optimizeAndCount, BorderLayout.EAST);
         top.add(topRow, BorderLayout.NORTH);
@@ -391,6 +402,16 @@ public class MissionsTabPanel extends JPanel {
         contentCards.setOpaque(false);
         optimizedPlanHost.setOpaque(false);
         optimizedPlanHost.setName("optimizedPlanContent");
+        optimizedPlanBody.setOpaque(false);
+        JPanel planHeader = new JPanel(new BorderLayout(8, 0));
+        planHeader.setOpaque(false);
+        planHeader.setBorder(new EmptyBorder(4, 8, 4, 8));
+        planStatusLabel.setFont(base);
+        planStatusLabel.setForeground(EdoUi.User.MAIN_TEXT);
+        planHeader.add(planStatusLabel, BorderLayout.CENTER);
+        planHeader.add(optimizeStopsButton, BorderLayout.EAST);
+        optimizedPlanHost.add(planHeader, BorderLayout.NORTH);
+        optimizedPlanHost.add(optimizedPlanBody, BorderLayout.CENTER);
         contentCards.add(contentCenter, "all");
         contentCards.add(optimizedPlanHost, "plan");
         add(contentCards, BorderLayout.CENTER);
@@ -398,16 +419,20 @@ public class MissionsTabPanel extends JPanel {
         add(execButtonStrip, BorderLayout.SOUTH);
 
         tracker.setChangeCallback(this::scheduleRefresh);
-        CargoMonitor.getInstance().addListener(s -> scheduleRefresh());
+        CargoMonitor.getInstance().addListener(s -> SwingUtilities.invokeLater(() -> {
+            markPlanOutOfDate();
+            refreshUi();
+        }));
 
         refreshTimer = new Timer(30_000, e -> refreshUi());
         refreshTimer.setRepeats(true);
         refreshTimer.start();
 
+        showEmptyPlanState();
         refreshUi();
     }
 
-    private void optimizeStops() {
+    private void optimizeStops(boolean rerouting) {
         List<MissionRecord> active = tracker.getActive();
         int capacity = cargoCapacitySupplier.getAsInt();
         var snapshot = CargoMonitor.getInstance().getSnapshot();
@@ -439,17 +464,36 @@ public class MissionsTabPanel extends JPanel {
                     OptimizationResult result = get();
                     TransportPlanPreparation prepared = result.preparation();
                     if (!prepared.problems().isEmpty()) {
-                        showPlanProblems(prepared.problems());
+                        if (rerouting) {
+                            planStatusLabel.setText("Unable to update route");
+                            planStatusSpeaker.accept("Unable to update route.");
+                        } else {
+                            showPlanProblems(prepared.problems());
+                        }
                         return;
                     }
-                    displayOptimizedPlan(result.plan(), prepared.request(), prepared.warnings());
+                    completePreparedPlan(result.plan(), prepared.request(), prepared.warnings(), rerouting);
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(MissionsTabPanel.this,
-                            "The Transport plan could not be calculated. " + ex.getMessage(),
-                            "Optimization failed", JOptionPane.ERROR_MESSAGE);
+                    if (rerouting) {
+                        planStatusLabel.setText("Unable to update route");
+                        planStatusSpeaker.accept("Unable to update route.");
+                    } else {
+                        JOptionPane.showMessageDialog(MissionsTabPanel.this,
+                                "The Transport plan could not be calculated. " + ex.getMessage(),
+                                "Optimization failed", JOptionPane.ERROR_MESSAGE);
+                    }
                 }
             }
         }.execute();
+    }
+
+    private void completePreparedPlan(TransportRoutePlan plan, TransportPlanRequest request,
+            List<TransportPlanProblem> warnings, boolean rerouting) {
+        displayOptimizedPlan(plan, request, warnings, true);
+        if (rerouting) {
+            applyPlanToRoute(plan);
+            planStatusSpeaker.accept("Route updated.");
+        }
     }
 
     private void displayOptimizedPlan(TransportRoutePlan plan) {
@@ -463,13 +507,25 @@ public class MissionsTabPanel extends JPanel {
 
     private void displayOptimizedPlan(TransportRoutePlan plan,
             TransportPlanRequest request, List<TransportPlanProblem> warnings) {
+        displayOptimizedPlan(plan, request, warnings, true);
+    }
+
+    private void displayOptimizedPlan(TransportRoutePlan plan,
+            TransportPlanRequest request, List<TransportPlanProblem> warnings, boolean openPlanTab) {
+        TransportRoutePlan previousPlan = lastOptimizedPlan;
+        List<TransportPlanActionCompletion> previousCompletions = optimizedPlanPanel != null
+                ? optimizedPlanPanel.completedActionCompletions()
+                : lastOptimizedPlanData != null
+                        ? lastOptimizedPlanData.completedActionCompletions() : List.of();
         org.dce.ed.mission.TransportLocation start = request != null
                 ? request.start() : currentPlanStart();
         int initialHoldTons = request != null ? request.occupiedCargo() : 0;
         int capacity = cargoCapacitySupplier.getAsInt();
         lastOptimizedPlanData = TransportPlanSessionData.from(
                 plan, start, initialHoldTons, capacity, warnings);
-        installOptimizedPlan(plan, start, initialHoldTons, capacity, warnings, true);
+        lastOptimizedPlanData.setCompletedActionCompletions(
+                remapCompletions(previousCompletions, previousPlan, plan));
+        installOptimizedPlan(plan, start, initialHoldTons, capacity, warnings, openPlanTab);
         if (sessionStateChangeCallback != null) sessionStateChangeCallback.run();
     }
 
@@ -478,17 +534,21 @@ public class MissionsTabPanel extends JPanel {
             List<TransportPlanProblem> warnings, boolean openPlanTab) {
         lastOptimizedPlan = plan;
         optimizeStopsButton.setText("Update Plan");
-        optimizedPlanHost.removeAll();
+        planStatusLabel.setText("Plan current · Route not applied");
+        optimizedPlanBody.removeAll();
         optimizedPlanPanel = new TransportRoutePlanPanel(plan, capacity,
                 start, initialHoldTons,
-                systems -> optimizedRouteConsumer.accept(withCurrentSystemFirst(systems)), warnings);
+                systems -> {
+                    optimizedRouteConsumer.accept(withCurrentSystemFirst(systems));
+                    planStatusLabel.setText("Plan current · Route matches plan");
+                }, warnings);
         if (lastOptimizedPlanData != null) {
             optimizedPlanPanel.restoreReachedPlanStop(lastOptimizedPlanData.getReachedPlanStop());
             optimizedPlanPanel.restoreCompletedActionCompletions(
                     lastOptimizedPlanData.completedActionCompletions());
         }
         updateOptimizedPlanLocationHighlight();
-        optimizedPlanHost.add(optimizedPlanPanel, BorderLayout.CENTER);
+        optimizedPlanBody.add(optimizedPlanPanel, BorderLayout.CENTER);
         optimizedPlanHost.revalidate();
         optimizedPlanHost.repaint();
         if (openPlanTab) showOptimizedPlanTab();
@@ -516,6 +576,72 @@ public class MissionsTabPanel extends JPanel {
             route.add(system.trim());
         }
         return List.copyOf(route);
+    }
+
+    private void applyPlanToRoute(TransportRoutePlan plan) {
+        if (plan == null) return;
+        List<String> systems = plan.stops().stream()
+                .map(stop -> stop.location().system())
+                .toList();
+        optimizedRouteConsumer.accept(withCurrentSystemFirst(systems));
+        planStatusLabel.setText("Plan current · Route matches plan");
+    }
+
+    private static List<TransportPlanActionCompletion> remapCompletions(
+            List<TransportPlanActionCompletion> previous,
+            TransportRoutePlan previousPlan, TransportRoutePlan plan) {
+        if (previous == null || previous.isEmpty() || previousPlan == null || plan == null) {
+            return List.of();
+        }
+        List<TransportPlanActionCompletion> remapped = new ArrayList<>();
+        for (TransportPlanActionCompletion completion : previous) {
+            if (completion.stopIndex() < 0 || completion.stopIndex() >= previousPlan.stops().size()) {
+                continue;
+            }
+            TransportPlanStop previousStop = previousPlan.stops().get(completion.stopIndex());
+            List<TransportPlanAction> completedActions = previousStop.actions().stream()
+                    .filter(action -> action.kind() == completion.kind()
+                            && action.missionId() == completion.missionId())
+                    .toList();
+            for (int stopIndex = 0; stopIndex < plan.stops().size(); stopIndex++) {
+                TransportPlanStop candidateStop = plan.stops().get(stopIndex);
+                boolean sameLocation = java.util.Objects.equals(
+                        previousStop.location().system(), candidateStop.location().system())
+                        && java.util.Objects.equals(
+                                previousStop.location().station(), candidateStop.location().station());
+                boolean found = sameLocation && candidateStop.actions().stream()
+                        .anyMatch(candidate -> completedActions.stream().anyMatch(previousAction ->
+                                previousAction.kind() == candidate.kind()
+                                        && previousAction.missionId() == candidate.missionId()
+                                        && java.util.Objects.equals(
+                                                previousAction.commodity(), candidate.commodity())
+                                        && previousAction.tons() == candidate.tons()));
+                if (found) {
+                    remapped.add(new TransportPlanActionCompletion(
+                            stopIndex, completion.kind(), completion.missionId()));
+                    break;
+                }
+            }
+        }
+        return List.copyOf(remapped);
+    }
+
+    private void beginManualReroute() {
+        if (lastOptimizedPlan != null) {
+            planStatusLabel.setText("Rerouting…");
+            planStatusSpeaker.accept("Rerouting...");
+        }
+        manualRerouteAction.run();
+    }
+
+    private void runManualPlanUpdate() {
+        optimizeStops(lastOptimizedPlan != null);
+    }
+
+    private void markPlanOutOfDate() {
+        if (lastOptimizedPlan != null && optimizeStopsButton.isEnabled()) {
+            planStatusLabel.setText("Plan out of date · Update when ready");
+        }
     }
 
     private void updateOptimizedPlanLocationHighlight() {
@@ -574,9 +700,10 @@ public class MissionsTabPanel extends JPanel {
         lastOptimizedPlan = null;
         lastOptimizedPlanData = null;
         optimizedPlanPanel = null;
-        optimizedPlanHost.removeAll();
+        optimizedPlanBody.removeAll();
         optimizeStopsButton.setEnabled(true);
         optimizeStopsButton.setText("Create Plan");
+        showEmptyPlanState();
         showAllTab();
         if (hadPlan && sessionStateChangeCallback != null) sessionStateChangeCallback.run();
     }
@@ -612,16 +739,28 @@ public class MissionsTabPanel extends JPanel {
                     assessment.station().system(), assessment.station().station());
             if (changed <= 0) return;
             refreshUi();
+            markPlanOutOfDate();
             if (immediateSessionStateChangeCallback != null) immediateSessionStateChangeCallback.run();
             else if (sessionStateChangeCallback != null) sessionStateChangeCallback.run();
         }).setVisible(true);
     }
 
     boolean applySourcedFromSelection(long missionId, String system, String station) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            AtomicReference<Boolean> result = new AtomicReference<>(false);
+            try {
+                SwingUtilities.invokeAndWait(() ->
+                        result.set(applySourcedFromSelection(missionId, system, station)));
+            } catch (Exception ex) {
+                throw new IllegalStateException("Could not update the mission source", ex);
+            }
+            return result.get();
+        }
         if (!tracker.setSourcedFrom(missionId, system, station)) {
             return false;
         }
         refreshUi();
+        markPlanOutOfDate();
         if (immediateSessionStateChangeCallback != null) {
             immediateSessionStateChangeCallback.run();
         } else if (sessionStateChangeCallback != null) {
@@ -631,10 +770,21 @@ public class MissionsTabPanel extends JPanel {
     }
 
     boolean clearSourcedFromSelection(long missionId) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            AtomicReference<Boolean> result = new AtomicReference<>(false);
+            try {
+                SwingUtilities.invokeAndWait(() ->
+                        result.set(clearSourcedFromSelection(missionId)));
+            } catch (Exception ex) {
+                throw new IllegalStateException("Could not clear the mission source", ex);
+            }
+            return result.get();
+        }
         if (!tracker.clearSourcedFrom(missionId)) {
             return false;
         }
         refreshUi();
+        markPlanOutOfDate();
         if (immediateSessionStateChangeCallback != null) {
             immediateSessionStateChangeCallback.run();
         } else if (sessionStateChangeCallback != null) {
@@ -655,7 +805,7 @@ public class MissionsTabPanel extends JPanel {
         filterBar.setOpaque(false);
         OverlayOutlineButtonStyle.applyChip(allTabButton, base, true);
         OverlayOutlineButtonStyle.applyChip(optimizedPlanTabButton, base, false);
-        optimizedPlanTabButton.setEnabled(false);
+        optimizedPlanTabButton.setEnabled(true);
         allTabButton.addActionListener(e -> showAllTab());
         optimizedPlanTabButton.addActionListener(e -> showOptimizedPlanTab());
         HoverClickPoller.register(allTabButton, FILTER_HOVER_DELAY_MS,
@@ -670,7 +820,7 @@ public class MissionsTabPanel extends JPanel {
         Font base = OverlayPreferences.getUiFont();
         OverlayOutlineButtonStyle.applyChip(allTabButton, base, !showingOptimizedPlan);
         OverlayOutlineButtonStyle.applyChip(optimizedPlanTabButton, base, showingOptimizedPlan);
-        optimizedPlanTabButton.setEnabled(lastOptimizedPlan != null);
+        optimizedPlanTabButton.setEnabled(true);
     }
 
     private void showAllTab() {
@@ -680,10 +830,19 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void showOptimizedPlanTab() {
-        if (lastOptimizedPlan == null) return;
         showingOptimizedPlan = true;
         contentCardLayout.show(contentCards, "plan");
         updateFilterChipStyles();
+    }
+
+    private void showEmptyPlanState() {
+        planStatusLabel.setText("No transport plan yet");
+        JLabel empty = new JLabel("No transport plan yet", SwingConstants.CENTER);
+        empty.setFont(OverlayPreferences.getUiFont());
+        empty.setForeground(EdoUi.User.MAIN_TEXT);
+        optimizedPlanBody.add(empty, BorderLayout.CENTER);
+        optimizedPlanBody.revalidate();
+        optimizedPlanBody.repaint();
     }
 
     private void configureMissionsTable(Font base) {
@@ -1031,6 +1190,15 @@ public class MissionsTabPanel extends JPanel {
             }
             MissionSpeechTracker.getInstance().announceAfterLiveApply(
                     tracker, event, completedPrior, true);
+            if (event instanceof MissionAcceptedEvent
+                    || event instanceof MissionCompletedEvent
+                    || event instanceof MissionFailedEvent
+                    || event instanceof MissionAbandonedEvent
+                    || event instanceof MissionRedirectedEvent
+                    || event instanceof CargoDepotEvent
+                    || event instanceof MissionsEvent) {
+                markPlanOutOfDate();
+            }
             scheduleRefresh();
         }
     }
@@ -1172,7 +1340,21 @@ public class MissionsTabPanel extends JPanel {
     }
 
     private void rebuildCommodityGroups() {
-        sourceAllBar.setVisible(false);
+        List<MissionRecord> transport = tracker.getActive().stream()
+                .filter(m -> m != null && m.getCategory().isTransport())
+                .toList();
+        int missingSources = (int) transport.stream()
+                .filter(MissionRecord::isManuallySourceableCommodityMission)
+                .filter(m -> !hasManualSource(m))
+                .count();
+        int ready = Math.max(0, transport.size() - missingSources);
+        sourceReadinessLabel.setText(transport.size() + (transport.size() == 1 ? " mission" : " missions")
+                + " · " + ready + " ready · " + missingSources
+                + (missingSources == 1 ? " needs source" : " need sources"));
+        sourceAllButton.setText(missingSources == 1
+                ? "Resolve 1 Missing Source" : "Resolve " + missingSources + " Missing Sources");
+        sourceAllButton.setVisible(missingSources > 0);
+        sourceAllBar.setVisible(!transport.isEmpty());
         List<CommodityMissionGroup> groups = tracker.getCommodityGroups(MissionTracker::commodityInHold);
         commoditySummaryGroups = List.copyOf(groups);
         commoditySummaryModel.setRowCount(0);
@@ -1181,7 +1363,6 @@ public class MissionsTabPanel extends JPanel {
             return;
         }
         commoditySummaryScroll.setVisible(true);
-        sourceAllBar.setVisible(!MultiCommoditySourceDialog.buildNeeds(tracker.getActive()).isEmpty());
         for (CommodityMissionGroup g : groups) {
             int gathered = g.totalGathered();
             int required = g.getTotalRequired();
@@ -1213,6 +1394,16 @@ public class MissionsTabPanel extends JPanel {
                     DEPARTURE_TTS.speakf("Did you forget your delivery and donations again, Commander?");
             case "Did you forget your deliveries and donations again, Commander?" ->
                     DEPARTURE_TTS.speakf("Did you forget your deliveries and donations again, Commander?");
+            default -> { }
+        }
+    }
+
+    private static void speakPlanStatus(String status) {
+        if (!OverlayPreferences.isSpeechEnabled() || status == null) return;
+        switch (status) {
+            case "Rerouting..." -> DEPARTURE_TTS.speakf("Rerouting...");
+            case "Route updated." -> DEPARTURE_TTS.speakf("Route updated.");
+            case "Unable to update route." -> DEPARTURE_TTS.speakf("Unable to update route.");
             default -> { }
         }
     }

@@ -79,7 +79,7 @@ class TransportRoutePlanPanelHighlightTest {
         assertEquals("Gliese 868", table.getValueAt(0, 2));
         assertEquals("MacLean Terminal", table.getValueAt(0, 3));
         assertEquals("", table.getValueAt(0, 4));
-        assertEquals("0 / 1056 t\nFree 1056 t", table.getValueAt(0, 5));
+        assertEquals("0 / 1056 t\nHold Empty", table.getValueAt(0, 5));
         assertEquals(0, panel.highlightedRowForTests());
         assertEquals(false, table.getRowSelectionAllowed());
         assertEquals(false, table.getColumnSelectionAllowed());
@@ -112,6 +112,45 @@ class TransportRoutePlanPanelHighlightTest {
         assertTrue(((JComponent) rendered).getBorder() instanceof CompoundBorder);
         CompoundBorder border = (CompoundBorder) ((JComponent) rendered).getBorder();
         assertTrue(border.getOutsideBorder() instanceof MatteBorder);
+    }
+
+    @Test
+    void onlyTheCurrentContiguousSystemVisitIsHighlighted() {
+        TransportRoutePlanPanel panel = alternatingPlanFromGliese();
+
+        panel.updateCurrentLocation("Gliese 868", "MacLean Terminal");
+        assertEquals(List.of(0), panel.highlightedRowsForTests());
+
+        panel.updateCurrentLocation("Core Sys Sector FW-N a6-0", null);
+        assertEquals(List.of(1), panel.highlightedRowsForTests());
+    }
+
+    @Test
+    void consecutiveStopsInTheCurrentSystemShareTheHighlightUntilTheNextJump() {
+        TransportPlanAction visit = new TransportPlanAction(
+                TransportPlanAction.Kind.VISIT, 1L, "Courier", 0);
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation(
+                        "Gliese 868", "MacLean Terminal", 0, 0, 0), List.of(visit), 0),
+                new TransportPlanStop(new TransportLocation(
+                        "Gliese 868", "Beacon Port", 0, 0, 0), List.of(visit), 0),
+                new TransportPlanStop(new TransportLocation(
+                        "Lave", "Lave Station", 10, 0, 0), List.of(visit), 0),
+                new TransportPlanStop(new TransportLocation(
+                        "Gliese 868", "Braun Station", 0, 0, 0), List.of(visit), 0)),
+                20.0, true);
+        TransportRoutePlanPanel panel = new TransportRoutePlanPanel(plan, 1056,
+                new TransportLocation("Gliese 868", "Current position", 0, 0, 0),
+                0, systems -> { }, List.of());
+
+        panel.updateCurrentLocation("Gliese 868", null);
+        assertEquals(List.of(0, 1, 2), panel.highlightedRowsForTests());
+
+        panel.updateCurrentLocation("Lave", null);
+        assertEquals(List.of(3), panel.highlightedRowsForTests());
+
+        panel.updateCurrentLocation("Gliese 868", "Braun Station");
+        assertEquals(List.of(4), panel.highlightedRowsForTests());
     }
 
     @Test
@@ -278,6 +317,10 @@ class TransportRoutePlanPanelHighlightTest {
         assertEquals(2, rendered.getComponentCount());
         assertEquals("984 / 1056 t", ((JLabel) rendered.getComponent(0)).getText());
         assertEquals("Free 72 t", ((JLabel) rendered.getComponent(1)).getText());
+        assertEquals(table.getForeground(),
+                ((JLabel) rendered.getComponent(0)).getForeground());
+        assertEquals(EdoUi.Internal.MAIN_TEXT_ALPHA_180,
+                ((JLabel) rendered.getComponent(1)).getForeground());
     }
 
     @Test

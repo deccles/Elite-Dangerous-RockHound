@@ -110,7 +110,7 @@ public final class TransportRoutePlanPanel extends JPanel {
 
             @Override public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
                 Component component = super.prepareRenderer(renderer, row, column);
-                if (row == highlightedRow && component instanceof JComponent cell) {
+                if (isRowInHighlightedSystemBlock(row) && component instanceof JComponent cell) {
                     int left = column == 0 ? 2 : 0;
                     int right = column == getColumnCount() - 1 ? 2 : 0;
                     cell.setBorder(BorderFactory.createCompoundBorder(
@@ -187,7 +187,7 @@ public final class TransportRoutePlanPanel extends JPanel {
         add(south, BorderLayout.SOUTH);
     }
 
-    /** Moves the plan-row border to the current stop without inferring completion from route order. */
+    /** Highlights the current contiguous system visit while tracking the exact stop separately. */
     public void updateCurrentLocation(String system, String station) {
         int rowOffset = start == null ? 0 : 1;
         boolean atStart = reachedPlanStop < 0 && start != null
@@ -224,6 +224,16 @@ public final class TransportRoutePlanPanel extends JPanel {
                 return;
             }
         }
+        int enteredSystemStop = matchingSystemStopAtOrAfter(system, next);
+        if (enteredSystemStop >= 0
+                && (reachedPlanStop < 0
+                        || !sameLocationText(system, currentReachedSystem()))) {
+            reachedPlanStop = enteredSystemStop;
+            highlightedRow = rowOffset + reachedPlanStop;
+            refreshCompletionMarkers();
+            table.repaint();
+            return;
+        }
         if (reachedPlanStop >= 0 && sameLocationText(system, currentReachedSystem())) {
             highlightedRow = rowOffset + reachedPlanStop;
         } else if (reachedPlanStop < 0 && start != null
@@ -233,6 +243,16 @@ public final class TransportRoutePlanPanel extends JPanel {
             highlightedRow = -1;
         }
         table.repaint();
+    }
+
+    private int matchingSystemStopAtOrAfter(String system, int firstStop) {
+        if (system == null || system.isBlank()) return -1;
+        for (int stopIndex = Math.max(0, firstStop); stopIndex < plan.stops().size(); stopIndex++) {
+            if (sameLocationText(system, plan.stops().get(stopIndex).location().system())) {
+                return stopIndex;
+            }
+        }
+        return -1;
     }
 
     private int matchingStationStop(String system, String station) {
@@ -456,6 +476,26 @@ public final class TransportRoutePlanPanel extends JPanel {
         return highlightedRow;
     }
 
+    List<Integer> highlightedRowsForTests() {
+        List<Integer> rows = new ArrayList<>();
+        for (int row = 0; row < table.getRowCount(); row++) {
+            if (isRowInHighlightedSystemBlock(row)) rows.add(row);
+        }
+        return List.copyOf(rows);
+    }
+
+    private boolean isRowInHighlightedSystemBlock(int row) {
+        if (highlightedRow < 0 || row < 0 || row >= table.getRowCount()) return false;
+        String system = systemForTableRow(highlightedRow);
+        if (!sameLocationText(system, systemForTableRow(row))) return false;
+        int first = Math.min(row, highlightedRow);
+        int last = Math.max(row, highlightedRow);
+        for (int between = first; between <= last; between++) {
+            if (!sameLocationText(system, systemForTableRow(between))) return false;
+        }
+        return true;
+    }
+
     JTable tableForTests() {
         return table;
     }
@@ -490,8 +530,9 @@ public final class TransportRoutePlanPanel extends JPanel {
     }
 
     private static String holdText(int usedTons, int capacityTons) {
-        return usedTons + " / " + capacityTons + " t\nFree "
-                + Math.max(0, capacityTons - usedTons) + " t";
+        int freeTons = Math.max(0, capacityTons - usedTons);
+        return usedTons + " / " + capacityTons + " t\n"
+                + (freeTons == capacityTons ? "Hold Empty" : "Free " + freeTons + " t");
     }
 
     private List<ActionGroup> actionGroups(List<TransportPlanAction> actions) {
@@ -661,11 +702,14 @@ public final class TransportRoutePlanPanel extends JPanel {
             setOpaque(selected || source.isOpaque());
             setBorder(BorderFactory.createEmptyBorder(1, 1, 1, 1));
             String[] lines = String.valueOf(value).split("\\R", -1);
-            for (String line : lines) {
+            for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+                String line = lines[lineIndex];
                 JLabel label = new JLabel(line);
                 label.setFont(source.getFont());
                 label.setForeground(selected
-                        ? source.getSelectionForeground() : source.getForeground());
+                        ? source.getSelectionForeground()
+                        : lineIndex == 0 ? source.getForeground()
+                                : EdoUi.Internal.MAIN_TEXT_ALPHA_180);
                 add(label);
             }
             return this;

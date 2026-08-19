@@ -13,6 +13,7 @@ import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -23,6 +24,7 @@ import javax.swing.SwingUtilities;
 
 import org.dce.ed.mission.TransportLocation;
 import org.dce.ed.mission.TransportPlanAction;
+import org.dce.ed.mission.TransportPlanActionCompletion;
 import org.dce.ed.mission.TransportPlanStop;
 import org.dce.ed.mission.TransportPlanProblem;
 import org.dce.ed.mission.TransportRoutePlan;
@@ -33,6 +35,7 @@ import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.EliteEventType;
 import org.dce.ed.logreader.EliteLogEvent;
+import org.dce.ed.ui.TransportRoutePlanPanel;
 import org.junit.jupiter.api.Test;
 
 import com.google.gson.JsonObject;
@@ -71,7 +74,7 @@ class MissionsTabPanelOptimizerTest {
     }
 
     @Test
-    void transportNavigationStartsWithAllAndDisabledOptimizedPlanTabs() {
+    void transportNavigationLetsAnEmptyPlanTabCreateThePlanInPlace() {
         MissionsTabPanel panel = new MissionsTabPanel(
                 () -> false, () -> false, () -> "Sol", () -> "Galileo",
                 () -> 128, systems -> { });
@@ -79,14 +82,193 @@ class MissionsTabPanelOptimizerTest {
         assertNotNull(findButton(panel, "Transport Missions"));
         JButton optimizedPlan = findButton(panel, "Optimized Plan");
         assertNotNull(optimizedPlan);
-        assertFalse(optimizedPlan.isEnabled());
+        assertTrue(optimizedPlan.isEnabled());
+        optimizedPlan.doClick();
+        assertTrue(findNamed(panel, "optimizedPlanContent").isVisible());
+        assertNotNull(findLabelContaining(panel, "No transport plan yet"));
+        assertNotNull(findButton(panel, "Create Plan"));
         assertNull(findButton(panel, "Cargo"));
         assertNull(findButton(panel, "Courier"));
         assertNull(findButton(panel, "Passenger"));
     }
 
     @Test
-    void completedPlanEnablesAndOpensPlanTabThenInvalidationReturnsToAll() {
+    void transportMissionsShowsSourceReadinessAndAResolveMissingSourcesAction() throws Exception {
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        panel.handleLogEvent(new EliteLogParser().parseRecord("""
+                {"timestamp":"2026-08-18T01:00:00Z","event":"MissionAccepted",
+                 "Name":"Mission_Sourced_Boom","MissionID":88,
+                 "Commodity_Localised":"Gold","Count":12,
+                 "DestinationSystem":"Lave","DestinationStation":"Lave Station"}
+                """));
+        SwingUtilities.invokeAndWait(() -> { });
+
+        assertNotNull(findLabelContaining(panel, "1 mission · 0 ready · 1 needs source"));
+        assertNotNull(findButton(panel, "Resolve 1 Missing Source"));
+    }
+
+    @Test
+    void changingASourceMarksThePlanOutOfDateWithoutRerouting() throws Exception {
+        AtomicReference<String> spoken = new AtomicReference<>();
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        panel.handleLogEvent(new EliteLogParser().parseRecord("""
+                {"timestamp":"2026-08-18T01:00:00Z","event":"MissionAccepted",
+                 "Name":"Mission_Sourced_Boom","MissionID":88,
+                 "Commodity_Localised":"Gold","Count":12,
+                 "DestinationSystem":"Lave","DestinationStation":"Lave Station"}
+                """));
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.DELIVER, 88L, "Gold", 12)), 0)), 10.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
+        writeField(panel, "planStatusSpeaker", (Consumer<String>) spoken::set);
+
+        assertTrue(panel.applySourcedFromSelection(88L, "Leesti", "George Lucas"));
+
+        assertNull(spoken.get());
+        assertNotNull(findLabelContaining(panel, "Plan out of date"));
+    }
+
+    @Test
+    void cargoDepotProgressMarksThePlanOutOfDateWithoutReplacingIt() {
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        panel.handleLogEvent(new EliteLogParser().parseRecord("""
+                {"timestamp":"2026-08-18T01:00:00Z","event":"MissionAccepted",
+                 "Name":"Mission_Collect","MissionID":88,
+                 "Commodity_Localised":"Gold","Count":12,
+                 "DestinationSystem":"Lave","DestinationStation":"Lave Station"}
+                """));
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation("Sol", "Galileo", 0, 0, 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.PICK_UP, 88L, "Gold", 12)), 12)), 0.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, plan);
+
+        panel.handleLogEvent(new EliteLogParser().parseRecord("""
+                {"timestamp":"2026-08-18T01:01:00Z","event":"CargoDepot","MissionID":88,
+                 "UpdateType":"Collect","CargoType":"Gold","Count":12,
+                 "StartMarketID":1,"EndMarketID":2,"ItemsCollected":12,
+                 "ItemsDelivered":0,"TotalItemsToDeliver":12}
+                """));
+
+        assertNotNull(findLabelContaining(panel, "Plan out of date"));
+    }
+
+    @Test
+    void reroutingPreservesCompletedActionsWhenStopsMove() {
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        TransportPlanStop lave = new TransportPlanStop(
+                new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                List.of(new TransportPlanAction(TransportPlanAction.Kind.VISIT, 1L, "Courier", 0)), 0);
+        TransportPlanStop leesti = new TransportPlanStop(
+                new TransportLocation("Leesti", "George Lucas", 20, 0, 0),
+                List.of(new TransportPlanAction(TransportPlanAction.Kind.VISIT, 2L, "Courier", 0)), 0);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class },
+                new TransportRoutePlan(List.of(lave, leesti), 20.0, true));
+        invoke(panel, "updateOptimizedPlanLocationHighlight",
+                new Class<?>[] { String.class, String.class }, "Lave", "Lave Station");
+        panel.handleLogEvent(new EliteLogParser().parseRecord("""
+                {"timestamp":"2026-08-18T01:05:00Z","event":"MissionCompleted","MissionID":1}
+                """));
+
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class },
+                new TransportRoutePlan(List.of(leesti, lave), 20.0, true));
+
+        javax.swing.JTable table = findTableWithColumn(panel, "Action");
+        assertNotNull(table);
+        assertEquals(true, table.getValueAt(2, 0));
+    }
+
+    @Test
+    void reroutingDoesNotMoveACompletionToADifferentSplitPickup() {
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 1056, systems -> { });
+        TransportLocation rockVision = new TransportLocation(
+                "Core Sys Sector AQ-P a5-1", "Rock Vision", 10, 0, 0);
+        TransportRoutePlan oldPlan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(rockVision,
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.PICK_UP, 88L,
+                                "Advanced Medicines", 54)), 54)), 10.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, oldPlan);
+        TransportRoutePlanPanel oldPanel = (TransportRoutePlanPanel) readField(panel, "optimizedPlanPanel");
+        oldPanel.restoreCompletedActionCompletions(List.of(
+                new TransportPlanActionCompletion(0, TransportPlanAction.Kind.PICK_UP, 88L)));
+
+        TransportRoutePlan revised = new TransportRoutePlan(List.of(
+                new TransportPlanStop(rockVision,
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.PICK_UP, 88L,
+                                "Advanced Medicines", 523)), 523),
+                new TransportPlanStop(rockVision,
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.PICK_UP, 88L,
+                                "Advanced Medicines", 54)), 577)), 10.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, revised);
+
+        javax.swing.JTable table = findTableWithColumn(panel, "Action");
+        assertNotNull(table);
+        assertEquals(false, table.getValueAt(1, 0));
+        assertEquals(true, table.getValueAt(2, 0));
+    }
+
+    @Test
+    void startingAManualUpdateAnnouncesReroutingAndRunsOneUpdate() {
+        AtomicInteger updates = new AtomicInteger();
+        AtomicReference<String> spoken = new AtomicReference<>();
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, systems -> { });
+        TransportRoutePlan existing = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.VISIT, 1L, "Courier", 0)), 0)), 10.0, true);
+        invoke(panel, "displayOptimizedPlan", new Class<?>[] { TransportRoutePlan.class }, existing);
+        writeField(panel, "manualRerouteAction", (Runnable) updates::incrementAndGet);
+        writeField(panel, "planStatusSpeaker", (Consumer<String>) spoken::set);
+
+        invoke(panel, "beginManualReroute", new Class<?>[0]);
+
+        assertEquals(1, updates.get());
+        assertEquals("Rerouting...", spoken.get());
+        assertNotNull(findLabelContaining(panel, "Rerouting"));
+    }
+
+    @Test
+    void successfulManualRerouteAppliesTheRouteAndAnnouncesCompletion() {
+        List<List<String>> applied = new ArrayList<>();
+        AtomicReference<String> spoken = new AtomicReference<>();
+        MissionsTabPanel panel = new MissionsTabPanel(
+                () -> false, () -> false, () -> "Sol", () -> "Galileo",
+                () -> 128, applied::add);
+        writeField(panel, "planStatusSpeaker", (Consumer<String>) spoken::set);
+        TransportRoutePlan plan = new TransportRoutePlan(List.of(
+                new TransportPlanStop(new TransportLocation("Lave", "Lave Station", 10, 0, 0),
+                        List.of(new TransportPlanAction(
+                                TransportPlanAction.Kind.VISIT, 1L, "Courier", 0)), 0)), 10.0, true);
+
+        invoke(panel, "completePreparedPlan",
+                new Class<?>[] { TransportRoutePlan.class, TransportPlanRequest.class,
+                        List.class, boolean.class },
+                plan, null, List.of(), true);
+
+        assertEquals(List.of(List.of("Sol", "Lave")), applied);
+        assertEquals("Route updated.", spoken.get());
+        assertNotNull(findLabelContaining(panel, "Plan current"));
+    }
+
+    @Test
+    void completedPlanOpensPlanTabAndInvalidationLeavesTheEmptyPlanAvailable() {
         List<List<String>> applied = new ArrayList<>();
         MissionsTabPanel panel = new MissionsTabPanel(
                 () -> false, () -> false, () -> "Sol", () -> "Galileo",
@@ -109,9 +291,11 @@ class MissionsTabPanelOptimizerTest {
 
         invoke(panel, "invalidateOptimizedPlan", new Class<?>[0]);
 
-        assertFalse(optimizedPlan.isEnabled());
+        assertTrue(optimizedPlan.isEnabled());
         assertFalse(findNamed(panel, "optimizedPlanContent").isVisible());
         assertTrue(findNamed(panel, "allMissionsContent").isVisible());
+        optimizedPlan.doClick();
+        assertNotNull(findLabelContaining(panel, "No transport plan yet"));
     }
 
     @Test

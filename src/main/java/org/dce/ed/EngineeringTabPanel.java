@@ -13,7 +13,10 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.Toolkit;
 import java.awt.Window;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -27,9 +30,11 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.KeyEvent;
 import java.util.function.BooleanSupplier;
 
 import javax.swing.BorderFactory;
+import javax.swing.AbstractAction;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListCellRenderer;
@@ -40,12 +45,16 @@ import javax.swing.JList;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JFileChooser;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
+import javax.swing.KeyStroke;
+import javax.swing.TransferHandler;
 import javax.swing.JViewport;
 import javax.swing.RowSorter;
 import javax.swing.ScrollPaneConstants;
@@ -77,6 +86,8 @@ import org.dce.ed.engineering.EngineeringInventoryTracker;
 import org.dce.ed.engineering.EngineerReputationTracker;
 import org.dce.ed.engineering.EngineeringMaterialKeys;
 import org.dce.ed.engineering.EngineeringPlanner;
+import org.dce.ed.engineering.EngineeringRecommendationImport;
+import org.dce.ed.engineering.EngineeringRecommendationTransfer;
 import org.dce.ed.engineering.GoalPriority;
 import org.dce.ed.engineering.GoalReadiness;
 import org.dce.ed.engineering.MaterialRequirement;
@@ -532,6 +543,7 @@ public class EngineeringTabPanel extends JPanel {
         inventoryTracker.setChangeCallback(this::scheduleRefresh);
         reputationTracker.setChangeCallback(this::scheduleRefresh);
         installEngineeringTableLayoutListeners();
+        installRecommendationImportInteractions();
         refreshUi();
     }
 
@@ -618,6 +630,13 @@ public class EngineeringTabPanel extends JPanel {
         addBtn.addActionListener(e -> openAddGoalDialog());
         HoverClickPoller.register(addBtn, HOVER_CLICK_DELAY_MS, this::openAddGoalDialog, passThroughEnabledSupplier);
         buttonsRow.add(addBtn);
+        JButton importBtn = new JButton("Import Recommendations");
+        OverlayOutlineButtonStyle.applyChip(importBtn, base, false);
+        importBtn.setToolTipText("Import SLEF JSON from a file; you can also drop a file or press Ctrl+V");
+        importBtn.addActionListener(e -> chooseRecommendationFile());
+        HoverClickPoller.register(importBtn, HOVER_CLICK_DELAY_MS, this::chooseRecommendationFile,
+                passThroughEnabledSupplier);
+        buttonsRow.add(importBtn);
         north.add(buttonsRow);
 
         p.add(north, BorderLayout.NORTH);
@@ -650,6 +669,137 @@ public class EngineeringTabPanel extends JPanel {
 
         applyMaterialsSectionLayout();
         return materialsPanel;
+    }
+
+    private void installRecommendationImportInteractions() {
+        TransferHandler handler = new TransferHandler() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public boolean canImport(TransferSupport support) {
+                return support != null
+                        && (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor)
+                                || support.isDataFlavorSupported(DataFlavor.stringFlavor));
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support)) {
+                    return false;
+                }
+                try {
+                    String json = EngineeringRecommendationTransfer.read(support.getTransferable());
+                    importRecommendationText(json);
+                    return true;
+                } catch (Exception ex) {
+                    showRecommendationError(ex.getMessage());
+                    return false;
+                }
+            }
+        };
+        installTransferHandlerRecursively(this, handler);
+
+        int shortcutMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_V, shortcutMask), "engineeringPasteRecommendation");
+        getActionMap().put("engineeringPasteRecommendation", new AbstractAction() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                try {
+                    Transferable clipboard = Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null);
+                    String json = EngineeringRecommendationTransfer.read(clipboard);
+                    importRecommendationText(json);
+                } catch (Exception ex) {
+                    showRecommendationError(ex.getMessage());
+                }
+            }
+        });
+    }
+
+    private static void installTransferHandlerRecursively(Component component, TransferHandler handler) {
+        if (component instanceof JComponent swingComponent) {
+            swingComponent.setTransferHandler(handler);
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                installTransferHandlerRecursively(child, handler);
+            }
+        }
+    }
+
+    private void chooseRecommendationFile() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Import Engineering Recommendations");
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("SLEF JSON files", "json"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
+            return;
+        }
+        try {
+            String json = java.nio.file.Files.readString(
+                    chooser.getSelectedFile().toPath(), java.nio.charset.StandardCharsets.UTF_8);
+            importRecommendationText(json);
+        } catch (Exception ex) {
+            showRecommendationError(ex.getMessage());
+        }
+    }
+
+    private void importRecommendationText(String json) {
+        EngineeringRecommendationImport.Plan plan = EngineeringRecommendationImport.parse(json, database);
+        EngineeringRecommendationImport.MergePreview preview =
+                EngineeringRecommendationImport.previewMerge(goals, plan.goals());
+        if (plan.goals().isEmpty()) {
+            showRecommendationError(plan.hasErrors()
+                    ? String.join("\n", plan.errors())
+                    : "The SLEF file contains no engineered modules to import.");
+            return;
+        }
+
+        StringBuilder message = new StringBuilder();
+        String ship = !plan.shipName().isBlank() ? plan.shipName() : plan.shipType();
+        message.append("Engineering recommendations for ").append(ship).append("\n\n")
+                .append("Add: ").append(preview.addCount()).append("\n")
+                .append("Update: ").append(preview.updateCount()).append("\n")
+                .append("Already matches: ").append(preview.skipCount());
+        if (plan.hasErrors()) {
+            message.append("\n\nWarnings (these entries will not be imported):\n")
+                    .append(String.join("\n", plan.errors()));
+        }
+        if (preview.addCount() == 0 && preview.updateCount() == 0) {
+            JOptionPane.showMessageDialog(this, message.toString(), "Engineering Recommendations",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                message + "\n\nApply these changes?",
+                "Import Engineering Recommendations",
+                JOptionPane.OK_CANCEL_OPTION,
+                plan.hasErrors() ? JOptionPane.WARNING_MESSAGE : JOptionPane.QUESTION_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+
+        preview.applyTo(goals);
+        shipCatalog.remember(new EngineeringShipRef(
+                plan.shipId(), plan.shipType(), plan.shipName(), ""));
+        for (EngineeringGoal goal : plan.goals()) {
+            shipCatalog.rememberGoal(goal);
+        }
+        consolidateIdenticalGoals();
+        rebuildShipFilterCombo();
+        refreshGoalProgressFromJournal();
+        fireSessionChanged();
+        refreshUi();
+    }
+
+    private void showRecommendationError(String detail) {
+        String message = detail == null || detail.isBlank()
+                ? "The engineering recommendation could not be imported."
+                : detail;
+        JOptionPane.showMessageDialog(
+                this, message, "Engineering Recommendation Import", JOptionPane.ERROR_MESSAGE);
     }
 
     private void toggleMaterialsSection() {

@@ -72,6 +72,8 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 	private static final int HOVER_CLICK_DELAY_MS = 500;
 	private static final String CORIOLIS_IMPORT_URL = "https://coriolis.io/import";
+	private static final String ENGINEERING_RECOMMENDATIONS_URL =
+			"https://github.com/deccles/Elite-Dangerous-RockHound/blob/main/docs/engineering-recommendations.md";
 
 	private final EngineeringDatabase database;
 	private final BooleanSupplier passThroughEnabledSupplier;
@@ -1066,7 +1068,13 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		StringBuilder text = new StringBuilder(summary.toClipboardText(
 				title, this::goalTargetGradeFor, this::experimentalDisplayFor));
 		appendGoalsSection(text, shipId.longValue());
+		text.append(engineeringRecommendationFooter());
 		return text.toString();
+	}
+
+	static String engineeringRecommendationFooter() {
+		return "\nEngineering recommendations: follow the SLEF return format at\n"
+				+ ENGINEERING_RECOMMENDATIONS_URL + "\n";
 	}
 
 	private void showSummaryDialog() {
@@ -1238,7 +1246,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 
 	private String formatGoalClipboardLine(EngineeringGoal goal) {
 		StringBuilder line = new StringBuilder();
-		line.append(goal.getModuleType())
+		line.append(goalModuleDisplay(goal))
 				.append(": ")
 				.append(goal.getBlueprintName())
 				.append(" → ")
@@ -1262,6 +1270,14 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			line.append(" [off]");
 		}
 		return line.toString();
+	}
+
+	static String goalModuleDisplay(EngineeringGoal goal) {
+		String moduleType = goal != null ? goal.getModuleType() : "";
+		String size = goal != null
+				? ShipEngineeringSummary.shortSlotSize(goal.getTargetSlot())
+				: "";
+		return size.isBlank() ? moduleType : moduleType + " · " + size;
 	}
 
 	private void copyLoadoutJsonAndOpenCoriolis() {
