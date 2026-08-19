@@ -41,6 +41,7 @@ public final class MaterialTradeExecutor {
         KEY_ERROR,
         TIMEOUT,
         MISMATCH,
+        VERIFICATION_FAILED,
         INTERRUPTED
     }
 

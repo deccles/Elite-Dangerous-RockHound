@@ -3,6 +3,7 @@ package org.dce.ed;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
@@ -31,8 +32,10 @@ import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.KeyEvent;
+import java.lang.reflect.InvocationTargetException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.BorderFactory;
 import javax.swing.AbstractAction;
@@ -2426,6 +2429,13 @@ public class EngineeringTabPanel extends JPanel {
         if (event == null) {
             return;
         }
+        // Live journal delivery is background-threaded. Keep each event's inventory, goal,
+        // loadout-derived progress, and refresh scheduling in one EDT turn so a refresh cannot
+        // observe the craft cost before the same craft has completed its goal.
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> handleLogEvent(event));
+            return;
+        }
         EliteEventType type = event.getType();
         if (type == EliteEventType.MATERIALS
                 || type == EliteEventType.MATERIAL_COLLECTED
@@ -3752,11 +3762,17 @@ public class EngineeringTabPanel extends JPanel {
         setTradeVisibilityLocked(true);
         List<TradeSuggestion> toRun = List.copyOf(suggestions);
         try {
-            MaterialTradeConfirmDialog.TradeAction action = dialogStatus ->
-                    tradeExecutor.executeAll(toRun, msg -> {
+            MaterialTradeConfirmDialog.TradeAction action = dialogStatus -> {
+                MaterialTradeExecutor.Result executed = tradeExecutor.executeAll(toRun, msg -> {
                         dialogStatus.accept(msg);
                         SwingUtilities.invokeLater(() -> setTradeStatus(msg, false));
                     });
+                if (!tradeAll || executed == null || !executed.ok()) {
+                    return executed;
+                }
+                dialogStatus.accept("Verifying materials and remaining trades…");
+                return verifyCompletedTradeAll(executed, suggestion.getTraderType());
+            };
             String shipScopeLabel = singleShipTradeScopeLabel();
             Consumer<MaterialTradeExecutor.Result> onComplete = result -> {
                 tradeAutomationRunning = false;
@@ -3780,6 +3796,63 @@ public class EngineeringTabPanel extends JPanel {
             setTradeVisibilityLocked(false);
             throw ex;
         }
+    }
+
+    private MaterialTradeExecutor.Result verifyCompletedTradeAll(
+            MaterialTradeExecutor.Result executed, String traderType) {
+        return verifiedTradeAllResult(executed, traderType, currentTradeSuggestions());
+    }
+
+    static MaterialTradeExecutor.Result verifiedTradeAllResult(
+            MaterialTradeExecutor.Result executed, String traderType,
+            List<TradeSuggestion> remaining) {
+        long matching = remaining.stream()
+                .filter(trade -> sameTraderType(trade.getTraderType(), traderType))
+                .count();
+        if (matching == 0L) {
+            return executed;
+        }
+        String type = traderType != null && !traderType.isBlank() ? traderType.trim() : "material";
+        String noun = matching == 1L ? "trade remains" : "trades remain";
+        return new MaterialTradeExecutor.Result(
+                MaterialTradeExecutor.Outcome.VERIFICATION_FAILED,
+                "Verification found " + matching + " more " + type + " " + noun
+                        + ". Keep this trader screen open and run Trade All again.");
+    }
+
+    private List<TradeSuggestion> currentTradeSuggestions() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            AtomicReference<List<TradeSuggestion>> result = new AtomicReference<>();
+            try {
+                SwingUtilities.invokeAndWait(() -> result.set(currentTradeSuggestions()));
+                return result.get();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Trade verification interrupted", ex);
+            } catch (InvocationTargetException ex) {
+                Throwable cause = ex.getCause();
+                if (cause instanceof RuntimeException runtime) {
+                    throw runtime;
+                }
+                throw new IllegalStateException("Trade verification failed", cause);
+            }
+        }
+        Map<String, Integer> inv = inventoryTracker.snapshot();
+        List<EngineeringGoal> planningGoals = activeGoalsForPlanning();
+        List<MaterialsGoal> planningMats = activeMaterialsGoalsForPlanning();
+        List<EngineeringGoal> displayGoals = displayScopedGoals(planningGoals);
+        List<MaterialsGoal> displayMats = displayScopedMaterialsGoals(planningMats);
+        EngineeringPlanner.PriorityPlanResult plan = planningShipScopeId() != null
+                ? planner.planByPriority(planningGoals, planningMats, inv, tradePlanner,
+                        displayGoals, displayMats)
+                : planner.planByPriority(planningGoals, planningMats, inv, tradePlanner);
+        return plan.trades();
+    }
+
+    static boolean sameTraderType(String left, String right) {
+        String a = left != null ? left.trim() : "";
+        String b = right != null ? right.trim() : "";
+        return a.equalsIgnoreCase(b);
     }
 
     private void setTradeVisibilityLocked(boolean locked) {
@@ -4081,6 +4154,9 @@ public class EngineeringTabPanel extends JPanel {
 
     private final class GoalStatusCellRenderer extends JPanel implements javax.swing.table.TableCellRenderer {
         private static final long serialVersionUID = 1L;
+        private static final String STATUS_CARD_LABEL = "label";
+        private static final String STATUS_CARD_PROGRESS = "progress";
+        private final CardLayout statusCards = new CardLayout();
         private final JLabel label = new JLabel();
         private final SegmentedProgressBar progressBar = new SegmentedProgressBar();
         /** {@code < 0} = text/icon mode; otherwise 0..1 craft fill. */
@@ -4088,23 +4164,23 @@ public class EngineeringTabPanel extends JPanel {
         private Color barColor = EdoUi.User.MAIN_TEXT;
 
         GoalStatusCellRenderer() {
-            setLayout(new BorderLayout());
+            setLayout(statusCards);
             setOpaque(false);
             label.setOpaque(false);
             label.setBorder(new EmptyBorder(2, 6, 2, 6));
             label.setHorizontalTextPosition(SwingConstants.RIGHT);
             label.setVerticalTextPosition(SwingConstants.CENTER);
             label.setIconTextGap(6);
-            add(label, BorderLayout.CENTER);
-            add(progressBar, BorderLayout.CENTER);
-            progressBar.setVisible(false);
+            add(label, STATUS_CARD_LABEL);
+            add(progressBar, STATUS_CARD_PROGRESS);
+            statusCards.show(this, STATUS_CARD_LABEL);
         }
 
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             barFill = -1.0;
-            progressBar.setVisible(false);
+            statusCards.show(this, STATUS_CARD_LABEL);
             String text = value != null ? value.toString() : "";
             label.setText(text);
             label.setIcon(null);
@@ -4132,7 +4208,7 @@ public class EngineeringTabPanel extends JPanel {
                     progressBar.setProgress(
                             EngineeringGoalProgress.displayCompletionFractions(goal, loadout, database, rank),
                             readiness == GoalReadiness.STILL_SHORT || STATUS_SHORT.equals(text));
-                    progressBar.setVisible(true);
+                    statusCards.show(this, STATUS_CARD_PROGRESS);
                     label.setText("");
                     label.setIcon(null);
                     String progress = EngineeringGradeProgress.progressLabel(goal, rank);
