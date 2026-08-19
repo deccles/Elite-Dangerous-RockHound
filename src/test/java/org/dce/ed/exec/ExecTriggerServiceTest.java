@@ -141,4 +141,11 @@ class ExecTriggerServiceTest {
         assertEquals("fleet-carrier-arrival", ExecTriggerService.runningLabel(binding));
         assertEquals("fleet-carrier-arrival", ExecTriggerService.playScriptName(binding.getProgramArgs()));
     }
+
+    @Test
+    void completionStatus_suppressesSuccessAndReportsFailure() {
+        assertEquals("", ExecTriggerService.completionStatus(new JarExecRunner.RunResult(0, "")));
+        assertEquals("Failed: exit 1: boom",
+                ExecTriggerService.completionStatus(new JarExecRunner.RunResult(1, "boom")));
+    }
 }

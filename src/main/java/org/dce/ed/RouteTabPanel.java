@@ -2127,6 +2127,8 @@ public class RouteTabPanel extends JPanel {
 		setHeaderLabelText("Adding " + names.size() + " system" + (names.size() == 1 ? "" : "s") + "…");
 		final List<String> namesFinal = List.copyOf(names);
 		final String currentName = routeSession.getCurrentSystemName();
+		final int selectedBaseIndex = table == null ? -1
+				: baseIndexForDisplayRow(table.getSelectedRow());
 		Thread t = new Thread(() -> {
 			RouteEntry currentMetadata = resolvePastedSystem(currentName);
 			List<RouteEntry> resolved = new ArrayList<>();
@@ -2137,7 +2139,7 @@ public class RouteTabPanel extends JPanel {
 				}
 			}
 			SwingUtilities.invokeLater(() -> applyPastedRouteEntries(
-					resolved, namesFinal.size(), currentMetadata));
+					resolved, namesFinal.size(), currentMetadata, selectedBaseIndex));
 		}, "RoutePasteSystems");
 		t.setDaemon(true);
 		t.start();
@@ -2193,16 +2195,22 @@ public class RouteTabPanel extends JPanel {
 		setHeaderLabelText(routeJumpHeader(routeSession.getBaseRouteEntries()));
 	}
 
-	private void applyPastedRouteEntries(List<RouteEntry> resolved, int requestedCount,
-			RouteEntry currentMetadata) {
+	void applyPastedRouteEntries(List<RouteEntry> resolved, int requestedCount,
+			RouteEntry currentMetadata, int selectedBaseIndex) {
 		if (resolved == null || resolved.isEmpty()) {
 			setHeaderLabelText("Could not resolve pasted system name" + (requestedCount == 1 ? "" : "s") + ".");
 			return;
 		}
+		int baseSizeBeforeCurrentSeed = routeSession.getBaseRouteEntries().size();
 		routeSession.ensureCurrentSystemAtStartIfMissing(
 				routeSession.getCurrentSystemName(),
 				routeSession.getCurrentSystemAddress(),
 				routeSession.getCurrentStarPos());
+		int insertionIndex = routeSession.getBaseRouteEntries().size();
+		if (selectedBaseIndex >= 0) {
+			int seededOffset = routeSession.getBaseRouteEntries().size() - baseSizeBeforeCurrentSeed;
+			insertionIndex = Math.min(selectedBaseIndex + 1 + seededOffset, insertionIndex);
+		}
 		if (currentMetadata != null) {
 			int currentIndex = RouteGeometry.findSystemRow(
 					routeSession.getBaseRouteEntries(), currentMetadata.systemName,
@@ -2218,8 +2226,8 @@ public class RouteTabPanel extends JPanel {
 				cacheResolvedCoords(current);
 			}
 		}
+		routeSession.insertBaseRouteEntries(insertionIndex, resolved);
 		for (RouteEntry entry : resolved) {
-			routeSession.appendBaseRouteEntry(entry);
 			cacheResolvedCoords(entry);
 		}
 		onCustomRouteMutated();

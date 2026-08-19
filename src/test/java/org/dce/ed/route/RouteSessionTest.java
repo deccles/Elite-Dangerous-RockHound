@@ -165,6 +165,22 @@ class RouteSessionTest {
     }
 
     @Test
+    void insertBaseRouteEntries_preservesOrderAfterSelectedHop() {
+        session.replaceBaseRouteEntries(List.of(
+                sampleEntry("A", 1L),
+                sampleEntry("D", 4L)));
+
+        session.insertBaseRouteEntries(1, List.of(
+                sampleEntry("B", 2L),
+                sampleEntry("C", 3L)));
+
+        assertEquals(List.of("A", "B", "C", "D"),
+                session.getBaseRouteEntries().stream().map(e -> e.systemName).toList());
+        assertEquals(List.of(0, 1, 2, 3),
+                session.getBaseRouteEntries().stream().map(e -> e.index).toList());
+    }
+
+    @Test
     void ensureCurrentSystemAtStartIfMissing_seedsBeforePaste() {
         session.ensureCurrentSystemAtStartIfMissing("Sol", 100L, new double[] { 0, 0, 0 });
         session.appendBaseRouteEntry(sampleEntry("Colonia", 200L));

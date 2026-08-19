@@ -350,6 +350,39 @@ public final class RouteSession {
         renumberBaseIndexes();
     }
 
+    /** Inserts plotted hops at a base-route position, preserving their input order. */
+    public void insertBaseRouteEntries(int insertionIndex, List<RouteEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+        int index = Math.max(0, Math.min(insertionIndex, baseRouteEntries.size()));
+        int added = 0;
+        for (RouteEntry entry : entries) {
+            if (entry == null || entry.systemName == null || entry.systemName.isBlank()) {
+                continue;
+            }
+            RouteEntry copy = entry.copy();
+            copy.isSynthetic = false;
+            copy.isBodyRow = false;
+            copy.indentLevel = 0;
+            if (copy.status == null) {
+                copy.status = RouteScanStatus.UNKNOWN;
+            }
+            if (copy.starClass == null || copy.starClass.isBlank()) {
+                copy.starClass = "?";
+            }
+            baseRouteEntries.add(index + added, copy);
+            added++;
+        }
+        if (added == 0) {
+            return;
+        }
+        if (index <= currentBaseIndex) {
+            currentBaseIndex += added;
+        }
+        renumberBaseIndexes();
+    }
+
     /**
      * Ensures the commander’s current system is the first base hop when missing, so pasted
      * destinations append after “you are here” instead of appearing as the route origin.

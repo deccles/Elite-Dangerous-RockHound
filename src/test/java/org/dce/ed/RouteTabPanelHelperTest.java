@@ -358,6 +358,36 @@ class RouteTabPanelHelperTest {
     }
 
     @Test
+    void applyPastedRouteEntries_insertsAllNamesAfterSelectedRow() {
+        RouteTabPanel panel = new RouteTabPanel(() -> false);
+        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                entry("A", 1L),
+                entry("D", 4L)));
+        panel.routeSessionForTests().applyKnownCurrentSystem("A", 1L, null);
+
+        panel.applyPastedRouteEntries(List.of(entry("B", 2L), entry("C", 3L)),
+                2, null, 0);
+
+        assertEquals(List.of("A", "B", "C", "D"), panel.routeSessionForTests()
+                .getBaseRouteEntries().stream().map(e -> e.systemName).toList());
+    }
+
+    @Test
+    void applyPastedRouteEntries_appendsWhenNoRowIsSelected() {
+        RouteTabPanel panel = new RouteTabPanel(() -> false);
+        panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                entry("A", 1L),
+                entry("B", 2L)));
+        panel.routeSessionForTests().applyKnownCurrentSystem("A", 1L, null);
+
+        panel.applyPastedRouteEntries(List.of(entry("C", 3L), entry("D", 4L)),
+                2, null, -1);
+
+        assertEquals(List.of("A", "B", "C", "D"), panel.routeSessionForTests()
+                .getBaseRouteEntries().stream().map(e -> e.systemName).toList());
+    }
+
+    @Test
     void bestInsertionIndexByCoords_emptyList_returnsZero() {
         assertEquals(0, RouteTabPanel.bestInsertionIndexByCoords(new ArrayList<>(), new Double[]{1.0, 2.0, 3.0}));
     }
