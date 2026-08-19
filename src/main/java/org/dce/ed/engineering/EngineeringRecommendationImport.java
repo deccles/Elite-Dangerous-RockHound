@@ -203,7 +203,7 @@ public final class EngineeringRecommendationImport {
     private static EngineeringGoal findByShipAndSlot(List<EngineeringGoal> goals, EngineeringGoal wanted) {
         for (EngineeringGoal goal : goals) {
             if (goal != null && goal.getShipId() == wanted.getShipId()
-                    && goal.getTargetSlot().equalsIgnoreCase(wanted.getTargetSlot())) {
+                    && goal.targetsSlot(wanted.getTargetSlot())) {
                 return goal;
             }
         }
@@ -221,7 +221,7 @@ public final class EngineeringRecommendationImport {
         if (existing.getModuleType().equalsIgnoreCase(recommendation.getModuleType())
                 && existing.getBlueprintName().equalsIgnoreCase(recommendation.getBlueprintName())) {
             EngineeringGoal progressed = existing.withUserSettings(
-                    recommendation.getTargetGrade(), recommendation.getExperimentalId(), 1);
+                    recommendation.getTargetGrade(), recommendation.getExperimentalId(), existing.getQuantity());
             return new EngineeringGoal(
                     recommendation.getBlueprintId(),
                     progressed.getModuleType(),
@@ -237,7 +237,7 @@ public final class EngineeringRecommendationImport {
                     progressed.getShipId(),
                     progressed.getShipLabel(),
                     progressed.isEnabled(),
-                    progressed.getTargetSlot());
+                    progressed.getTargetSlots());
         }
         return recommendation.withPriority(existing.getPriority()).withEnabled(existing.isEnabled());
     }

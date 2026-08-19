@@ -210,6 +210,8 @@ public final class EngineeringSessionData {
         private String shipLabel;
         /** Journal slot pin; null/blank = unscoped (legacy). */
         private String targetSlot;
+        /** All journal slot pins for a grouped recommendation. */
+        private List<String> targetSlots;
 
         public String getBlueprintId() {
             return blueprintId;
@@ -352,6 +354,18 @@ public final class EngineeringSessionData {
 
         public void setTargetSlot(String targetSlot) {
             this.targetSlot = targetSlot != null ? targetSlot : "";
+        }
+
+        public List<String> targetSlotsOrLegacy() {
+            if (targetSlots != null && !targetSlots.isEmpty()) {
+                return targetSlots;
+            }
+            String legacy = getTargetSlot();
+            return legacy.isBlank() ? List.of() : List.of(legacy);
+        }
+
+        public void setTargetSlots(List<String> targetSlots) {
+            this.targetSlots = targetSlots != null ? List.copyOf(targetSlots) : List.of();
         }
     }
 

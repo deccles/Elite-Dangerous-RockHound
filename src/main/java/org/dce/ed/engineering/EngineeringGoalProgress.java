@@ -108,7 +108,7 @@ public final class EngineeringGoalProgress {
             }
             if (goal.hasTargetSlot()) {
                 String craftSlot = craft.getSlot() != null ? craft.getSlot().trim() : "";
-                if (!craftSlot.isBlank() && !goal.getTargetSlot().equalsIgnoreCase(craftSlot)) {
+                if (!craftSlot.isBlank() && !goal.targetsSlot(craftSlot)) {
                     continue;
                 }
             }
@@ -616,7 +616,7 @@ public final class EngineeringGoalProgress {
                 }
                 if (template.hasTargetSlot()) {
                     String modSlot = module.getSlot() != null ? module.getSlot().trim() : "";
-                    if (!template.getTargetSlot().equalsIgnoreCase(modSlot)) {
+                    if (!template.targetsSlot(modSlot)) {
                         continue;
                     }
                 }
@@ -718,7 +718,7 @@ public final class EngineeringGoalProgress {
                 template.getShipId(),
                 template.getShipLabel(),
                 template.isIncludeInPlanning(),
-                template.getTargetSlot());
+                template.getTargetSlots());
     }
 
     private static EngineeringGoal aggregateInstances(EngineeringGoal template,
@@ -839,7 +839,7 @@ public final class EngineeringGoalProgress {
         for (LoadoutEvent.Module module : loadout.getModules()) {
             if (goal.hasTargetSlot()) {
                 String modSlot = module.getSlot() != null ? module.getSlot().trim() : "";
-                if (!goal.getTargetSlot().equalsIgnoreCase(modSlot)) {
+                if (!goal.targetsSlot(modSlot)) {
                     continue;
                 }
             }
@@ -1064,7 +1064,7 @@ public final class EngineeringGoalProgress {
             }
             if (goal.hasTargetSlot()) {
                 String modSlot = module.getSlot() != null ? module.getSlot().trim() : "";
-                if (!goal.getTargetSlot().equalsIgnoreCase(modSlot)) {
+                if (!goal.targetsSlot(modSlot)) {
                     continue;
                 }
             }
@@ -1254,7 +1254,7 @@ public final class EngineeringGoalProgress {
         }
         if (goal.hasTargetSlot()) {
             String craftSlot = craft.getSlot() != null ? craft.getSlot().trim() : "";
-            if (!craftSlot.isBlank() && !goal.getTargetSlot().equalsIgnoreCase(craftSlot)) {
+            if (!craftSlot.isBlank() && !goal.targetsSlot(craftSlot)) {
                 return false;
             }
         } else if (craftExperimentalConflictsWithGoal(goal, craft, db)) {

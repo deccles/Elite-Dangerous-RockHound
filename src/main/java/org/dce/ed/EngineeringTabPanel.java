@@ -2279,7 +2279,9 @@ public class EngineeringTabPanel extends JPanel {
             EngineeringGoal updated = edit.goal();
             if (updated != null) {
                 if (updated.getQuantity() > 1) {
-                    updated = updated.withTargetSlot("");
+                    updated = existing.getTargetSlots().size() == updated.getQuantity()
+                            ? updated.withTargetSlots(existing.getTargetSlots())
+                            : updated.withTargetSlot("");
                 } else if (!slotKey.isBlank()) {
                     updated = updated.withTargetSlot(slotKey);
                 } else if (existing.hasTargetSlot()) {
@@ -2405,7 +2407,7 @@ public class EngineeringTabPanel extends JPanel {
                 continue;
             }
             if (existing.hasTargetSlot() || g.hasTargetSlot()) {
-                if (!existing.getTargetSlot().equalsIgnoreCase(g.getTargetSlot())) {
+                if (!existing.getTargetSlots().equals(g.getTargetSlots())) {
                     continue;
                 }
             }
@@ -2556,7 +2558,7 @@ public class EngineeringTabPanel extends JPanel {
                 p.setShipLabel(g.getShipLabel());
             }
             if (g.hasTargetSlot()) {
-                p.setTargetSlot(g.getTargetSlot());
+                p.setTargetSlots(g.getTargetSlots());
             }
             persisted.add(p);
         }
@@ -2632,7 +2634,7 @@ public class EngineeringTabPanel extends JPanel {
                         p.shipIdOrUnknown(),
                         p.getShipLabel(),
                         p.includeInPlanningOrDefault(),
-                        p.getTargetSlot()));
+                        p.targetSlotsOrLegacy()));
                 if (!goals.isEmpty()) {
                     shipCatalog.rememberGoal(goals.get(goals.size() - 1));
                 }

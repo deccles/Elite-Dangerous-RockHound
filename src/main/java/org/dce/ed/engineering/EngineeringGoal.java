@@ -1,5 +1,9 @@
 package org.dce.ed.engineering;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+
 /**
  * User goal: engineer a module to a target grade (and optional experimental).
  */
@@ -32,7 +36,7 @@ public final class EngineeringGoal {
      * Optional journal slot key this goal is pinned to (e.g. {@code Slot08_Size4}).
      * Empty = unscoped (best-effort 1:1 match among same module type on the ship).
      */
-    private final String targetSlot;
+    private final List<String> targetSlots;
 
     public EngineeringGoal(String blueprintId,
                            String moduleType,
@@ -208,6 +212,27 @@ public final class EngineeringGoal {
                            String shipLabel,
                            boolean enabled,
                            String targetSlot) {
+        this(blueprintId, moduleType, blueprintName, fromGrade, craftsAtCurrentGrade, targetGrade,
+                experimentalId, priority, experimentalApplied, quantity, completedUnits,
+                shipId, shipLabel, enabled,
+                targetSlot == null || targetSlot.isBlank() ? List.of() : List.of(targetSlot));
+    }
+
+    public EngineeringGoal(String blueprintId,
+                           String moduleType,
+                           String blueprintName,
+                           int fromGrade,
+                           int craftsAtCurrentGrade,
+                           int targetGrade,
+                           String experimentalId,
+                           GoalPriority priority,
+                           boolean experimentalApplied,
+                           int quantity,
+                           int completedUnits,
+                           long shipId,
+                           String shipLabel,
+                           boolean enabled,
+                           List<String> targetSlots) {
         this.blueprintId = blueprintId != null ? blueprintId : "";
         this.moduleType = moduleType != null ? moduleType : "";
         this.blueprintName = blueprintName != null ? blueprintName : "";
@@ -222,7 +247,15 @@ public final class EngineeringGoal {
         this.completedUnits = Math.max(0, Math.min(completedUnits, this.quantity));
         this.shipId = shipId;
         this.shipLabel = shipLabel != null ? shipLabel : "";
-        this.targetSlot = targetSlot != null ? targetSlot : "";
+        LinkedHashSet<String> normalizedSlots = new LinkedHashSet<>();
+        if (targetSlots != null) {
+            for (String slot : targetSlots) {
+                if (slot != null && !slot.isBlank()) {
+                    normalizedSlots.add(slot.trim());
+                }
+            }
+        }
+        this.targetSlots = List.copyOf(normalizedSlots);
     }
 
     public String getBlueprintId() {
@@ -288,11 +321,23 @@ public final class EngineeringGoal {
 
     /** Journal slot key when this goal is pinned to a fitted module; empty if unscoped. */
     public String getTargetSlot() {
-        return targetSlot;
+        return targetSlots.isEmpty() ? "" : targetSlots.get(0);
+    }
+
+    /** All journal slots represented by this goal; grouped imports may contain several. */
+    public List<String> getTargetSlots() {
+        return targetSlots;
     }
 
     public boolean hasTargetSlot() {
-        return targetSlot != null && !targetSlot.isBlank();
+        return !targetSlots.isEmpty();
+    }
+
+    public boolean targetsSlot(String slot) {
+        if (slot == null || slot.isBlank()) {
+            return false;
+        }
+        return targetSlots.stream().anyMatch(target -> target.equalsIgnoreCase(slot.trim()));
     }
 
     public boolean hasShip() {
@@ -344,7 +389,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlot);
+                targetSlots);
     }
 
     public EngineeringGoal withExperimentalApplied(boolean applied) {
@@ -366,7 +411,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlot);
+                targetSlots);
     }
 
     public EngineeringGoal withPriority(GoalPriority newPriority) {
@@ -389,7 +434,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlot);
+                targetSlots);
     }
 
     public EngineeringGoal withIncludeInPlanning(boolean include) {
@@ -415,7 +460,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 include,
-                targetSlot);
+                targetSlots);
     }
 
     public EngineeringGoal withQuantity(int newQuantity) {
@@ -438,7 +483,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlot);
+                targetSlots);
     }
 
     public EngineeringGoal withCompletedUnits(int newCompletedUnits) {
@@ -461,7 +506,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlot);
+                targetSlots);
     }
 
     /**
@@ -506,7 +551,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlot);
+                targetSlots);
     }
 
     public EngineeringGoal withFromGrade(int newFromGrade) {
@@ -530,7 +575,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlot);
+                targetSlots);
     }
 
     public EngineeringGoal withShip(long newShipId, String newShipLabel) {
@@ -553,12 +598,17 @@ public final class EngineeringGoal {
                 newShipId,
                 label,
                 enabled,
-                targetSlot);
+                targetSlots);
     }
 
     public EngineeringGoal withTargetSlot(String newTargetSlot) {
         String slot = newTargetSlot != null ? newTargetSlot : "";
-        if (targetSlot.equals(slot)) {
+        return withTargetSlots(slot.isBlank() ? List.of() : List.of(slot));
+    }
+
+    public EngineeringGoal withTargetSlots(List<String> newTargetSlots) {
+        List<String> slots = newTargetSlots != null ? new ArrayList<>(newTargetSlots) : List.of();
+        if (targetSlots.equals(slots)) {
             return this;
         }
         return new EngineeringGoal(
@@ -576,7 +626,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                slot);
+                slots);
     }
 
     public EngineeringGoal withUserSettings(int newTargetGrade,
@@ -625,7 +675,7 @@ public final class EngineeringGoal {
                 && completedUnits == other.completedUnits
                 && shipId == other.shipId
                 && shipLabel.equals(other.shipLabel)
-                && targetSlot.equals(other.targetSlot);
+                && targetSlots.equals(other.targetSlots);
     }
 
     @Override
@@ -644,7 +694,7 @@ public final class EngineeringGoal {
         result = 31 * result + completedUnits;
         result = 31 * result + Long.hashCode(shipId);
         result = 31 * result + shipLabel.hashCode();
-        result = 31 * result + targetSlot.hashCode();
+        result = 31 * result + targetSlots.hashCode();
         return result;
     }
 }

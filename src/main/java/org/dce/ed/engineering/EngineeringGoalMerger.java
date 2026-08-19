@@ -9,8 +9,8 @@ import java.util.Objects;
 /**
  * Collapses identical engineering goals into one row with summed quantity.
  *
- * <p>Slot-pinned goals remain distinct so progress can only come from their intended modules.
- * Unscoped identical goals may still collapse into a shared quantity goal.
+ * <p>Grouped slot-pinned goals retain every intended module slot so unrelated siblings cannot
+ * satisfy their progress.
  */
 public final class EngineeringGoalMerger {
 
@@ -44,7 +44,7 @@ public final class EngineeringGoalMerger {
             return false;
         }
         return a.isIncludeInPlanning() == b.isIncludeInPlanning()
-                && norm(a.getTargetSlot()).equals(norm(b.getTargetSlot()));
+                && a.hasTargetSlot() == b.hasTargetSlot();
     }
 
     /**
@@ -128,18 +128,21 @@ public final class EngineeringGoalMerger {
     private static EngineeringGoal collapseGroup(List<EngineeringGoal> group) {
         EngineeringGoal template = group.get(0);
         if (group.size() == 1) {
-            if (template.getQuantity() > 1 && template.hasTargetSlot()) {
+            if (template.getQuantity() > 1
+                    && template.getTargetSlots().size() < template.getQuantity()) {
                 return template.withTargetSlot("");
             }
             return template;
         }
         int quantity = 0;
         int completed = 0;
+        List<String> targetSlots = new ArrayList<>();
         EngineeringGoal bestPartial = null;
         int bestScore = -1;
         for (EngineeringGoal instance : group) {
             quantity += Math.max(1, instance.getQuantity());
             completed += Math.max(0, instance.getCompletedUnits());
+            targetSlots.addAll(instance.getTargetSlots());
             if (instance.getCompletedUnits() == 0 && instance.isCurrentUnitComplete()) {
                 completed++;
                 continue;
@@ -160,7 +163,7 @@ public final class EngineeringGoalMerger {
         EngineeringGoal aggregated = template
                 .withQuantity(quantity)
                 .withCompletedUnits(completed)
-                .withTargetSlot("");
+                .withTargetSlots(targetSlots);
         if (completed >= quantity) {
             boolean expDone = template.getExperimentalId().isBlank()
                     || completedInstancesHaveExperimental(group);
@@ -205,7 +208,7 @@ public final class EngineeringGoalMerger {
                 + "|" + goal.getTargetGrade()
                 + "|" + goal.getPriority().name()
                 + "|" + (goal.isIncludeInPlanning() ? "1" : "0")
-                + "|" + norm(goal.getTargetSlot());
+                + "|" + (goal.hasTargetSlot() ? "scoped" : "unscoped");
     }
 
     private static String norm(String value) {

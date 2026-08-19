@@ -38,15 +38,18 @@ class EngineeringGoalMergerTest {
     }
 
     @Test
-    void merge_identicalPinnedGoals_preservesSlotsAndRejectsCompletedSiblings() {
+    void merge_identicalPinnedGoals_groupsTargetsAndRejectsCompletedSiblings() {
         List<EngineeringGoal> goals = new ArrayList<>();
         goals.add(hrp(23L, "Slot04_Size6", "Heavy Duty Hull Reinforcement", 5, 1));
         goals.add(hrp(23L, "Slot06_Size5", "Heavy Duty Hull Reinforcement", 5, 1));
         goals.add(hrp(23L, "Slot07_Size5", "Heavy Duty Hull Reinforcement", 5, 1));
 
-        assertFalse(EngineeringGoalMerger.mergeInPlace(goals));
-        assertEquals(3, goals.size());
-        assertTrue(goals.stream().allMatch(EngineeringGoal::hasTargetSlot));
+        assertTrue(EngineeringGoalMerger.mergeInPlace(goals));
+        assertEquals(1, goals.size());
+        assertEquals(3, goals.get(0).getQuantity());
+        assertTrue(goals.get(0).hasTargetSlot());
+        assertEquals(List.of("Slot04_Size6", "Slot06_Size5", "Slot07_Size5"),
+                goals.get(0).getTargetSlots());
 
         LoadoutEvent loadout = (LoadoutEvent) new EliteLogParser().parseRecord("""
                 {"timestamp":"2026-08-19T16:00:00Z","event":"Loadout",
@@ -64,7 +67,8 @@ class EngineeringGoalMergerTest {
                 """);
         EngineeringGoalProgress.applyLoadout(goals, loadout, EngineeringDatabase.getInstance());
 
-        assertTrue(goals.stream().noneMatch(EngineeringGoal::isComplete));
+        assertFalse(goals.get(0).isComplete());
+        assertEquals(0, goals.get(0).getCompletedUnits());
     }
 
     @Test
@@ -84,6 +88,16 @@ class EngineeringGoalMergerTest {
         List<EngineeringGoal> goals = new ArrayList<>();
         goals.add(hrp(7L, "Slot08_Size4", "Heavy Duty", 4, 1));
         goals.add(hrp(7L, "Slot09_Size4", "Heavy Duty", 5, 1));
+
+        assertFalse(EngineeringGoalMerger.mergeInPlace(goals));
+        assertEquals(2, goals.size());
+    }
+
+    @Test
+    void merge_pinnedAndUnscopedGoals_staySeparate() {
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(hrp(7L, "", "Heavy Duty", 5, 2));
+        goals.add(hrp(7L, "Slot08_Size4", "Heavy Duty", 5, 1));
 
         assertFalse(EngineeringGoalMerger.mergeInPlace(goals));
         assertEquals(2, goals.size());

@@ -12,7 +12,7 @@ import org.dce.ed.engineering.ShipEngineeringSummary.Band;
 import org.dce.ed.engineering.ShipEngineeringSummary.Row;
 
 /**
- * Assigns engineering goals to loadout rows using optional {@link EngineeringGoal#getTargetSlot()}
+ * Assigns engineering goals to loadout rows using optional {@link EngineeringGoal#getTargetSlots()}
  * pins, then greedy matching for unscoped goals.
  *
  * <p>An unscoped (or multi-quantity) goal may claim up to {@link EngineeringGoal#getQuantity()}
@@ -81,7 +81,7 @@ public final class EngineeringGoalSlotMatcher {
                 if (goal == null || remainingCapacity(remaining, goal) <= 0 || !sameShipAndModule(row, goal)) {
                     continue;
                 }
-                if (!goal.hasTargetSlot() || !slot.equalsIgnoreCase(goal.getTargetSlot().trim())) {
+                if (!goal.hasTargetSlot() || !goal.targetsSlot(slot)) {
                     continue;
                 }
                 int score = compatibilityScore(row, goal, database);
@@ -141,8 +141,8 @@ public final class EngineeringGoalSlotMatcher {
                 if (goal == null || remainingCapacity(remaining, goal) <= 0 || !sameShipAndModule(row, goal)) {
                     continue;
                 }
-                if (goal.hasTargetSlot() && goal.getQuantity() <= 1) {
-                    // Pinned qty-1: never steal for another row.
+                if (goal.hasTargetSlot()) {
+                    // Slot-scoped goals were fully handled above; never steal an unrelated row.
                     continue;
                 }
                 int score = compatibilityScore(row, goal, database);

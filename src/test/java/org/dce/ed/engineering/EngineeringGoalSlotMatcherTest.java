@@ -166,6 +166,21 @@ class EngineeringGoalSlotMatcherTest {
     }
 
     @Test
+    void session_groupedTargetSlots_roundTripThroughJson() {
+        EngineeringSessionData written = new EngineeringSessionData();
+        EngineeringSessionData.EngineeringGoalPersisted goal =
+                new EngineeringSessionData.EngineeringGoalPersisted();
+        goal.setTargetSlots(List.of("Slot04_Size6", "Slot06_Size5", "Slot07_Size5"));
+        written.setGoals(List.of(goal));
+
+        EngineeringSessionData read = new Gson().fromJson(
+                new Gson().toJson(written), EngineeringSessionData.class);
+
+        assertEquals(List.of("Slot04_Size6", "Slot06_Size5", "Slot07_Size5"),
+                read.goalsOrEmpty().get(0).targetSlotsOrLegacy());
+    }
+
+    @Test
     void withTargetSlot_preservesAcrossProgressHelpers() {
         EngineeringGoal goal = hrpGoal(3L, "Slot02_Size4", "Lightweight");
         EngineeringGoal progressed = goal.withProgress(2, 1).withQuantity(1);
