@@ -9,7 +9,8 @@ import java.util.Objects;
 /**
  * Collapses identical engineering goals into one row with summed quantity.
  *
- * <p>Sameness ignores slot pins and progress; multi-module survivors clear {@code targetSlot}.
+ * <p>Slot-pinned goals remain distinct so progress can only come from their intended modules.
+ * Unscoped identical goals may still collapse into a shared quantity goal.
  */
 public final class EngineeringGoalMerger {
 
@@ -42,7 +43,8 @@ public final class EngineeringGoalMerger {
         if (a.getPriority() != b.getPriority()) {
             return false;
         }
-        return a.isIncludeInPlanning() == b.isIncludeInPlanning();
+        return a.isIncludeInPlanning() == b.isIncludeInPlanning()
+                && norm(a.getTargetSlot()).equals(norm(b.getTargetSlot()));
     }
 
     /**
@@ -202,7 +204,8 @@ public final class EngineeringGoalMerger {
                 + "|" + norm(goal.getExperimentalId())
                 + "|" + goal.getTargetGrade()
                 + "|" + goal.getPriority().name()
-                + "|" + (goal.isIncludeInPlanning() ? "1" : "0");
+                + "|" + (goal.isIncludeInPlanning() ? "1" : "0")
+                + "|" + norm(goal.getTargetSlot());
     }
 
     private static String norm(String value) {

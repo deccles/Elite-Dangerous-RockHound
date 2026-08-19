@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.dce.ed.logreader.EliteLogParser;
+import org.dce.ed.logreader.event.LoadoutEvent;
 import org.junit.jupiter.api.Test;
 
 class EngineeringGoalMergerTest {
@@ -36,15 +38,33 @@ class EngineeringGoalMergerTest {
     }
 
     @Test
-    void merge_identicalPinnedGoals_sumsQuantityAndClearsSlot() {
+    void merge_identicalPinnedGoals_preservesSlotsAndRejectsCompletedSiblings() {
         List<EngineeringGoal> goals = new ArrayList<>();
-        goals.add(hrp(7L, "Slot08_Size4", "Heavy Duty", 5, 1));
-        goals.add(hrp(7L, "Slot09_Size4", "Heavy Duty", 5, 1));
+        goals.add(hrp(23L, "Slot04_Size6", "Heavy Duty Hull Reinforcement", 5, 1));
+        goals.add(hrp(23L, "Slot06_Size5", "Heavy Duty Hull Reinforcement", 5, 1));
+        goals.add(hrp(23L, "Slot07_Size5", "Heavy Duty Hull Reinforcement", 5, 1));
 
-        assertTrue(EngineeringGoalMerger.mergeInPlace(goals));
-        assertEquals(1, goals.size());
-        assertEquals(2, goals.get(0).getQuantity());
-        assertFalse(goals.get(0).hasTargetSlot());
+        assertFalse(EngineeringGoalMerger.mergeInPlace(goals));
+        assertEquals(3, goals.size());
+        assertTrue(goals.stream().allMatch(EngineeringGoal::hasTargetSlot));
+
+        LoadoutEvent loadout = (LoadoutEvent) new EliteLogParser().parseRecord("""
+                {"timestamp":"2026-08-19T16:00:00Z","event":"Loadout",
+                 "Ship":"federation_corvette","ShipID":23,"Modules":[
+                  {"Slot":"Slot04_Size6","Item":"int_hullreinforcement_size5_class2"},
+                  {"Slot":"Slot06_Size5","Item":"int_hullreinforcement_size5_class2"},
+                  {"Slot":"Slot07_Size5","Item":"int_hullreinforcement_size5_class2"},
+                  {"Slot":"Military02","Item":"int_hullreinforcement_size5_class2",
+                   "Engineering":{"BlueprintName":"HullReinforcement_HeavyDuty","Level":5,"Quality":1.0}},
+                  {"Slot":"Slot08_Size4","Item":"int_hullreinforcement_size4_class2",
+                   "Engineering":{"BlueprintName":"HullReinforcement_HeavyDuty","Level":5,"Quality":1.0}},
+                  {"Slot":"Slot09_Size4","Item":"int_hullreinforcement_size4_class2",
+                   "Engineering":{"BlueprintName":"HullReinforcement_HeavyDuty","Level":5,"Quality":1.0}}
+                 ]}
+                """);
+        EngineeringGoalProgress.applyLoadout(goals, loadout, EngineeringDatabase.getInstance());
+
+        assertTrue(goals.stream().noneMatch(EngineeringGoal::isComplete));
     }
 
     @Test
@@ -86,8 +106,8 @@ class EngineeringGoalMergerTest {
                 7L,
                 "Ship",
                 true,
-                "SlotA");
-        EngineeringGoal fresh = hrp(7L, "SlotB", "Heavy Duty", 5, 1);
+                "");
+        EngineeringGoal fresh = hrp(7L, "", "Heavy Duty", 5, 1);
         List<EngineeringGoal> goals = new ArrayList<>(List.of(fresh, advanced));
 
         assertTrue(EngineeringGoalMerger.mergeInPlace(goals));
