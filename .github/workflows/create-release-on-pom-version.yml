@@ -69,7 +69,7 @@ jobs:
 
       - name: Build (creates jar + src.zip)
         if: steps.decide.outputs.release == 'true'
-        run: mvn -f reactor/pom.xml -B -U clean install
+        run: xvfb-run --auto-servernum mvn -f reactor/pom.xml -B -U clean install
 
       - name: Locate release artifacts
         if: steps.decide.outputs.release == 'true'
