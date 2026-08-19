@@ -111,6 +111,23 @@ class ShipEngineeringSummaryTest {
     }
 
     @Test
+    void clipboard_includesExactSlefIdentifiersForRecommendationAgents() {
+        String loadoutJson =
+                "{\"timestamp\":\"2026-07-23T04:16:12Z\",\"event\":\"Loadout\","
+                        + "\"Ship\":\"federal_corvette\",\"ShipID\":42,\"ShipName\":\"Resolute\",\"Modules\":["
+                        + "{\"Slot\":\"MediumHardpoint1\",\"Item\":\"hpt_beamlaser_gimbal_medium\",\"On\":true},"
+                        + "{\"Slot\":\"MediumHardpoint2\",\"Item\":\"hpt_beamlaser_gimbal_medium\",\"On\":true}"
+                        + "]}";
+        LoadoutEvent loadout = (LoadoutEvent) new EliteLogParser().parseRecord(loadoutJson);
+        String text = ShipEngineeringSummary.fromLoadout(loadout, db)
+                .toClipboardText("Resolute (Federal Corvette)");
+
+        assertTrue(text.contains("SLEF ship: federal_corvette | ShipID: 42 | ShipName: Resolute"), text);
+        assertTrue(text.contains("[Slot=MediumHardpoint1; Item=hpt_beamlaser_gimbal_medium]"), text);
+        assertTrue(text.contains("[Slot=MediumHardpoint2; Item=hpt_beamlaser_gimbal_medium]"), text);
+    }
+
+    @Test
     void hullReinforcementAdvanced_mapsToLightweightPartial() {
         String loadoutJson =
                 "{\"timestamp\":\"2026-07-23T04:16:12Z\",\"event\":\"Loadout\",\"Ship\":\"anaconda\",\"ShipID\":7,"

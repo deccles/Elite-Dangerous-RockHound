@@ -4,7 +4,9 @@ RockHound accepts engineering recommendations as [SLEF (Ship Loadout Exchange Fo
 
 ## Instructions for recommendation agents
 
-Use the commander's supplied loadout as the source of truth. Preserve its exact `Ship`, `ShipID`, `Slot`, and `Item` identifiers. Include every module you recommend engineering and give it an `Engineering` object with:
+The RockHound summary already supplies every identifier needed for a valid recommendation. The `SLEF ship:` line gives the exact `Ship`, `ShipID`, and (when present) `ShipName`. Every engineerable module line ends with its exact `[Slot=...; Item=...]` values. Duplicate modules are listed separately with distinct slots.
+
+Do not ask the commander for another loadout export or journal event. Copy these identifiers exactly; do not infer, translate, normalize, or invent them. Include only modules you recommend engineering, each with its matching `Slot` and `Item` plus an `Engineering` object containing:
 
 - `BlueprintName`: the Elite journal blueprint identifier, such as `FSD_LongRange`.
 - `Level`: the target grade as an integer.
@@ -12,6 +14,8 @@ Use the commander's supplied loadout as the source of truth. Preserve its exact 
 - `ExperimentalEffect_Localised`: the display name of that experimental effect. Include this whenever `ExperimentalEffect` is present so RockHound can validate it without guessing.
 
 Modules without an `Engineering` object are ignored during goal import. Do not invent current progress, completed rolls, material quantities, or modifiers. RockHound derives progress and material needs from its journal and engineering database.
+
+If an identifier is genuinely absent from the supplied RockHound summary, explain which specific module is missing it instead of guessing. A normal current summary is complete and requires no additional export.
 
 Return valid JSON without comments or Markdown fences. A minimal response is:
 

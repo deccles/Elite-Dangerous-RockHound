@@ -188,17 +188,24 @@ public final class ShipEngineeringSummary {
 
     private final List<Row> rows;
     private final List<OtherModule> otherModules;
+    private final String shipType;
+    private final long shipId;
+    private final String shipName;
     private final int gapCount;
     private final int partialCount;
     private final int doneCount;
 
     private ShipEngineeringSummary(List<Row> rows) {
-        this(rows, List.of());
+        this(rows, List.of(), "", -1, "");
     }
 
-    private ShipEngineeringSummary(List<Row> rows, List<OtherModule> otherModules) {
+    private ShipEngineeringSummary(List<Row> rows, List<OtherModule> otherModules,
+            String shipType, long shipId, String shipName) {
         this.rows = List.copyOf(rows);
         this.otherModules = List.copyOf(otherModules != null ? otherModules : List.of());
+        this.shipType = shipType != null ? shipType.trim() : "";
+        this.shipId = shipId;
+        this.shipName = shipName != null ? shipName.trim() : "";
         int g = 0;
         int p = 0;
         int d = 0;
@@ -274,6 +281,14 @@ public final class ShipEngineeringSummary {
         if (shipTitle != null && !shipTitle.isBlank()) {
             sb.append(shipTitle.trim()).append('\n');
         }
+        if (!shipType.isBlank() && shipId >= 0) {
+            sb.append("SLEF ship: ").append(shipType)
+                    .append(" | ShipID: ").append(shipId);
+            if (!shipName.isBlank()) {
+                sb.append(" | ShipName: ").append(shipName);
+            }
+            sb.append('\n');
+        }
         sb.append(countsLine()).append('\n');
         appendBandSection(sb, Band.GAP, goalTargetForRow, experimentalForRow);
         appendBandSection(sb, Band.PARTIAL, goalTargetForRow, experimentalForRow);
@@ -317,6 +332,11 @@ public final class ShipEngineeringSummary {
             }
             if (row.count() > 1) {
                 sb.append(" ×").append(row.count());
+            }
+            if (row.slotKey() != null && !row.slotKey().isBlank()
+                    && row.moduleItem() != null && !row.moduleItem().isBlank()) {
+                sb.append(" [Slot=").append(row.slotKey())
+                        .append("; Item=").append(row.moduleItem()).append(']');
             }
             sb.append('\n');
         }
@@ -401,7 +421,12 @@ public final class ShipEngineeringSummary {
                 .comparingInt((Row r) -> bandOrder(r.band()))
                 .thenComparing(Row::slotLabel, String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(Row::moduleLabel, String.CASE_INSENSITIVE_ORDER));
-        return new ShipEngineeringSummary(built, mergeOtherModules(otherBuilt));
+        return new ShipEngineeringSummary(
+                built,
+                mergeOtherModules(otherBuilt),
+                loadout.getShip(),
+                shipId,
+                loadout.getShipName());
     }
 
     private static int bandOrder(Band band) {
