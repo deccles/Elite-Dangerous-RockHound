@@ -228,6 +228,12 @@ public final class OverlayOutlineButtonStyle {
         }
     }
 
+    /** Successful completed action, using the standard green success ink. */
+    public static void applySuccess(JButton b, Font uiFont) {
+        applyFixed(b, uiFont, true, paddingChip(), EdoUi.User.SUCCESS);
+        tagRole(b, EdoLookAndFeel.BUTTON_ROLE_PRIMARY, false, false);
+    }
+
     /** Compact chip (filter tabs, dismiss). Accepts {@link JToggleButton} for Table/Scatter-style toggles. */
     public static void applyChip(AbstractButton b, Font uiFont, boolean selected) {
         applyTheme(b, uiFont, selected, paddingChip(), selected);

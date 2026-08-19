@@ -365,6 +365,18 @@ class EngineeringGoalProgressLoadoutTest {
     }
 
     @Test
+    void displayCompletionFractions_preservesOneLinePerQuantityWithoutLoadout() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "beam-laser-efficient-g5", "Beam Laser", "Efficient Weapon",
+                0, 0, 5, "", GoalPriority.MEDIUM, false,
+                3, 1, 23L, "Federal Corvette", true, "");
+
+        List<Double> fills = EngineeringGoalProgress.displayCompletionFractions(goal, null, db, 0);
+
+        assertEquals(List.of(1.0, 0.0, 0.0), fills);
+    }
+
+    @Test
     void applyLoadout_siblingExperimental_doesNotAdvanceOtherOverchargedGoals() {
         // Repro: one Huge Overcharged+Corrosive at G4 used to stamp G5 (G5 0/5) onto Auto Loader
         // and Incendiary Multi-cannon goals as well — looking "done" while those guns are stock.

@@ -273,6 +273,7 @@ public class RescanJournalsMain {
 		CarrierJumpRequestEvent openCarrierJumpRequest = null;
 		Instant carrierJumpCompletionTime = null;
 		boolean carrierJumpCompletionOffCarrier = false;
+		boolean carrierJumpCompletionCancelled = false;
 
 		MissionTracker missionReplayTracker = new MissionTracker();
 		EdoSessionState missionReplaySeed = EdoSessionPersistence.load();
@@ -319,10 +320,10 @@ public class RescanJournalsMain {
 				}
 			} else if (event.getType() == EliteEventType.CARRIER_JUMP_CANCELLED) {
 				openCarrierJumpRequest = null;
-				// Cancel also starts the post-jump cooldown window.
+				// Cancel starts the game's brief cancellation cooldown window.
 				if (ts != null) {
 					carrierJumpCompletionTime = ts;
-					carrierJumpCompletionOffCarrier = true;
+					carrierJumpCompletionCancelled = true;
 					if (latestCarrierEvent == null || ts.isAfter(latestCarrierEvent.getTimestamp())) {
 						latestCarrierEvent = event;
 					}
@@ -332,6 +333,7 @@ public class RescanJournalsMain {
 				if (ts != null) {
 					carrierJumpCompletionTime = ts;
 					carrierJumpCompletionOffCarrier = false;
+					carrierJumpCompletionCancelled = false;
 					if (latestCarrierEvent == null || ts.isAfter(latestCarrierEvent.getTimestamp())) {
 						latestCarrierEvent = event;
 					}
@@ -348,6 +350,7 @@ public class RescanJournalsMain {
 								Long.valueOf(req.getSystemAddress()))) {
 					carrierJumpCompletionTime = ts;
 					carrierJumpCompletionOffCarrier = true;
+					carrierJumpCompletionCancelled = false;
 					openCarrierJumpRequest = null;
 				}
 			}
@@ -498,8 +501,10 @@ public class RescanJournalsMain {
 			Instant now = Instant.now();
 			sessionState.setCarrierJumpDepartureTime(null);
 			sessionState.setCarrierJumpTargetSystem(null);
-			Instant cooldownEnd = CarrierJumpCooldown.cooldownEndFromJump(
-					carrierJumpCompletionTime, carrierJumpCompletionOffCarrier);
+			Instant cooldownEnd = carrierJumpCompletionCancelled
+					? CarrierJumpCooldown.cooldownEndFromCancellation(carrierJumpCompletionTime)
+					: CarrierJumpCooldown.cooldownEndFromJump(
+							carrierJumpCompletionTime, carrierJumpCompletionOffCarrier);
 			if (cooldownEnd != null && cooldownEnd.isAfter(now)) {
 				sessionState.setCarrierJumpCooldownEndTime(cooldownEnd.toString());
 			} else {
@@ -523,8 +528,9 @@ public class RescanJournalsMain {
 				sessionState.setCarrierJumpDepartureTime(null);
 				sessionState.setCarrierJumpTargetSystem(null);
 				Instant jumpTs = latestCarrierEvent.getTimestamp();
-				boolean offCarrier = latestCarrierEvent.getType() == EliteEventType.CARRIER_JUMP_CANCELLED;
-				Instant cooldownEnd = CarrierJumpCooldown.cooldownEndFromJump(jumpTs, offCarrier);
+				Instant cooldownEnd = latestCarrierEvent.getType() == EliteEventType.CARRIER_JUMP_CANCELLED
+						? CarrierJumpCooldown.cooldownEndFromCancellation(jumpTs)
+						: CarrierJumpCooldown.cooldownEndFromJump(jumpTs, false);
 				if (cooldownEnd != null && cooldownEnd.isAfter(now)) {
 					sessionState.setCarrierJumpCooldownEndTime(cooldownEnd.toString());
 				} else {

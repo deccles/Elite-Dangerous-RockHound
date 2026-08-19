@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import org.dce.ed.logreader.event.MaterialTradeEvent;
@@ -57,6 +58,20 @@ public final class MaterialTradeExecutor {
 
     private final Object waitLock = new Object();
     private final AtomicReference<PendingTrade> pending = new AtomicReference<>();
+    private final AtomicBoolean cancelRequested = new AtomicBoolean();
+    private final AtomicReference<Thread> activeThread = new AtomicReference<>();
+
+    /** Stops the current automatic trade before any further navigation is sent. */
+    public void requestCancel() {
+        cancelRequested.set(true);
+        Thread worker = activeThread.get();
+        if (worker != null) {
+            worker.interrupt();
+        }
+        synchronized (waitLock) {
+            waitLock.notifyAll();
+        }
+    }
 
     public MaterialTradeExecutor(EngineeringDatabase database) {
         this(database, MaterialTraderScreenLayout.getInstance(), new EliteKeySender(),
@@ -123,6 +138,10 @@ public final class MaterialTradeExecutor {
      * Each trade must produce its expected journal event before the next one starts.
      */
     public Result executeAll(List<TradeSuggestion> suggestions, Consumer<String> status) {
+        if (cancelRequested.get()) {
+            cancelRequested.set(false);
+            return new Result(Outcome.INTERRUPTED, "Trade cancelled");
+        }
         if (suggestions == null || suggestions.isEmpty()) {
             return new Result(Outcome.MATERIALS_MISSING, "No trades selected");
         }
@@ -138,6 +157,7 @@ public final class MaterialTradeExecutor {
             }
             plans.add(prepared.plan());
         }
+        activeThread.set(Thread.currentThread());
         try {
             if (!EliteWindowFocus.isEliteForeground()) {
                 report(status, "Focusing Elite Dangerous…");
@@ -158,11 +178,14 @@ public final class MaterialTradeExecutor {
             Thread.sleep(FOCUS_SETTLE_MS);
             if (!EliteWindowFocus.isEliteForeground()) {
                 return new Result(Outcome.FOCUS_FAILED,
-                        "Elite lost focus before keys were sent — click the game and try again");
+                        focusLostBeforeKeysMessage(EliteWindowFocus.foregroundProcessBaseName()));
             }
 
             MaterialTraderScreenLayout.GridPos currentPos = null;
             for (int i = 0; i < plans.size(); i++) {
+                if (cancelRequested.get()) {
+                    return new Result(Outcome.INTERRUPTED, "Trade cancelled");
+                }
                 PlannedTrade plan = plans.get(i);
                 int ordinal = i + 1;
                 report(status, plans.size() == 1
@@ -218,6 +241,8 @@ public final class MaterialTradeExecutor {
             return new Result(Outcome.KEY_ERROR, ex.getMessage() != null ? ex.getMessage() : "Key send failed");
         } finally {
             pending.set(null);
+            activeThread.compareAndSet(Thread.currentThread(), null);
+            cancelRequested.set(false);
         }
     }
 
@@ -249,6 +274,11 @@ public final class MaterialTradeExecutor {
         if (status != null && message != null) {
             status.accept(message);
         }
+    }
+
+    static String focusLostBeforeKeysMessage(String foreground) {
+        String app = foreground != null && !foreground.isBlank() ? foreground : "unknown";
+        return "Elite lost focus before keys were sent (foreground: " + app + ")";
     }
 
     private void runKeySequence(MaterialTraderScreenLayout.GridPos startPos,

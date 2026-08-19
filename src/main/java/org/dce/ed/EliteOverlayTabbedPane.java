@@ -150,6 +150,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 	/** Current card name (same values as {@code CARD_*}) for pass-through wheel routing. */
 	private volatile String visibleCardName = CARD_SYSTEM;
+	private volatile boolean engineeringTradeVisibilityLocked;
 
 	/**
 	 * After {@code CarrierStats} (owner opened carrier management), treat the next galaxy map open as carrier routing
@@ -304,6 +305,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		this.fleetCarrierTab = new FleetCarrierTabPanel(hoverSwitchEnabled, ownedFleetCarrierTracker);
 		this.controlPanelTab = new ControlPanelTabPanel(hoverSwitchEnabled);
 		this.engineeringTab = new EngineeringTabPanel(hoverSwitchEnabled);
+		this.engineeringTab.setTradeVisibilityLockCallback(this::setEngineeringTradeVisibilityLocked);
 
 		cardPanel.add(routeTab, CARD_ROUTE);
 		cardPanel.add(systemTab, CARD_SYSTEM);
@@ -1441,6 +1443,9 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	}
 
 	private void selectTab(String cardName, JButton selectedButton) {
+		if (engineeringTradeVisibilityLocked && !CARD_ENGINEERING.equals(cardName)) {
+			return;
+		}
 		if (tabDockingController != null && cardName != null && !tabDockingController.isOnMain(cardName)) {
 			tabDockingController.selectTabWherever(cardName);
 			applyTabSelectionStyles(cardName);
@@ -1459,6 +1464,13 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			return;
 		}
 		selectTabInMain(cardName, selectedButton);
+	}
+
+	void setEngineeringTradeVisibilityLocked(boolean locked) {
+		if (locked) {
+			selectTab(CARD_ENGINEERING, engineeringButton);
+		}
+		engineeringTradeVisibilityLocked = locked;
 	}
 
 	/** Selects a tab that is currently hosted in the main overlay dock. */

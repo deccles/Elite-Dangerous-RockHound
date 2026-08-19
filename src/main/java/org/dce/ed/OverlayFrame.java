@@ -1356,8 +1356,8 @@ private void onCarrierJumpCompleted(Instant arrivalTime, boolean offCarrierCompl
 }
 
 /**
- * Cancelling a scheduled carrier jump also starts the in-game jump cooldown; clear the T- countdown
- * and run the same cooldown timer/viz (without "Jump complete" speech).
+ * Cancelling a scheduled carrier jump starts the game's brief cancellation cooldown; clear the T- countdown
+ * and run the cooldown timer/viz (without "Jump complete" speech).
  */
 private void onCarrierJumpCancelled(Instant cancelTime, EliteLogEvent event) {
     boolean hadPendingCountdown = carrierJumpDepartureTime != null;
@@ -1373,8 +1373,7 @@ private void onCarrierJumpCancelled(Instant cancelTime, EliteLogEvent event) {
         saveSessionState();
         return;
     }
-    // Cancel timestamp aligns with the schedule UI — use the full 5-minute duration.
-    startCarrierJumpCooldown(start, true, false);
+    startCarrierJumpCooldownUntil(CarrierJumpCooldown.cooldownEndFromCancellation(start), false);
 }
 
 private boolean acceptOwnedCarrierCancel(EliteLogEvent event) {
@@ -1499,7 +1498,12 @@ private void startCarrierJumpCooldown(Instant startTime, boolean offCarrierCompl
 
 private void startCarrierJumpCooldown(Instant startTime, boolean offCarrierCompletion, boolean speakJumpComplete) {
     Instant effectiveStart = startTime != null ? startTime : Instant.now();
-    carrierJumpCooldownEndTime = CarrierJumpCooldown.cooldownEndFromJump(effectiveStart, offCarrierCompletion);
+    startCarrierJumpCooldownUntil(
+            CarrierJumpCooldown.cooldownEndFromJump(effectiveStart, offCarrierCompletion), speakJumpComplete);
+}
+
+private void startCarrierJumpCooldownUntil(Instant cooldownEnd, boolean speakJumpComplete) {
+    carrierJumpCooldownEndTime = cooldownEnd;
     if (carrierJumpCooldownTimer != null) {
         carrierJumpCooldownTimer.stop();
     }

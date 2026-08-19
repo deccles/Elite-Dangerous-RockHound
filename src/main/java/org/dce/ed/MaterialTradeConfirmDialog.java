@@ -2,13 +2,16 @@ package org.dce.ed;
 
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Rectangle;
 import java.awt.Window;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -18,6 +21,7 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
+import javax.swing.Timer;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
@@ -26,6 +30,12 @@ import org.dce.ed.engineering.MaterialTradeExecutor;
 import org.dce.ed.engineering.TradeSuggestion;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
+
+import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.platform.win32.User32;
+import com.sun.jna.platform.win32.WinDef.HWND;
+import com.sun.jna.platform.win32.WinUser;
 
 /**
  * Physical confirmation before auto-driving the material trader (not mouse pass-through).
@@ -45,10 +55,19 @@ final class MaterialTradeConfirmDialog extends JDialog {
 
     private MaterialTradeExecutor.Result result;
     private boolean running;
+    private Thread worker;
+    private Timer topmostTimer;
+    private final Runnable cancelAction;
+    private final Consumer<MaterialTradeExecutor.Result> completion;
+    private final AtomicBoolean completionDelivered = new AtomicBoolean();
 
-    private MaterialTradeConfirmDialog(Window owner, String traderType, String tradeSummary,
-                                       int tradeCount, String shipScopeLabel, TradeAction action) {
-        super(owner, "Material trade", ModalityType.APPLICATION_MODAL);
+    MaterialTradeConfirmDialog(Window owner, String traderType, String tradeSummary,
+                                       int tradeCount, String shipScopeLabel, TradeAction action,
+                                       Runnable cancelAction,
+                                       Consumer<MaterialTradeExecutor.Result> completion) {
+        super(owner, "Material trade", ModalityType.MODELESS);
+        this.cancelAction = cancelAction;
+        this.completion = completion;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setResizable(false);
 
@@ -79,7 +98,7 @@ final class MaterialTradeConfirmDialog extends JDialog {
 
         JLabel mouseWarning = new JLabel(
                 "<html><body style='text-align:center'>"
-                        + "After hitting OK:<br>DO NOT TOUCH THE CONTROLS OR TRADES COULD BE WRONG"
+                        + "After hitting OK: DO NOT TOUCH THE CONTROLS"
                         + "</body></html>",
                 SwingConstants.CENTER);
         mouseWarning.setFont(base.deriveFont(Font.BOLD, fontSize));
@@ -88,8 +107,10 @@ final class MaterialTradeConfirmDialog extends JDialog {
 
         JButton goBtn = new JButton("OK");
         JButton cancelBtn = new JButton("Cancel");
+        JButton stopBtn = new JButton("Cancel");
         OverlayOutlineButtonStyle.applyPrimary(goBtn, base);
         OverlayOutlineButtonStyle.applyChip(cancelBtn, base, false);
+        OverlayOutlineButtonStyle.applyChip(stopBtn, base, false);
 
         JProgressBar progressBar = new JProgressBar(0, totalTrades);
         progressBar.setValue(0);
@@ -106,10 +127,7 @@ final class MaterialTradeConfirmDialog extends JDialog {
         buttons.add(goBtn);
         buttons.add(cancelBtn);
 
-        JPanel progressPanel = new JPanel(new BorderLayout());
-        progressPanel.setOpaque(false);
-        progressPanel.setBorder(new EmptyBorder(4, 24, 4, 24));
-        progressPanel.add(progressBar, BorderLayout.CENTER);
+        JPanel progressPanel = createProgressPanel(progressBar, stopBtn);
 
         CardLayout footerCards = new CardLayout();
         JPanel footer = new JPanel(footerCards);
@@ -119,6 +137,9 @@ final class MaterialTradeConfirmDialog extends JDialog {
         footer.add(progressPanel, CARD_PROGRESS);
         footerCards.show(footer, CARD_BUTTONS);
 
+        JPanel briefing = new JPanel(new BorderLayout());
+        briefing.setOpaque(false);
+
         goBtn.addActionListener(e -> {
             if (running) {
                 return;
@@ -126,14 +147,16 @@ final class MaterialTradeConfirmDialog extends JDialog {
             running = true;
             setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
             goBtn.setEnabled(false);
-            cancelBtn.setEnabled(false);
+            stopBtn.setEnabled(true);
             footerCards.show(footer, CARD_PROGRESS);
+            keepWarningsVisibleWhileRunning(briefing, mouseWarning);
             progressBar.setIndeterminate(true);
             progressBar.setString("Focusing…");
             status.setText("Focusing Elite Dangerous…");
+            startTopmostKeeper(owner);
             releaseFocusForTrade(this);
 
-            Thread worker = new Thread(() -> {
+            worker = new Thread(() -> {
                 MaterialTradeExecutor.Result completed;
                 try {
                     completed = action.execute(msg -> SwingUtilities.invokeLater(() -> {
@@ -143,6 +166,9 @@ final class MaterialTradeConfirmDialog extends JDialog {
                         String text = msg != null && !msg.isBlank() ? msg : " ";
                         status.setText(text);
                         applyProgress(progressBar, text, totalTrades);
+                        if (shouldStartTopmostKeeper(text)) {
+                            startTopmostKeeper(owner);
+                        }
                     }));
                 } catch (RuntimeException ex) {
                     completed = new MaterialTradeExecutor.Result(
@@ -152,21 +178,61 @@ final class MaterialTradeConfirmDialog extends JDialog {
                 MaterialTradeExecutor.Result finalResult = completed;
                 SwingUtilities.invokeLater(() -> {
                     result = finalResult;
-                    dispose();
+                    stopTopmostKeeper();
+                    restoreFocusAfterTrade(this);
+                    running = false;
+                    setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+                    progressBar.setIndeterminate(false);
+                    if (finalResult != null && finalResult.ok()) {
+                        progressBar.setValue(progressBar.getMaximum());
+                        progressBar.setString("Complete");
+                        progressBar.setForeground(EdoUi.User.SUCCESS);
+                        status.setForeground(EdoUi.User.SUCCESS);
+                        status.setText("Trading complete");
+                    } else {
+                        progressBar.setString(finalResult != null ? finalResult.message() : "Trade stopped");
+                        status.setForeground(finalResult != null
+                                && finalResult.outcome() == MaterialTradeExecutor.Outcome.INTERRUPTED
+                                        ? EdoUi.User.MAIN_TEXT : EdoUi.User.ERROR);
+                        status.setText(statusHtml(
+                                finalResult != null ? finalResult.message() : "Trade stopped"));
+                    }
+                    stopBtn.setText(finalResult != null && finalResult.ok() ? "Complete" : "Close");
+                    if (finalResult != null && finalResult.ok()) {
+                        OverlayOutlineButtonStyle.applySuccess(stopBtn, base);
+                    }
+                    stopBtn.setEnabled(true);
+                    completeOnce(finalResult);
                 });
             }, "edo-material-trade");
             worker.setDaemon(true);
             worker.start();
         });
         cancelBtn.addActionListener(e -> dispose());
+        stopBtn.addActionListener(e -> {
+            if (!running) {
+                dispose();
+                return;
+            }
+            status.setText("Cancelling…");
+            stopBtn.setEnabled(false);
+            if (cancelAction != null) {
+                cancelAction.run();
+            }
+            Thread active = worker;
+            if (active != null) {
+                active.interrupt();
+            }
+        });
 
         JPanel root = new JPanel(new BorderLayout());
         root.setBackground(EdoUi.User.PANEL_BG);
         root.setBorder(BorderFactory.createLineBorder(EdoUi.User.MAIN_TEXT, 1));
 
         boolean singleShip = shipScopeLabel != null && !shipScopeLabel.isBlank();
+        Component footerWarning = mouseWarning;
         if (singleShip) {
-            root.add(message, BorderLayout.NORTH);
+            briefing.add(message, BorderLayout.NORTH);
             JLabel shipWarning = new JLabel(
                     "<html><body style='text-align:center;width:300px'>"
                             + "TRADING FOR "
@@ -174,25 +240,21 @@ final class MaterialTradeConfirmDialog extends JDialog {
                             + " ONLY"
                             + "</body></html>",
                     SwingConstants.CENTER);
-            shipWarning.setFont(base.deriveFont(Font.BOLD, Math.max(fontSize + 4f, 18f)));
+            shipWarning.setFont(base.deriveFont(Font.BOLD, fontSize));
             shipWarning.setForeground(EdoUi.User.SUCCESS);
             shipWarning.setOpaque(false);
-            shipWarning.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(EdoUi.User.SUCCESS, 2),
-                    new EmptyBorder(14, 18, 14, 18)));
-            JPanel shipWrap = new JPanel(new BorderLayout());
-            shipWrap.setOpaque(false);
-            shipWrap.setBorder(new EmptyBorder(4, 24, 12, 24));
-            shipWrap.add(shipWarning, BorderLayout.CENTER);
-            root.add(shipWrap, BorderLayout.CENTER);
+            shipWarning.setBorder(new EmptyBorder(4, 12, 4, 12));
+            briefing.add(mouseWarning, BorderLayout.CENTER);
+            footerWarning = shipWarning;
         } else {
-            root.add(message, BorderLayout.CENTER);
+            briefing.add(message, BorderLayout.CENTER);
         }
+        root.add(briefing, BorderLayout.CENTER);
 
         JPanel south = new JPanel(new BorderLayout());
         south.setOpaque(false);
         south.add(status, BorderLayout.NORTH);
-        south.add(mouseWarning, BorderLayout.CENTER);
+        south.add(footerWarning, BorderLayout.CENTER);
         south.add(footer, BorderLayout.SOUTH);
         root.add(south, BorderLayout.SOUTH);
 
@@ -201,15 +263,147 @@ final class MaterialTradeConfirmDialog extends JDialog {
         // OverlayFrame is always-on-top; without this the dialog opens behind it and looks like a no-op.
         setAlwaysOnTop(true);
         pack();
-        setLocationRelativeTo(owner);
+        placeBesideOwner(owner);
+    }
+
+    static JPanel createProgressPanel(JProgressBar progressBar, JButton stopButton) {
+        JPanel panel = new JPanel(new BorderLayout(10, 0));
+        panel.setOpaque(false);
+        panel.setBorder(new EmptyBorder(4, 12, 4, 12));
+        panel.add(progressBar, BorderLayout.CENTER);
+        panel.add(stopButton, BorderLayout.EAST);
+        return panel;
+    }
+
+    static void keepWarningsVisibleWhileRunning(Component briefing, Component warning) {
+        if (briefing != null) {
+            briefing.setVisible(true);
+        }
+        if (warning != null) {
+            warning.setVisible(true);
+        }
+    }
+
+    static boolean shouldStartTopmostKeeper(String status) {
+        if (status == null) {
+            return false;
+        }
+        String lower = status.trim().toLowerCase(Locale.ROOT);
+        return lower.startsWith("running trade") || lower.startsWith("starting trade");
+    }
+
+    static String statusHtml(String status) {
+        return "<html><body style='text-align:center;width:400px'>"
+                + escapeHtml(status != null ? status : "") + "</body></html>";
+    }
+
+    static Rectangle boundsBesideOwner(Rectangle owner, Rectangle screen, int width, int height) {
+        int gap = 8;
+        int x;
+        if (owner.x - gap - width >= screen.x) {
+            x = owner.x - gap - width;
+        } else if (owner.x + owner.width + gap + width <= screen.x + screen.width) {
+            x = owner.x + owner.width + gap;
+        } else {
+            x = Math.max(screen.x, Math.min(screen.x + screen.width - width, owner.x - width / 2));
+        }
+        int y = Math.max(screen.y, Math.min(screen.y + screen.height - height, owner.y));
+        return new Rectangle(x, y, width, height);
+    }
+
+    private void placeBesideOwner(Window owner) {
+        if (owner == null || owner.getGraphicsConfiguration() == null) {
+            setLocationRelativeTo(owner);
+            return;
+        }
+        Rectangle placed = boundsBesideOwner(owner.getBounds(),
+                owner.getGraphicsConfiguration().getBounds(), getWidth(), getHeight());
+        setLocation(placed.x, placed.y);
+    }
+
+    private void startTopmostKeeper(Window owner) {
+        if (topmostTimer != null) {
+            return;
+        }
+        topmostTimer = new Timer(250, e -> {
+            pinTopmostWithoutFocus(owner);
+            pinTopmostWithoutFocus(this);
+        });
+        topmostTimer.start();
+        pinTopmostWithoutFocus(owner);
+        pinTopmostWithoutFocus(this);
+    }
+
+    private void stopTopmostKeeper() {
+        if (topmostTimer != null) {
+            topmostTimer.stop();
+            topmostTimer = null;
+        }
+    }
+
+    private static void pinTopmostWithoutFocus(Window window) {
+        if (window == null || !window.isDisplayable()) {
+            return;
+        }
+        try {
+            // Keep the owning RockHound host in the topmost band even when its normal
+            // foreground watcher and the trade's Elite-focus transition race each other.
+            // This changes Z order only; it does not activate or focus RockHound.
+            if (!window.isAlwaysOnTop()) {
+                window.setAlwaysOnTop(true);
+            }
+            Pointer pointer = Native.getComponentPointer(window);
+            if (pointer == null) {
+                return;
+            }
+            HWND hwnd = new HWND(pointer);
+            HWND topmost = new HWND(Pointer.createConstant(-1));
+            User32.INSTANCE.SetWindowPos(hwnd, topmost, 0, 0, 0, 0,
+                    WinUser.SWP_NOMOVE | WinUser.SWP_NOSIZE
+                            | WinUser.SWP_NOACTIVATE | WinUser.SWP_SHOWWINDOW);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    public void dispose() {
+        stopTopmostKeeper();
+        if (running) {
+            if (cancelAction != null) {
+                cancelAction.run();
+            }
+            Thread active = worker;
+            if (active != null) {
+                active.interrupt();
+            }
+        }
+        completeOnce(result != null ? result : new MaterialTradeExecutor.Result(
+                MaterialTradeExecutor.Outcome.INTERRUPTED, "Trade cancelled"));
+        super.dispose();
+    }
+
+    private void completeOnce(MaterialTradeExecutor.Result completed) {
+        if (completionDelivered.compareAndSet(false, true) && completion != null) {
+            completion.accept(completed);
+        }
     }
 
     static void releaseFocusForTrade(Window window) {
         if (window == null) {
             return;
         }
-        window.setAlwaysOnTop(false);
+        window.setAlwaysOnTop(true);
         window.setFocusableWindowState(false);
+    }
+
+    static void restoreFocusAfterTrade(Window window) {
+        if (window == null) {
+            return;
+        }
+        window.setFocusableWindowState(true);
+        window.setAlwaysOnTop(true);
+        window.toFront();
+        window.requestFocus();
     }
 
     private static void applyProgress(JProgressBar progressBar, String statusText, int totalTrades) {
@@ -256,28 +450,22 @@ final class MaterialTradeConfirmDialog extends JDialog {
         }
     }
 
-    static MaterialTradeExecutor.Result execute(Window owner, TradeSuggestion suggestion,
-                                                TradeAction action) {
-        return execute(owner, suggestion, null, action);
-    }
-
-    static MaterialTradeExecutor.Result execute(Window owner, TradeSuggestion suggestion,
-                                                String shipScopeLabel, TradeAction action) {
+    static MaterialTradeConfirmDialog execute(Window owner, TradeSuggestion suggestion,
+                                                String shipScopeLabel, TradeAction action,
+                                                Runnable cancelAction,
+                                                Consumer<MaterialTradeExecutor.Result> completion) {
         if (suggestion == null) {
             return null;
         }
-        return show(owner, suggestion.getTraderType(), suggestion.summary(), 1, shipScopeLabel, action);
+        return show(owner, suggestion.getTraderType(), suggestion.summary(), 1,
+                shipScopeLabel, action, cancelAction, completion);
     }
 
-    static MaterialTradeExecutor.Result executeAll(Window owner, String traderType,
+    static MaterialTradeConfirmDialog executeAll(Window owner, String traderType,
                                                    List<TradeSuggestion> suggestions,
-                                                   TradeAction action) {
-        return executeAll(owner, traderType, suggestions, null, action);
-    }
-
-    static MaterialTradeExecutor.Result executeAll(Window owner, String traderType,
-                                                   List<TradeSuggestion> suggestions,
-                                                   String shipScopeLabel, TradeAction action) {
+                                                   String shipScopeLabel, TradeAction action,
+                                                   Runnable cancelAction,
+                                                   Consumer<MaterialTradeExecutor.Result> completion) {
         if (suggestions == null || suggestions.isEmpty()) {
             return null;
         }
@@ -285,23 +473,21 @@ final class MaterialTradeConfirmDialog extends JDialog {
         int received = suggestions.stream().mapToInt(TradeSuggestion::getToCount).sum();
         String summary = suggestions.size() + " trades — give " + paid
                 + " total materials, receive " + received + " total materials";
-        return show(owner, traderType, summary, suggestions.size(), shipScopeLabel, action);
+        return show(owner, traderType, summary, suggestions.size(), shipScopeLabel,
+                action, cancelAction, completion);
     }
 
-    private static MaterialTradeExecutor.Result show(Window owner, String traderType, String summary,
+    private static MaterialTradeConfirmDialog show(Window owner, String traderType, String summary,
                                                      int tradeCount, String shipScopeLabel,
-                                                     TradeAction action) {
+                                                     TradeAction action, Runnable cancelAction,
+                                                     Consumer<MaterialTradeExecutor.Result> completion) {
         MaterialTradeConfirmDialog dialog =
                 new MaterialTradeConfirmDialog(owner, traderType, summary, tradeCount,
-                        shipScopeLabel, action);
-        SwingUtilities.invokeLater(() -> {
-            if (dialog.isDisplayable()) {
-                dialog.toFront();
-                dialog.requestFocus();
-            }
-        });
+                        shipScopeLabel, action, cancelAction, completion);
         dialog.setVisible(true);
-        return dialog.result;
+        dialog.toFront();
+        dialog.requestFocus();
+        return dialog;
     }
 
     private static String escapeHtml(String s) {

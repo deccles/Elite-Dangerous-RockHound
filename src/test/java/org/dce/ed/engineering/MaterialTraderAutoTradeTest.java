@@ -100,4 +100,26 @@ class MaterialTraderAutoTradeTest {
                 1);
         assertTrue(executor.matches(suggestion, event));
     }
+
+    @Test
+    void cancellationRequestedBeforeRunStopsWithoutSendingATrade() {
+        MaterialTradeExecutor executor = new MaterialTradeExecutor(EngineeringDatabase.getInstance());
+        executor.requestCancel();
+        TradeSuggestion suggestion = new TradeSuggestion(
+                "specialisedlegacyfirmware", "Specialised Legacy Firmware", 6,
+                "modifiedconsumerfirmware", "Modified Consumer Firmware", 1,
+                true, "Encoded");
+
+        MaterialTradeExecutor.Result result = executor.execute(suggestion);
+
+        assertEquals(MaterialTradeExecutor.Outcome.INTERRUPTED, result.outcome());
+        assertEquals("Trade cancelled", result.message());
+    }
+
+    @Test
+    void focusLossMessageIdentifiesTheForegroundApplication() {
+        assertEquals(
+                "Elite lost focus before keys were sent (foreground: javaw.exe)",
+                MaterialTradeExecutor.focusLostBeforeKeysMessage("javaw.exe"));
+    }
 }

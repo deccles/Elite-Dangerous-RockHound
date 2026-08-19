@@ -32,6 +32,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.KeyEvent;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.AbstractAction;
@@ -253,6 +254,7 @@ public class EngineeringTabPanel extends JPanel {
     private final List<String> goalStatusText = new ArrayList<>();
     private Runnable sessionStateChangeCallback;
     private Runnable unplannedCraftWarningCallback;
+    private Consumer<Boolean> tradeVisibilityLockCallback;
 
     private final JLabel materialsEmptyLabel = new JLabel();
     private final JLabel tradeEmptyLabel = new JLabel();
@@ -2158,6 +2160,10 @@ public class EngineeringTabPanel extends JPanel {
         this.unplannedCraftWarningCallback = callback;
     }
 
+    public void setTradeVisibilityLockCallback(Consumer<Boolean> callback) {
+        this.tradeVisibilityLockCallback = callback;
+    }
+
     public void hydrateFromJournalIfNeeded(String clientKey) {
         inventoryTracker.bootstrapFromJournal(clientKey);
         reputationTracker.bootstrapFromJournal(clientKey);
@@ -3743,8 +3749,8 @@ public class EngineeringTabPanel extends JPanel {
         Window owner = SwingUtilities.getWindowAncestor(this);
         setTradeStatus("Confirm trade…", false);
         tradeAutomationRunning = true;
+        setTradeVisibilityLocked(true);
         List<TradeSuggestion> toRun = List.copyOf(suggestions);
-        MaterialTradeExecutor.Result result;
         try {
             MaterialTradeConfirmDialog.TradeAction action = dialogStatus ->
                     tradeExecutor.executeAll(toRun, msg -> {
@@ -3752,18 +3758,33 @@ public class EngineeringTabPanel extends JPanel {
                         SwingUtilities.invokeLater(() -> setTradeStatus(msg, false));
                     });
             String shipScopeLabel = singleShipTradeScopeLabel();
-            result = tradeAll
-                    ? MaterialTradeConfirmDialog.executeAll(
-                            owner, suggestion.getTraderType(), toRun, shipScopeLabel, action)
-                    : MaterialTradeConfirmDialog.execute(owner, suggestion, shipScopeLabel, action);
-        } finally {
+            Consumer<MaterialTradeExecutor.Result> onComplete = result -> {
+                tradeAutomationRunning = false;
+                setTradeVisibilityLocked(false);
+                if (result == null || result.ok()) {
+                    setTradeStatus(" ", false);
+                } else {
+                    setTradeStatus(result.message(), false);
+                }
+            };
+            if (tradeAll) {
+                MaterialTradeConfirmDialog.executeAll(
+                        owner, suggestion.getTraderType(), toRun, shipScopeLabel, action,
+                        tradeExecutor::requestCancel, onComplete);
+            } else {
+                MaterialTradeConfirmDialog.execute(owner, suggestion, shipScopeLabel, action,
+                        tradeExecutor::requestCancel, onComplete);
+            }
+        } catch (RuntimeException ex) {
             tradeAutomationRunning = false;
+            setTradeVisibilityLocked(false);
+            throw ex;
         }
-        if (result == null || result.ok()) {
-            // Success needs no banner; the tables refreshing is the feedback.
-            setTradeStatus(" ", false);
-        } else {
-            setTradeStatus(result.message(), false);
+    }
+
+    private void setTradeVisibilityLocked(boolean locked) {
+        if (tradeVisibilityLockCallback != null) {
+            tradeVisibilityLockCallback.accept(locked);
         }
     }
 
@@ -4061,6 +4082,7 @@ public class EngineeringTabPanel extends JPanel {
     private final class GoalStatusCellRenderer extends JPanel implements javax.swing.table.TableCellRenderer {
         private static final long serialVersionUID = 1L;
         private final JLabel label = new JLabel();
+        private final SegmentedProgressBar progressBar = new SegmentedProgressBar();
         /** {@code < 0} = text/icon mode; otherwise 0..1 craft fill. */
         private double barFill = -1.0;
         private Color barColor = EdoUi.User.MAIN_TEXT;
@@ -4074,12 +4096,15 @@ public class EngineeringTabPanel extends JPanel {
             label.setVerticalTextPosition(SwingConstants.CENTER);
             label.setIconTextGap(6);
             add(label, BorderLayout.CENTER);
+            add(progressBar, BorderLayout.CENTER);
+            progressBar.setVisible(false);
         }
 
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             barFill = -1.0;
+            progressBar.setVisible(false);
             String text = value != null ? value.toString() : "";
             label.setText(text);
             label.setIcon(null);
@@ -4104,6 +4129,10 @@ public class EngineeringTabPanel extends JPanel {
                     barFill = EngineeringGoalProgress.displayCompletionFraction(
                             goal, loadout, database, rank);
                     barColor = readinessColor(readiness, text);
+                    progressBar.setProgress(
+                            EngineeringGoalProgress.displayCompletionFractions(goal, loadout, database, rank),
+                            readiness == GoalReadiness.STILL_SHORT || STATUS_SHORT.equals(text));
+                    progressBar.setVisible(true);
                     label.setText("");
                     label.setIcon(null);
                     String progress = EngineeringGradeProgress.progressLabel(goal, rank);
@@ -4188,7 +4217,7 @@ public class EngineeringTabPanel extends JPanel {
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-            if (barFill < 0.0 || !(g instanceof Graphics2D g2)) {
+            if (progressBar.isVisible() || barFill < 0.0 || !(g instanceof Graphics2D g2)) {
                 return;
             }
             int padX = 6;

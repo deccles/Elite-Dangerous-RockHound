@@ -66,6 +66,15 @@ class CarrierJumpCooldownTest {
     }
 
     @Test
+    void cooldownEnd_cancelledJump_usesOneMinuteCancellationCooldown() {
+        Instant cancelled = Instant.parse("2026-08-19T16:00:00Z");
+
+        assertEquals(
+                Instant.parse("2026-08-19T16:01:00Z"),
+                CarrierJumpCooldown.cooldownEndFromCancellation(cancelled));
+    }
+
+    @Test
     void execTrigger_firesAtCooldownEnd() {
         Instant end = Instant.parse("2026-06-15T21:19:06Z");
         Instant trigger = CarrierJumpCooldown.execTriggerTimeFromCooldownEnd(end);

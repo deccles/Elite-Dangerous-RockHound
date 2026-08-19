@@ -1024,6 +1024,56 @@ public final class EngineeringGoalProgress {
         return Math.min(1.0, sum / qty);
     }
 
+    /** Individual module fills for the stacked Status display, completed modules first. */
+    public static List<Double> displayCompletionFractions(EngineeringGoal goal,
+                                                          LoadoutEvent loadout,
+                                                          EngineeringDatabase database,
+                                                          int engineerRank) {
+        if (goal == null) {
+            return List.of();
+        }
+        int qty = Math.max(1, goal.getQuantity());
+        if (goal.isComplete()) {
+            return new ArrayList<>(java.util.Collections.nCopies(qty, 1.0));
+        }
+        if (qty == 1) {
+            return List.of(EngineeringGradeProgress.completionFraction(goal, engineerRank));
+        }
+        if (loadout == null || !goalMatchesShip(goal, loadout.getShipId())) {
+            List<Double> fills = new ArrayList<>();
+            int complete = Math.min(qty, Math.max(0, goal.getCompletedUnits()));
+            fills.addAll(java.util.Collections.nCopies(complete, 1.0));
+            if (fills.size() < qty && (goal.getFromGrade() > 0
+                    || goal.getCraftsAtCurrentGrade() > 0 || goal.isExperimentalApplied())) {
+                fills.add(EngineeringGradeProgress.unitCompletionFraction(goal, engineerRank));
+            }
+            while (fills.size() < qty) {
+                fills.add(0.0);
+            }
+            return fills;
+        }
+        EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
+        List<Double> fills = unitDisplayFractionsFromLoadout(goal, loadout, db, engineerRank);
+        fills.sort(java.util.Comparator.reverseOrder());
+        int knownComplete = 0;
+        for (Double fill : fills) {
+            if (fill != null && fill >= 0.999) {
+                knownComplete++;
+            }
+        }
+        int missingComplete = Math.min(qty, Math.max(0, goal.getCompletedUnits())) - knownComplete;
+        for (int i = 0; i < missingComplete; i++) {
+            fills.add(0, 1.0);
+        }
+        if (fills.size() > qty) {
+            fills = new ArrayList<>(fills.subList(0, qty));
+        }
+        while (fills.size() < qty) {
+            fills.add(0.0);
+        }
+        return fills;
+    }
+
     /** True when the Status bar should show craft progress (not a blank Ready/Short row). */
     public static boolean hasDisplayCraftProgress(EngineeringGoal goal,
                                                   LoadoutEvent loadout,

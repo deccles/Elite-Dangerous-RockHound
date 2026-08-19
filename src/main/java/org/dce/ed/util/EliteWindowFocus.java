@@ -2,6 +2,7 @@ package org.dce.ed.util;
 
 import java.awt.AWTException;
 import java.awt.Robot;
+import java.awt.Rectangle;
 import java.awt.event.KeyEvent;
 import java.util.Locale;
 import java.util.function.BooleanSupplier;
@@ -12,6 +13,7 @@ import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef.DWORD;
 import com.sun.jna.platform.win32.WinDef.HWND;
+import com.sun.jna.platform.win32.WinDef.RECT;
 import com.sun.jna.platform.win32.WinDef.WORD;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinUser;
@@ -79,6 +81,17 @@ public final class EliteWindowFocus {
 
     public static boolean isGameRunning() {
         return findEliteWindow() != null;
+    }
+
+    /** Screen bounds of the visible Elite window, or {@code null} when unavailable. */
+    public static Rectangle eliteWindowBounds() {
+        HWND hwnd = findEliteWindow();
+        RECT rect = new RECT();
+        if (hwnd == null || !User32.INSTANCE.GetWindowRect(hwnd, rect)) {
+            return null;
+        }
+        return new Rectangle(rect.left, rect.top,
+                Math.max(0, rect.right - rect.left), Math.max(0, rect.bottom - rect.top));
     }
 
     /** Base name of the foreground process, e.g. {@code EliteDangerous64.exe}. */

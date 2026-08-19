@@ -11,6 +11,8 @@ import java.time.Instant;
 public final class CarrierJumpCooldown {
 
     public static final int COOLDOWN_SECONDS = 5 * 60;
+    /** Brief lockout imposed after cancelling a scheduled carrier jump. */
+    public static final int CANCELLATION_COOLDOWN_SECONDS = 60;
     /** Empirical correction vs in-game UI when anchored to aboard {@code CarrierJump} journal time. */
     public static final int COOLDOWN_END_CORRECTION_SECONDS = -(10 + 60);
     /** Aboard {@code CarrierJump} completion (legacy effective duration). */
@@ -58,6 +60,13 @@ public final class CarrierJumpCooldown {
             return null;
         }
         return jumpTimestamp.plusSeconds(cooldownDurationSeconds(offCarrierCompletion));
+    }
+
+    public static Instant cooldownEndFromCancellation(Instant cancellationTimestamp) {
+        if (cancellationTimestamp == null) {
+            return null;
+        }
+        return cancellationTimestamp.plusSeconds(CANCELLATION_COOLDOWN_SECONDS);
     }
 
     public static Instant execTriggerTimeFromCooldownEnd(Instant cooldownEnd) {
