@@ -62,6 +62,48 @@ class EngineeringGoalProgressCraftSyncTest {
     }
 
     @Test
+    void heatSinkAmmoCapacity_realJournalSequenceMatchesGoalAndClearsMaterialsAtQualityOne() {
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "heat-sink-launcher-ammo-capacity-g1",
+                "Heat Sink Launcher",
+                "Ammo Capacity",
+                0,
+                0,
+                1,
+                null));
+
+        double[] qualities = {0.2, 0.4, 0.6, 0.85, 1.0};
+        for (double quality : qualities) {
+            EngineerCraftEvent craft = (EngineerCraftEvent) parser.parseRecord("""
+                    {
+                      "timestamp": "2026-08-20T14:07:19Z",
+                      "event": "EngineerCraft",
+                      "Slot": "TinyHardpoint8",
+                      "Module": "hpt_heatsinklauncher_turret_tiny",
+                      "Ingredients": [
+                        {"Name": "mechanicalscrap", "Count": 1},
+                        {"Name": "vanadium", "Count": 1},
+                        {"Name": "niobium", "Count": 1}
+                      ],
+                      "Engineer": "Ram Tah",
+                      "BlueprintID": 128731666,
+                      "BlueprintName": "Misc_HeatSinkCapacity",
+                      "Level": 1,
+                      "Quality": %s
+                    }
+                    """.formatted(quality));
+
+            assertTrue(EngineeringGoalProgress.hasMatchingGoal(goals, craft, db, -1L));
+            assertTrue(EngineeringGoalProgress.applyCraft(goals, craft, db));
+        }
+
+        EngineeringGoal completed = goals.get(0);
+        assertTrue(completed.isComplete());
+        assertTrue(new EngineeringPlanner(db).materialsForGoal(completed).isEmpty());
+    }
+
+    @Test
     void hasMatchingGoal_distinguishesWakeScannerFromKillWarrantScanner() {
         String json = """
                 {

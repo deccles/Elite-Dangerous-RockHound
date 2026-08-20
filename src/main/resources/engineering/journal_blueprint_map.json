@@ -30,5 +30,17 @@
   "Armour_Advanced": {
     "moduleType": "Armour",
     "blueprintName": "Lightweight"
+  },
+  "Misc_HeatSinkCapacity": {
+    "moduleType": "Heat Sink Launcher",
+    "blueprintName": "Ammo Capacity"
+  },
+  "Misc_ChaffCapacity": {
+    "moduleType": "Chaff Launcher",
+    "blueprintName": "Ammo Capacity"
+  },
+  "Misc_PointDefenseCapacity": {
+    "moduleType": "Point Defence",
+    "blueprintName": "Ammo Capacity"
   }
 }

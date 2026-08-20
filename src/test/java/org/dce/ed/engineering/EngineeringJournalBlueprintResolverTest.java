@@ -139,6 +139,40 @@ class EngineeringJournalBlueprintResolverTest {
     }
 
     @Test
+    void resolve_mapsFrontierAmmoCapacityNamesForUtilityLaunchers() {
+        assertResolved(
+                "TinyHardpoint8",
+                "hpt_heatsinklauncher_turret_tiny",
+                "Misc_HeatSinkCapacity",
+                "Heat Sink Launcher",
+                "Ammo Capacity");
+        assertResolved(
+                "TinyHardpoint1",
+                "hpt_chafflauncher_turret_tiny",
+                "Misc_ChaffCapacity",
+                "Chaff Launcher",
+                "Ammo Capacity");
+        assertResolved(
+                "TinyHardpoint2",
+                "hpt_pointdefence_turret_tiny",
+                "Misc_PointDefenseCapacity",
+                "Point Defence",
+                "Ammo Capacity");
+    }
+
+    private static void assertResolved(String slot,
+                                       String moduleItem,
+                                       String journalName,
+                                       String expectedModuleType,
+                                       String expectedBlueprintName) {
+        Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
+                EngineeringJournalBlueprintResolver.resolve(slot, moduleItem, journalName, db);
+        assertTrue(resolved.isPresent(), journalName);
+        assertEquals(expectedModuleType, resolved.get().moduleType());
+        assertEquals(expectedBlueprintName, resolved.get().blueprintName());
+    }
+
+    @Test
     void derive_mapsResistiveWhenUnmapped() {
         Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
                 EngineeringJournalBlueprintResolver.deriveFromJournalName(
