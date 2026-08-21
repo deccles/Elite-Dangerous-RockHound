@@ -34,11 +34,13 @@ import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 
 import org.dce.ed.MouseInteractionMode;
+import org.dce.ed.OverlayFrame;
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.TitleBarPanel;
 import org.dce.ed.ui.EdoSurface;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.OverlayBackgroundPanel;
+import org.dce.ed.ui.PassThroughCursorOverlay;
 import org.dce.ed.ui.ScrollableTabBar;
 import org.dce.ed.ui.WindowEdgeResizeSupport;
 import org.dce.ed.util.AppIconUtil;
@@ -63,7 +65,9 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
     private final JPanel titleBar;
     private final TitleBarPanel.PassThroughToggleButton mouseModeButton;
     private final TitleBarPanel.MinimizeButton minimizeButton;
+    private final TitleBarPanel.MinimizeAllButton minimizeAllButton;
     private final TitleBarPanel.CloseButton closeButton;
+    private final PassThroughCursorOverlay passThroughCursorOverlay;
 
     private MouseInteractionMode mouseInteractionMode = MouseInteractionMode.SELECTIVE;
     private String selectedCardName;
@@ -84,6 +88,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
     public FloatingTabFrame(String dockId) {
         super("EDO Tabs");
         this.dockId = Objects.requireNonNull(dockId, "dockId");
+        passThroughCursorOverlay = new PassThroughCursorOverlay(this);
 
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         setUndecorated(true);
@@ -169,7 +174,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e)) {
-                    org.dce.ed.ui.EdoWindowIconify.iconifyAll();
+                    org.dce.ed.ui.EdoWindowIconify.iconifyOne(FloatingTabFrame.this);
                 }
             }
 
@@ -184,6 +189,26 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
             }
         });
 
+        minimizeAllButton = new TitleBarPanel.MinimizeAllButton();
+        minimizeAllButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    org.dce.ed.ui.EdoWindowIconify.iconifyAll();
+                }
+            }
+
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                minimizeAllButton.setHover(true);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                minimizeAllButton.setHover(false);
+            }
+        });
+
         titleBar = new JPanel(new BorderLayout());
         Color titleBg = EdoUi.Internal.TITLEBAR_BG;
         // Fully opaque plate for Win32 hit-testing on layered float frames.
@@ -195,6 +220,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
         right.setOpaque(false);
         right.add(mouseModeButton);
+        right.add(minimizeAllButton);
         right.add(minimizeButton);
         right.add(closeButton);
         Dimension chromeMin = right.getPreferredSize();
@@ -232,6 +258,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
 
             @Override
             public void windowClosed(WindowEvent e) {
+                passThroughCursorOverlay.dispose();
                 stopNativePassThroughSupport();
             }
         });
@@ -251,6 +278,11 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
             @Override
             public void componentShown(java.awt.event.ComponentEvent e) {
                 applyMouseInteractionMode(mouseInteractionMode, false);
+            }
+
+            @Override
+            public void componentHidden(java.awt.event.ComponentEvent e) {
+                passThroughCursorOverlay.update(mouseInteractionMode, false, null);
             }
         });
         addHierarchyListener(e -> {
@@ -368,7 +400,8 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         if (!isDisplayable() || !WindowsNativeMousePassThrough.isWindows()) {
             return;
         }
-        boolean stampEnable = enable && !isPointerOverInteractiveChrome();
+        boolean stampEnable = enable && OverlayFrame.shouldStampNativeMousePassThrough(
+                mouseInteractionMode, isPointerOverInteractiveChrome());
         WindowsNativeMousePassThrough.applyToWindowTree(this, stampEnable);
     }
 
@@ -384,14 +417,18 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         if (containsScreenPoint(scrollableTabBar, mouse)) {
             return true;
         }
-        // Selective and Full: punch through over card-specific interactive regions (ExoBio map, etc.).
-        // Full previously left map controls click-through with no dwell poller on floats.
+        // Card-specific controls are interactive only in Selective. FPT keeps all tab content
+        // click-through; only the window chrome above remains available as an escape hatch.
         BiPredicate<String, Point> tester = selectiveHitTester;
         String card = selectedCardName;
-        if (tester != null && card != null && mouseInteractionMode.isPassThroughLike()) {
+        if (tester != null && card != null && shouldUseCardSpecificHitRegion(mouseInteractionMode)) {
             return tester.test(card, mouse);
         }
         return false;
+    }
+
+    public static boolean shouldUseCardSpecificHitRegion(MouseInteractionMode mode) {
+        return mode == MouseInteractionMode.SELECTIVE;
     }
 
     private static boolean containsScreenPoint(Component component, Point screenPoint) {
@@ -418,6 +455,10 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
                 return;
             }
             stampNativeMousePassThrough(true);
+            PointerInfo pointerInfo = MouseInfo.getPointerInfo();
+            Point pointer = pointerInfo != null ? pointerInfo.getLocation() : null;
+            boolean inside = pointer != null && containsScreenPoint(this, pointer);
+            passThroughCursorOverlay.update(mouseInteractionMode, inside, pointer);
         });
         nativeStyleTimer.setRepeats(true);
         nativeStyleTimer.start();
@@ -429,6 +470,7 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
             nativeStyleTimer.stop();
             nativeStyleTimer = null;
         }
+        passThroughCursorOverlay.update(mouseInteractionMode, false, null);
     }
 
     private void installPaintGuard() {
@@ -552,8 +594,9 @@ public final class FloatingTabFrame extends JFrame implements TabDockHost {
         if (c == null) {
             return false;
         }
-        return c == mouseModeButton || c == minimizeButton || c == closeButton
+        return c == mouseModeButton || c == minimizeAllButton || c == minimizeButton || c == closeButton
                 || SwingUtilities.isDescendingFrom(c, mouseModeButton)
+                || SwingUtilities.isDescendingFrom(c, minimizeAllButton)
                 || SwingUtilities.isDescendingFrom(c, minimizeButton)
                 || SwingUtilities.isDescendingFrom(c, closeButton);
     }

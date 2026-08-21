@@ -57,7 +57,8 @@ public final class StartupSplashOverlay {
             JRootPane root = frame.getRootPane();
             // Preserve the frame's prior glass pane (e.g. OverlayFrame crosshair); restore after splash.
             Component previousGlass = root.getGlassPane();
-            SplashPanel panel = new SplashPanel(root, img, previousGlass);
+            boolean previousGlassVisible = previousGlass != null && previousGlass.isVisible();
+            SplashPanel panel = new SplashPanel(root, img, previousGlass, previousGlassVisible);
             root.setGlassPane(panel);
             panel.setVisible(true);
             panel.startFade();
@@ -70,6 +71,7 @@ public final class StartupSplashOverlay {
         private final BufferedImage image;
         /** Glass pane installed before the splash (restored on dismiss). */
         private final Component previousGlass;
+        private final boolean previousGlassVisible;
         private final Timer timer;
         private long fadeStartNanos;
         private volatile boolean dismissed;
@@ -78,10 +80,11 @@ public final class StartupSplashOverlay {
         private int cachedSplashTh = -1;
         private BufferedImage cachedSplashScaled;
 
-        SplashPanel(JRootPane root, BufferedImage image, Component previousGlass) {
+        SplashPanel(JRootPane root, BufferedImage image, Component previousGlass, boolean previousGlassVisible) {
             this.root = root;
             this.image = image;
             this.previousGlass = previousGlass;
+            this.previousGlassVisible = previousGlassVisible;
             setOpaque(false);
             setLayout(null);
 
@@ -119,14 +122,7 @@ public final class StartupSplashOverlay {
             dismissed = true;
             timer.stop();
             Runnable clear = () -> {
-                if (previousGlass != null) {
-                    root.setGlassPane(previousGlass);
-                } else {
-                    JPanel empty = new JPanel();
-                    empty.setOpaque(false);
-                    root.setGlassPane(empty);
-                    empty.setVisible(false);
-                }
+                restoreGlassPane(root, previousGlass, previousGlassVisible);
                 Window host = SwingUtilities.getWindowAncestor(root);
                 if (host instanceof OverlayFrame overlay) {
                     overlay.reapplyNativeMousePassThroughIfEnabled();
@@ -334,6 +330,22 @@ public final class StartupSplashOverlay {
             } finally {
                 g2.translate(-tx, -ty);
             }
+        }
+    }
+
+    static void restoreGlassPane(JRootPane root, Component previousGlass, boolean previousGlassVisible) {
+        Component current = root.getGlassPane();
+        if (current != null) {
+            current.setVisible(false);
+        }
+        if (previousGlass != null) {
+            root.setGlassPane(previousGlass);
+            previousGlass.setVisible(previousGlassVisible);
+        } else {
+            JPanel empty = new JPanel();
+            empty.setOpaque(false);
+            root.setGlassPane(empty);
+            empty.setVisible(false);
         }
     }
 }

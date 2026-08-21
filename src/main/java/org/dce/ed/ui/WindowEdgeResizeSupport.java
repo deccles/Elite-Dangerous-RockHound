@@ -52,6 +52,10 @@ public final class WindowEdgeResizeSupport {
         }
     }
 
+    public static boolean isInstalledFor(Window window) {
+        return window != null && existingHandler(window) != null;
+    }
+
     private static Handler existingHandler(Window window) {
         Component root = rootComponent(window);
         if (root instanceof JComponent jc) {

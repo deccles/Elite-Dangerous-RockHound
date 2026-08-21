@@ -1,14 +1,10 @@
 package org.dce.ed;
 
-import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.geom.Line2D;
-import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Frame;
@@ -27,9 +23,7 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.PaintEvent;
-import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.geom.Point2D;
 import java.text.NumberFormat;
 import java.time.Instant;
 import java.util.HashSet;
@@ -45,13 +39,14 @@ import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JPanel;
-import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.border.LineBorder;
 
 import org.dce.ed.ui.OverlayBackgroundPanel;
 import org.dce.ed.ui.PassThroughTooltipSupport;
+import org.dce.ed.ui.PassThroughCursorOverlay;
+import org.dce.ed.ui.WindowEdgeResizeSupport;
 import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.session.EdoSessionPersistence;
@@ -166,8 +161,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private volatile String exceptionLeftStatusText;
     private volatile Instant exceptionLeftStatusUntil;
 
-    // Crosshair on glass pane (draw-only, on top of all UI; {@link CrosshairOverlay#contains} is false)
-    private final CrosshairOverlay crosshairOverlay = new CrosshairOverlay();
+    /** Separate click-through window so the pointer remains visible over alpha-zero overlay pixels. */
+    private final PassThroughCursorOverlay passThroughCursorOverlay;
     private final Timer crosshairTimer;
     private static final int CROSSHAIR_POLL_MS = 8;
     private static final long PASS_THROUGH_CLOSE_DWELL_MS = 900L;
@@ -176,6 +171,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     private static final long PASS_THROUGH_MENU_DWELL_MS = 900L;
     private long passThroughCloseHoverStartMs = -1L;
     private long passThroughMinimizeHoverStartMs = -1L;
+    private long passThroughMinimizeAllHoverStartMs = -1L;
     private long passThroughToggleHoverStartMs = -1L;
     private long passThroughHammerHoverStartMs = -1L;
     private long passThroughSettingsHoverStartMs = -1L;
@@ -754,6 +750,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         super("Elite Dangerous RockHound");
 
         overlayFrame = this;
+        passThroughCursorOverlay = new PassThroughCursorOverlay(this);
 
         // Need transparency -> undecorated
         setUndecorated(true);
@@ -765,9 +762,6 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         if (!gd.isWindowTranslucencySupported(GraphicsDevice.WindowTranslucency.TRANSLUCENT)) {
             System.err.println("WARNING: Per-pixel translucency not supported on this device.");
         }
-
-        setGlassPane(crosshairOverlay);
-        crosshairOverlay.setVisible(false);
 
         // Poll global mouse position and update crosshair (~120 Hz, direct tracking like RoboHound game message)
         crosshairTimer = new Timer(CROSSHAIR_POLL_MS, e -> updateCrosshair());
@@ -802,6 +796,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 
             @Override
             public void componentHidden(ComponentEvent e) {
+                passThroughCursorOverlay.update(mouseInteractionMode, false, null);
                 stopMousePassThroughNativeStyleTimer();
             }
 
@@ -878,12 +873,9 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         Rectangle passThroughRect = readPassThroughStoredBounds();
         setBounds(passThroughRect.x, passThroughRect.y, passThroughRect.width, passThroughRect.height);
 
-        // Add custom resize handler for edges/corners.
-        // IMPORTANT: attach recursively so resizing works even when cursor is over child components.
-        int dragThickness = calcBorderDragThicknessPx();
-        ResizeHandler resizeHandler = new ResizeHandler(this, TitleBarPanel.TOP_RESIZE_STRIP);
-        installResizeHandlerRecursive(getRootPane(), resizeHandler);
-        installResizeHandlerRecursive(getContentPane(), resizeHandler);
+        // Resize ownership transfers with components moved into floating docks, preventing a
+        // reparented tab from retaining a listener that still resizes the main overlay.
+        WindowEdgeResizeSupport.install(this, calcBorderDragThicknessPx());
         
         installLowLimpetStatusUpdater();
         sessionSaveTimer.setRepeats(false);
@@ -1967,22 +1959,6 @@ private void refreshPassThroughUnifiedStatus() {
         int px = (int) Math.round(16 * scale); // was smaller/lower
         return Math.max(px, 16);
     }
-    private static void installResizeHandlerRecursive(Component c, ResizeHandler handler) {
-        if (c == null) {
-            return;
-        }
-
-        c.addMouseListener(handler);
-        c.addMouseMotionListener(handler);
-
-        if (c instanceof Container) {
-            Container cont = (Container) c;
-            for (Component child : cont.getComponents()) {
-                installResizeHandlerRecursive(child, handler);
-            }
-        }
-    }
-
     public void showOverlay() {
         setVisible(true);
 
@@ -2344,10 +2320,20 @@ private void refreshPassThroughUnifiedStatus() {
         if (!tryAcquireHwnd()) {
             return;
         }
-        boolean stampEnable = enable && !isPointerOverInteractiveChrome();
+        boolean stampEnable = enable && shouldStampNativeMousePassThrough(
+                mouseInteractionMode, isPointerOverInteractiveChrome());
         if (!WindowsNativeMousePassThrough.applyToWindowTree(this, stampEnable)) {
             System.err.println("Failed to apply native mouse pass-through to overlay window.");
         }
+    }
+
+    public static boolean shouldStampNativeMousePassThrough(MouseInteractionMode mode,
+                                                            boolean pointerOverInteractiveChrome) {
+        return mode == MouseInteractionMode.FULL_PASS_THROUGH && !pointerOverInteractiveChrome;
+    }
+
+    public static boolean shouldUseTitleBarDwellController(MouseInteractionMode mode) {
+        return mode == MouseInteractionMode.FULL_PASS_THROUGH;
     }
 
     private boolean isPointerOverInteractiveChrome() {
@@ -2723,211 +2709,22 @@ private void refreshPassThroughUnifiedStatus() {
 
     public void closeOverlay() {
         persistPassThroughBoundsRectangle(windowOuterRectangle(this));
+        passThroughCursorOverlay.dispose();
         dispose();
         System.exit(0);
-    }
-
-    /**
-     * Mouse handler that provides resize handles on edges and corners
-     * for the undecorated frame.
-     */
-    private static class ResizeHandler extends MouseAdapter {
-
-        private final int borderDragThickness;
-
-        private final OverlayFrame frame;
-        private int dragCursor = Cursor.DEFAULT_CURSOR;
-        private boolean dragging = false;
-
-        // Mouse position at press time (screen coords)
-        private int dragOffsetX;
-        private int dragOffsetY;
-
-        // Frame bounds at press time
-        private int dragWidth;
-        private int dragHeight;
-        private int dragStartX;
-        private int dragStartY;
-
-        ResizeHandler(OverlayFrame frame, int borderDragThickness) {
-            this.frame = frame;
-            this.borderDragThickness = borderDragThickness;
-        }
-
-        @Override
-        public void mouseMoved(MouseEvent e) {
-            if (dragging) {
-                return;
-            }
-            int cursor = calcCursor(e);
-            frame.setCursor(Cursor.getPredefinedCursor(cursor));
-        }
-
-        @Override
-        public void mouseExited(MouseEvent e) {
-            if (!dragging) {
-                frame.setCursor(Cursor.getDefaultCursor());
-            }
-        }
-
-        @Override
-        public void mousePressed(MouseEvent e) {
-            Component src = e.getComponent();
-            // Tables own their own drag gestures (route reorder, etc.); don't steal for window resize.
-            if (src instanceof JTable) {
-                dragCursor = Cursor.DEFAULT_CURSOR;
-                dragging = false;
-                return;
-            }
-            dragCursor = calcCursor(e);
-            if (dragCursor != Cursor.DEFAULT_CURSOR && SwingUtilities.isLeftMouseButton(e)) {
-                dragging = true;
-                dragOffsetX = e.getXOnScreen();
-                dragOffsetY = e.getYOnScreen();
-                dragWidth = frame.getWidth();
-                dragHeight = frame.getHeight();
-                dragStartX = frame.getX();
-                dragStartY = frame.getY();
-            }
-        }
-
-        @Override
-        public void mouseReleased(MouseEvent e) {
-            dragging = false;
-            frame.setCursor(Cursor.getDefaultCursor());
-            frame.reapplyNativeMousePassThroughIfEnabled();
-        }
-
-        @Override
-        public void mouseDragged(MouseEvent e) {
-            if (!dragging) {
-                return;
-            }
-
-            int dx = e.getXOnScreen() - dragOffsetX;
-            int dy = e.getYOnScreen() - dragOffsetY;
-
-            // Always base on the ORIGINAL frame position & size
-            int newX = dragStartX;
-            int newY = dragStartY;
-            int newW = dragWidth;
-            int newH = dragHeight;
-
-            switch (dragCursor) {
-                case Cursor.E_RESIZE_CURSOR:
-                    newW = dragWidth + dx;
-                    break;
-                case Cursor.S_RESIZE_CURSOR:
-                    newH = dragHeight + dy;
-                    break;
-                case Cursor.SE_RESIZE_CURSOR:
-                    newW = dragWidth + dx;
-                    newH = dragHeight + dy;
-                    break;
-                case Cursor.W_RESIZE_CURSOR:
-                    newX = dragStartX + dx;
-                    newW = dragWidth - dx;
-                    break;
-                case Cursor.N_RESIZE_CURSOR:
-                    newY = dragStartY + dy;
-                    newH = dragHeight - dy;
-                    break;
-                case Cursor.NW_RESIZE_CURSOR:
-                    newX = dragStartX + dx;
-                    newW = dragWidth - dx;
-                    newY = dragStartY + dy;
-                    newH = dragHeight - dy;
-                    break;
-                case Cursor.NE_RESIZE_CURSOR:
-                    newY = dragStartY + dy;
-                    newH = dragHeight - dy;
-                    newW = dragWidth + dx;
-                    break;
-                case Cursor.SW_RESIZE_CURSOR:
-                    newX = dragStartX + dx;
-                    newW = dragWidth - dx;
-                    newH = dragHeight + dy;
-                    break;
-                default:
-                    break;
-            }
-
-            // Enforce minimum size
-            if (newW < frame.getMinimumSize().width) {
-                int diff = frame.getMinimumSize().width - newW;
-                if (dragCursor == Cursor.W_RESIZE_CURSOR ||
-                    dragCursor == Cursor.NW_RESIZE_CURSOR ||
-                    dragCursor == Cursor.SW_RESIZE_CURSOR) {
-                    newX -= diff;
-                }
-                newW = frame.getMinimumSize().width;
-            }
-
-            if (newH < frame.getMinimumSize().height) {
-                int diff = frame.getMinimumSize().height - newH;
-                if (dragCursor == Cursor.N_RESIZE_CURSOR ||
-                    dragCursor == Cursor.NE_RESIZE_CURSOR ||
-                    dragCursor == Cursor.NW_RESIZE_CURSOR) {
-                    newY -= diff;
-                }
-                newH = frame.getMinimumSize().height;
-            }
-
-            frame.setBounds(newX, newY, newW, newH);
-        }
-        private int calcCursor(MouseEvent e) {
-            // IMPORTANT: e.getX()/getY() are relative to the component that fired the event.
-            // Convert to root-pane coordinates so hit-testing matches the actual window edges.
-            Component src = (Component) e.getSource();
-            Point p = SwingUtilities.convertPoint(src, e.getPoint(), frame.getRootPane());
-
-            int x = p.x;
-            int y = p.y;
-
-            int w = frame.getRootPane().getWidth();
-            int h = frame.getRootPane().getHeight();
-
-            boolean left = x < borderDragThickness;
-            boolean right = x >= w - borderDragThickness;
-            boolean top = y < borderDragThickness;
-            boolean bottom = y >= h - borderDragThickness;
-
-            if (left && top) {
-                return Cursor.NW_RESIZE_CURSOR;
-            } else if (left && bottom) {
-                return Cursor.SW_RESIZE_CURSOR;
-            } else if (right && top) {
-                return Cursor.NE_RESIZE_CURSOR;
-            } else if (right && bottom) {
-                return Cursor.SE_RESIZE_CURSOR;
-            } else if (left) {
-                return Cursor.W_RESIZE_CURSOR;
-            } else if (right) {
-                return Cursor.E_RESIZE_CURSOR;
-            } else if (top) {
-                return Cursor.N_RESIZE_CURSOR;
-            } else if (bottom) {
-                return Cursor.S_RESIZE_CURSOR;
-            } else {
-                return Cursor.DEFAULT_CURSOR;
-            }
-        }
-
     }
 
     private void updateCrosshair() {
         if (!isShowing()) {
             PassThroughTooltipSupport.clear();
-            crosshairOverlay.setCrosshairPoint(null);
-            crosshairOverlay.setVisible(false);
+            passThroughCursorOverlay.update(mouseInteractionMode, false, null);
             resetPassThroughCloseHoverState();
             return;
         }
 
         if (!mouseInteractionMode.isPassThroughLike()) {
             PassThroughTooltipSupport.clear();
-            crosshairOverlay.setCrosshairPoint(null);
-            crosshairOverlay.setVisible(false);
+            passThroughCursorOverlay.update(mouseInteractionMode, false, null);
             resetPassThroughCloseHoverState();
             return;
         }
@@ -2937,7 +2734,8 @@ private void refreshPassThroughUnifiedStatus() {
             Point mouseOnScreen = pi.getLocation();
             try {
                 Rectangle frameBounds = new Rectangle(getLocationOnScreen(), getSize());
-                if (frameBounds.contains(mouseOnScreen)) {
+                if (frameBounds.contains(mouseOnScreen)
+                        && shouldUseTitleBarDwellController(mouseInteractionMode)) {
                     updatePassThroughHoverClose(mouseOnScreen);
                 } else {
                     resetPassThroughCloseHoverState();
@@ -2950,8 +2748,7 @@ private void refreshPassThroughUnifiedStatus() {
         }
 
         if (pi == null) {
-            crosshairOverlay.setCrosshairPoint(null);
-            crosshairOverlay.setVisible(false);
+            passThroughCursorOverlay.update(mouseInteractionMode, false, null);
             return;
         }
 
@@ -2960,29 +2757,15 @@ private void refreshPassThroughUnifiedStatus() {
         try {
             frameOnScreen = getLocationOnScreen();
         } catch (IllegalComponentStateException ex) {
-            crosshairOverlay.setCrosshairPoint(null);
-            crosshairOverlay.setVisible(false);
+            passThroughCursorOverlay.update(mouseInteractionMode, false, null);
             return;
         }
 
         int relX = mouseOnScreen.x - frameOnScreen.x;
         int relY = mouseOnScreen.y - frameOnScreen.y;
 
-        if (relX >= 0 && relY >= 0 && relX < getWidth() && relY < getHeight()) {
-            EliteOverlayTabbedPane tabs = contentPanel != null ? contentPanel.getTabbedPane() : null;
-            if (tabs != null && tabs.isPointerOverControlPanelActionButton(mouseOnScreen)) {
-                crosshairOverlay.setCrosshairPoint(null);
-                crosshairOverlay.setVisible(false);
-                return;
-            }
-            crosshairOverlay.setCrosshairPoint(new Point2D.Double(relX, relY));
-            if (!crosshairOverlay.isVisible()) {
-                crosshairOverlay.setVisible(true);
-            }
-        } else {
-            crosshairOverlay.setCrosshairPoint(null);
-            crosshairOverlay.setVisible(false);
-        }
+        boolean pointerInside = relX >= 0 && relY >= 0 && relX < getWidth() && relY < getHeight();
+        passThroughCursorOverlay.update(mouseInteractionMode, pointerInside, mouseOnScreen);
 
         PassThroughTooltipSupport.poll(backgroundPanel, true);
     }
@@ -2994,10 +2777,11 @@ private void refreshPassThroughUnifiedStatus() {
         }
         java.awt.Rectangle closeRect = titleBar.getCloseButtonScreenBounds();
         java.awt.Rectangle minimizeRect = titleBar.getMinimizeButtonScreenBounds();
+        java.awt.Rectangle minimizeAllRect = titleBar.getMinimizeAllButtonScreenBounds();
         java.awt.Rectangle toggleRect = titleBar.getToggleButtonScreenBounds();
         java.awt.Rectangle hammerRect = titleBar.getHammerButtonScreenBounds();
         java.awt.Rectangle settingsRect = titleBar.getSettingsButtonScreenBounds();
-        if (closeRect == null || minimizeRect == null || toggleRect == null
+        if (closeRect == null || minimizeRect == null || minimizeAllRect == null || toggleRect == null
                 || hammerRect == null || settingsRect == null) {
             resetPassThroughCloseHoverState();
             return;
@@ -3005,19 +2789,21 @@ private void refreshPassThroughUnifiedStatus() {
 
         boolean hClose = closeRect.contains(mouseOnScreen);
         boolean hMinimize = minimizeRect.contains(mouseOnScreen);
+        boolean hMinimizeAll = minimizeAllRect.contains(mouseOnScreen);
         boolean hToggle = toggleRect.contains(mouseOnScreen);
         boolean hHammer = hammerRect.contains(mouseOnScreen);
         boolean hSettings = settingsRect.contains(mouseOnScreen);
 
         long now = System.currentTimeMillis();
 
-        if (!mouseInteractionMode.isPassThroughLike()) {
-            passThroughToggleHoverStartMs = -1L;
+        if (!shouldUseTitleBarDwellController(mouseInteractionMode)) {
+            resetPassThroughCloseHoverState();
             return;
         }
 
         titleBar.setCloseHoverProgrammatic(hClose);
         titleBar.setMinimizeHoverProgrammatic(hMinimize);
+        titleBar.setMinimizeAllHoverProgrammatic(hMinimizeAll);
         titleBar.setToggleHoverProgrammatic(hToggle);
         titleBar.setHammerHoverProgrammatic(hHammer);
         titleBar.setSettingsHoverProgrammatic(hSettings);
@@ -3027,6 +2813,7 @@ private void refreshPassThroughUnifiedStatus() {
             passThroughHammerHoverStartMs = -1L;
             passThroughSettingsHoverStartMs = -1L;
             passThroughMinimizeHoverStartMs = -1L;
+            passThroughMinimizeAllHoverStartMs = -1L;
             if (passThroughCloseHoverStartMs < 0L) {
                 passThroughCloseHoverStartMs = now;
             } else if (now - passThroughCloseHoverStartMs >= PASS_THROUGH_CLOSE_DWELL_MS) {
@@ -3043,12 +2830,26 @@ private void refreshPassThroughUnifiedStatus() {
             if (passThroughMinimizeHoverStartMs < 0L) {
                 passThroughMinimizeHoverStartMs = now;
             } else if (now - passThroughMinimizeHoverStartMs >= PASS_THROUGH_CLOSE_DWELL_MS) {
-                org.dce.ed.ui.EdoWindowIconify.iconifyAll();
+                org.dce.ed.ui.EdoWindowIconify.iconifyOne(this);
                 passThroughMinimizeHoverStartMs = -1L;
             }
             return;
         }
         passThroughMinimizeHoverStartMs = -1L;
+
+        if (hMinimizeAll) {
+            passThroughToggleHoverStartMs = -1L;
+            passThroughHammerHoverStartMs = -1L;
+            passThroughSettingsHoverStartMs = -1L;
+            if (passThroughMinimizeAllHoverStartMs < 0L) {
+                passThroughMinimizeAllHoverStartMs = now;
+            } else if (now - passThroughMinimizeAllHoverStartMs >= PASS_THROUGH_CLOSE_DWELL_MS) {
+                org.dce.ed.ui.EdoWindowIconify.iconifyAll();
+                passThroughMinimizeAllHoverStartMs = -1L;
+            }
+            return;
+        }
+        passThroughMinimizeAllHoverStartMs = -1L;
 
         if (hToggle) {
             passThroughHammerHoverStartMs = -1L;
@@ -3096,12 +2897,14 @@ private void refreshPassThroughUnifiedStatus() {
     private void resetPassThroughCloseHoverState() {
         passThroughCloseHoverStartMs = -1L;
         passThroughMinimizeHoverStartMs = -1L;
+        passThroughMinimizeAllHoverStartMs = -1L;
         passThroughToggleHoverStartMs = -1L;
         passThroughHammerHoverStartMs = -1L;
         passThroughSettingsHoverStartMs = -1L;
         if (titleBar != null) {
             titleBar.setCloseHoverProgrammatic(false);
             titleBar.setMinimizeHoverProgrammatic(false);
+            titleBar.setMinimizeAllHoverProgrammatic(false);
             titleBar.setToggleHoverProgrammatic(false);
             titleBar.setHammerHoverProgrammatic(false);
             titleBar.setSettingsHoverProgrammatic(false);
@@ -3109,70 +2912,6 @@ private void refreshPassThroughUnifiedStatus() {
         EliteOverlayTabbedPane tp = (contentPanel != null) ? contentPanel.getTabbedPane() : null;
         if (tp != null) {
             tp.resetPassThroughBioMapControlsHover();
-        }
-    }
-
-    private static class CrosshairOverlay extends JComponent {
-
-        private static final Color CROSSHAIR_OUTLINE = new Color(0, 0, 0, 200);
-        private static final Color CROSSHAIR_FILL = new Color(255, 255, 255, 245);
-
-        private Point2D.Double crosshairPoint;
-
-        CrosshairOverlay() {
-            setOpaque(false);
-        }
-
-        void setCrosshairPoint(Point2D.Double p) {
-            if (p == null && crosshairPoint == null) {
-                return;
-            }
-            if (p != null && crosshairPoint != null && p.x == crosshairPoint.x && p.y == crosshairPoint.y) {
-                return;
-            }
-            this.crosshairPoint = p;
-            repaint();
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            if (crosshairPoint == null) {
-                return;
-            }
-
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-
-                double x = crosshairPoint.x;
-                double y = crosshairPoint.y;
-                double arm = 11.0;
-
-                g2.setStroke(new BasicStroke(3.25f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g2.setColor(CROSSHAIR_OUTLINE);
-                g2.draw(new Line2D.Double(x - arm, y, x + arm, y));
-                g2.draw(new Line2D.Double(x, y - arm, x, y + arm));
-
-                g2.setStroke(new BasicStroke(1.75f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g2.setColor(CROSSHAIR_FILL);
-                g2.draw(new Line2D.Double(x - arm, y, x + arm, y));
-                g2.draw(new Line2D.Double(x, y - arm, x, y + arm));
-
-            } finally {
-                g2.dispose();
-            }
-            OverlayFrame frame = overlayFrame;
-            if (frame != null) {
-                frame.scheduleNativePassThroughReapplyAfterPaint();
-            }
-        }
-
-        @Override
-        public boolean contains(int x, int y) {
-            // Critical: don't intercept mouse events.
-            return false;
         }
     }
 

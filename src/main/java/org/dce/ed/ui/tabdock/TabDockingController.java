@@ -34,6 +34,7 @@ import org.dce.ed.EdoTestFlags;
 import org.dce.ed.MouseInteractionMode;
 import org.dce.ed.OverlayFrame;
 import org.dce.ed.util.EliteWindowFocus;
+import org.dce.ed.util.WindowsNativeTopmost;
 import org.dce.ed.ui.tabdock.OverlayTabTransferable.OverlayTabTransferData;
 
 /**
@@ -520,12 +521,7 @@ public final class TabDockingController {
             if (frame == null || !frame.isDisplayable()) {
                 continue;
             }
-            try {
-                if (frame.isAlwaysOnTop() != alwaysOnTop) {
-                    frame.setAlwaysOnTop(alwaysOnTop);
-                }
-            } catch (Exception ignored) {
-            }
+            WindowsNativeTopmost.apply(frame, alwaysOnTop);
         }
     }
 

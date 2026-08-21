@@ -24,6 +24,7 @@ public final class EdoWindowIconify {
     private static final Set<Window> HIDDEN_DIALOGS =
             java.util.Collections.newSetFromMap(new IdentityHashMap<>());
     private static boolean restoring;
+    private static boolean groupIconified;
 
     private EdoWindowIconify() {
     }
@@ -35,6 +36,7 @@ public final class EdoWindowIconify {
             return;
         }
         synchronized (LOCK) {
+            groupIconified = true;
             HIDDEN_DIALOGS.clear();
             for (Window w : Window.getWindows()) {
                 if (w == null || !w.isDisplayable() || !w.isVisible()) {
@@ -57,6 +59,23 @@ public final class EdoWindowIconify {
         }
     }
 
+    /** Minimize only the requested frame. It restores independently from the group. */
+    public static void iconifyOne(Window window) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> iconifyOne(window));
+            return;
+        }
+        if (!(window instanceof Frame frame) || !frame.isDisplayable()) {
+            return;
+        }
+        synchronized (LOCK) {
+            int state = frame.getExtendedState();
+            if ((state & Frame.ICONIFIED) == 0) {
+                frame.setExtendedState(state | Frame.ICONIFIED);
+            }
+        }
+    }
+
     /** Attach restore-together behavior to an EDO frame (call when creating floating docks). */
     public static void watch(Window window) {
         if (!(window instanceof Frame frame)) {
@@ -75,7 +94,11 @@ public final class EdoWindowIconify {
         frame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowDeiconified(WindowEvent e) {
-                restoreAll();
+                synchronized (LOCK) {
+                    if (groupIconified) {
+                        restoreAll();
+                    }
+                }
             }
         });
     }
@@ -111,6 +134,7 @@ public final class EdoWindowIconify {
                     }
                 }
             } finally {
+                groupIconified = false;
                 restoring = false;
             }
         }

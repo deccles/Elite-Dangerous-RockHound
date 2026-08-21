@@ -20,6 +20,7 @@ import javax.swing.ToolTipManager;
 public final class PassThroughTooltipSupport {
 
     private static JComponent lastTipComponent;
+    private static Point lastTipScreenPoint;
 
     private PassThroughTooltipSupport() {
     }
@@ -61,6 +62,9 @@ public final class PassThroughTooltipSupport {
             clear();
             return;
         }
+        if (!shouldDispatchMouseMoved(lastTipComponent, lastTipScreenPoint, target, screen)) {
+            return;
+        }
 
         Point targetLocal = new Point(screen);
         SwingUtilities.convertPointFromScreen(targetLocal, target);
@@ -78,6 +82,15 @@ public final class PassThroughTooltipSupport {
                 MouseEvent.NOBUTTON);
         ToolTipManager.sharedInstance().mouseMoved(moved);
         lastTipComponent = target;
+        lastTipScreenPoint = new Point(screen);
+    }
+
+    static boolean shouldDispatchMouseMoved(JComponent previousTarget, Point previousScreenPoint,
+                                            JComponent target, Point screenPoint) {
+        return previousTarget != target
+                || previousScreenPoint == null
+                || screenPoint == null
+                || !previousScreenPoint.equals(screenPoint);
     }
 
     /**
@@ -122,5 +135,6 @@ public final class PassThroughTooltipSupport {
                 false);
         ToolTipManager.sharedInstance().mouseExited(exited);
         lastTipComponent = null;
+        lastTipScreenPoint = null;
     }
 }

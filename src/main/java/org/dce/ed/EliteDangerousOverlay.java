@@ -38,8 +38,10 @@ import org.dce.ed.ui.ConsoleMonitor;
 import org.dce.ed.ui.StartupSplashOverlay;
 import org.dce.ed.util.AppIconUtil;
 import org.dce.ed.util.EliteWindowFocus;
+import org.dce.ed.util.WindowsNativeTopmost;
 import org.dce.ed.util.GithubMsiUpdater;
 import org.dce.ed.util.OverlayFocusAlwaysOnTop;
+import org.dce.ed.util.OverlayForegroundPolicy;
 
 import com.github.kwhat.jnativehook.GlobalScreen;
 import com.github.kwhat.jnativehook.NativeHookException;
@@ -47,8 +49,10 @@ import com.github.kwhat.jnativehook.NativeInputEvent;
 import com.github.kwhat.jnativehook.keyboard.NativeKeyListener;
 import com.github.kwhat.jnativehook.mouse.NativeMouseWheelEvent;
 import com.github.kwhat.jnativehook.mouse.NativeMouseWheelListener;
+import com.github.kwhat.jnativehook.mouse.NativeMouseEvent;
+import com.github.kwhat.jnativehook.mouse.NativeMouseMotionListener;
 
-public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWheelListener {
+public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWheelListener, NativeMouseMotionListener {
 
     private static final String PREF_WINDOW_X = "windowX";
     private static final String PREF_WINDOW_Y = "windowY";
@@ -270,6 +274,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
                         contentPanel.disposeTabDocking();
                     }
                     GlobalScreen.removeNativeMouseWheelListener(EliteDangerousOverlay.this);
+                    GlobalScreen.removeNativeMouseMotionListener(EliteDangerousOverlay.this);
                     GlobalScreen.unregisterNativeHook();
                 } catch (NativeHookException ex) {
                     ex.printStackTrace();
@@ -295,6 +300,7 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
 
         GlobalScreen.addNativeKeyListener(this);
         GlobalScreen.addNativeMouseWheelListener(this);
+        GlobalScreen.addNativeMouseMotionListener(this);
         TtsSprintf ttsSprintf = new TtsSprintf(new PollyTtsCached());
         ttsSprintf.speakf("Welcome commander");
         
@@ -316,28 +322,20 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
      * Decorated (non-overlay) mode additionally requires the always-on-top preference.
      */
     private void syncFocusAlwaysOnTop() {
-        boolean eliteFg = EliteWindowFocus.isEliteForeground();
-        applyAlwaysOnTop(passThroughFrame, eliteFg);
-        applyAlwaysOnTop(decoratedDialog, eliteFg && OverlayPreferences.isNonOverlayAlwaysOnTop());
+        boolean overlayContextForeground = OverlayForegroundPolicy.keepOverlayTopmost(
+                EliteWindowFocus.isEliteForeground(),
+                EliteWindowFocus.isCurrentProcessForeground());
+        applyAlwaysOnTop(passThroughFrame, overlayContextForeground);
+        applyAlwaysOnTop(decoratedDialog,
+                overlayContextForeground && OverlayPreferences.isNonOverlayAlwaysOnTop());
         var docking = contentPanel != null ? contentPanel.getTabDockingController() : null;
         if (docking != null) {
-            docking.setFloatingAlwaysOnTop(eliteFg);
+            docking.setFloatingAlwaysOnTop(overlayContextForeground);
         }
     }
 
     private static void applyAlwaysOnTop(Window w, boolean alwaysOnTop) {
-        if (w == null || !w.isDisplayable()) {
-            return;
-        }
-        try {
-            if (w.isAlwaysOnTop() == alwaysOnTop) {
-                return;
-            }
-            // setAlwaysOnTop alone raises/lowers the topmost band; avoid toFront/requestFocus
-            // so we do not steal keyboard focus back from Elite when it regains the foreground.
-            w.setAlwaysOnTop(alwaysOnTop);
-        } catch (Exception ignored) {
-        }
+        WindowsNativeTopmost.apply(w, alwaysOnTop);
     }
 
     private void setPassThroughMode(boolean enablePassThrough) {
@@ -807,6 +805,16 @@ public class EliteDangerousOverlay implements NativeKeyListener, NativeMouseWhee
             });
         } catch (Exception ignored) {
         }
+    }
+
+    @Override
+    public void nativeMouseMoved(NativeMouseEvent event) {
+        org.dce.ed.ui.PassThroughCursorOverlay.dispatchNativeMouseMoved(event.getX(), event.getY());
+    }
+
+    @Override
+    public void nativeMouseDragged(NativeMouseEvent event) {
+        nativeMouseMoved(event);
     }
 
     /**

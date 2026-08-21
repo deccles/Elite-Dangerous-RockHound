@@ -66,6 +66,18 @@ public final class EliteWindowFocus {
         return isEliteGameWindow(hwnd);
     }
 
+    /** True when the active top-level window belongs to this RockHound process. */
+    public static boolean isCurrentProcessForeground() {
+        HWND hwnd = User32.INSTANCE.GetForegroundWindow();
+        if (hwnd == null) {
+            return false;
+        }
+        IntByReference processId = new IntByReference();
+        User32.INSTANCE.GetWindowThreadProcessId(hwnd, processId);
+        return processId.getValue() != 0
+                && Integer.toUnsignedLong(processId.getValue()) == ProcessHandle.current().pid();
+    }
+
     /** Finds a visible Elite Dangerous main window, or {@code null}. */
     public static HWND findEliteWindow() {
         HWND[] found = new HWND[1];
