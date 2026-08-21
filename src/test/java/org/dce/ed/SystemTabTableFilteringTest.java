@@ -6,7 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.LinkedHashMap;
+import java.util.AbstractSet;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 import org.dce.ed.state.BodyInfo;
 import org.junit.jupiter.api.Test;
@@ -65,6 +68,70 @@ class SystemTabTableFilteringTest {
         assertSame(scannedPlanet, tableBodies.get(Integer.valueOf(5)));
         assertFalse(tableBodies.containsKey(Integer.valueOf(4)));
         assertTrue(bodies.containsKey(Integer.valueOf(4)), "EDSM-only rows may remain in state for map enrichment");
+    }
+
+    @Test
+    void geometrySnapshotIsUnaffectedByBodiesDiscoveredAfterCapture() {
+        BodyInfo star = body(0, "Test System");
+        Map<Integer, BodyInfo> liveBodies = new LinkedHashMap<>();
+        liveBodies.put(Integer.valueOf(0), star);
+
+        Map<Integer, BodyInfo> snapshot = SystemTabPanel.snapshotBodiesForGeometry(liveBodies);
+        liveBodies.put(Integer.valueOf(1), body(1, "Test System 1"));
+
+        assertEquals(1, snapshot.size());
+        assertSame(star, snapshot.get(Integer.valueOf(0)));
+        assertFalse(snapshot.containsKey(Integer.valueOf(1)),
+                "one geometry calculation must see one stable set of bodies");
+    }
+
+    @Test
+    void geometrySnapshotRetriesWhenABodyArrivesDuringCapture() {
+        Map<Integer, BodyInfo> liveBodies = new MutatesDuringFirstIterationMap();
+        liveBodies.put(Integer.valueOf(0), body(0, "Test System"));
+        liveBodies.put(Integer.valueOf(1), body(1, "Test System 1"));
+
+        Map<Integer, BodyInfo> snapshot = SystemTabPanel.snapshotBodiesForGeometry(liveBodies);
+
+        assertEquals(3, snapshot.size());
+        assertTrue(snapshot.containsKey(Integer.valueOf(2)));
+    }
+
+    private static final class MutatesDuringFirstIterationMap extends LinkedHashMap<Integer, BodyInfo> {
+        private boolean mutated;
+
+        @Override
+        public Set<Map.Entry<Integer, BodyInfo>> entrySet() {
+            Set<Map.Entry<Integer, BodyInfo>> entries = super.entrySet();
+            return new AbstractSet<>() {
+                @Override
+                public Iterator<Map.Entry<Integer, BodyInfo>> iterator() {
+                    Iterator<Map.Entry<Integer, BodyInfo>> delegate = entries.iterator();
+                    return new Iterator<>() {
+                        @Override
+                        public boolean hasNext() {
+                            return delegate.hasNext();
+                        }
+
+                        @Override
+                        public Map.Entry<Integer, BodyInfo> next() {
+                            Map.Entry<Integer, BodyInfo> next = delegate.next();
+                            if (!mutated) {
+                                mutated = true;
+                                MutatesDuringFirstIterationMap.this.put(
+                                        Integer.valueOf(2), body(2, "Test System 2"));
+                            }
+                            return next;
+                        }
+                    };
+                }
+
+                @Override
+                public int size() {
+                    return entries.size();
+                }
+            };
+        }
     }
 
     private static BodyInfo body(int bodyId, String name) {

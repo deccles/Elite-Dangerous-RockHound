@@ -34,6 +34,7 @@ import java.awt.image.BufferedImage;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.ConcurrentModificationException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -5834,7 +5835,7 @@ static class Row {
     }
 
     private Map<Integer, Double> computeShipCentricDistancesLs() {
-        Map<Integer, BodyInfo> bodies = state.getBodies();
+        Map<Integer, BodyInfo> bodies = snapshotBodiesForGeometry(state.getBodies());
         if (bodies == null || bodies.isEmpty()) {
             return Collections.emptyMap();
         }
@@ -5856,6 +5857,21 @@ static class Row {
             return Collections.emptyMap();
         }
         return SystemOrbitGeometry.distancesFromPointLs(bodies, ship);
+    }
+
+    static Map<Integer, BodyInfo> snapshotBodiesForGeometry(Map<Integer, BodyInfo> liveBodies) {
+        if (liveBodies == null || liveBodies.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                return new LinkedHashMap<>(liveBodies);
+            } catch (ConcurrentModificationException ex) {
+                Thread.yield();
+            }
+        }
+        // A scan burst is still changing membership. Skip this timer tick and try again on the next one.
+        return Collections.emptyMap();
     }
 
     private void dedupeBodiesByName() {
