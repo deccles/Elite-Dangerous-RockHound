@@ -740,6 +740,9 @@ public final class RouteSession {
         if (currentSystemName != null && !currentSystemName.isBlank() && !baseRouteEntries.isEmpty()) {
             if (!RouteGeometry.rowMatchesSystem(
                     baseRouteEntries.get(currentBaseIndex), currentSystemName, currentSystemAddress)) {
+                // The persisted cursor may belong to an older game NavRoute. Reconcile from the
+                // start so a stale later index cannot prevent finding the live system behind it.
+                currentBaseIndex = 0;
                 advanceCurrentBaseIndexForArrival(currentSystemName, currentSystemAddress);
             }
         }

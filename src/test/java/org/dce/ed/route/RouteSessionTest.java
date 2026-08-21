@@ -313,6 +313,23 @@ class RouteSessionTest {
         assertEquals("Fliese", org.dce.ed.RouteTabPanel.nextRouteDestinationSystemName(restored));
     }
 
+    @Test
+    void persistenceRestore_realignsStaleIndexToCurrentSystemOnNewGameRoute() {
+        session.replaceBaseRouteEntries(List.of(
+                sampleEntry("Current", 1L),
+                sampleEntry("Next", 2L),
+                sampleEntry("Destination", 3L)));
+        RoutePersistenceSnapshot stale = new RoutePersistenceSnapshot(
+                "Current", 1L, null,
+                null, null, null, null, null,
+                null, null, false, 2);
+
+        session.applyPersistenceSnapshot(stale);
+
+        assertEquals(0, session.getCurrentBaseIndex());
+        assertEquals("Next", org.dce.ed.RouteTabPanel.nextRouteDestinationSystemName(session));
+    }
+
     private static RouteEntry sampleEntry(String name, long addr) {
         RouteEntry e = new RouteEntry();
         e.systemName = name;
