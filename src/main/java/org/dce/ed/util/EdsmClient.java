@@ -11,7 +11,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +34,7 @@ import org.dce.ed.edsm.SphereSystemsResponse;
 import org.dce.ed.edsm.SystemResponse;
 import org.dce.ed.edsm.SystemStationsResponse;
 import org.dce.ed.edsm.TrafficResponse;
+import org.dce.ed.cache.SystemCache;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
 
@@ -47,16 +53,47 @@ public class EdsmClient {
 	
     private static final String BASE_URL = "https://www.edsm.net";
 
+    private static final EdsmRequestGate SHARED_REQUEST_GATE = new EdsmRequestGate(
+            new EdsmRequestGate.CacheStore() {
+                @Override
+                public EdsmRequestGate.CacheEntry get(String key) {
+                    SystemCache.EdsmQueryCacheRecord cached = SystemCache.getInstance().getEdsmQueryCache(key);
+                    if (cached == null) {
+                        return null;
+                    }
+                    return new EdsmRequestGate.CacheEntry(cached.queriedAtEpochMillis(),
+                            new EdsmRequestGate.Response(cached.statusCode(), cached.contentType(), cached.body()));
+                }
+
+                @Override
+                public void put(String key, EdsmRequestGate.CacheEntry entry) {
+                    EdsmRequestGate.Response response = entry.response();
+                    SystemCache.getInstance().putEdsmQueryCache(key, entry.queriedAtEpochMillis(),
+                            response.statusCode(), response.contentType(), response.body());
+                }
+            },
+            Clock.systemUTC(),
+            Thread::sleep,
+            Duration.ofDays(1),
+            Duration.ofSeconds(1),
+            Duration.ofMinutes(1));
+
     private final HttpClient client;
     private final Gson gson;
+    private final EdsmRequestGate requestGate;
     
     // Last raw JSON returned by the EDSM API (for debugging / query tool)
     private volatile String lastRawJson;
     /** Last HTTP status from getSphereSystems (so retry logic can see 503). */
     private volatile int lastSphereSystemsStatus = 0;
     public EdsmClient() {
+        this(SHARED_REQUEST_GATE);
+    }
+
+    EdsmClient(EdsmRequestGate requestGate) {
         this.client = HttpClient.newHttpClient();
         this.gson = new GsonBuilder().create();
+        this.requestGate = requestGate;
     }
     
     /**
@@ -76,6 +113,62 @@ public class EdsmClient {
     }
 
     public <T> T get(String urlString, Class<T> clazz) throws IOException {
+        EdsmRequestGate.Response response = requestGate.execute(cacheKey(urlString), () -> executeHttpGet(urlString));
+        int code = response.statusCode();
+        String contentType = response.contentType();
+        String body = response.body() != null ? response.body().trim() : "";
+        lastRawJson = body;
+
+        if (response.fromCache() && (code < 200 || code >= 300)) {
+            return null;
+        }
+        if (body.isEmpty()) {
+            throw new IOException("EDSM returned empty response (HTTP " + code + "): " + urlString);
+        }
+        if (!looksLikeJson(body, contentType)) {
+            throw new IOException("EDSM returned non-JSON response (HTTP " + code + ") from "
+                    + urlString + ": " + summarize(body));
+        }
+
+        JsonElement el;
+        try {
+            el = gson.fromJson(body, JsonElement.class);
+        } catch (JsonParseException ex) {
+            throw new IOException("EDSM returned invalid JSON (HTTP " + code + "): " + summarize(body), ex);
+        }
+        if (el != null && el.isJsonPrimitive() && el.getAsJsonPrimitive().isString()) {
+            String msg = el.getAsString();
+            throw new IOException("EDSM returned JSON string instead of object (HTTP " + code + "): " + msg);
+        }
+        if (el != null && el.isJsonArray() && !clazz.isArray()) {
+            if (clazz == BodiesResponse.class) {
+                BodiesResponse br = new BodiesResponse();
+                br.bodies = gson.fromJson(el, new TypeToken<List<BodiesResponse.Body>>() {}.getType());
+                if (br.bodies != null) {
+                    br.bodyCount = br.bodies.size();
+                }
+                @SuppressWarnings("unchecked")
+                T t = (T) br;
+                return t;
+            }
+            throw new IOException("EDSM returned JSON array where an object was expected (HTTP " + code
+                    + "): " + clazz.getSimpleName() + " from " + urlString + " => " + summarize(body));
+        }
+        return gson.fromJson(el, clazz);
+    }
+
+    /** Avoid persisting commander names/API keys embedded in authenticated EDSM URLs. */
+    private static String cacheKey(String url) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(url.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 unavailable", impossible);
+        }
+    }
+
+    private EdsmRequestGate.Response executeHttpGet(String urlString) throws IOException {
         HttpURLConnection conn = null;
         String body = "";
 
@@ -101,51 +194,7 @@ public class EdsmClient {
             }
 
             body = readAll(in).trim();
-            // Save raw JSON for debugging / query tool
-            lastRawJson = body;
-
-            if (body.isEmpty()) {
-                throw new IOException("EDSM returned empty response (HTTP " + code + "): " + urlString);
-            }
-
-            // If EDSM (or a proxy in front of it) is having a bad day, we can get an HTML error page.
-            // Don't try to feed that into Gson, or you'll get MalformedJsonException spam.
-            if (!looksLikeJson(body, contentType)) {
-                throw new IOException("EDSM returned non-JSON response (HTTP " + code + ") from "
-                        + urlString + ": " + summarize(body));
-            }
-
-            JsonElement el;
-            try {
-                el = gson.fromJson(body, JsonElement.class);
-            } catch (JsonParseException ex) {
-                throw new IOException("EDSM returned invalid JSON (HTTP " + code + "): " + summarize(body), ex);
-            }
-
-            // Top-level JSON string, e.g. "API call limit exceeded"
-            if (el != null && el.isJsonPrimitive() && el.getAsJsonPrimitive().isString()) {
-                String msg = el.getAsString();
-                throw new IOException("EDSM returned JSON string instead of object (HTTP " + code + "): " + msg);
-            }
-
-            // Some endpoints sometimes return a top-level array.
-            if (el != null && el.isJsonArray() && !clazz.isArray()) {
-                if (clazz == BodiesResponse.class) {
-                    BodiesResponse br = new BodiesResponse();
-                    br.bodies = gson.fromJson(el, new TypeToken<List<BodiesResponse.Body>>() {}.getType());
-                    if (br.bodies != null) {
-                        br.bodyCount = br.bodies.size();
-                    }
-                    @SuppressWarnings("unchecked")
-                    T t = (T) br;
-                    return t;
-                }
-
-                throw new IOException("EDSM returned JSON array where an object was expected (HTTP " + code
-                        + "): " + clazz.getSimpleName() + " from " + urlString + " => " + summarize(body));
-            }
-
-            return gson.fromJson(el, clazz);
+            return new EdsmRequestGate.Response(code, contentType, body);
 
         } finally {
             if (conn != null) {
@@ -432,47 +481,27 @@ public class EdsmClient {
      * and occasionally an error object. This helper normalizes that
      * into a SphereSystemsResponse[] so callers don't have to care.
      */
-    private static final int SPHERE_RETRY_ATTEMPTS = 3;
-    private static final int SPHERE_RETRY_DELAY_MS = 2000;
-
     private SphereSystemsResponse[] getSphereSystemsWithRetry(String url) throws IOException, InterruptedException {
-        for (int attempt = 0; attempt < SPHERE_RETRY_ATTEMPTS; attempt++) {
-            SphereSystemsResponse[] result = getSphereSystems(url);
-            if (lastSphereSystemsStatus != 503 || attempt == SPHERE_RETRY_ATTEMPTS - 1) {
-                return result;
-            }
-            try {
-                Thread.sleep(SPHERE_RETRY_DELAY_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IOException("Interrupted during retry", e);
-            }
-        }
-        return new SphereSystemsResponse[0];
+        return getSphereSystems(url);
     }
 
     private SphereSystemsResponse[] getSphereSystems(String url) throws IOException, InterruptedException {
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("User-Agent", "EDO-Tool")
-                .GET()
-                .build();
-
-        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        lastSphereSystemsStatus = resp.statusCode();
-        String body = resp.body();
+        EdsmRequestGate.Response gated = requestGate.execute(cacheKey(url), () -> executeSphereHttpGet(url));
+        lastSphereSystemsStatus = gated.statusCode();
+        String body = gated.body();
         lastRawJson = body;
 
+        if (gated.fromCache() && (gated.statusCode() < 200 || gated.statusCode() >= 300)) {
+            return new SphereSystemsResponse[0];
+        }
         if (DEBUG_SPHERE_SYSTEMS) {
             System.out.println("[EDSM] sphere-systems URL: " + url);
-            System.out.println("[EDSM] sphere-systems HTTP " + resp.statusCode());
+            System.out.println("[EDSM] sphere-systems HTTP " + gated.statusCode());
             System.out.println("[EDSM] sphere-systems raw body: " + body);
         }
-
         if (body == null || body.isEmpty()) {
             return new SphereSystemsResponse[0];
         }
-
         body = body.trim();
 
         // Fast-path: looks like an array already
@@ -527,11 +556,27 @@ public class EdsmClient {
             throw new IOException("Unexpected EDSM sphere-systems response: " + body, e);
         }
 
-        // Should not reach here, but just in case:
         if (DEBUG_SPHERE_SYSTEMS) {
             System.out.println("[EDSM] sphere-systems unknown structure, treating as empty: " + body);
         }
         return new SphereSystemsResponse[0];
+    }
+
+    private EdsmRequestGate.Response executeSphereHttpGet(String url) throws IOException {
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", "EDO-Tool")
+                .GET()
+                .build();
+
+        try {
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            return new EdsmRequestGate.Response(resp.statusCode(),
+                    resp.headers().firstValue("Content-Type").orElse(null), resp.body());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted during EDSM sphere-systems request", e);
+        }
     }
 
     /**

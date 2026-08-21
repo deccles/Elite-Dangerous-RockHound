@@ -48,6 +48,9 @@ import com.google.gson.GsonBuilder;
 
 
 public final class SystemCache implements SystemStore {
+    public record EdsmQueryCacheRecord(long queriedAtEpochMillis, int statusCode,
+            String contentType, String body) {
+    }
     private static final double METRES_PER_AU = 149_597_870_700.0;
     private CachedSystem lastLoadedSystem;
 
@@ -168,6 +171,55 @@ public final class SystemCache implements SystemStore {
 
     public static SystemCache getInstance() {
         return INSTANCE;
+    }
+
+    public synchronized EdsmQueryCacheRecord getEdsmQueryCache(String queryKey) {
+        if (!sqliteReady || sqliteConnection == null || queryKey == null || queryKey.isBlank()) {
+            return null;
+        }
+        try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                "SELECT queried_at, http_status, content_type, response_body "
+                        + "FROM edsm_query_cache WHERE query_key = ?")) {
+            ps.setString(1, queryKey);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                return new EdsmQueryCacheRecord(
+                        rs.getLong("queried_at"),
+                        rs.getInt("http_status"),
+                        rs.getString("content_type"),
+                        rs.getString("response_body"));
+            }
+        } catch (SQLException ex) {
+            System.err.println("SystemCache: EDSM query cache read failed: " + ex.getMessage());
+            return null;
+        }
+    }
+
+    public synchronized void putEdsmQueryCache(String queryKey, long queriedAtEpochMillis,
+            int statusCode, String contentType, String body) {
+        if (!sqliteReady || sqliteConnection == null || queryKey == null || queryKey.isBlank()) {
+            return;
+        }
+        try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                "INSERT INTO edsm_query_cache "
+                        + "(query_key, queried_at, http_status, content_type, response_body) "
+                        + "VALUES (?, ?, ?, ?, ?) "
+                        + "ON CONFLICT(query_key) DO UPDATE SET "
+                        + "queried_at = excluded.queried_at, "
+                        + "http_status = excluded.http_status, "
+                        + "content_type = excluded.content_type, "
+                        + "response_body = excluded.response_body")) {
+            ps.setString(1, queryKey);
+            ps.setLong(2, queriedAtEpochMillis);
+            ps.setInt(3, statusCode);
+            ps.setString(4, contentType);
+            ps.setString(5, body);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            System.err.println("SystemCache: EDSM query cache write failed: " + ex.getMessage());
+        }
     }
 
     /**
@@ -1479,6 +1531,16 @@ public final class SystemCache implements SystemStore {
             }
             try (PreparedStatement ps = sqliteConnection.prepareStatement(
                     "CREATE INDEX IF NOT EXISTS idx_systems_address ON systems(system_address)")) {
+                ps.execute();
+            }
+            try (PreparedStatement ps = sqliteConnection.prepareStatement(
+                    "CREATE TABLE IF NOT EXISTS edsm_query_cache ("
+                            + "query_key TEXT PRIMARY KEY,"
+                            + "queried_at INTEGER NOT NULL,"
+                            + "http_status INTEGER NOT NULL,"
+                            + "content_type TEXT,"
+                            + "response_body TEXT"
+                            + ")")) {
                 ps.execute();
             }
             try (PreparedStatement ps = sqliteConnection.prepareStatement(
