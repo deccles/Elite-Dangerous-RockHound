@@ -1,6 +1,7 @@
 package org.dce.ed.ui;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.awt.BorderLayout;
 import java.awt.GraphicsEnvironment;
@@ -20,7 +21,9 @@ class WindowEdgeResizeSupportTest {
 
     @Test
     void mainOverlayUsesTransferablePerWindowResizeSupport() throws Exception {
-        if (GraphicsEnvironment.isHeadless()) return;
+        assumeTrue(System.getProperty("os.name", "").startsWith("Windows"),
+                "OverlayFrame uses Windows native integration");
+        assumeTrue(!GraphicsEnvironment.isHeadless(), "requires a graphical desktop");
         OverlayFrame[] frame = new OverlayFrame[1];
         try {
             SwingUtilities.invokeAndWait(() -> frame[0] = new OverlayFrame(new OverlayContentPanel(() -> false)));

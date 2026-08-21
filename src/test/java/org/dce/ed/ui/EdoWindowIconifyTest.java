@@ -2,6 +2,7 @@ package org.dce.ed.ui;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.awt.Frame;
 import java.awt.GraphicsEnvironment;
@@ -15,7 +16,7 @@ class EdoWindowIconifyTest {
 
     @Test
     void iconifyOneLeavesOtherRockHoundWindowsVisible() throws Exception {
-        if (GraphicsEnvironment.isHeadless()) return;
+        assumeWindowsDesktop();
         JFrame[] frames = showTwoFrames();
         try {
             SwingUtilities.invokeAndWait(() -> EdoWindowIconify.iconifyOne(frames[0]));
@@ -28,7 +29,7 @@ class EdoWindowIconifyTest {
 
     @Test
     void restoringOneWindowAfterIconifyAllRestoresTheGroup() throws Exception {
-        if (GraphicsEnvironment.isHeadless()) return;
+        assumeWindowsDesktop();
         JFrame[] frames = showTwoFrames();
         try {
             SwingUtilities.invokeAndWait(EdoWindowIconify::iconifyAll);
@@ -55,6 +56,12 @@ class EdoWindowIconifyTest {
             }
         });
         return frames;
+    }
+
+    private static void assumeWindowsDesktop() {
+        assumeTrue(System.getProperty("os.name", "").startsWith("Windows"),
+                "Windows iconify behavior is platform-specific");
+        assumeTrue(!GraphicsEnvironment.isHeadless(), "requires a graphical desktop");
     }
 
     private static final class TestEdoFrame extends JFrame {
