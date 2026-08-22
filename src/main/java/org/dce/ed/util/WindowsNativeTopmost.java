@@ -1,5 +1,6 @@
 package org.dce.ed.util;
 
+import java.awt.Dialog;
 import java.awt.Window;
 
 import com.sun.jna.Native;
@@ -21,6 +22,11 @@ public final class WindowsNativeTopmost {
             return;
         }
         try {
+            // Changing an owner's topmost band dismisses active Swing popups in owned
+            // dialogs (notably Preferences table combo editors). Defer until they close.
+            if (hasVisibleOwnedWindow(window)) {
+                return;
+            }
             boolean javaTopmost = window.isAlwaysOnTop();
             if (javaTopmost != topmost) {
                 window.setAlwaysOnTop(topmost);
@@ -36,13 +42,22 @@ public final class WindowsNativeTopmost {
             boolean nativeTopmost = (User32.INSTANCE.GetWindowLong(hwnd, WinUser.GWL_EXSTYLE)
                     & WS_EX_TOPMOST) != 0;
             if (nativeTopmost != topmost) {
-                // AWT caches this property. Force a peer update when its cache disagrees
-                // with Windows instead of letting setAlwaysOnTop(desired) be a no-op.
+                // AWT caches this property. Refresh both the peer and native z-order state;
+                // visible owned dialogs were excluded above so their popups stay intact.
                 window.setAlwaysOnTop(!topmost);
                 window.setAlwaysOnTop(topmost);
             }
         } catch (Throwable ignored) {
             // Best effort: a window may be disposed while focus synchronization is running.
         }
+    }
+
+    private static boolean hasVisibleOwnedWindow(Window window) {
+        for (Window owned : window.getOwnedWindows()) {
+            if (owned instanceof Dialog && owned.isShowing()) {
+                return true;
+            }
+        }
+        return false;
     }
 }

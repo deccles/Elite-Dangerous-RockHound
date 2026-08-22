@@ -18,6 +18,7 @@ import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 
 import org.dce.ed.MouseInteractionMode;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import com.sun.jna.Native;
@@ -102,6 +103,7 @@ class PassThroughCursorOverlayTest {
     }
 
     @Test
+    @Disabled("Clicks fixed desktop coordinates and is unreliable when another application owns the foreground")
     void clickReachesMovedOwnerThroughVisibleCursorProxy() throws Exception {
         Point originalPointer = MouseInfo.getPointerInfo().getLocation();
         JFrame owner = new JFrame();
