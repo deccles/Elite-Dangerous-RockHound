@@ -7,9 +7,9 @@ A_MaxHotkeysPerInterval := 1000
 ; - Reads Status.json: GuiFocus + OnFoot
 ; - Translation ON only when: Elite active, GuiFocus==0, OnFoot==false, no modifier buttons held, no GUI-assume cooldown
 ; - Throttle input buttons (via reWASD keyboard mapping):
-;     F14 -> Ctrl+Alt+W (hold)
-;     F13 -> Ctrl+Alt+S (hold)
-;     (PollJoyDrive uses GetAsyncKeyState(VK) for F1–F24 — GetKeyState("F13") is often wrong with remappers.)
+;     F9 -> Ctrl+Alt+W (hold)
+;     F7 -> Ctrl+Alt+S (hold)
+;     (PollJoyDrive uses GetAsyncKeyState(VK) for F1–F24 — GetKeyState("F7") is often wrong with remappers.)
 ; - 25% snap + long press:
 ;     PgUp tap -> +25%, hold -> 100%
 ;     PgDn tap -> -25%, hold -> 0%
@@ -49,10 +49,10 @@ global modifierButtons := []
 ; Throttle buttons (joystick)
 ; Throttle input sources:
 ; - If AHK can see your physical joystick buttons, keep using 1Joy5/1Joy6.
-; - If reWASD is enabled and AHK can't see 1Joy*, map your physical buttons to F13/F14
+; - If reWASD is enabled and AHK can't see 1Joy*, map your physical buttons to F7/F9
 ;   (or any unused keys) and set these instead.
-global driveDownButton := "F13" ; -> Ctrl+Alt+S (flight), F15 (GUI)
-global driveUpButton   := "F14" ; -> Ctrl+Alt+W (flight), F16 (GUI)
+global driveDownButton := "F7" ; -> Ctrl+Alt+S (flight), F15 (GUI)
+global driveUpButton   := "F9" ; -> Ctrl+Alt+W (flight), F16 (GUI)
 global guiDriveDownKey := "q"
 global guiDriveUpKey   := "e"
 global guiTapMs := 35
@@ -209,7 +209,7 @@ modifierHeld() {
 }
 
 ; True if throttle/drive key is held. For F1–F24, GetAsyncKeyState(VK) matches reWASD / synthetic keys
-; more reliably than GetKeyState("F13") in many setups.
+; more reliably than GetKeyState("F7") in many setups.
 driveKeyPhysDown(keyName) {
     if InStr(keyName, "Joy")
         return GetKeyState(keyName, "P")
