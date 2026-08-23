@@ -146,6 +146,8 @@ public final class OverlayPreferences {
     private static final String KEY_AUTOSWITCH_MINING_STARTUP_PLANETARY_RING = "overlay.autoswitch.mining.onStartupPlanetaryRing";
     private static final String KEY_AUTOSWITCH_BIOLOGY_NEAR_BODY = "overlay.autoswitch.biology.onNearLandableAtmosphere";
     private static final String KEY_AUTOSWITCH_FLEETCARRIER_ON_DROP = "overlay.autoswitch.fleetCarrier.onJsonDrop";
+    private static final String KEY_AUTOSWITCH_COMBAT_WHEN_ATTACKED = "overlay.autoswitch.combat.whenAttacked";
+    private static final String KEY_AUTOSWITCH_COMBAT_ON_REWARD = "overlay.autoswitch.combat.onReward";
     /** System tab: expand exobiology lines for the targeted body (dashed outline); collapse when untargeted. */
     private static final String KEY_SYSTEM_AUTO_EXPAND_BIO_ON_TARGET = "system.autoExpandBioOnTargetedBody";
 
@@ -890,6 +892,22 @@ public final class OverlayPreferences {
 
     public static void setAutoSwitchFleetCarrierOnJsonDrop(boolean enabled) {
         PREFS.putBoolean(KEY_AUTOSWITCH_FLEETCARRIER_ON_DROP, enabled);
+    }
+
+    public static boolean isAutoSwitchCombatWhenAttacked() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_COMBAT_WHEN_ATTACKED, false);
+    }
+
+    public static void setAutoSwitchCombatWhenAttacked(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_COMBAT_WHEN_ATTACKED, enabled);
+    }
+
+    public static boolean isAutoSwitchCombatOnReward() {
+        return PREFS.getBoolean(KEY_AUTOSWITCH_COMBAT_ON_REWARD, false);
+    }
+
+    public static void setAutoSwitchCombatOnReward(boolean enabled) {
+        PREFS.putBoolean(KEY_AUTOSWITCH_COMBAT_ON_REWARD, enabled);
     }
 
     public static boolean isAutoExpandBioOnTargetedBody() {

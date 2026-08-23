@@ -134,6 +134,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	private final MiningTabPanel miningTab;
 	private final MissionsTabPanel missionsTab;
 	private final CombatTabPanel combatTab;
+	private final CombatAutoTabLogic combatAutoTabLogic = new CombatAutoTabLogic();
 	private final NearbyTabPanel nearbyTab;
 	private final OwnedFleetCarrierTracker ownedFleetCarrierTracker;
 	private final FleetCarrierTabPanel fleetCarrierTab;
@@ -557,6 +558,13 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			execTriggerService.onJournalEvent(event, ownedFleetCarrierTracker);
 		}
 		this.handleLogEvent(event);
+
+		if (combatAutoTabLogic.shouldSwitch(
+				event,
+				OverlayPreferences.isAutoSwitchCombatWhenAttacked(),
+				OverlayPreferences.isAutoSwitchCombatOnReward())) {
+			SwingUtilities.invokeLater(() -> selectTab(CARD_COMBAT, combatButton));
+		}
 
 		if (event instanceof LoadGameEvent lg) {
 			miningTab.updateCurrentShipType(lg.getShip());

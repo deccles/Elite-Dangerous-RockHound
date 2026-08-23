@@ -184,6 +184,8 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox autoSwitchFleetCarrierOnJsonDropCheckBox;
 	private JCheckBox routeFuelPredictionCheckBox;
 	private JCheckBox routeFuelPredictionConsiderScoopCheckBox;
+	private JCheckBox autoSwitchCombatWhenAttackedCheckBox;
+	private JCheckBox autoSwitchCombatOnRewardCheckBox;
 
 	/** Overlay tab: System tab ship / plan-map reference body mode */
 	private JComboBox<SystemTabShipRefMode> systemTabShipRefModeComboBox;
@@ -1981,6 +1983,7 @@ public class PreferencesDialog extends JDialog {
 		initLeftSectionStack(panel);
 
 		addLeftStackedSection(panel, createCombatBountyValueBox(), 8);
+		addLeftStackedSection(panel, createCombatAutoSwitchBox(), 8);
 
 		JLabel intro = new JLabel(
 				"<html>Choose which Combat-tab command buttons to show. Unchecked commands stay hidden; "
@@ -1997,6 +2000,31 @@ public class PreferencesDialog extends JDialog {
 				CombatTabCommands.FIGHTER,
 				combatFighterCommandCheckBoxes), 0);
 		return panel;
+	}
+
+	private JPanel createCombatAutoSwitchBox() {
+		JPanel box = new JPanel(new GridBagLayout());
+		box.setOpaque(false);
+		box.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Auto-switch to Combat"));
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.gridx = 0;
+		gbc.gridy = 0;
+		gbc.anchor = GridBagConstraints.WEST;
+		gbc.insets = new Insets(4, 8, 4, 8);
+
+		autoSwitchCombatWhenAttackedCheckBox = new JCheckBox("When attacked or interdicted");
+		autoSwitchCombatWhenAttackedCheckBox.setOpaque(false);
+		autoSwitchCombatWhenAttackedCheckBox.setSelected(OverlayPreferences.isAutoSwitchCombatWhenAttacked());
+		box.add(autoSwitchCombatWhenAttackedCheckBox, gbc);
+
+		gbc.gridy++;
+		autoSwitchCombatOnRewardCheckBox = new JCheckBox("On bounty or faction kill bond");
+		autoSwitchCombatOnRewardCheckBox.setOpaque(false);
+		autoSwitchCombatOnRewardCheckBox.setSelected(OverlayPreferences.isAutoSwitchCombatOnReward());
+		box.add(autoSwitchCombatOnRewardCheckBox, gbc);
+		return box;
 	}
 
 	private JPanel createCombatBountyValueBox() {
@@ -2789,6 +2817,12 @@ public class PreferencesDialog extends JDialog {
                 OverlayPreferences.setCombatTabCommandVisible(e.getKey(), e.getValue().isSelected());
             }
         }
+		if (autoSwitchCombatWhenAttackedCheckBox != null) {
+			OverlayPreferences.setAutoSwitchCombatWhenAttacked(autoSwitchCombatWhenAttackedCheckBox.isSelected());
+		}
+		if (autoSwitchCombatOnRewardCheckBox != null) {
+			OverlayPreferences.setAutoSwitchCombatOnReward(autoSwitchCombatOnRewardCheckBox.isSelected());
+		}
 
         if (autoSwitchGalaxyMapToRouteCheckBox != null) {
             OverlayPreferences.setAutoSwitchRouteOnGalaxyMap(autoSwitchGalaxyMapToRouteCheckBox.isSelected());
