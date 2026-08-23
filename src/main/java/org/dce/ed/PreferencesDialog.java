@@ -187,6 +187,7 @@ public class PreferencesDialog extends JDialog {
 
 	/** Overlay tab: System tab ship / plan-map reference body mode */
 	private JComboBox<SystemTabShipRefMode> systemTabShipRefModeComboBox;
+	private JCheckBox systemPlanMapEnabledCheckBox;
 	private JCheckBox systemPlanMapAutoZoomHudTargetCheckBox;
 
 	// Logging-tab fields so OK can read them
@@ -645,6 +646,16 @@ public class PreferencesDialog extends JDialog {
 		stc.anchor = GridBagConstraints.WEST;
 		stc.insets = new Insets(2, 8, 2, 8);
 
+		systemPlanMapEnabledCheckBox = new JCheckBox("Show System plan map",
+				OverlayPreferences.isSystemPlanMapEnabled());
+		systemPlanMapEnabledCheckBox.setOpaque(false);
+		systemPlanMapEnabledCheckBox.setToolTipText(
+				"Adds the orbital plan map and its controls to the bottom of the System tab.");
+		stc.gridwidth = 2;
+		systemTabPrefsPanel.add(systemPlanMapEnabledCheckBox, stc);
+
+		stc.gridy++;
+		stc.gridwidth = 1;
 		JLabel shipRefLabel = new JLabel("Ship / plan map reference body:");
 		systemTabPrefsPanel.add(shipRefLabel, stc);
 
@@ -677,7 +688,7 @@ public class PreferencesDialog extends JDialog {
 		systemTabPrefsPanel.add(systemTabShipRefModeComboBox, stc);
 
 		stc.gridx = 0;
-		stc.gridy = 1;
+		stc.gridy++;
 		stc.gridwidth = 2;
 		systemPlanMapAutoZoomHudTargetCheckBox = new JCheckBox("Auto-zoom to destination subsystem",
 				OverlayPreferences.isSystemPlanMapAutoZoomHudTargetSubsystem());
@@ -2815,6 +2826,9 @@ public class PreferencesDialog extends JDialog {
             if (sel instanceof SystemTabShipRefMode) {
                 OverlayPreferences.setSystemTabShipRefMode((SystemTabShipRefMode) sel);
             }
+        }
+        if (systemPlanMapEnabledCheckBox != null) {
+            OverlayPreferences.setSystemPlanMapEnabled(systemPlanMapEnabledCheckBox.isSelected());
         }
         if (systemPlanMapAutoZoomHudTargetCheckBox != null) {
             OverlayPreferences.setSystemPlanMapAutoZoomHudTargetSubsystem(

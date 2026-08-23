@@ -178,6 +178,7 @@ public class SystemTabPanel extends JPanel {
     private final JScrollPane systemBodyScrollPane;
     /** Resizable split between bodies table (top) and plan map (bottom), like Mining tab dividers. */
     private JSplitPane systemTableMapSplit;
+    private JPanel systemTablePane;
     private ExecTabButtonStrip execButtonStrip;
     /** Suppresses divider-move persistence while the divider is positioned programmatically. */
     private boolean systemSplitProgrammaticChange;
@@ -381,6 +382,11 @@ public class SystemTabPanel extends JPanel {
 	 * Rebuild bodies table and plan map after preferences change (ship reference mode, etc.).
 	 */
 	public void refreshFromSavedOverlayPreferences() {
+	    if (!SwingUtilities.isEventDispatchThread()) {
+	        SwingUtilities.invokeLater(this::refreshFromSavedOverlayPreferences);
+	        return;
+	    }
+	    applySystemPlanMapEnabledPreference();
 	    requestRebuild();
 	}
 
@@ -945,9 +951,9 @@ public class SystemTabPanel extends JPanel {
 
         add(headerPanel, BorderLayout.NORTH);
 
-        JPanel tablePane = new JPanel(new BorderLayout());
-        tablePane.setOpaque(false);
-        tablePane.add(systemBodyScrollPane, BorderLayout.CENTER);
+        systemTablePane = new JPanel(new BorderLayout());
+        systemTablePane.setOpaque(false);
+        systemTablePane.add(systemBodyScrollPane, BorderLayout.CENTER);
 
         JPanel mapColumn = new JPanel(new BorderLayout());
         mapColumn.setOpaque(false);
@@ -1128,7 +1134,7 @@ public class SystemTabPanel extends JPanel {
         mapColumn.add(systemPlanMapPanel, BorderLayout.CENTER);
 
         double tableSplitRatio = OverlayPreferences.getSystemTabPanelTableSplitRatio();
-        systemTableMapSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tablePane, mapColumn);
+        systemTableMapSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, systemTablePane, mapColumn);
         EdoMiningSplitPaneUi.install(systemTableMapSplit);
         systemSplitProgrammaticChange = true;
         try {
@@ -1169,7 +1175,8 @@ public class SystemTabPanel extends JPanel {
             systemPlanMapPanel.setVisible(false);
         }
         updateSystemPlanMapCollapseButtons();
-        add(systemTableMapSplit, BorderLayout.CENTER);
+        add(OverlayPreferences.isSystemPlanMapEnabled() ? systemTableMapSplit : systemTablePane,
+                BorderLayout.CENTER);
         execButtonStrip = new ExecTabButtonStrip(OverlayTabId.SYSTEM, OverlayPreferences::isOverlayFullMousePassThrough);
         add(execButtonStrip, BorderLayout.SOUTH);
 
@@ -2507,6 +2514,9 @@ public class SystemTabPanel extends JPanel {
 
     /** Updates the orbital plan map (journal-derived X/Y projection). */
     private void refreshPlanMap() {
+        if (!OverlayPreferences.isSystemPlanMapEnabled()) {
+            return;
+        }
         Map<Integer, BodyInfo> bodies = state.getBodies();
         if (bodies == null || bodies.isEmpty()) {
             if (orbitAnimDemoTimer != null) {
@@ -2936,6 +2946,43 @@ public class SystemTabPanel extends JPanel {
         }
         systemPlanMapCollapseButton.setVisible(!systemPlanMapCollapsed);
         systemPlanMapExpandButton.setVisible(systemPlanMapCollapsed);
+    }
+
+    private void applySystemPlanMapEnabledPreference() {
+        if (systemTablePane == null || systemTableMapSplit == null) {
+            return;
+        }
+        boolean enabled = OverlayPreferences.isSystemPlanMapEnabled();
+        Component desired = enabled ? systemTableMapSplit : systemTablePane;
+        if (desired.getParent() == this) {
+            return;
+        }
+        if (!enabled) {
+            pauseOrbitAnimPlayback();
+        }
+        remove(systemTableMapSplit);
+        remove(systemTablePane);
+        if (enabled) {
+            systemPlanMapCollapsed = false;
+            OverlayPreferences.setSystemPlanMapCollapsed(false);
+            systemPlanMapPanel.setVisible(true);
+            updateSystemPlanMapCollapseButtons();
+            systemTableMapSplit.setTopComponent(systemTablePane);
+        } else {
+            systemTableMapSplit.setTopComponent(null);
+        }
+        add(desired, BorderLayout.CENTER);
+        if (enabled) {
+            systemSplitProgrammaticChange = true;
+            try {
+                configureSystemTableMapSplit(systemTableMapSplit,
+                        OverlayPreferences.getSystemTabPanelTableSplitRatio());
+            } finally {
+                systemSplitProgrammaticChange = false;
+            }
+        }
+        revalidate();
+        repaint();
     }
 
     /**

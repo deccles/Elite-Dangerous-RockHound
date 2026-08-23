@@ -170,7 +170,9 @@ public final class OverlayPreferences {
     private static final String KEY_SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND = "system.planMap.orbitAnim.daysPerWallSecond";
     /** True-scale map view tilt 0…90 ({@link org.dce.ed.systemmap.MapViewProjection}). */
     private static final String KEY_SYSTEM_PLAN_MAP_VIEW_TILT_DEG = "system.planMap.viewTiltDeg";
-    /** Whether the System tab plan map canvas is collapsed (toolbar stays visible). */
+    /** Whether the System tab includes the plan map. New key intentionally disables it after upgrades. */
+    private static final String KEY_SYSTEM_PLAN_MAP_ENABLED = "system.planMap.enabled";
+    /** Whether the enabled System tab plan map canvas is collapsed (toolbar stays visible). */
     private static final String KEY_SYSTEM_PLAN_MAP_COLLAPSED = "system.planMap.collapsed";
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_DEFAULT = 110;
     private static final int SYSTEM_TAB_ORBIT_ANIM_DAYS_PER_WALL_SECOND_MIN = 1;
@@ -1042,6 +1044,15 @@ public final class OverlayPreferences {
 
     public static boolean isSystemPlanMapCollapsed() {
         return PREFS.getBoolean(KEY_SYSTEM_PLAN_MAP_COLLAPSED, false);
+    }
+
+    public static boolean isSystemPlanMapEnabled() {
+        return PREFS.getBoolean(KEY_SYSTEM_PLAN_MAP_ENABLED, false);
+    }
+
+    public static void setSystemPlanMapEnabled(boolean enabled) {
+        PREFS.putBoolean(KEY_SYSTEM_PLAN_MAP_ENABLED, enabled);
+        flushBackingStore();
     }
 
     public static void setSystemPlanMapCollapsed(boolean collapsed) {
