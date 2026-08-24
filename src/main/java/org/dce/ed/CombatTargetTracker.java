@@ -5,9 +5,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.dce.ed.logreader.EliteLogEvent;
@@ -155,6 +157,8 @@ public final class CombatTargetTracker {
 
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private final Map<String, ScannedWantedShip> scannedWanted = new LinkedHashMap<>();
+    /** Clean pilots seen at scan stage 3, used only to recognize a later KWS pass. */
+    private final Set<String> scannedCleanPilots = new LinkedHashSet<>();
     /** Internal ship id → localised display from recent {@link ShipTargetedEvent}s. */
     private final Map<String, String> shipDisplayById = new LinkedHashMap<>();
     /** Internal ship id → last known pilot display name. */
@@ -209,6 +213,7 @@ public final class CombatTargetTracker {
 
     public void resetForTests() {
         scannedWanted.clear();
+        scannedCleanPilots.clear();
         shipDisplayById.clear();
         pilotByShipId.clear();
         synchronized (kills) {
@@ -274,6 +279,7 @@ public final class CombatTargetTracker {
 
     public void applySessionState(EdoSessionState state) {
         scannedWanted.clear();
+        scannedCleanPilots.clear();
         shipDisplayById.clear();
         pilotByShipId.clear();
         synchronized (kills) {
@@ -348,6 +354,7 @@ public final class CombatTargetTracker {
         if (event instanceof LoadGameEvent) {
             lockedTarget = null;
             scannedWanted.clear();
+            scannedCleanPilots.clear();
             shipDisplayById.clear();
             pilotByShipId.clear();
             notifyListeners();
@@ -397,6 +404,12 @@ public final class CombatTargetTracker {
         long remote = 0L;
         boolean warrantScanned = false;
         Long bounty = event.getBounty();
+        boolean cleanWarrantScanned = false;
+
+        if (pilotKey != null && event.getScanStage() == 3
+                && "Clean".equalsIgnoreCase(event.getLegalStatus())) {
+            cleanWarrantScanned = !scannedCleanPilots.add(pilotKey);
+        }
 
         if (pilotKey != null && bounty != null && bounty > 0L && event.getScanStage() == 3) {
             ScannedWantedShip scanned = scannedWanted.get(pilotKey);
@@ -443,6 +456,7 @@ public final class CombatTargetTracker {
                 bounty = previous.getBounty();
             }
         }
+        warrantScanned = warrantScanned || cleanWarrantScanned;
 
         String pilot = displayPilot(event);
         if ("Unknown".equals(pilot) && samePilot) {

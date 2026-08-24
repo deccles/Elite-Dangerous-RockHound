@@ -109,7 +109,7 @@ public final class CombatTabPanel extends JPanel {
     private final JPanel fighterTop = new JPanel(new BorderLayout());
 
     private final JLabel targetHeader = sectionHeader("TARGET");
-    private final JLabel scannedHeader = sectionHeader("SCANNED");
+    private final JLabel scannedHeader = sectionHeader("WANTED SCANNED");
     private final JLabel killsHeader = sectionHeader("KILLS");
     private final JLabel missionsHeader = sectionHeader("MISSIONS");
     private final JLabel fighterHeader = sectionHeader("FIGHTER");
@@ -801,6 +801,36 @@ public final class CombatTabPanel extends JPanel {
         return formatCompact(remoteBounty);
     }
 
+    static String formatLocal(CombatTargetTracker.LockedTarget target) {
+        if (isClean(target)) {
+            return "Clean";
+        }
+        return target.getLocalBounty() != null && target.getLocalBounty() > 0L
+                ? formatCompact(target.getLocalBounty())
+                : "—";
+    }
+
+    static String formatRemote(CombatTargetTracker.LockedTarget target) {
+        if (isClean(target)) {
+            return target.isWarrantScanned() ? "Clean" : "?";
+        }
+        return target.getLocalBounty() != null && target.getLocalBounty() > 0L
+                ? formatRemote(target.getRemoteBounty(), target.isWarrantScanned())
+                : "—";
+    }
+
+    static String formatTotal(CombatTargetTracker.LockedTarget target) {
+        if (isClean(target)) {
+            return "Clean";
+        }
+        long bounty = target.getBounty() != null ? Math.max(0L, target.getBounty()) : 0L;
+        return bounty > 0L ? formatCompact(bounty) : "—";
+    }
+
+    private static boolean isClean(CombatTargetTracker.LockedTarget target) {
+        return target != null && "Clean".equalsIgnoreCase(target.getLegalStatus());
+    }
+
     private static String trimDecimal(double v) {
         String s = String.format(java.util.Locale.US, "%.1f", v);
         if (s.endsWith(".0")) {
@@ -933,21 +963,12 @@ public final class CombatTabPanel extends JPanel {
 
         static BountyRow fromLocked(CombatTargetTracker.LockedTarget t) {
             long bountyCredits = t.getBounty() != null ? Math.max(0L, t.getBounty().longValue()) : 0L;
-            String local = t.getLocalBounty() != null && t.getLocalBounty() > 0L
-                    ? formatCompact(t.getLocalBounty())
-                    : "—";
-            String total = bountyCredits > 0L
-                    ? formatCompact(bountyCredits)
-                    : "—";
-            String remote = (t.getLocalBounty() != null && t.getLocalBounty() > 0L)
-                    ? formatRemote(t.getRemoteBounty(), t.isWarrantScanned())
-                    : "—";
             return new BountyRow(
                     dash(t.getPilotName()),
                     dash(t.getShipDisplay()),
-                    local,
-                    remote,
-                    total,
+                    formatLocal(t),
+                    formatRemote(t),
+                    formatTotal(t),
                     bountyCredits,
                     t.isPlayer());
         }

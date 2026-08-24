@@ -69,6 +69,25 @@ class CombatTargetTrackerTest {
     }
 
     @Test
+    void cleanTargetShowsCleanLocallyAndAfterWarrantScanRemotely() {
+        tracker.applyShipTargeted(stage3("Clean Pilot", null, "Clean", false));
+
+        CombatTargetTracker.LockedTarget initiallyScanned = tracker.getLockedTarget();
+        assertEquals("Clean", CombatTabPanel.formatLocal(initiallyScanned));
+        assertEquals("?", CombatTabPanel.formatRemote(initiallyScanned));
+        assertEquals("Clean", CombatTabPanel.formatTotal(initiallyScanned));
+
+        tracker.applyShipTargeted(stage3("Clean Pilot", null, "Clean", false));
+
+        CombatTargetTracker.LockedTarget warrantScanned = tracker.getLockedTarget();
+        assertTrue(warrantScanned.isWarrantScanned());
+        assertEquals("Clean", CombatTabPanel.formatLocal(warrantScanned));
+        assertEquals("Clean", CombatTabPanel.formatRemote(warrantScanned));
+        assertEquals("Clean", CombatTabPanel.formatTotal(warrantScanned));
+        assertTrue(tracker.getScannedWantedShips().isEmpty());
+    }
+
+    @Test
     void clearsLockedTargetOnUnlock() {
         tracker.applyShipTargeted(stage3("Raider", 50_000L, "Wanted", false));
         assertNotNull(tracker.getLockedTarget());
@@ -347,7 +366,7 @@ class CombatTargetTrackerTest {
         assertEquals(41_881L, tracker.getKills().get(0).getTotalReward());
     }
 
-    private static ShipTargetedEvent stage3(String pilot, long bounty, String legal, boolean player) {
+    private static ShipTargetedEvent stage3(String pilot, Long bounty, String legal, boolean player) {
         String rawName = player ? pilot : "$npc_name_decorate:#name=" + pilot + ";";
         return new ShipTargetedEvent(
                 Instant.parse("2026-06-22T13:04:47Z"),
@@ -356,7 +375,7 @@ class CombatTargetTrackerTest {
                 3,
                 pilot,
                 rawName,
-                Long.valueOf(bounty),
+                bounty,
                 "viper",
                 null,
                 legal,
