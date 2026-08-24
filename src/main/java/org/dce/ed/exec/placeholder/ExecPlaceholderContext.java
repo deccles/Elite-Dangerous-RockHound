@@ -6,6 +6,7 @@ import org.dce.ed.RouteTabPanel;
 import org.dce.ed.exec.CarrierFuelTracker;
 import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.logreader.OwnedFleetCarrierTracker;
+import org.dce.ed.route.RouteGeometry;
 import org.dce.ed.route.RouteSession;
 import org.dce.ed.state.SystemState;
 
@@ -142,7 +143,24 @@ public final class ExecPlaceholderContext {
     }
 
     static String fleetNextDestination(ExecPlaceholderContext ctx) {
-        return RouteTabPanel.nextRouteDestinationSystemName(ctx.fleetRoute());
+        RouteSession session = ctx.fleetRoute();
+        if (session == null) {
+            return null;
+        }
+        int currentRow = RouteGeometry.findSystemRow(
+                session.getBaseRouteEntries(),
+                session.getCurrentSystemName(),
+                session.getCurrentSystemAddress());
+        // Fleet-carrier routes pause when the carrier leaves the plotted route. Returning to any
+        // plotted system resumes from that row; reaching the final row naturally returns no hop.
+        if (currentRow < 0) {
+            return null;
+        }
+        return RouteTabPanel.nextRouteDestinationSystemName(
+                session.getBaseRouteEntries(),
+                session.getCurrentSystemName(),
+                session.getCurrentSystemAddress(),
+                currentRow);
     }
 
     static String shipNextDestination(ExecPlaceholderContext ctx) {

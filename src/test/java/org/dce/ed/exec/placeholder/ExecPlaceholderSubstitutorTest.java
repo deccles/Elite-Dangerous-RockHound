@@ -146,6 +146,59 @@ class ExecPlaceholderSubstitutorTest {
     }
 
     @Test
+    void fleetCarrierDestination_pausesOffRouteAndResumesWhenCarrierReturnsToRoute() {
+        org.dce.ed.route.RouteSession fleet = new org.dce.ed.route.RouteSession(null, j -> true);
+        fleet.replaceBaseRouteEntries(List.of(
+                org.dce.ed.route.RouteEntry.syntheticSystem(
+                        "Gandharvi", 100L, null, org.dce.ed.route.RouteMarkerKind.NONE),
+                org.dce.ed.route.RouteEntry.syntheticSystem(
+                        "Colonia", 200L, null, org.dce.ed.route.RouteMarkerKind.NONE)));
+        fleet.applyKnownCurrentSystem("Gandharvi", 100L, null);
+        fleet.applyKnownCurrentSystem("Colonia", 200L, null);
+
+        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+        ctx.setFleetRouteSessionSupplier(() -> fleet);
+
+        assertEquals("Unknown",
+                ExecPlaceholderResolver.resolveOne(
+                        ctx, null, ExecPlaceholderId.FLEET_CARRIER_DESTINATION));
+
+        fleet.applyKnownCurrentSystem("Ogmar", 300L, null);
+
+        assertEquals("Unknown",
+                ExecPlaceholderResolver.resolveOne(
+                        ctx, null, ExecPlaceholderId.FLEET_CARRIER_DESTINATION));
+
+        fleet.applyKnownCurrentSystem("Gandharvi", 100L, null);
+
+        assertEquals("Colonia",
+                ExecPlaceholderResolver.resolveOne(
+                        ctx, null, ExecPlaceholderId.FLEET_CARRIER_DESTINATION));
+    }
+
+    @Test
+    void fleetCarrierDestination_pausesWhenCarrierLeavesRouteBeforeFinalHop() {
+        org.dce.ed.route.RouteSession fleet = new org.dce.ed.route.RouteSession(null, j -> true);
+        fleet.replaceBaseRouteEntries(List.of(
+                org.dce.ed.route.RouteEntry.syntheticSystem(
+                        "Alpha", 100L, null, org.dce.ed.route.RouteMarkerKind.NONE),
+                org.dce.ed.route.RouteEntry.syntheticSystem(
+                        "Beta", 200L, null, org.dce.ed.route.RouteMarkerKind.NONE),
+                org.dce.ed.route.RouteEntry.syntheticSystem(
+                        "Gamma", 300L, null, org.dce.ed.route.RouteMarkerKind.NONE)));
+        fleet.applyKnownCurrentSystem("Alpha", 100L, null);
+        fleet.applyKnownCurrentSystem("Beta", 200L, null);
+        fleet.applyKnownCurrentSystem("Detour", 400L, null);
+
+        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+        ctx.setFleetRouteSessionSupplier(() -> fleet);
+
+        assertEquals("Unknown",
+                ExecPlaceholderResolver.resolveOne(
+                        ctx, null, ExecPlaceholderId.FLEET_CARRIER_DESTINATION));
+    }
+
+    @Test
     void routeNextDestination_wrapsToFirstHopWhenCustomRouteLoopIsEnabled() {
         org.dce.ed.route.RouteSession ship = new org.dce.ed.route.RouteSession(null, j -> false);
         ship.replaceBaseRouteEntries(List.of(
