@@ -118,8 +118,8 @@ class WindowsNativeTopmostTest {
 
             assertTrue(isNativeTopmost(hwnd), "reconciliation must repair the native topmost flag");
             assertTrue(holder[0].isAlwaysOnTop(), "Java and Windows must agree after reconciliation");
-            org.junit.jupiter.api.Assertions.assertEquals(List.of(false, true), javaStateChanges,
-                    "repair must refresh the AWT peer, not only the native z-order bit");
+            org.junit.jupiter.api.Assertions.assertEquals(List.of(), javaStateChanges,
+                    "native repair must not toggle AWT state because that can activate the window");
         } finally {
             if (holder[0] != null) {
                 SwingUtilities.invokeAndWait(holder[0]::dispose);

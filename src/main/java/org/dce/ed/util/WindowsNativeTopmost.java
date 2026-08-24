@@ -13,6 +13,8 @@ import com.sun.jna.platform.win32.WinUser;
 public final class WindowsNativeTopmost {
 
     private static final int WS_EX_TOPMOST = 0x00000008;
+    private static final HWND HWND_TOPMOST = new HWND(new Pointer(-1L));
+    private static final HWND HWND_NOTOPMOST = new HWND(new Pointer(-2L));
 
     private WindowsNativeTopmost() {
     }
@@ -42,10 +44,12 @@ public final class WindowsNativeTopmost {
             boolean nativeTopmost = (User32.INSTANCE.GetWindowLong(hwnd, WinUser.GWL_EXSTYLE)
                     & WS_EX_TOPMOST) != 0;
             if (nativeTopmost != topmost) {
-                // AWT caches this property. Refresh both the peer and native z-order state;
-                // visible owned dialogs were excluded above so their popups stay intact.
-                window.setAlwaysOnTop(!topmost);
-                window.setAlwaysOnTop(topmost);
+                // Repair the native z-order band without activating the overlay. Toggling
+                // AWT's property here can steal foreground focus from Elite Dangerous.
+                User32.INSTANCE.SetWindowPos(hwnd, topmost ? HWND_TOPMOST : HWND_NOTOPMOST,
+                        0, 0, 0, 0,
+                        WinUser.SWP_NOMOVE | WinUser.SWP_NOSIZE
+                                | WinUser.SWP_NOACTIVATE | WinUser.SWP_NOOWNERZORDER);
             }
         } catch (Throwable ignored) {
             // Best effort: a window may be disposed while focus synchronization is running.
