@@ -5,6 +5,8 @@ import java.awt.Component;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.AlphaComposite;
+import java.awt.BasicStroke;
 import java.awt.RenderingHints;
 
 import javax.swing.Icon;
@@ -22,10 +24,18 @@ public final class StatusCircleIcon implements Icon {
 
     private final Color circleColor;
     private final String symbol;
+    private final boolean filled;
+    private final float glowAlpha;
 
     public StatusCircleIcon(Color circleColor, String symbol) {
+        this(circleColor, symbol, true, 0.0f);
+    }
+
+    public StatusCircleIcon(Color circleColor, String symbol, boolean filled, float glowAlpha) {
         this.circleColor = circleColor != null ? circleColor : EdoUi.User.MAIN_TEXT;
         this.symbol = symbol != null ? symbol : "";
+        this.filled = filled;
+        this.glowAlpha = Math.max(0.0f, Math.min(1.0f, glowAlpha));
     }
 
     public static StatusCircleIcon check(Color circleColor) {
@@ -53,10 +63,20 @@ public final class StatusCircleIcon implements Icon {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             int d = diameter() - 1;
             g2.setColor(circleColor);
-            g2.fillOval(x, y, d, d);
-            g2.setColor(Color.BLACK);
+            if (filled) {
+                g2.fillOval(x, y, d, d);
+            }
+            g2.setColor(filled ? Color.BLACK : circleColor);
             g2.drawOval(x, y, d, d);
+            if (glowAlpha > 0.0f) {
+                g2.setComposite(AlphaComposite.SrcOver.derive(glowAlpha));
+                g2.setColor(Color.WHITE);
+                g2.setStroke(new BasicStroke(2.4f));
+                g2.drawOval(x + 1, y + 1, Math.max(0, d - 2), Math.max(0, d - 2));
+                g2.setComposite(AlphaComposite.SrcOver);
+            }
             if (!symbol.isEmpty()) {
+                g2.setColor(Color.BLACK);
                 Font font = iconFont();
                 g2.setFont(font);
                 java.awt.FontMetrics fm = g2.getFontMetrics();

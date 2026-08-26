@@ -116,6 +116,7 @@ import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.StatusCircleIcon;
 import org.dce.ed.ui.SystemTableHoverCopyManager;
 import org.dce.ed.util.EdsmClient;
+import org.dce.ed.util.EdsmRequestPolicy;
 import org.dce.ed.route.FuelScoopStarClass;
 import org.dce.ed.route.RouteEntry;
 import org.dce.ed.route.RouteFuelPrediction;
@@ -124,7 +125,12 @@ import org.dce.ed.route.RouteJournalApplyOutcome;
 import org.dce.ed.route.RouteMarkerKind;
 import org.dce.ed.route.RouteNavRouteJson;
 import org.dce.ed.route.RouteScanStatus;
+import org.dce.ed.route.RouteStatusPresentation;
 import org.dce.ed.route.RouteDisplaySnapshot;
+import org.dce.ed.route.RouteEdsmRetryPolicy;
+import org.dce.ed.route.RouteEdsmWorkQueue;
+import org.dce.ed.route.RouteEdsmWindow;
+import org.dce.ed.route.RouteScanStatusMemory;
 import org.dce.ed.route.RouteSession;
 
 import com.google.gson.JsonObject;
@@ -155,6 +161,13 @@ public class RouteTabPanel extends JPanel {
 			new StatusCircleIcon(EdoUi.STATUS_GRAY, "!");
 	private static final Icon ICON_UNKNOWN =
 			new StatusCircleIcon(EdoUi.STATUS_GRAY, "?");
+	private static final Icon ICON_PENDING =
+			new StatusCircleIcon(EdoUi.User.MAIN_TEXT, "", false, 0.0f);
+	private static final Icon ICON_DEFERRED =
+			new StatusCircleIcon(EdoUi.STATUS_GRAY, "", false, 0.0f);
+	private static final int STATUS_GLOW_FRAME_MS = 40;
+	private static final long STATUS_GLOW_DURATION_MS = 500L;
+	private static final int EDSM_ROUTE_WINDOW_SIZE = 25;
 	/** Monochrome green fuel pump for scoopable stars (Class column). */
 	private static final Color FUEL_GAUGE_GREEN = new Color(0x90, 0xC3, 0x8A);
 	/** Fuel prediction: last system reachable on current fuel. */
@@ -376,10 +389,14 @@ public class RouteTabPanel extends JPanel {
 		return systemName != null && !systemName.isBlank() && systemName.equals(entry.systemName);
 	}
 
-	private final Map<Long, RouteScanStatus> lastKnownScanStatusByAddress = new ConcurrentHashMap<>();
+	private final RouteScanStatusMemory scanStatusMemory = new RouteScanStatusMemory();
 	private final Map<Long, EdsmScanSummary> edsmSummaryByAddress = new ConcurrentHashMap<>();
-	/** Dedupe concurrent EDSM body fetches per system address while updating route row status. */
-	private final Set<Long> edsmRouteStatusInFlight = ConcurrentHashMap.newKeySet();
+	private Timer statusGlowTimer;
+	/** Dedupe concurrent EDSM body fetches while updating route row status. */
+	private final Set<String> edsmRouteStatusInFlight = ConcurrentHashMap.newKeySet();
+	private final RouteEdsmWorkQueue routeEdsmWorkQueue = new RouteEdsmWorkQueue(
+			EdsmRequestPolicy.MAX_CONCURRENT_REQUESTS, "RouteEdsm");
+	private final Map<String, Integer> edsmRouteRetryAttempts = new ConcurrentHashMap<>();
 
 	/** Same-package test access (not part of public API). */
 	RouteSession routeSessionForTests() {
@@ -2049,6 +2066,7 @@ public class RouteTabPanel extends JPanel {
 		syncTableCurrentFromRouteSession();
 		RouteDisplaySnapshot snap = routeSession.buildDisplaySnapshot(
 				this::applyRememberedScanStatuses, this::resolveSystemCoords, customRouteActive);
+		RouteEdsmWindow.apply(snap.displayedEntries(), EDSM_ROUTE_WINDOW_SIZE);
 		tableModel.setEntries(snap.displayedEntries());
 		// Body-row insert/remove changes preferred table height. Apply strip bounds
 		// synchronously — revalidate alone can paint one frame with a stale scroll height
@@ -2057,7 +2075,6 @@ public class RouteTabPanel extends JPanel {
 		recomputeRouteFuelPrediction();
 		maybeScheduleTargetCoordsFetch(snap.displayedEntries());
 		SwingUtilities.invokeLater(() -> {
-			kickEdsmForBehindCurrentUnknownRows();
 			startEdsmUpdatesForVisibleRows();
 			scrollToKeepCurrentRowAtOffset();
 		});
@@ -2249,7 +2266,7 @@ public class RouteTabPanel extends JPanel {
 		entry.systemName = name;
 		entry.systemAddress = 0L;
 		entry.starClass = "?";
-		entry.status = RouteScanStatus.UNKNOWN;
+		entry.status = RouteScanStatus.PENDING;
 		try {
 			org.dce.ed.edsm.SystemResponse sys = edsmClient.getSystem(name);
 			applyEdsmSystemMetadata(entry, sys);
@@ -2453,7 +2470,7 @@ public class RouteTabPanel extends JPanel {
 			if (e == null || e.isBodyRow) {
 				continue;
 			}
-			if (e.status != RouteScanStatus.UNKNOWN) {
+			if (e.status == null || !e.status.needsEdsmQuery()) {
 				continue;
 			}
 			updateStatusFromEdsm(e, r);
@@ -2495,30 +2512,20 @@ public class RouteTabPanel extends JPanel {
 		}
 	}
 
-	/** Call on EDT. Starts EDSM status updates only for rows currently visible in the viewport. */
+	/** Call on EDT. Starts EDSM status updates for the rolling route window. */
 	private void startEdsmUpdatesForVisibleRows() {
 		if (table == null || tableModel == null) {
 			return;
 		}
-		int first = getFirstVisibleRow();
-		int last = getLastVisibleRow();
-		if (first < 0 || last < 0) {
-			return;
-		}
-		for (int row = first; row <= last; row++) {
-			if (row >= tableModel.getRowCount()) {
-				break;
-			}
+		for (int row = 0; row < tableModel.getRowCount(); row++) {
 			RouteEntry entry = tableModel.getEntries(row);
 			if (entry == null || entry.isBodyRow) {
 				continue;
 			}
-			if (entry.status != null && entry.status != RouteScanStatus.UNKNOWN) {
+			if (entry.status == null || !entry.status.needsEdsmQuery()) {
 				continue;
 			}
-			final int r = row;
-			new Thread(() -> updateStatusFromEdsm(entry, r),
-					"RouteEdsm-" + (entry.systemName != null ? entry.systemName : "row" + r)).start();
+			updateStatusFromEdsm(entry, row);
 		}
 	}
 
@@ -2843,16 +2850,7 @@ public class RouteTabPanel extends JPanel {
 	}
 
 	private void rememberScanStatus(RouteEntry entry, RouteScanStatus status) {
-		if (entry == null) {
-			return;
-		}
-		if (entry.systemAddress == 0L) {
-			return;
-		}
-		if (status == null || status == RouteScanStatus.UNKNOWN) {
-			return;
-		}
-		lastKnownScanStatusByAddress.put(entry.systemAddress, status);
+		scanStatusMemory.remember(entry, status);
 	}
 
 	private void applyRememberedScanStatuses(List<RouteEntry> entries) {
@@ -2879,13 +2877,8 @@ public class RouteTabPanel extends JPanel {
 				continue;
 			}
 
-			// If we already knew something, don't reset back to UNKNOWN.
-			if (e.status == null || e.status == RouteScanStatus.UNKNOWN) {
-				RouteScanStatus remembered = lastKnownScanStatusByAddress.get(e.systemAddress);
-				if (remembered != null && remembered != RouteScanStatus.UNKNOWN) {
-					e.status = remembered;
-				}
-			}
+			// Preserve every completed result, including UNKNOWN (the resolved '?').
+			scanStatusMemory.applyTo(e);
 		}
 	}
 
@@ -2971,27 +2964,74 @@ public class RouteTabPanel extends JPanel {
 		}
 		final long addr = entry.systemAddress;
 		final String sysName = entry.systemName;
-		if (addr != 0L && !edsmRouteStatusInFlight.add(Long.valueOf(addr))) {
+		final String inFlightKey = edsmRetryKey(addr, sysName);
+		if (!edsmRouteStatusInFlight.add(inFlightKey)) {
 			return;
 		}
-		new Thread(() -> {
+		routeEdsmWorkQueue.submit(() -> {
 			BodiesResponse bodies = null;
+			boolean queryCompleted = false;
 			try {
 				bodies = edsmClient.showBodies(sysName);
+				queryCompleted = true;
 			} catch (Exception ex) {
-				ex.printStackTrace();
+				System.err.println("[EDO][EDSM] route lookup deferred for " + sysName + ": "
+						+ ex.getClass().getSimpleName()
+						+ (ex.getMessage() != null ? " — " + ex.getMessage() : ""));
 			}
 			final BodiesResponse bodiesFinal = bodies;
+			final boolean queryCompletedFinal = queryCompleted;
 			SwingUtilities.invokeLater(() -> {
 				try {
-					applyBodiesResponseToRouteRow(row, addr, sysName, bodiesFinal);
-				} finally {
-					if (addr != 0L) {
-						edsmRouteStatusInFlight.remove(Long.valueOf(addr));
+					if (queryCompletedFinal) {
+						applyBodiesResponseToRouteRow(row, addr, sysName, bodiesFinal);
+					} else {
+						scheduleEdsmRetry(row, addr, sysName);
 					}
+				} finally {
+					edsmRouteStatusInFlight.remove(inFlightKey);
 				}
 			});
-		}, "RouteEdsm-" + (sysName != null ? sysName : "row" + row)).start();
+		});
+	}
+
+	private void scheduleEdsmRetry(int row, long expectedAddress, String expectedName) {
+		if (tableModel == null || row < 0 || row >= tableModel.getRowCount()) {
+			return;
+		}
+		RouteEntry live = tableModel.getEntries(row);
+		if (!routeEntryMatches(live, expectedAddress, expectedName)
+				|| live.status == null || !live.status.needsEdsmQuery()) {
+			return;
+		}
+		String key = edsmRetryKey(expectedAddress, expectedName);
+		int attempt = edsmRouteRetryAttempts.merge(key, Integer.valueOf(1), Integer::sum).intValue();
+		if (!RouteEdsmRetryPolicy.shouldRetry(attempt)) {
+			setResolvedRouteStatus(live, row, RouteScanStatus.UNKNOWN);
+			return;
+		}
+		Timer retry = new Timer(RouteEdsmRetryPolicy.delayMillis(attempt), event -> {
+			((Timer) event.getSource()).stop();
+			if (tableModel == null || row < 0 || row >= tableModel.getRowCount()) {
+				return;
+			}
+			RouteEntry candidate = tableModel.getEntries(row);
+			if (!routeEntryMatches(candidate, expectedAddress, expectedName)
+					|| candidate.status == null || !candidate.status.needsEdsmQuery()) {
+				return;
+			}
+			int firstVisible = getFirstVisibleRow();
+			int lastVisible = getLastVisibleRow();
+			if (row >= firstVisible && row <= lastVisible) {
+				updateStatusFromEdsm(candidate, row);
+			}
+		});
+		retry.setRepeats(false);
+		retry.start();
+	}
+
+	private static String edsmRetryKey(long address, String name) {
+		return address != 0L ? Long.toString(address) : String.valueOf(name);
 	}
 
 	private void applyEdsmDerivedStatusToRow(int row, long expectedAddress, String expectedName, RouteScanStatus status) {
@@ -3002,9 +3042,48 @@ public class RouteTabPanel extends JPanel {
 		if (!routeEntryMatches(live, expectedAddress, expectedName)) {
 			return;
 		}
-		live.status = status;
-		rememberScanStatus(live, status);
+		setResolvedRouteStatus(live, row, status);
+	}
+
+	private void setResolvedRouteStatus(RouteEntry entry, int row, RouteScanStatus status) {
+		boolean wasPending = entry.status != null && entry.status.needsEdsmQuery();
+		entry.status = status;
+		edsmRouteRetryAttempts.remove(edsmRetryKey(entry.systemAddress, entry.systemName));
+		if (wasPending) {
+			entry.statusResolvedAtMillis = System.currentTimeMillis();
+			startStatusGlowAnimation();
+		}
+		rememberScanStatus(entry, status);
 		tableModel.fireRowChanged(row);
+	}
+
+	private void startStatusGlowAnimation() {
+		if (statusGlowTimer == null) {
+			statusGlowTimer = new Timer(STATUS_GLOW_FRAME_MS, event -> {
+				if (table == null) {
+					((Timer) event.getSource()).stop();
+					return;
+				}
+				table.repaint();
+				long now = System.currentTimeMillis();
+				boolean active = false;
+				for (int i = 0; i < tableModel.getRowCount(); i++) {
+					RouteEntry candidate = tableModel.getEntries(i);
+					if (candidate != null && candidate.statusResolvedAtMillis > 0L
+							&& now - candidate.statusResolvedAtMillis < STATUS_GLOW_DURATION_MS) {
+						active = true;
+						break;
+					}
+				}
+				if (!active) {
+					((Timer) event.getSource()).stop();
+				}
+			});
+			statusGlowTimer.setRepeats(true);
+		}
+		if (!statusGlowTimer.isRunning()) {
+			statusGlowTimer.start();
+		}
 	}
 
 	private void applyBodiesResponseToRouteRow(int row, long expectedAddress, String expectedName, BodiesResponse bodies) {
@@ -3017,9 +3096,7 @@ public class RouteTabPanel extends JPanel {
 		}
 		RouteScanStatus local = getLocalScanStatus(live);
 		if (local != RouteScanStatus.UNKNOWN) {
-			live.status = local;
-			rememberScanStatus(live, local);
-			tableModel.fireRowChanged(row);
+			setResolvedRouteStatus(live, row, local);
 			return;
 		}
 		boolean v = isVisited(live);
@@ -3045,18 +3122,14 @@ public class RouteTabPanel extends JPanel {
 			}
 		}
 		if (newStatus != RouteScanStatus.UNKNOWN) {
-			live.status = newStatus;
-			rememberScanStatus(live, newStatus);
-			tableModel.fireRowChanged(row);
-		} else if (live.status == null || live.status == RouteScanStatus.UNKNOWN) {
+			setResolvedRouteStatus(live, row, newStatus);
+		} else if (live.status == null || live.status.needsEdsmQuery()) {
 			// EDSM gave nothing useful. Only show a visited-incomplete glyph when local journals/cache say visited.
 			if (v) {
-				live.status = RouteScanStatus.DISCOVERY_MISSING_VISITED;
-				rememberScanStatus(live, RouteScanStatus.DISCOVERY_MISSING_VISITED);
+				setResolvedRouteStatus(live, row, RouteScanStatus.DISCOVERY_MISSING_VISITED);
 			} else {
-				live.status = RouteScanStatus.UNKNOWN;
+				setResolvedRouteStatus(live, row, RouteScanStatus.UNKNOWN);
 			}
-			tableModel.fireRowChanged(row);
 		}
 	}
 	private RouteScanStatus getLocalScanStatus(RouteEntry entry) {
@@ -3536,30 +3609,16 @@ public class RouteTabPanel extends JPanel {
 
 			if (value instanceof RouteScanStatus) {
 				RouteScanStatus status = (RouteScanStatus) value;
-				switch (status) {
-				case FULLY_DISCOVERED_VISITED:
-					label.setIcon(ICON_FULLY_DISCOVERED_VISITED);
-					break;
-				case FULLY_DISCOVERED_NOT_VISITED:
-					label.setIcon(ICON_FULLY_DISCOVERED_NOT_VISITED);
-					break;
-				case DISCOVERY_MISSING_VISITED:
-					label.setIcon(ICON_DISCOVERY_MISSING_VISITED);
-					break;
-				case DISCOVERY_MISSING_NOT_VISITED:
-					label.setIcon(ICON_DISCOVERY_MISSING_NOT_VISITED);
-					break;
-				case BODYCOUNT_MISMATCH_VISITED:
-					label.setIcon(ICON_BODYCOUNT_MISMATCH_VISITED);
-					break;
-				case BODYCOUNT_MISMATCH_NOT_VISITED:
-					label.setIcon(ICON_BODYCOUNT_MISMATCH_NOT_VISITED);
-					break;
-				case UNKNOWN:
-				default:
-					label.setIcon(ICON_UNKNOWN);
-					break;
+				float glowAlpha = 0.0f;
+				if (table.getModel() instanceof RouteTableModel model) {
+					int modelRow = table.convertRowIndexToModel(row);
+					RouteEntry entry = model.getEntries(modelRow);
+					if (entry != null && entry.statusResolvedAtMillis > 0L) {
+						long elapsed = System.currentTimeMillis() - entry.statusResolvedAtMillis;
+						glowAlpha = RouteStatusPresentation.glowAlpha(elapsed);
+					}
 				}
+				label.setIcon(statusIcon(status, glowAlpha));
 			}
 			return label;
 		}
@@ -3575,6 +3634,43 @@ public class RouteTabPanel extends JPanel {
 			int y = getHeight() - 1;
 			g2.drawLine(0, y, getWidth(), y);
 			g2.dispose();
+		}
+	}
+
+	private static Icon statusIcon(RouteScanStatus status, float glowAlpha) {
+		if (glowAlpha <= 0.0f) {
+			switch (status) {
+			case FULLY_DISCOVERED_VISITED: return ICON_FULLY_DISCOVERED_VISITED;
+			case FULLY_DISCOVERED_NOT_VISITED: return ICON_FULLY_DISCOVERED_NOT_VISITED;
+			case DISCOVERY_MISSING_VISITED: return ICON_DISCOVERY_MISSING_VISITED;
+			case DISCOVERY_MISSING_NOT_VISITED: return ICON_DISCOVERY_MISSING_NOT_VISITED;
+			case BODYCOUNT_MISMATCH_VISITED: return ICON_BODYCOUNT_MISMATCH_VISITED;
+			case BODYCOUNT_MISMATCH_NOT_VISITED: return ICON_BODYCOUNT_MISMATCH_NOT_VISITED;
+			case PENDING: return ICON_PENDING;
+			case DEFERRED: return ICON_DEFERRED;
+			case UNKNOWN:
+			default: return ICON_UNKNOWN;
+			}
+		}
+		switch (status) {
+		case FULLY_DISCOVERED_VISITED:
+			return new StatusCircleIcon(EdoUi.User.MAIN_TEXT, StatusCircleIcon.CHECK, true, glowAlpha);
+		case FULLY_DISCOVERED_NOT_VISITED:
+			return new StatusCircleIcon(EdoUi.STATUS_GRAY, StatusCircleIcon.CHECK, true, glowAlpha);
+		case DISCOVERY_MISSING_VISITED:
+			return new StatusCircleIcon(EdoUi.STATUS_BLUE, StatusCircleIcon.CROSS, true, glowAlpha);
+		case DISCOVERY_MISSING_NOT_VISITED:
+			return new StatusCircleIcon(EdoUi.STATUS_GRAY, StatusCircleIcon.CROSS, true, glowAlpha);
+		case BODYCOUNT_MISMATCH_VISITED:
+			return new StatusCircleIcon(EdoUi.STATUS_YELLOW, "!", true, glowAlpha);
+		case BODYCOUNT_MISMATCH_NOT_VISITED:
+			return new StatusCircleIcon(EdoUi.STATUS_GRAY, "!", true, glowAlpha);
+		case UNKNOWN:
+			return new StatusCircleIcon(EdoUi.STATUS_GRAY, "?", true, glowAlpha);
+		case PENDING:
+		case DEFERRED:
+		default:
+			return status == RouteScanStatus.DEFERRED ? ICON_DEFERRED : ICON_PENDING;
 		}
 	}
 

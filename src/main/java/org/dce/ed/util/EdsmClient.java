@@ -21,7 +21,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.prefs.Preferences;
 
+import org.dce.ed.EdoTestFlags;
 import org.dce.ed.edsm.BodiesResponse;
 import org.dce.ed.edsm.EdsmJournalBodyIdBridge;
 import org.dce.ed.edsm.CmdrCreditsResponse;
@@ -52,6 +54,8 @@ public class EdsmClient {
 	private static final boolean DEBUG_SPHERE_SYSTEMS = false;
 	
     private static final String BASE_URL = "https://www.edsm.net";
+    private static final String PREF_LEARNED_INTERVAL_MILLIS = "edsmLearnedRequestIntervalMillisV2";
+    private static final Preferences EDSM_PREFS = Preferences.userNodeForPackage(EdsmClient.class);
 
     private static final EdsmRequestGate SHARED_REQUEST_GATE = new EdsmRequestGate(
             new EdsmRequestGate.CacheStore() {
@@ -75,8 +79,12 @@ public class EdsmClient {
             Clock.systemUTC(),
             Thread::sleep,
             Duration.ofDays(1),
-            Duration.ofSeconds(1),
-            Duration.ofMinutes(1));
+            EdsmRequestPolicy.HEALTHY_MINIMUM_INTERVAL,
+            EdsmRequestPolicy.HEADERLESS_RATE_LIMIT_COOLDOWN,
+            EdsmRequestPolicy.MAX_CONCURRENT_REQUESTS,
+            0.70,
+            new EdsmLearnedPacingPreferences(
+                    EDSM_PREFS, PREF_LEARNED_INTERVAL_MILLIS, EdoTestFlags::isolateUi));
 
     private final HttpClient client;
     private final Gson gson;
@@ -119,9 +127,7 @@ public class EdsmClient {
         String body = response.body() != null ? response.body().trim() : "";
         lastRawJson = body;
 
-        if (response.fromCache() && (code < 200 || code >= 300)) {
-            return null;
-        }
+        requireSuccessfulResponse(response, urlString);
         if (body.isEmpty()) {
             throw new IOException("EDSM returned empty response (HTTP " + code + "): " + urlString);
         }
@@ -155,6 +161,15 @@ public class EdsmClient {
                     + "): " + clazz.getSimpleName() + " from " + urlString + " => " + summarize(body));
         }
         return gson.fromJson(el, clazz);
+    }
+
+    static void requireSuccessfulResponse(EdsmRequestGate.Response response, String url) throws IOException {
+        int code = response.statusCode();
+        if (code >= 200 && code < 300) {
+            return;
+        }
+        throw new IOException("EDSM HTTP " + code + " from " + url + ": "
+                + summarize(response.body() != null ? response.body() : ""));
     }
 
     /** Avoid persisting commander names/API keys embedded in authenticated EDSM URLs. */
@@ -194,7 +209,8 @@ public class EdsmClient {
             }
 
             body = readAll(in).trim();
-            return new EdsmRequestGate.Response(code, contentType, body);
+            return new EdsmRequestGate.Response(code, contentType, body,
+                    flattenHeaders(conn.getHeaderFields()));
 
         } finally {
             if (conn != null) {
@@ -485,15 +501,26 @@ public class EdsmClient {
         return getSphereSystems(url);
     }
 
+    private static Map<String, String> flattenHeaders(Map<String, List<String>> source) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> flattened = new HashMap<>();
+        source.forEach((name, values) -> {
+            if (name != null && values != null && !values.isEmpty()) {
+                flattened.put(name, values.get(0));
+            }
+        });
+        return flattened;
+    }
+
     private SphereSystemsResponse[] getSphereSystems(String url) throws IOException, InterruptedException {
         EdsmRequestGate.Response gated = requestGate.execute(cacheKey(url), () -> executeSphereHttpGet(url));
         lastSphereSystemsStatus = gated.statusCode();
         String body = gated.body();
         lastRawJson = body;
 
-        if (gated.fromCache() && (gated.statusCode() < 200 || gated.statusCode() >= 300)) {
-            return new SphereSystemsResponse[0];
-        }
+        requireSuccessfulResponse(gated, url);
         if (DEBUG_SPHERE_SYSTEMS) {
             System.out.println("[EDSM] sphere-systems URL: " + url);
             System.out.println("[EDSM] sphere-systems HTTP " + gated.statusCode());
@@ -572,7 +599,8 @@ public class EdsmClient {
         try {
             HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             return new EdsmRequestGate.Response(resp.statusCode(),
-                    resp.headers().firstValue("Content-Type").orElse(null), resp.body());
+                    resp.headers().firstValue("Content-Type").orElse(null), resp.body(),
+                    flattenHeaders(resp.headers().map()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Interrupted during EDSM sphere-systems request", e);

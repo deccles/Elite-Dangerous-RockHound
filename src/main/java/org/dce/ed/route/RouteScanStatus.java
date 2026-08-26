@@ -10,5 +10,14 @@ public enum RouteScanStatus {
     BODYCOUNT_MISMATCH_NOT_VISITED,
     FULLY_DISCOVERED_VISITED,
     FULLY_DISCOVERED_NOT_VISITED,
-    UNKNOWN
+    /** EDSM has not returned a result for this route row yet. */
+    PENDING,
+    /** Outside the rolling EDSM lookup window; displayed as an inactive empty circle. */
+    DEFERRED,
+    /** EDSM completed without useful body-discovery data. */
+    UNKNOWN;
+
+    public boolean needsEdsmQuery() {
+        return this == PENDING;
+    }
 }

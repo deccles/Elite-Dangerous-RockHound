@@ -32,6 +32,8 @@ public final class RouteEntry {
     /** Per-leg distance (Ly) from the previous entry; null for origin. */
     public Double distanceLy;
     public RouteScanStatus status;
+    /** Wall-clock time when a pending status visibly resolved; zero means no active glow. */
+    public long statusResolvedAtMillis;
 
     public RouteEntry copy() {
         RouteEntry e = new RouteEntry();
@@ -45,6 +47,7 @@ public final class RouteEntry {
         e.z = z;
         e.distanceLy = distanceLy;
         e.status = status;
+        e.statusResolvedAtMillis = statusResolvedAtMillis;
         e.isSynthetic = isSynthetic;
         e.isBodyRow = isBodyRow;
         e.indentLevel = indentLevel;
@@ -59,7 +62,7 @@ public final class RouteEntry {
         e.systemName = (name != null ? name : "");
         e.systemAddress = address;
         e.starClass = "";
-        e.status = RouteScanStatus.UNKNOWN;
+        e.status = RouteScanStatus.PENDING;
         e.markerKind = (markerKind != null ? markerKind : RouteMarkerKind.NONE);
         if (coords != null && coords.length == 3 && coords[0] != null && coords[1] != null && coords[2] != null) {
             e.x = coords[0];

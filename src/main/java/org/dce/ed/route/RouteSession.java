@@ -341,7 +341,7 @@ public final class RouteSession {
         copy.indentLevel = 0;
         copy.index = baseRouteEntries.size();
         if (copy.status == null) {
-            copy.status = RouteScanStatus.UNKNOWN;
+            copy.status = RouteScanStatus.PENDING;
         }
         if (copy.starClass == null || copy.starClass.isBlank()) {
             copy.starClass = "?";
@@ -366,7 +366,7 @@ public final class RouteSession {
             copy.isBodyRow = false;
             copy.indentLevel = 0;
             if (copy.status == null) {
-                copy.status = RouteScanStatus.UNKNOWN;
+                copy.status = RouteScanStatus.PENDING;
             }
             if (copy.starClass == null || copy.starClass.isBlank()) {
                 copy.starClass = "?";
@@ -394,7 +394,7 @@ public final class RouteSession {
         if (RouteGeometry.findSystemRow(baseRouteEntries, systemName, systemAddress) >= 0) {
             return;
         }
-        RouteEntry here = new RouteEntry(0, systemName.trim(), systemAddress, "?", 0.0, RouteScanStatus.UNKNOWN);
+        RouteEntry here = new RouteEntry(0, systemName.trim(), systemAddress, "?", 0.0, RouteScanStatus.PENDING);
         if (starPos != null && starPos.length == 3) {
             here.x = Double.valueOf(starPos[0]);
             here.y = Double.valueOf(starPos[1]);
@@ -484,7 +484,7 @@ public final class RouteSession {
             return;
         }
         if (baseRouteEntries.isEmpty()) {
-            baseRouteEntries.add(new RouteEntry(0, systemName, systemAddress, "?", 0.0, RouteScanStatus.UNKNOWN));
+            baseRouteEntries.add(new RouteEntry(0, systemName, systemAddress, "?", 0.0, RouteScanStatus.PENDING));
             return;
         }
         if (baseRouteEntries.size() != 1) {
@@ -504,7 +504,7 @@ public final class RouteSession {
             only.systemAddress = systemAddress;
         }
         only.starClass = "?";
-        only.status = RouteScanStatus.UNKNOWN;
+        only.status = RouteScanStatus.PENDING;
         only.x = null;
         only.y = null;
         only.z = null;

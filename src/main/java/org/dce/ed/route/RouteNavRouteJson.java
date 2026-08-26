@@ -39,7 +39,7 @@ public final class RouteNavRouteJson {
             entry.systemName = systemName;
             entry.systemAddress = systemAddress;
             entry.starClass = starClass;
-            entry.status = RouteScanStatus.UNKNOWN;
+            entry.status = RouteScanStatus.PENDING;
             entries.add(entry);
             if (pos != null && pos.size() == 3) {
                 double x = pos.get(0).getAsDouble();
@@ -118,7 +118,7 @@ public final class RouteNavRouteJson {
             entry.systemName = systemName;
             entry.systemAddress = systemAddress;
             entry.starClass = "";
-            entry.status = RouteScanStatus.UNKNOWN;
+            entry.status = RouteScanStatus.PENDING;
 
             entry.x = x;
             entry.y = y;
@@ -201,7 +201,7 @@ public final class RouteNavRouteJson {
             entry.systemName = name;
             entry.systemAddress = 0L;
             entry.starClass = "";
-            entry.status = RouteScanStatus.UNKNOWN;
+            entry.status = RouteScanStatus.PENDING;
             entry.x = null;
             entry.y = null;
             entry.z = null;
