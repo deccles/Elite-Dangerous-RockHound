@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.util.List;
 
+import org.dce.ed.logreader.event.CarrierLocationEvent;
 import org.dce.ed.logreader.event.FsdJumpEvent;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,6 +68,23 @@ class RouteSessionTest {
         session.applySecondaryJournalEvent(jump);
         assertEquals(1, session.getBaseRouteEntries().size());
         assertEquals("Remote", session.getBaseRouteEntries().get(0).systemName);
+    }
+
+    @Test
+    void carrierLocationDoesNotMoveCommanderRoute() {
+        session.replaceBaseRouteEntries(List.of(
+                new RouteEntry(0, "Current", 100L, "G", 0.0, RouteScanStatus.UNKNOWN),
+                new RouteEntry(1, "Carrier destination", 200L, "G", 1.0, RouteScanStatus.UNKNOWN)));
+        session.applyKnownCurrentSystem("Current", 100L, null);
+
+        CarrierLocationEvent carrierLocation = new CarrierLocationEvent(
+                Instant.now(), new JsonObject(), 42L, "Carrier destination", 200L, 0);
+        RouteJournalApplyOutcome outcome = session.applySecondaryJournalEvent(carrierLocation);
+
+        assertFalse(outcome.refreshDisplayedRows());
+        assertEquals("Current", session.getCurrentSystemName());
+        assertEquals(100L, session.getCurrentSystemAddress());
+        assertEquals(0, session.getCurrentBaseIndex());
     }
 
     @Test

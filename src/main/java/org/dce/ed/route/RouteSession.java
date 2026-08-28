@@ -552,13 +552,6 @@ public final class RouteSession {
             syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
             return new RouteJournalApplyOutcome(false, true);
         }
-        if (event instanceof CarrierLocationEvent loc) {
-            applyKnownCurrentSystem(loc.getStarSystem(), loc.getSystemAddress(), null);
-            clearPendingJumpState();
-            inHyperspace = false;
-            syncNoRouteCurrentSystemPlaceholder(getCurrentSystemName(), currentSystemAddress);
-            return new RouteJournalApplyOutcome(false, true);
-        }
         if (event instanceof SupercruiseExitEvent sc) {
             if (sc.getStarSystem() != null && !sc.getStarSystem().isBlank()) {
                 applyKnownCurrentSystem(sc.getStarSystem(), sc.getSystemAddress(), null);
