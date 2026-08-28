@@ -236,6 +236,13 @@ public class RouteTabPanel extends JPanel {
 	/** {@code true} after paste/reorder until a game {@code NavRoute} reload or explicit clear. */
 	private boolean customRouteActive;
 	private final List<JButton> execTabButtons = new ArrayList<>();
+	private final List<ExecBinding> execTabBindings = new ArrayList<>();
+	private final Timer execButtonAvailabilityTimer = new Timer(
+			ExecOverlayButtonSupport.AVAILABILITY_REFRESH_MS, e -> {
+				if (isShowing()) {
+					refreshExecButtonAvailability();
+				}
+			});
 	private ExecTriggerService execTriggerService;
 	private final RouteTableModel tableModel;
 	private SystemTableHoverCopyManager systemTableHoverCopyManager;
@@ -1746,6 +1753,18 @@ public class RouteTabPanel extends JPanel {
 		refreshExecTabButtons();
 	}
 
+	@Override
+	public void addNotify() {
+		super.addNotify();
+		execButtonAvailabilityTimer.start();
+	}
+
+	@Override
+	public void removeNotify() {
+		execButtonAvailabilityTimer.stop();
+		super.removeNotify();
+	}
+
 	public void refreshExecTabButtons() {
 		SwingUtilities.invokeLater(this::rebuildExecTabButtons);
 	}
@@ -1758,6 +1777,7 @@ public class RouteTabPanel extends JPanel {
 			routeCopyStrip.remove(button);
 		}
 		execTabButtons.clear();
+		execTabBindings.clear();
 		List<ExecBinding> bindings = ExecOverlayButtonSupport.loadBindingsForButtonTab(execTriggerService,
 				execButtonTabId());
 		// Append script buttons on the right (Fleet Carrier Clear stays on the left via addCopyStripComponentLeft).
@@ -1766,7 +1786,9 @@ public class RouteTabPanel extends JPanel {
 					passThroughEnabledSupplier);
 			routeCopyStrip.add(button);
 			execTabButtons.add(button);
+			execTabBindings.add(binding);
 		}
+		refreshExecButtonAvailability();
 		updateRouteCopyStripVisibility();
 		routeCopyStrip.revalidate();
 		routeCopyStrip.repaint();
@@ -3093,6 +3115,11 @@ public class RouteTabPanel extends JPanel {
 		if (!statusGlowTimer.isRunning()) {
 			statusGlowTimer.start();
 		}
+	}
+
+	private void refreshExecButtonAvailability() {
+		ExecOverlayButtonSupport.refreshRequiredPlaceholderAvailability(
+				execTabButtons, execTabBindings, execTriggerService);
 	}
 
 	private void applyBodiesResponseToRouteRow(int row, long expectedAddress, String expectedName, BodiesResponse bodies) {

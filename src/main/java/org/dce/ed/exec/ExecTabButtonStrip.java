@@ -13,6 +13,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 
 import org.dce.ed.OverlayPreferences;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
@@ -28,6 +29,8 @@ public final class ExecTabButtonStrip extends JPanel {
     private final OverlayTabId tabId;
     private final BooleanSupplier passThroughEnabledSupplier;
     private final List<JButton> actionButtons = new ArrayList<>();
+    private final List<ExecBinding> actionBindings = new ArrayList<>();
+    private final Timer availabilityTimer;
     private ExecTriggerService triggerService;
 
     public ExecTabButtonStrip(OverlayTabId tabId, BooleanSupplier passThroughEnabledSupplier) {
@@ -37,6 +40,24 @@ public final class ExecTabButtonStrip extends JPanel {
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         setVisible(false);
+        availabilityTimer = new Timer(ExecOverlayButtonSupport.AVAILABILITY_REFRESH_MS, e -> {
+            if (isShowing()) {
+                refreshActionButtonAvailability();
+            }
+        });
+        availabilityTimer.setRepeats(true);
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        availabilityTimer.start();
+    }
+
+    @Override
+    public void removeNotify() {
+        availabilityTimer.stop();
+        super.removeNotify();
     }
 
     public void setExecTriggerService(ExecTriggerService service) {
@@ -71,14 +92,17 @@ public final class ExecTabButtonStrip extends JPanel {
 
     private void rebuildButtons() {
         actionButtons.clear();
+        actionBindings.clear();
         removeAll();
         List<ExecBinding> bindings = ExecOverlayButtonSupport.loadBindingsForButtonTab(triggerService, tabId);
         for (ExecBinding binding : bindings) {
             JButton button = ExecOverlayButtonSupport.createActionButton(binding, triggerService,
                     passThroughEnabledSupplier);
             actionButtons.add(button);
+            actionBindings.add(binding);
             add(button);
         }
+        refreshActionButtonAvailability();
         setVisible(!actionButtons.isEmpty());
         Dimension pref = getPreferredSize();
         setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(0, pref.height)));
@@ -89,6 +113,11 @@ public final class ExecTabButtonStrip extends JPanel {
             getParent().revalidate();
             getParent().repaint();
         }
+    }
+
+    private void refreshActionButtonAvailability() {
+        ExecOverlayButtonSupport.refreshRequiredPlaceholderAvailability(
+                actionButtons, actionBindings, triggerService);
     }
 
     /** Convenience: wrap strip for BorderLayout.SOUTH attachment. */

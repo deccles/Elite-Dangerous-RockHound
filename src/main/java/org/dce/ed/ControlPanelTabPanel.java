@@ -28,10 +28,12 @@ import javax.swing.JScrollPane;
 import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 
 import org.dce.ed.exec.ExecBinding;
 import org.dce.ed.exec.ExecBindingsConfig;
 import org.dce.ed.exec.ExecTriggerService;
+import org.dce.ed.exec.ExecOverlayButtonSupport;
 import org.dce.ed.ui.HoverClickPoller;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
@@ -53,6 +55,8 @@ public final class ControlPanelTabPanel extends JPanel {
 
     private ExecTriggerService triggerService;
     private final List<JButton> actionButtons = new ArrayList<>();
+    private final List<ExecBinding> actionBindings = new ArrayList<>();
+    private final Timer availabilityTimer;
     private JButton killButton;
     private JPanel killButtonRow;
     private JScrollPane buttonScroll;
@@ -90,6 +94,24 @@ public final class ControlPanelTabPanel extends JPanel {
 
         styleKillButton(OverlayPreferences.getUiFont(), false);
         registerKillButtonHover();
+        availabilityTimer = new Timer(ExecOverlayButtonSupport.AVAILABILITY_REFRESH_MS, e -> {
+            if (isShowing()) {
+                refreshActionButtonAvailability();
+            }
+        });
+        availabilityTimer.setRepeats(true);
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        availabilityTimer.start();
+    }
+
+    @Override
+    public void removeNotify() {
+        availabilityTimer.stop();
+        super.removeNotify();
     }
 
     private void registerKillButtonHover() {
@@ -265,6 +287,7 @@ public final class ControlPanelTabPanel extends JPanel {
 
     private void rebuildButtons() {
         actionButtons.clear();
+        actionBindings.clear();
         buttonPanel.removeAll();
         buttonPanel.add(emptyLabel);
 
@@ -288,6 +311,7 @@ public final class ControlPanelTabPanel extends JPanel {
                     passThroughEnabledSupplier);
 
             actionButtons.add(button);
+            actionBindings.add(binding);
             buttonPanel.add(button);
             buttonPanel.add(Box.createVerticalStrut(6));
         }
@@ -296,12 +320,18 @@ public final class ControlPanelTabPanel extends JPanel {
             buttonPanel.add(Box.createVerticalStrut(6));
         }
         buttonPanel.add(wrapKillButtonRow());
+        refreshActionButtonAvailability();
 
         buttonPanel.revalidate();
         buttonPanel.repaint();
         refreshKillButtonState();
         revalidate();
         repaint();
+    }
+
+    private void refreshActionButtonAvailability() {
+        ExecOverlayButtonSupport.refreshRequiredPlaceholderAvailability(
+                actionButtons, actionBindings, triggerService);
     }
 
     /** Right-aligned row so Kill scripts keeps its natural width (not stretched by BoxLayout). */
