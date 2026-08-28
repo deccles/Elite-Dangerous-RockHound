@@ -88,6 +88,20 @@ class CombatTargetTrackerTest {
     }
 
     @Test
+    void warrantScanBountyOnLocallyCleanTargetIsRemote() {
+        tracker.applyShipTargeted(stage3("Rejcl", null, "Clean", false));
+        tracker.applyShipTargeted(stage3("Rejcl", 187_580L, "Hunter", false));
+
+        CombatTargetTracker.LockedTarget target = tracker.getLockedTarget();
+        assertEquals("Clean", CombatTabPanel.formatLocal(target));
+        assertEquals("187K", CombatTabPanel.formatRemote(target));
+        assertEquals("187K", CombatTabPanel.formatTotal(target));
+        assertEquals(0L, target.getLocalBounty().longValue());
+        assertEquals(187_580L, target.getRemoteBounty());
+        assertTrue(target.isWarrantScanned());
+    }
+
+    @Test
     void clearsLockedTargetOnUnlock() {
         tracker.applyShipTargeted(stage3("Raider", 50_000L, "Wanted", false));
         assertNotNull(tracker.getLockedTarget());

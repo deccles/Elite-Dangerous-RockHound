@@ -414,13 +414,18 @@ public final class CombatTargetTracker {
         if (pilotKey != null && bounty != null && bounty > 0L && event.getScanStage() == 3) {
             ScannedWantedShip scanned = scannedWanted.get(pilotKey);
             if (scanned == null) {
+                boolean locallyClean = scannedCleanPilots.contains(pilotKey);
                 scanned = new ScannedWantedShip(
                         pilotKey,
                         displayPilot(event),
                         event.getShipDisplayName(),
-                        event.getLegalStatus(),
-                        bounty.longValue(),
+                        locallyClean ? "Clean" : event.getLegalStatus(),
+                        locallyClean ? 0L : bounty.longValue(),
                         event.isPlayer());
+                if (locallyClean) {
+                    scanned.currentBounty = bounty.longValue();
+                    scanned.warrantScanned = true;
+                }
                 scannedWanted.put(pilotKey, scanned);
             } else {
                 // A later stage-3 bounty sighting means a warrant scan completed (KWS),
@@ -432,7 +437,8 @@ public final class CombatTargetTracker {
                 if (event.getShipDisplayName() != null && !event.getShipDisplayName().isBlank()) {
                     scanned.shipDisplay = event.getShipDisplayName();
                 }
-                if (event.getLegalStatus() != null && !event.getLegalStatus().isBlank()) {
+                if (scanned.firstBounty > 0L
+                        && event.getLegalStatus() != null && !event.getLegalStatus().isBlank()) {
                     scanned.legalStatus = event.getLegalStatus();
                 }
             }
@@ -467,6 +473,11 @@ public final class CombatTargetTracker {
             ship = previous.getShipDisplay();
         }
         String legal = event.getLegalStatus();
+        ScannedWantedShip scanned = pilotKey != null ? scannedWanted.get(pilotKey) : null;
+        if (scanned != null && scanned.firstBounty == 0L
+                && "Clean".equalsIgnoreCase(scanned.legalStatus)) {
+            legal = scanned.legalStatus;
+        }
         if ((legal == null || legal.isBlank()) && samePilot) {
             legal = previous.getLegalStatus();
         }

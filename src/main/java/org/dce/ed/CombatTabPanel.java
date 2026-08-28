@@ -812,6 +812,9 @@ public final class CombatTabPanel extends JPanel {
 
     static String formatRemote(CombatTargetTracker.LockedTarget target) {
         if (isClean(target)) {
+            if (target.getRemoteBounty() > 0L) {
+                return formatCompact(target.getRemoteBounty());
+            }
             return target.isWarrantScanned() ? "Clean" : "?";
         }
         return target.getLocalBounty() != null && target.getLocalBounty() > 0L
@@ -820,10 +823,10 @@ public final class CombatTabPanel extends JPanel {
     }
 
     static String formatTotal(CombatTargetTracker.LockedTarget target) {
-        if (isClean(target)) {
+        long bounty = target.getBounty() != null ? Math.max(0L, target.getBounty()) : 0L;
+        if (isClean(target) && bounty == 0L) {
             return "Clean";
         }
-        long bounty = target.getBounty() != null ? Math.max(0L, target.getBounty()) : 0L;
         return bounty > 0L ? formatCompact(bounty) : "—";
     }
 
@@ -977,7 +980,9 @@ public final class CombatTabPanel extends JPanel {
             return new BountyRow(
                     dash(s.getPilotName()),
                     dash(s.getShipDisplay()),
-                    formatCompact(s.getFirstBounty()),
+                    s.getFirstBounty() == 0L && "Clean".equalsIgnoreCase(s.getLegalStatus())
+                            ? "Clean"
+                            : formatCompact(s.getFirstBounty()),
                     formatRemote(s.getRemoteBounty(), s.isWarrantScanned()),
                     formatCompact(s.getCurrentBounty()),
                     s.getCurrentBounty(),
