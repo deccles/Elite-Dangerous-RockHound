@@ -49,8 +49,16 @@ public final class ExecOverlayButtonSupport {
         if (config == null) {
             return result;
         }
+        return bindingsForButtonTab(config.getBindings(), tab);
+    }
+
+    static List<ExecBinding> bindingsForButtonTab(List<ExecBinding> bindings, OverlayTabId tab) {
+        List<ExecBinding> result = new ArrayList<>();
+        if (bindings == null || tab == null) {
+            return result;
+        }
         String card = tab.cardName();
-        for (ExecBinding binding : config.getBindings()) {
+        for (ExecBinding binding : bindings) {
             if (binding != null && card.equalsIgnoreCase(nullToEmpty(binding.getButtonTab()))) {
                 result.add(binding);
             }

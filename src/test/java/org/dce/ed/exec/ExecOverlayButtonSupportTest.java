@@ -5,13 +5,27 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Map;
 
 import javax.swing.JButton;
 
+import org.dce.ed.ui.tabdock.OverlayTabId;
 import org.junit.jupiter.api.Test;
 
 class ExecOverlayButtonSupportTest {
+
+    @Test
+    void tabButtonsKeepTheConfiguredBindingOrder() {
+        ExecBinding firstRoute = bindingForTab("First", OverlayTabId.ROUTE);
+        ExecBinding controlOnly = bindingForTab("Control", null);
+        ExecBinding secondRoute = bindingForTab("Second", OverlayTabId.ROUTE);
+
+        List<ExecBinding> result = ExecOverlayButtonSupport.bindingsForButtonTab(
+                List.of(firstRoute, controlOnly, secondRoute), OverlayTabId.ROUTE);
+
+        assertEquals(List.of(firstRoute, secondRoute), result);
+    }
 
     @Test
     void disablesButtonAndExplainsEveryUnsetRequiredPlaceholder() {
@@ -52,5 +66,12 @@ class ExecOverlayButtonSupportTest {
                 "TIMESTAMP", "Unknown"));
 
         assertTrue(button.isEnabled());
+    }
+
+    private static ExecBinding bindingForTab(String name, OverlayTabId tab) {
+        ExecBinding binding = new ExecBinding();
+        binding.setName(name);
+        binding.setButtonTab(tab != null ? tab.cardName() : "");
+        return binding;
     }
 }

@@ -6,6 +6,9 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.GraphicsEnvironment;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
@@ -17,6 +20,7 @@ import javax.swing.AbstractCellEditor;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListCellRenderer;
+import javax.swing.DropMode;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -29,6 +33,7 @@ import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
+import javax.swing.TransferHandler;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
@@ -111,6 +116,7 @@ public final class ExecTabPanel extends JPanel {
         // Compact rows so tritium + action buttons stay visible under the table in Preferences.
         table.setRowHeight(20);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        installBindingRowReordering();
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -429,6 +435,65 @@ public final class ExecTabPanel extends JPanel {
     /** Re-measure Program / text columns after the dialog is shown or the Exec tab is selected. */
     public void refreshColumnLayout() {
         autoSizeExecTableColumns();
+    }
+
+    private void installBindingRowReordering() {
+        table.setDropMode(DropMode.INSERT_ROWS);
+        if (!GraphicsEnvironment.isHeadless()) {
+            table.setDragEnabled(true);
+        }
+        table.setTransferHandler(new TransferHandler() {
+            private static final long serialVersionUID = 1L;
+            private int sourceModelRow = -1;
+
+            @Override
+            protected Transferable createTransferable(javax.swing.JComponent component) {
+                commitPendingEdits();
+                int sourceViewRow = table.getSelectedRow();
+                sourceModelRow = sourceViewRow >= 0 ? table.convertRowIndexToModel(sourceViewRow) : -1;
+                return sourceModelRow >= 0 ? new StringSelection(Integer.toString(sourceModelRow)) : null;
+            }
+
+            @Override
+            public int getSourceActions(javax.swing.JComponent component) {
+                return MOVE;
+            }
+
+            @Override
+            public boolean canImport(TransferSupport support) {
+                return sourceModelRow >= 0 && support.isDrop()
+                        && support.getComponent() == table
+                        && support.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor)
+                        && support.getDropLocation() instanceof JTable.DropLocation;
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support)) {
+                    return false;
+                }
+                JTable.DropLocation drop = (JTable.DropLocation) support.getDropLocation();
+                int insertionModelRow = drop.getRow() == table.getRowCount()
+                        ? tableModel.getRowCount()
+                        : table.convertRowIndexToModel(drop.getRow());
+                int movedModelRow = ExecBindingOrder.move(config.getBindings(), sourceModelRow, insertionModelRow);
+                if (movedModelRow == sourceModelRow) {
+                    return false;
+                }
+                tableModel.fireTableDataChanged();
+                persistConfig();
+                int movedViewRow = table.convertRowIndexToView(movedModelRow);
+                table.setRowSelectionInterval(movedViewRow, movedViewRow);
+                table.scrollRectToVisible(table.getCellRect(movedViewRow, 0, true));
+                sourceModelRow = movedModelRow;
+                return true;
+            }
+
+            @Override
+            protected void exportDone(javax.swing.JComponent source, Transferable data, int action) {
+                sourceModelRow = -1;
+            }
+        });
     }
 
     private void openManageProgramsDialog() {
