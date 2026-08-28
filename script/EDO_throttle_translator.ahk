@@ -1,5 +1,8 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#Include EDO_fss_chord_logic.ahk
+#Include EDO_b_chord_logic.ahk
+#Include EDO_status_gate_logic.ahk
 #UseHook
 A_MaxHotkeysPerInterval := 1000
 ; ============================================================
@@ -53,6 +56,11 @@ global modifierButtons := []
 ;   (or any unused keys) and set these instead.
 global driveDownButton := "F7" ; -> Ctrl+Alt+S (flight), F15 (GUI)
 global driveUpButton   := "F9" ; -> Ctrl+Alt+W (flight), F16 (GUI)
+global fssChordState := FssChordLogic()
+global bChordState := BChordLogic()
+global bButton := "1Joy2"
+global bPrev := false
+global flightPovPrev := -1
 global guiDriveDownKey := "q"
 global guiDriveUpKey   := "e"
 global guiTapMs := 35
@@ -76,7 +84,7 @@ global guiAssumeUntilTick := 0
 ; -------------------------
 ; Indicators
 ; -------------------------
-global showXltIndicator := false
+global showXltIndicator := true
 global xltTipId := 1
 global xltTipX := A_ScreenWidth - 200
 global xltTipY := 10
@@ -110,6 +118,7 @@ global injectedCtrlAlt := false
 ; Status.json fields
 global lastGuiFocus := -1
 global lastOnFoot := false
+global lastDocked := false
 global statusReadOk := false
 global guiDriveUpSent := false
 global guiDriveDownSent := false
@@ -239,7 +248,7 @@ isGuiAssumed() {
 }
 
 translationAllowed() {
-    global gateOnGuiFocus, gateOnFoot, statusReadOk, lastGuiFocus, lastOnFoot
+    global gateOnGuiFocus, gateOnFoot, statusReadOk, lastGuiFocus, lastOnFoot, lastDocked
 
     if (!isEliteActive())
         return false
@@ -262,16 +271,7 @@ translationAllowed() {
     if (isGuiAssumed())
         return false
 
-    ; If we can't reliably read Status.json, be conservative and do NOT inject keys.
-    ; This prevents "double paste" and other UI-field weirdness when GuiFocus isn't available.
-    if (gateOnGuiFocus) {
-        if (!statusReadOk)
-            return false
-        if (lastGuiFocus > 0)
-            return false
-    }
-
-    if (gateOnFoot && statusReadOk && lastOnFoot)
+    if (!StatusGateAllowsFlightTranslation(statusReadOk, lastGuiFocus, lastOnFoot, lastDocked, gateOnGuiFocus, gateOnFoot))
         return false
 
     return true
@@ -279,7 +279,7 @@ translationAllowed() {
 
 ; Short label for the XLT tooltip when translation is blocked (keep in sync with translationAllowed).
 translationBlockReason() {
-    global gateOnGuiFocus, gateOnFoot, statusReadOk, lastGuiFocus, lastOnFoot
+    global gateOnGuiFocus, gateOnFoot, statusReadOk, lastGuiFocus, lastOnFoot, lastDocked
 
     if (!isEliteActive())
         return "not Elite active"
@@ -298,6 +298,8 @@ translationBlockReason() {
         if (lastGuiFocus > 0)
             return "GuiFocus>0 (menus)"
     }
+    if (statusReadOk && lastDocked)
+        return "docked"
     if (gateOnFoot && statusReadOk && lastOnFoot)
         return "on foot"
     return ""
@@ -416,6 +418,7 @@ sendThrottleChordUp(baseKey) {
 hardReleaseWS() {
     global sentW, sentS, wDown, sDown, wsLastTick
     global throttleUpBaseKey, throttleDownBaseKey, chordHoldCount, injectedCtrlAlt
+    global fssChordState, bChordState
 
     ; Only release chords that this script believes it has pressed,
     ; to avoid cancelling the user's own W/S key holds.
@@ -430,6 +433,8 @@ hardReleaseWS() {
     sDown := false
     wsLastTick := 0
     chordHoldCount := 0
+    fssChordState.Reset()
+    bChordState.Reset()
 
     if (injectedCtrlAlt) {
         if (!GetKeyState("Alt", "P"))
@@ -440,6 +445,81 @@ hardReleaseWS() {
     }
 
     SetTimer(wsTick, 0)
+}
+
+handleFlightYDown() {
+    global fssChordState
+    fssChordState.Handle("Y_DOWN")
+    ; Flydigi uses Select+Y for onboard profile switching but still emits Y's J mapping.
+    ; Consume that Y so changing profiles cannot toggle FSD or drop supercruise.
+    if (GetKeyState("1Joy7", "P"))
+        fssChordState.Handle("PROFILE_SWITCH")
+}
+
+handleFlightYUp() {
+    global fssChordState
+    if (fssChordState.Handle("Y_UP") = "FSD") {
+        SendEvent "{j}"
+        notePulseEmit("FSD (Y)")
+    }
+}
+
+handleFlightRbDown() {
+    global fssChordState
+    action := fssChordState.Handle("RB_DOWN")
+    if (action = "FSS") {
+        SendEvent "{vkC0}"
+        notePulseEmit("FSS (Y+RB)")
+    } else if (action = "THROTTLE_UP_DOWN") {
+        handleWDown()
+    }
+}
+
+handleFlightRbUp() {
+    global fssChordState
+    if (fssChordState.Handle("RB_UP") = "THROTTLE_UP_UP")
+        handleWUp()
+}
+
+sendCtrlAltKeyTap(keyName, label) {
+    notePulseEmit(label)
+    chordModsDown()
+    try {
+        Sleep 2
+        SendEvent "{" keyName " down}"
+        Sleep 35
+        SendEvent "{" keyName " up}"
+    } finally {
+        chordModsUp()
+    }
+}
+
+handleFlightDpad(direction) {
+    global fssChordState
+    eventName := direction = "left" ? "DPAD_LEFT"
+        : direction = "right" ? "DPAD_RIGHT"
+        : direction = "up" ? "DPAD_UP"
+        : "DPAD_DOWN"
+    action := fssChordState.Handle(eventName)
+    switch action {
+        case "PIP_SYSTEMS":
+            sendCtrlAltKeyTap("Left", "Systems pip (D-pad Left)")
+        case "PIP_WEAPONS":
+            sendCtrlAltKeyTap("Right", "Weapons pip (D-pad Right)")
+        case "GALAXY_MAP":
+            sendCtrlAltKeyTap("Numpad6", "Galaxy Map (Y+Left)")
+        case "SYSTEM_MAP":
+            sendCtrlAltKeyTap("Numpad8", "System Map (Y+Right)")
+        case "PIP_ENGINES":
+            sendCtrlAltKeyTap("Up", "Engines pip (D-pad Up)")
+        case "COCKPIT_MODE":
+            notePulseEmit("Cockpit mode (Y+Up)")
+            SendEvent "{m}"
+        case "RESET_PIPS":
+            sendCtrlAltKeyTap("Down", "Balance power (D-pad Down)")
+        case "TARGET_ROUTE":
+            sendCtrlAltKeyTap("Numpad0", "Next route system (Y+Down)")
+    }
 }
 
 ; -------------------------
@@ -688,7 +768,7 @@ PollStatus() {
         if (!ensureEliteActiveContext())
             return
 
-        global statusJsonPath, lastGuiFocus, lastOnFoot, statusReadOk
+        global statusJsonPath, lastGuiFocus, lastOnFoot, lastDocked, statusReadOk
 
         try {
             txt := FileRead(statusJsonPath, "UTF-8")
@@ -698,23 +778,28 @@ PollStatus() {
         }
 
         gf := -1
+        fl := -1
         of := lastOnFoot
 
         if (RegExMatch(txt, '"GuiFocus"\s*:\s*(\d+)', &mGf))
             gf := Integer(mGf[1])
 
+        if (RegExMatch(txt, '"Flags"\s*:\s*(\d+)', &mFlags))
+            fl := Integer(mFlags[1])
+
         if (RegExMatch(txt, '"OnFoot"\s*:\s*(true|false)', &mOf))
             of := (mOf[1] = "true")
 
-        if (gf >= 0) {
+        if (gf >= 0 && fl >= 0) {
             lastGuiFocus := gf
             lastOnFoot := of
+            lastDocked := (fl & 1) != 0
             statusReadOk := true
         } else {
             statusReadOk := false
         }
 
-        if (statusReadOk && ((lastGuiFocus > 0) || (gateOnFoot && lastOnFoot))) {
+        if (statusReadOk && ((lastGuiFocus > 0) || lastDocked || (gateOnFoot && lastOnFoot))) {
             hardReleaseWS()
             joyPrev.Clear()
         }
@@ -757,11 +842,15 @@ PollJoyDrive() {
         if (!ensureEliteActiveContext())
             return
 
-        global driveUpButton, driveDownButton, joyPrev
+        global driveUpButton, driveDownButton, joyPrev, flightPovPrev
+        global bButton, bPrev, bChordState
         global guiDriveUpSent, guiDriveDownSent
 
         upNow := driveKeyPhysDown(driveUpButton)
         dnNow := driveKeyPhysDown(driveDownButton)
+        povNow := GetKeyState("1JoyPOV")
+        bNow := GetKeyState(bButton, "P")
+        nativeFaceModifierNow := GetKeyState("1Joy1", "P") || GetKeyState("1Joy3", "P")
         upPrev := joyPrev.Has(driveUpButton) ? joyPrev[driveUpButton] : false
         dnPrev := joyPrev.Has(driveDownButton) ? joyPrev[driveDownButton] : false
 
@@ -791,21 +880,60 @@ PollJoyDrive() {
                 sendGuiDriveUp("down")
 
             joyPrev.Clear()
+            flightPovPrev := povNow
+            bPrev := bNow
+            bChordState.Reset()
             return
         }
 
+        if (bNow && !bPrev)
+            bChordState.Handle("B_DOWN")
+
+        if (bNow) {
+            if (upNow && !upPrev)
+                bChordState.Handle("RB_DOWN")
+            if (dnNow && !dnPrev)
+                bChordState.Handle("LB_DOWN")
+        }
+
         if (upNow && !upPrev)
-            handleWDown()
+            handleFlightRbDown()
         else if (!upNow && upPrev)
-            handleWUp()
+            handleFlightRbUp()
 
         if (dnNow && !dnPrev)
             handleSDown()
         else if (!dnNow && dnPrev)
             handleSUp()
 
+        if (povNow != flightPovPrev) {
+            if (bNow && povNow = 0)
+                bChordState.Handle("DPAD_UP")
+            else if (bNow && povNow = 18000)
+                bChordState.Handle("DPAD_DOWN")
+            else if (bNow && povNow = 27000)
+                bChordState.Handle("DPAD_LEFT")
+            else if (bNow && povNow = 9000)
+                bChordState.Handle("DPAD_RIGHT")
+
+            if (!bNow && !nativeFaceModifierNow && povNow = 27000)
+                handleFlightDpad("left")
+            else if (!bNow && !nativeFaceModifierNow && povNow = 9000)
+                handleFlightDpad("right")
+            else if (!bNow && !nativeFaceModifierNow && povNow = 0)
+                handleFlightDpad("up")
+            else if (!bNow && !nativeFaceModifierNow && povNow = 18000)
+                handleFlightDpad("down")
+        }
+
+        if (!bNow && bPrev && bChordState.Handle("B_UP") = "BOOST") {
+            sendCtrlAltKeyTap("b", "Boost (B release)")
+        }
+
         joyPrev[driveUpButton] := upNow
         joyPrev[driveDownButton] := dnNow
+        flightPovPrev := povNow
+        bPrev := bNow
     } catch {
     }
 }
@@ -886,6 +1014,11 @@ $^v::elitePasteOnce()
 
 ; Step keys only when translation is allowed
 #HotIf translationAllowed()
+
+; Flydigi maps physical Y to J. Delay J until release so Y+RB can enter FSS
+; without also engaging FSD. RB remains F9 and is handled by PollJoyDrive.
+$*j::handleFlightYDown()
+$*j up::handleFlightYUp()
 
 $*PgUp::    stepPressStart("PgUp")
 $*PgUp up:: stepPressEnd("PgUp")
