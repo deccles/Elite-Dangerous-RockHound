@@ -1,7 +1,11 @@
 package org.dce.ed.util;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.dce.ed.cache.SystemCache;
 
@@ -18,6 +22,13 @@ public final class SpanshLandmarkCache {
 
     private final Map<String, SpanshBodyExobiologyInfo> cache = new ConcurrentHashMap<>();
     private final SpanshClient client = new SpanshClient();
+    private final SpanshRequestTracker requestTracker =
+            new SpanshRequestTracker(Clock.systemUTC(), Duration.ofMinutes(5));
+    private final ExecutorService fetchExecutor = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "SpanshLandmarkFetch");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private SpanshLandmarkCache() {
     }
@@ -53,12 +64,53 @@ public final class SpanshLandmarkCache {
             cache.put(k, disk);
             return disk;
         }
-        SpanshBodyExobiologyInfo result = client.getBodyExobiologyInfo(systemName, bodyName);
-        if (result != null) {
+        if (!requestTracker.tryStart(k)) {
+            return null;
+        }
+        return fetchAndStore(k, systemName, bodyName);
+    }
+
+    /**
+     * Starts a background network fetch on a cache miss. Duplicate requests are coalesced and
+     * failures are held for five minutes before another attempt is allowed.
+     */
+    public boolean requestFetch(String systemName, String bodyName, Runnable onComplete) {
+        if (SystemCache.isBulkSystemWrite()) {
+            return false;
+        }
+        String k = key(systemName, bodyName);
+        if (cache.containsKey(k) || !requestTracker.tryStart(k)) {
+            return false;
+        }
+        fetchExecutor.execute(() -> {
+            try {
+                fetchAndStore(k, systemName, bodyName);
+            } finally {
+                if (onComplete != null) {
+                    onComplete.run();
+                }
+            }
+        });
+        return true;
+    }
+
+    private SpanshBodyExobiologyInfo fetchAndStore(String k, String systemName, String bodyName) {
+        try {
+            SpanshBodyExobiologyInfo result = client.getBodyExobiologyInfo(systemName, bodyName);
+            if (result == null) {
+                requestTracker.failed(k);
+                return null;
+            }
             cache.put(k, result);
             SpanshBodyExobiologySqliteStore.save(systemName, bodyName, result);
+            requestTracker.succeeded(k);
+            return result;
+        } catch (RuntimeException failure) {
+            requestTracker.failed(k);
+            System.err.println("[EDO][Spansh] landmark lookup failed for " + systemName + " / "
+                    + bodyName + ": " + failure.getClass().getSimpleName());
+            return null;
         }
-        return result;
     }
 
     /**

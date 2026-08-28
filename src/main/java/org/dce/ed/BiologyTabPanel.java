@@ -1374,7 +1374,7 @@ private Double lastFootTravelUpDeg;
         }
     }
 
-private static List<BioRow> buildRows(BodyInfo body) {
+private List<BioRow> buildRows(BodyInfo body) {
         List<BioRow> rows = new ArrayList<>();
 
         Map<String, BioCandidate> candByKey = new HashMap<>();
@@ -1444,10 +1444,14 @@ private static List<BioRow> buildRows(BodyInfo body) {
         Map<String, List<BodyInfo.BioSamplePoint>> points = body.getBioSamplePointsSnapshot();
 
         if (!Boolean.TRUE.equals(body.getWasFootfalled()) && body.getSpanshLandmarks() == null) {
-            SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(body.getStarSystem(), body.getBodyName());
+            SpanshLandmarkCache spanshCache = SpanshLandmarkCache.getInstance();
+            SpanshBodyExobiologyInfo info = spanshCache.getIfPresent(body.getStarSystem(), body.getBodyName());
             if (info != null) {
                 body.setSpanshLandmarks(info.getLandmarks());
                 body.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
+            } else {
+                spanshCache.requestFetch(body.getStarSystem(), body.getBodyName(),
+                        () -> SwingUtilities.invokeLater(() -> refreshTableForCurrentBody(false)));
             }
         }
         boolean firstBonus = FirstBonusHelper.firstBonusApplies(body);

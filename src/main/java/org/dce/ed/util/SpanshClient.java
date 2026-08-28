@@ -150,7 +150,8 @@ public class SpanshClient {
             if (job == null) return null;
             return pollResults(job);
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("[EDO][Spansh] system search failed: " + e.getClass().getSimpleName()
+                    + (e.getMessage() != null ? ": " + e.getMessage() : ""));
             return null;
         }
     }
@@ -181,7 +182,8 @@ public class SpanshClient {
             System.err.println("Spansh search/systems: HTTP " + resp.statusCode() + " " + resp.body());
             return null;
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("[EDO][Spansh] body search failed: " + e.getClass().getSimpleName()
+                    + (e.getMessage() != null ? ": " + e.getMessage() : ""));
             return null;
         }
     }
@@ -386,7 +388,8 @@ public class SpanshClient {
             System.err.println("Spansh search: " + resp.statusCode() + " " + (resp.body() != null ? resp.body().substring(0, Math.min(200, resp.body().length())) : ""));
             return null;
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("[EDO][Spansh] search failed: " + e.getClass().getSimpleName()
+                    + (e.getMessage() != null ? ": " + e.getMessage() : ""));
             return null;
         }
     }
@@ -409,7 +412,8 @@ public class SpanshClient {
             System.err.println("Spansh body: " + resp.statusCode() + " " + (resp.body() != null ? resp.body().substring(0, Math.min(200, resp.body().length())) : ""));
             return null;
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("[EDO][Spansh] body lookup failed: " + e.getClass().getSimpleName()
+                    + (e.getMessage() != null ? ": " + e.getMessage() : ""));
             return null;
         }
     }
