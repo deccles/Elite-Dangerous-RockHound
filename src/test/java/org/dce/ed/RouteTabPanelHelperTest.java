@@ -358,6 +358,30 @@ class RouteTabPanelHelperTest {
     }
 
     @Test
+    void routeSelectedDestinationTracksHighlightedSystemAndClearsWithSelection() throws Exception {
+        RouteTabPanel[] panelRef = new RouteTabPanel[1];
+        ExecPlaceholderContext ctx = new ExecPlaceholderContext();
+        SwingUtilities.invokeAndWait(() -> {
+            RouteTabPanel panel = new RouteTabPanel(() -> false);
+            panelRef[0] = panel;
+            panel.routeSessionForTests().replaceBaseRouteEntries(List.of(
+                    entry("Alpha", 100L),
+                    entry("Beta", 200L),
+                    entry("Gamma", 300L)));
+            panel.rebuildDisplayedEntries();
+            ctx.setRouteSelectedDestinationSupplier(panel::getSelectedRouteDestinationForExec);
+            panel.table.setRowSelectionInterval(1, 1);
+        });
+
+        assertEquals("Beta", ExecPlaceholderResolver.resolveOne(
+                ctx, null, ExecPlaceholderId.ROUTE_SELECTED_DESTINATION));
+
+        SwingUtilities.invokeAndWait(() -> panelRef[0].table.clearSelection());
+        assertEquals("Unknown", ExecPlaceholderResolver.resolveOne(
+                ctx, null, ExecPlaceholderId.ROUTE_SELECTED_DESTINATION));
+    }
+
+    @Test
     void applyPastedRouteEntries_insertsAllNamesAfterSelectedRow() {
         RouteTabPanel panel = new RouteTabPanel(() -> false);
         panel.routeSessionForTests().replaceBaseRouteEntries(List.of(

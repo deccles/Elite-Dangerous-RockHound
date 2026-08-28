@@ -12,6 +12,7 @@ public enum ExecPlaceholderId {
     FLEET_CARRIER_DESTINATION("Next system hop on the Fleet Carrier route tab"),
     FLEET_ROUTE_CURRENT_SYSTEM("Current system on the Fleet Carrier route tab"),
     ROUTE_NEXT_DESTINATION("Next system hop on the ship Route tab"),
+    ROUTE_SELECTED_DESTINATION("Highlighted system on the ship Route tab"),
     ROUTE_CURRENT_SYSTEM("Current system on the route tab"),
     ROUTE_TARGET_SYSTEM("Active route target system"),
     ROUTE_DEST_NAME("Route destination body or name"),

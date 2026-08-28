@@ -16,6 +16,7 @@ public final class ExecPlaceholderContext {
     private volatile Supplier<String> carrierJumpTargetSupplier;
     private volatile Supplier<RouteSession> shipRouteSessionSupplier;
     private volatile Supplier<RouteSession> fleetRouteSessionSupplier;
+    private volatile Supplier<String> routeSelectedDestinationSupplier;
     private volatile Supplier<SystemState> systemStateSupplier;
     private volatile Supplier<String> targetBodyNameSupplier;
     private volatile Supplier<String> nearBodyNameSupplier;
@@ -41,6 +42,10 @@ public final class ExecPlaceholderContext {
 
     public void setFleetRouteSessionSupplier(Supplier<RouteSession> fleetRouteSessionSupplier) {
         this.fleetRouteSessionSupplier = fleetRouteSessionSupplier;
+    }
+
+    public void setRouteSelectedDestinationSupplier(Supplier<String> routeSelectedDestinationSupplier) {
+        this.routeSelectedDestinationSupplier = routeSelectedDestinationSupplier;
     }
 
     public void setSystemStateSupplier(Supplier<SystemState> systemStateSupplier) {
@@ -86,6 +91,11 @@ public final class ExecPlaceholderContext {
 
     RouteSession fleetRoute() {
         Supplier<RouteSession> s = fleetRouteSessionSupplier;
+        return s != null ? s.get() : null;
+    }
+
+    String routeSelectedDestination() {
+        Supplier<String> s = routeSelectedDestinationSupplier;
         return s != null ? s.get() : null;
     }
 

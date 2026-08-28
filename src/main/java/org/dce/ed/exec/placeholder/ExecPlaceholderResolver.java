@@ -42,6 +42,7 @@ public final class ExecPlaceholderResolver {
         return valueOrUnknown(switch (id) {
             case FLEET_CARRIER_DESTINATION -> blankOrNull(ExecPlaceholderContext.fleetNextDestination(ctx));
             case ROUTE_NEXT_DESTINATION -> blankOrNull(ExecPlaceholderContext.shipNextDestination(ctx));
+            case ROUTE_SELECTED_DESTINATION -> blankOrNull(ctx.routeSelectedDestination());
             case ROUTE_CURRENT_SYSTEM -> routeField(ctx.shipRoute(), RouteSession::getCurrentSystemName);
             case FLEET_ROUTE_CURRENT_SYSTEM -> routeField(ctx.fleetRoute(), RouteSession::getCurrentSystemName);
             case ROUTE_TARGET_SYSTEM -> targetField(ctx.shipRoute(), RouteTargetState::getTargetSystemName);

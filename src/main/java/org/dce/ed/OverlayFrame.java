@@ -1221,6 +1221,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         execPlaceholderContext.setCarrierJumpTargetSupplier(() -> carrierJumpTargetSystem);
         execPlaceholderContext.setShipRouteSessionSupplier(() -> tabs.getRouteTabPanel().getRouteSession());
         execPlaceholderContext.setFleetRouteSessionSupplier(() -> tabs.getFleetCarrierTabPanel().getRouteSession());
+        execPlaceholderContext.setRouteSelectedDestinationSupplier(
+                () -> tabs.getRouteTabPanel().getSelectedRouteDestinationForExec());
         execPlaceholderContext.setSystemStateSupplier(() -> tabs.getSystemTabPanel().getState());
         execPlaceholderContext.setTargetBodyNameSupplier(() -> tabs.getSystemTabPanel().getTargetBodyNameForExec());
         execPlaceholderContext.setNearBodyNameSupplier(() -> tabs.getSystemTabPanel().getNearBodyNameForExec());

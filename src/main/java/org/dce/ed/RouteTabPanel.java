@@ -38,8 +38,6 @@ import java.util.function.Supplier;
 import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
-import java.awt.event.FocusAdapter;
-import java.awt.event.FocusEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -220,6 +218,7 @@ public class RouteTabPanel extends JPanel {
 	private boolean lyModeFromCurrentHovered;
 	private boolean lyModePerLegHovered;
 	protected JTable table=null;
+	private volatile String selectedRouteDestinationForExec;
 	protected JScrollPane routeScrollPane;
 	/** Holds {@link #routeScrollPane} and the copy strip (same structure on Route and Fleet Carrier tabs). */
 	private final JPanel routeCenterWrapper;
@@ -406,6 +405,11 @@ public class RouteTabPanel extends JPanel {
 	/** Live route session for exec placeholders and adjacent tabs. */
 	public RouteSession getRouteSession() {
 		return routeSession;
+	}
+
+	/** Currently highlighted ship-route system for Exec placeholders, or {@code null}. */
+	public String getSelectedRouteDestinationForExec() {
+		return selectedRouteDestinationForExec;
 	}
 
 	/** EDSM client used for route resolution (subclasses may reuse for autocomplete, etc.). */
@@ -652,14 +656,7 @@ public class RouteTabPanel extends JPanel {
 		table.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
 		table.setColumnSelectionAllowed(false);
 		table.setCellSelectionEnabled(false);
-		table.addFocusListener(new FocusAdapter() {
-			@Override
-			public void focusLost(FocusEvent e) {
-				if (!e.isTemporary()) {
-					table.clearSelection();
-				}
-			}
-		});
+		table.getSelectionModel().addListSelectionListener(e -> updateSelectedRouteDestinationForExec());
 		table.setSurrendersFocusOnKeystroke(false);
 		table.putClientProperty("JTable.autoStartsEdit", Boolean.FALSE);
 		table.setOpaque(false);
@@ -2993,6 +2990,18 @@ public class RouteTabPanel extends JPanel {
 				}
 			});
 		});
+	}
+
+	private void updateSelectedRouteDestinationForExec() {
+		int selectedRow = table.getSelectedRow();
+		if (selectedRow < 0 || selectedRow >= tableModel.getRowCount()) {
+			selectedRouteDestinationForExec = null;
+			return;
+		}
+		RouteEntry entry = tableModel.getEntries(selectedRow);
+		selectedRouteDestinationForExec = entry == null || entry.isBodyRow
+				|| entry.systemName == null || entry.systemName.isBlank()
+						? null : entry.systemName.trim();
 	}
 
 	private void scheduleEdsmRetry(int row, long expectedAddress, String expectedName) {
