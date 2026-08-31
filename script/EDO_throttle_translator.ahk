@@ -3,6 +3,7 @@
 #Include EDO_fss_chord_logic.ahk
 #Include EDO_b_chord_logic.ahk
 #Include EDO_status_gate_logic.ahk
+#Include EDO_joy_snapshot.ahk
 #UseHook
 A_MaxHotkeysPerInterval := 1000
 ; ============================================================
@@ -220,8 +221,8 @@ modifierHeld() {
 ; True if throttle/drive key is held. For F1–F24, GetAsyncKeyState(VK) matches reWASD / synthetic keys
 ; more reliably than GetKeyState("F7") in many setups.
 driveKeyPhysDown(keyName) {
-    if InStr(keyName, "Joy")
-        return GetKeyState(keyName, "P")
+    if RegExMatch(keyName, "i)^1Joy(\d+)$", &joyButton)
+        return ReadJoySnapshot().ButtonDown(Integer(joyButton[1]))
     if RegExMatch(keyName, "i)^F(\d{1,2})$", &m) {
         n := Integer(m[1])
         if (n >= 1 && n <= 24) {
@@ -452,7 +453,7 @@ handleFlightYDown() {
     fssChordState.Handle("Y_DOWN")
     ; Flydigi uses Select+Y for onboard profile switching but still emits Y's J mapping.
     ; Consume that Y so changing profiles cannot toggle FSD or drop supercruise.
-    if (GetKeyState("1Joy7", "P"))
+    if (ReadJoySnapshot().ButtonDown(7))
         fssChordState.Handle("PROFILE_SWITCH")
 }
 
@@ -848,9 +849,10 @@ PollJoyDrive() {
 
         upNow := driveKeyPhysDown(driveUpButton)
         dnNow := driveKeyPhysDown(driveDownButton)
-        povNow := GetKeyState("1JoyPOV")
-        bNow := GetKeyState(bButton, "P")
-        nativeFaceModifierNow := GetKeyState("1Joy1", "P") || GetKeyState("1Joy3", "P")
+        joyNow := ReadJoySnapshot()
+        povNow := joyNow.pov
+        bNow := joyNow.ButtonDown(2)
+        nativeFaceModifierNow := joyNow.ButtonDown(1) || joyNow.ButtonDown(3)
         upPrev := joyPrev.Has(driveUpButton) ? joyPrev[driveUpButton] : false
         dnPrev := joyPrev.Has(driveDownButton) ? joyPrev[driveDownButton] : false
 
