@@ -1,4 +1,4 @@
-package org.dce.ed.route.pacing;
+package org.dce.ed.tools.pacing;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -57,7 +57,7 @@ import org.dce.ed.util.EdsmRequestPolicy;
  * <p>
  * Launch without the overlay:
  * {@code script/edsm-pacing-experiment.bat} or
- * {@code mvn -q -DskipTests org.codehaus.mojo:exec-maven-plugin:3.5.0:java -Dexec.mainClass=org.dce.ed.route.pacing.EdsmPacingExperimentFrame}
+ * {@code mvn -q -DskipTests org.codehaus.mojo:exec-maven-plugin:3.5.0:java -Dexec.mainClass=org.dce.ed.tools.pacing.EdsmPacingExperimentFrame}
  */
 public final class EdsmPacingExperimentFrame extends JFrame {
     private static EdsmPacingExperimentFrame instance;
