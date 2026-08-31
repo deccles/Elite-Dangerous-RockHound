@@ -14,4 +14,10 @@ class RouteEdsmRetryPolicyTest {
         assertEquals(true, RouteEdsmRetryPolicy.shouldRetry(4));
         assertEquals(false, RouteEdsmRetryPolicy.shouldRetry(5));
     }
+
+    @Test
+    void rateLimitedRetryUsesFourteenSecondRestInsteadOfOneSecond() {
+        assertEquals(14_000, RouteEdsmRetryPolicy.delayMillis(1, true));
+        assertEquals(1_000, RouteEdsmRetryPolicy.delayMillis(1, false));
+    }
 }

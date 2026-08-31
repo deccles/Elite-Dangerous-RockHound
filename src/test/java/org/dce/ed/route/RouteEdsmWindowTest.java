@@ -10,44 +10,47 @@ import org.junit.jupiter.api.Test;
 class RouteEdsmWindowTest {
 
     @Test
-    void onlyCurrentAndNextTwentyFourSystemRowsAreQueryable() {
-        List<RouteEntry> rows = routeRows(30);
+    void onlyCurrentAndNextWindowSystemRowsAreQueryable() {
+        int window = RouteEdsmPrefetchPolicy.OPENING_WINDOW_SIZE;
+        List<RouteEntry> rows = routeRows(window + 5);
         rows.get(0).markerKind = RouteMarkerKind.CURRENT;
 
-        RouteEdsmWindow.apply(rows, 25);
+        RouteEdsmWindow.apply(rows, window);
 
-        assertEquals(RouteScanStatus.PENDING, rows.get(24).status);
-        assertEquals(RouteScanStatus.DEFERRED, rows.get(25).status);
-        assertEquals(25, rows.stream().filter(row -> row.status.needsEdsmQuery()).count());
+        assertEquals(RouteScanStatus.PENDING, rows.get(window - 1).status);
+        assertEquals(RouteScanStatus.DEFERRED, rows.get(window).status);
+        assertEquals(window, rows.stream().filter(row -> row.status.needsEdsmQuery()).count());
     }
 
     @Test
     void advancingCurrentPromotesOneNewRowWithoutChangingResolvedRowsBehind() {
-        List<RouteEntry> rows = routeRows(30);
+        int window = RouteEdsmPrefetchPolicy.OPENING_WINDOW_SIZE;
+        List<RouteEntry> rows = routeRows(window + 5);
         rows.get(0).markerKind = RouteMarkerKind.CURRENT;
-        RouteEdsmWindow.apply(rows, 25);
+        RouteEdsmWindow.apply(rows, window);
         rows.get(0).status = RouteScanStatus.UNKNOWN;
         rows.get(0).markerKind = RouteMarkerKind.NONE;
         rows.get(1).markerKind = RouteMarkerKind.CURRENT;
 
-        RouteEdsmWindow.apply(rows, 25);
+        RouteEdsmWindow.apply(rows, window);
 
         assertEquals(RouteScanStatus.UNKNOWN, rows.get(0).status);
-        assertEquals(RouteScanStatus.PENDING, rows.get(25).status);
-        assertEquals(RouteScanStatus.DEFERRED, rows.get(26).status);
+        assertEquals(RouteScanStatus.PENDING, rows.get(window).status);
+        assertEquals(RouteScanStatus.DEFERRED, rows.get(window + 1).status);
     }
 
     @Test
     void syntheticAndBodyRowsDoNotConsumeWindowSlots() {
-        List<RouteEntry> rows = routeRows(26);
+        int window = RouteEdsmPrefetchPolicy.OPENING_WINDOW_SIZE;
+        List<RouteEntry> rows = routeRows(window + 1);
         rows.get(0).markerKind = RouteMarkerKind.CURRENT;
         rows.add(1, RouteEntry.syntheticBody("body"));
         rows.add(2, RouteEntry.syntheticSystem("detour", 999L, null, RouteMarkerKind.NONE));
 
-        RouteEdsmWindow.apply(rows, 25);
+        RouteEdsmWindow.apply(rows, window);
 
-        assertEquals(RouteScanStatus.PENDING, rows.get(26).status);
-        assertEquals(RouteScanStatus.DEFERRED, rows.get(27).status);
+        assertEquals(RouteScanStatus.PENDING, rows.get(window + 1).status);
+        assertEquals(RouteScanStatus.DEFERRED, rows.get(window + 2).status);
     }
 
     private static List<RouteEntry> routeRows(int count) {

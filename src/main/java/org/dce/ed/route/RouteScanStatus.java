@@ -20,4 +20,9 @@ public enum RouteScanStatus {
     public boolean needsEdsmQuery() {
         return this == PENDING;
     }
+
+    /** Pending window lookup or deferred prefetch; not a completed icon. */
+    public boolean isUnresolved() {
+        return this == PENDING || this == DEFERRED;
+    }
 }

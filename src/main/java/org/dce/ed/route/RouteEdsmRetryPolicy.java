@@ -13,6 +13,14 @@ public final class RouteEdsmRetryPolicy {
         return Math.min(MAX_DELAY_MILLIS, 1_000 << exponent);
     }
 
+    public static int delayMillis(int attempt, boolean rateLimited) {
+        if (rateLimited) {
+            long restMs = RouteEdsmPrefetchPolicy.RATE_LIMIT_WAVE_REST.toMillis();
+            return (int) Math.min(Integer.MAX_VALUE, restMs);
+        }
+        return delayMillis(attempt);
+    }
+
     public static boolean shouldRetry(int attempt) {
         return attempt <= MAX_ATTEMPTS;
     }

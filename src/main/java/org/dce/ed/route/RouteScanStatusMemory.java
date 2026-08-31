@@ -10,7 +10,8 @@ public final class RouteScanStatusMemory {
     private final Map<String, RouteScanStatus> byName = new ConcurrentHashMap<>();
 
     public void remember(RouteEntry entry, RouteScanStatus status) {
-        if (entry == null || status == null || status.needsEdsmQuery()) {
+        if (entry == null || status == null || status.needsEdsmQuery()
+                || status == RouteScanStatus.DEFERRED) {
             return;
         }
         if (entry.systemAddress != 0L) {
@@ -23,7 +24,7 @@ public final class RouteScanStatusMemory {
     }
 
     public void applyTo(RouteEntry entry) {
-        if (entry == null || (entry.status != null && !entry.status.needsEdsmQuery())) {
+        if (entry == null || (entry.status != null && !entry.status.isUnresolved())) {
             return;
         }
         RouteScanStatus remembered = entry.systemAddress != 0L

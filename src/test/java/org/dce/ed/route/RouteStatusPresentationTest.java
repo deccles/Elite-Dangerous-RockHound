@@ -33,6 +33,9 @@ class RouteStatusPresentationTest {
         assertEquals("", presentation.symbol());
         assertFalse(presentation.filled());
         assertFalse(RouteScanStatus.DEFERRED.needsEdsmQuery());
+        assertTrue(RouteScanStatus.DEFERRED.isUnresolved());
+        assertTrue(RouteScanStatus.PENDING.isUnresolved());
+        assertFalse(RouteScanStatus.UNKNOWN.isUnresolved());
     }
 
     @Test

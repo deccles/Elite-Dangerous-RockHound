@@ -30,4 +30,29 @@ class RouteScanStatusMemoryTest {
 
         assertEquals(RouteScanStatus.FULLY_DISCOVERED_NOT_VISITED, rebuilt.status);
     }
+
+    @Test
+    void deferredStatusIsNotRememberedAsACompletedResult() {
+        RouteScanStatusMemory memory = new RouteScanStatusMemory();
+        RouteEntry original = new RouteEntry(0, "Far", 7L, "K", 0.0, RouteScanStatus.DEFERRED);
+        RouteEntry rebuilt = new RouteEntry(0, "Far", 7L, "K", 0.0, RouteScanStatus.PENDING);
+
+        memory.remember(original, RouteScanStatus.DEFERRED);
+        memory.applyTo(rebuilt);
+
+        assertEquals(RouteScanStatus.PENDING, rebuilt.status);
+    }
+
+    @Test
+    void rememberedResultAppliesOntoDeferredRows() {
+        RouteScanStatusMemory memory = new RouteScanStatusMemory();
+        RouteEntry original = new RouteEntry(0, "Far", 7L, "K", 0.0,
+                RouteScanStatus.FULLY_DISCOVERED_NOT_VISITED);
+        RouteEntry rebuilt = new RouteEntry(0, "Far", 7L, "K", 0.0, RouteScanStatus.DEFERRED);
+
+        memory.remember(original, original.status);
+        memory.applyTo(rebuilt);
+
+        assertEquals(RouteScanStatus.FULLY_DISCOVERED_NOT_VISITED, rebuilt.status);
+    }
 }
