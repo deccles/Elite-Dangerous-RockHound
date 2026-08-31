@@ -3,17 +3,25 @@
 #Include EDO_fss_chord_logic.ahk
 #Include EDO_b_chord_logic.ahk
 #Include EDO_status_gate_logic.ahk
-#Include EDO_joy_snapshot.ahk
+#Include EDO_xinput_buttons.ahk
 #UseHook
-A_MaxHotkeysPerInterval := 1000
+A_HotkeyInterval := 2000
+A_MaxHotkeysPerInterval := 20000
+OnError(SuppressAhkErrorDialog)
+
+SuppressAhkErrorDialog(*) {
+    return 1
+}
 ; ============================================================
 ; Elite Dangerous throttle translator (AHK v2)
-; - Reads Status.json: GuiFocus + OnFoot
-; - Translation ON only when: Elite active, GuiFocus==0, OnFoot==false, no modifier buttons held, no GUI-assume cooldown
-; - Throttle input buttons (via reWASD keyboard mapping):
+; - Reads Status.json: GuiFocus + OnFoot + Docked
+; - Translation ON only when: Elite active, GuiFocus==0, OnFoot==false, not docked, no modifier keys held
+; - Flydigi keyboard mappings (no joystick/POV polling — that crashed AHK):
 ;     F9 -> Ctrl+Alt+W (hold)
 ;     F7 -> Ctrl+Alt+S (hold)
-;     (PollJoyDrive uses GetAsyncKeyState(VK) for F1–F24 — GetKeyState("F7") is often wrong with remappers.)
+;     Y  -> J (hotkey; delayed until release so Y+RB can enter FSS without FSD)
+;     B  -> Ctrl+Alt+B boost on release (XInput, not DirectInput 1Joy)
+;     Y+D-pad left/right -> Galaxy/System Map (XInput D-pad; consumes Y so release does not FSD)
 ; - 25% snap + long press:
 ;     PgUp tap -> +25%, hold -> 100%
 ;     PgDn tap -> -25%, hold -> 0%
@@ -44,24 +52,17 @@ global longPressMs := 350
 ; Time (ms) holding throttle-up from 0% -> 100% in Elite (tweak once)
 global timeToFullMs := 1600
 
-; Modifier buttons (held => translation OFF, combos passthrough)
-; NOTE: When using reWASD with a virtual controller, AutoHotkey often can no longer see
-; DirectInput joystick buttons (1Joy*). In that setup, map your physical modifier buttons
-; to unused keyboard keys (e.g. F15/F16) and list them here.
+; Extra keyboard modifiers (held => translation OFF)
 global modifierButtons := []
 
-; Throttle buttons (joystick)
-; Throttle input sources:
-; - If AHK can see your physical joystick buttons, keep using 1Joy5/1Joy6.
-; - If reWASD is enabled and AHK can't see 1Joy*, map your physical buttons to F7/F9
-;   (or any unused keys) and set these instead.
-global driveDownButton := "F7" ; -> Ctrl+Alt+S (flight), F15 (GUI)
-global driveUpButton   := "F9" ; -> Ctrl+Alt+W (flight), F16 (GUI)
+; Flydigi maps LB/RB to these keys.
+global driveDownButton := "F7" ; -> Ctrl+Alt+S (flight), q/e tap in GUI
+global driveUpButton   := "F9" ; -> Ctrl+Alt+W (flight), q/e tap in GUI
 global fssChordState := FssChordLogic()
 global bChordState := BChordLogic()
-global bButton := "1Joy2"
 global bPrev := false
-global flightPovPrev := -1
+global xinputButtonsPrev := 0
+global yHotkeyHeld := false
 global guiDriveDownKey := "q"
 global guiDriveUpKey   := "e"
 global guiTapMs := 35
@@ -76,8 +77,7 @@ global statusJsonPath := EnvGet("USERPROFILE") "\Saved Games\Frontier Developmen
 global gateOnGuiFocus := true
 global gateOnFoot := true
 
-; GUI-assume cooldown (pre-emptive: when you hit modifier/X buttons, briefly force OFF)
-; Same guidance as modifierButtons: prefer keyboard keys when using reWASD.
+; GUI-assume cooldown (optional extra keys that briefly force translation OFF)
 global guiAssumeJoyButtons := []
 global guiAssumeMs := 900
 global guiAssumeUntilTick := 0
@@ -85,7 +85,7 @@ global guiAssumeUntilTick := 0
 ; -------------------------
 ; Indicators
 ; -------------------------
-global showXltIndicator := true
+global showXltIndicator := false
 global xltTipId := 1
 global xltTipX := A_ScreenWidth - 200
 global xltTipY := 10
@@ -218,11 +218,9 @@ modifierHeld() {
     return false
 }
 
-; True if throttle/drive key is held. For F1–F24, GetAsyncKeyState(VK) matches reWASD / synthetic keys
-; more reliably than GetKeyState("F7") in many setups.
+; True if throttle/drive key is held. GetAsyncKeyState(VK) matches Flydigi's
+; synthetic F-keys more reliably than GetKeyState("F7").
 driveKeyPhysDown(keyName) {
-    if RegExMatch(keyName, "i)^1Joy(\d+)$", &joyButton)
-        return ReadJoySnapshot().ButtonDown(Integer(joyButton[1]))
     if RegExMatch(keyName, "i)^F(\d{1,2})$", &m) {
         n := Integer(m[1])
         if (n >= 1 && n <= 24) {
@@ -419,7 +417,7 @@ sendThrottleChordUp(baseKey) {
 hardReleaseWS() {
     global sentW, sentS, wDown, sDown, wsLastTick
     global throttleUpBaseKey, throttleDownBaseKey, chordHoldCount, injectedCtrlAlt
-    global fssChordState, bChordState
+    global fssChordState, bChordState, bPrev, xinputButtonsPrev, yHotkeyHeld
 
     ; Only release chords that this script believes it has pressed,
     ; to avoid cancelling the user's own W/S key holds.
@@ -436,6 +434,9 @@ hardReleaseWS() {
     chordHoldCount := 0
     fssChordState.Reset()
     bChordState.Reset()
+    bPrev := false
+    xinputButtonsPrev := 0
+    yHotkeyHeld := false
 
     if (injectedCtrlAlt) {
         if (!GetKeyState("Alt", "P"))
@@ -451,10 +452,6 @@ hardReleaseWS() {
 handleFlightYDown() {
     global fssChordState
     fssChordState.Handle("Y_DOWN")
-    ; Flydigi uses Select+Y for onboard profile switching but still emits Y's J mapping.
-    ; Consume that Y so changing profiles cannot toggle FSD or drop supercruise.
-    if (ReadJoySnapshot().ButtonDown(7))
-        fssChordState.Handle("PROFILE_SWITCH")
 }
 
 handleFlightYUp() {
@@ -810,7 +807,7 @@ PollStatus() {
 }
 
 ; -------------------------
-; Pre-emptive GUI assume cooldown (triggered by X/modifier joy buttons)
+; Optional GUI-assume cooldown
 ; -------------------------
 SetTimer(PollGuiAssume, 10)
 
@@ -834,7 +831,7 @@ PollGuiAssume() {
 }
 
 ; -------------------------
-; Poll joystick: 1Joy5/1Joy6 -> Ctrl+Alt+S/W
+; Poll Flydigi F7/F9 drive keys -> Ctrl+Alt+S/W
 ; -------------------------
 SetTimer(PollJoyDrive, pollMs)
 
@@ -843,16 +840,16 @@ PollJoyDrive() {
         if (!ensureEliteActiveContext())
             return
 
-        global driveUpButton, driveDownButton, joyPrev, flightPovPrev
-        global bButton, bPrev, bChordState
+        global driveUpButton, driveDownButton, joyPrev
         global guiDriveUpSent, guiDriveDownSent
+        global bChordState, bPrev, xinputButtonsPrev
 
         upNow := driveKeyPhysDown(driveUpButton)
         dnNow := driveKeyPhysDown(driveDownButton)
-        joyNow := ReadJoySnapshot()
-        povNow := joyNow.pov
-        bNow := joyNow.ButtonDown(2)
-        nativeFaceModifierNow := joyNow.ButtonDown(1) || joyNow.ButtonDown(3)
+        padButtons := ReadXInputButtons()
+        bNow := XInputButtonDown(padButtons, XINPUT_GAMEPAD_B)
+        nativeFaceModifierNow := XInputButtonDown(padButtons, XINPUT_GAMEPAD_A)
+            || XInputButtonDown(padButtons, XINPUT_GAMEPAD_X)
         upPrev := joyPrev.Has(driveUpButton) ? joyPrev[driveUpButton] : false
         dnPrev := joyPrev.Has(driveDownButton) ? joyPrev[driveDownButton] : false
 
@@ -872,6 +869,7 @@ PollJoyDrive() {
 
                 joyPrev[driveUpButton] := upNow
                 joyPrev[driveDownButton] := dnNow
+                xinputButtonsPrev := padButtons
                 return
             }
 
@@ -882,8 +880,8 @@ PollJoyDrive() {
                 sendGuiDriveUp("down")
 
             joyPrev.Clear()
-            flightPovPrev := povNow
             bPrev := bNow
+            xinputButtonsPrev := padButtons
             bChordState.Reset()
             return
         }
@@ -896,6 +894,18 @@ PollJoyDrive() {
                 bChordState.Handle("RB_DOWN")
             if (dnNow && !dnPrev)
                 bChordState.Handle("LB_DOWN")
+            if (XInputButtonDown(padButtons, XINPUT_GAMEPAD_DPAD_UP)
+                && !XInputButtonDown(xinputButtonsPrev, XINPUT_GAMEPAD_DPAD_UP))
+                bChordState.Handle("DPAD_UP")
+            else if (XInputButtonDown(padButtons, XINPUT_GAMEPAD_DPAD_DOWN)
+                && !XInputButtonDown(xinputButtonsPrev, XINPUT_GAMEPAD_DPAD_DOWN))
+                bChordState.Handle("DPAD_DOWN")
+            else if (XInputButtonDown(padButtons, XINPUT_GAMEPAD_DPAD_LEFT)
+                && !XInputButtonDown(xinputButtonsPrev, XINPUT_GAMEPAD_DPAD_LEFT))
+                bChordState.Handle("DPAD_LEFT")
+            else if (XInputButtonDown(padButtons, XINPUT_GAMEPAD_DPAD_RIGHT)
+                && !XInputButtonDown(xinputButtonsPrev, XINPUT_GAMEPAD_DPAD_RIGHT))
+                bChordState.Handle("DPAD_RIGHT")
         }
 
         if (upNow && !upPrev)
@@ -908,34 +918,28 @@ PollJoyDrive() {
         else if (!dnNow && dnPrev)
             handleSUp()
 
-        if (povNow != flightPovPrev) {
-            if (bNow && povNow = 0)
-                bChordState.Handle("DPAD_UP")
-            else if (bNow && povNow = 18000)
-                bChordState.Handle("DPAD_DOWN")
-            else if (bNow && povNow = 27000)
-                bChordState.Handle("DPAD_LEFT")
-            else if (bNow && povNow = 9000)
-                bChordState.Handle("DPAD_RIGHT")
-
-            if (!bNow && !nativeFaceModifierNow && povNow = 27000)
+        if (!bNow && !nativeFaceModifierNow) {
+            if (XInputButtonDown(padButtons, XINPUT_GAMEPAD_DPAD_LEFT)
+                && !XInputButtonDown(xinputButtonsPrev, XINPUT_GAMEPAD_DPAD_LEFT))
                 handleFlightDpad("left")
-            else if (!bNow && !nativeFaceModifierNow && povNow = 9000)
+            else if (XInputButtonDown(padButtons, XINPUT_GAMEPAD_DPAD_RIGHT)
+                && !XInputButtonDown(xinputButtonsPrev, XINPUT_GAMEPAD_DPAD_RIGHT))
                 handleFlightDpad("right")
-            else if (!bNow && !nativeFaceModifierNow && povNow = 0)
+            else if (XInputButtonDown(padButtons, XINPUT_GAMEPAD_DPAD_UP)
+                && !XInputButtonDown(xinputButtonsPrev, XINPUT_GAMEPAD_DPAD_UP))
                 handleFlightDpad("up")
-            else if (!bNow && !nativeFaceModifierNow && povNow = 18000)
+            else if (XInputButtonDown(padButtons, XINPUT_GAMEPAD_DPAD_DOWN)
+                && !XInputButtonDown(xinputButtonsPrev, XINPUT_GAMEPAD_DPAD_DOWN))
                 handleFlightDpad("down")
         }
 
-        if (!bNow && bPrev && bChordState.Handle("B_UP") = "BOOST") {
+        if (!bNow && bPrev && bChordState.Handle("B_UP") = "BOOST")
             sendCtrlAltKeyTap("b", "Boost (B release)")
-        }
 
         joyPrev[driveUpButton] := upNow
         joyPrev[driveDownButton] := dnNow
-        flightPovPrev := povNow
         bPrev := bNow
+        xinputButtonsPrev := padButtons
     } catch {
     }
 }
@@ -1017,15 +1021,34 @@ $^v::elitePasteOnce()
 ; Step keys only when translation is allowed
 #HotIf translationAllowed()
 
-; Flydigi maps physical Y to J. Delay J until release so Y+RB can enter FSS
-; without also engaging FSD. RB remains F9 and is handled by PollJoyDrive.
-$*j::handleFlightYDown()
-$*j up::handleFlightYUp()
+; Flydigi maps physical Y to J. Swallow J while translation is on so Y+RB can
+; enter FSS without also engaging FSD. Ignore J auto-repeat or AHK shows a
+; "too many hotkeys" dialog while Y is held for map chords.
+$*j::{
+    global yHotkeyHeld
+    if (yHotkeyHeld)
+        return
+    yHotkeyHeld := true
+    handleFlightYDown()
+}
+$*j up::{
+    global yHotkeyHeld
+    yHotkeyHeld := false
+    handleFlightYUp()
+}
 
-$*PgUp::    stepPressStart("PgUp")
+$*PgUp::{
+    if (A_PriorHotkey = A_ThisHotkey && A_TimeSincePriorHotkey >= 0 && A_TimeSincePriorHotkey < 50)
+        return
+    stepPressStart("PgUp")
+}
 $*PgUp up:: stepPressEnd("PgUp")
 
-$*PgDn::    stepPressStart("PgDn")
+$*PgDn::{
+    if (A_PriorHotkey = A_ThisHotkey && A_TimeSincePriorHotkey >= 0 && A_TimeSincePriorHotkey < 50)
+        return
+    stepPressStart("PgDn")
+}
 $*PgDn up:: stepPressEnd("PgDn")
 
 #HotIf
