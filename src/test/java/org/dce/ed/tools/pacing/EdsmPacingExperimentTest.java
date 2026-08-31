@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
@@ -76,7 +78,11 @@ class EdsmPacingExperimentTest {
 
         EdsmPacingExperiment.RunResult result = EdsmPacingExperiment.run(systems, batches, query, sleeper, null);
 
-        assertEquals(List.of("A", "B", "C", "D", "E"), query.names);
+        // First batch is concurrent=2, so A/B/C may start in any order; the second batch
+        // waits until that wave finishes, then queries D then E serially.
+        assertEquals(5, query.names.size());
+        assertEquals(Set.of("A", "B", "C"), new HashSet<>(query.names.subList(0, 3)));
+        assertEquals(List.of("D", "E"), query.names.subList(3, 5));
         assertEquals(1, result.unusedSystems());
         assertEquals(2, result.batches().size());
         assertEquals(3, result.batches().get(0).queried());
