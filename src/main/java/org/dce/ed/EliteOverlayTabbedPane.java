@@ -1475,10 +1475,10 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	}
 
 	void setEngineeringTradeVisibilityLocked(boolean locked) {
+		engineeringTradeVisibilityLocked = locked;
 		if (locked) {
 			selectTab(CARD_ENGINEERING, engineeringButton);
 		}
-		engineeringTradeVisibilityLocked = locked;
 	}
 
 	/** Selects a tab that is currently hosted in the main overlay dock. */
