@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -47,7 +48,9 @@ public final class MissionTracker {
 
     private final Map<Long, MissionRecord> activeById = new ConcurrentHashMap<>();
     private final Set<Long> dismissedRedirectIds = ConcurrentHashMap.newKeySet();
+    private final List<Runnable> changeListeners = new CopyOnWriteArrayList<>();
     private volatile Runnable changeCallback;
+    private volatile boolean suppressChangeNotifications;
     private volatile Instant lastUpdated = Instant.now();
     private volatile Supplier<String> currentSystemSupplier;
     private volatile Supplier<String> currentStationSupplier;
@@ -59,6 +62,18 @@ public final class MissionTracker {
 
     public void setChangeCallback(Runnable changeCallback) {
         this.changeCallback = changeCallback;
+    }
+
+    public void addChangeListener(Runnable listener) {
+        if (listener != null) {
+            changeListeners.add(listener);
+        }
+    }
+
+    public void removeChangeListener(Runnable listener) {
+        if (listener != null) {
+            changeListeners.remove(listener);
+        }
     }
 
     /** Used to require commander presence in the mission hunt system before attributing kills. */
@@ -581,6 +596,7 @@ public final class MissionTracker {
             final String[] replaySystem = { null };
             final String[] replayStation = { null };
             changeCallback = null;
+            suppressChangeNotifications = true;
             currentSystemSupplier = () -> replaySystem[0];
             currentStationSupplier = () -> replayStation[0];
             boolean changed = false;
@@ -608,6 +624,7 @@ public final class MissionTracker {
                 changeCallback = savedCallback;
                 currentSystemSupplier = savedSystem;
                 currentStationSupplier = savedStation;
+                suppressChangeNotifications = false;
             }
             if (changed) {
                 lastUpdated = Instant.now();
@@ -1004,6 +1021,7 @@ public final class MissionTracker {
             } catch (Exception ignored) {
             }
         }
+        notifyChanged();
     }
 
     private static long parseId(String key) {
@@ -1126,10 +1144,22 @@ public final class MissionTracker {
     }
 
     private void notifyChanged() {
+        if (suppressChangeNotifications) {
+            return;
+        }
         Runnable cb = changeCallback;
         if (cb != null) {
             try {
                 cb.run();
+            } catch (Exception ignored) {
+            }
+        }
+        for (Runnable listener : changeListeners) {
+            if (listener == null) {
+                continue;
+            }
+            try {
+                listener.run();
             } catch (Exception ignored) {
             }
         }

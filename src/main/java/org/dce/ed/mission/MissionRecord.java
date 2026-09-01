@@ -60,7 +60,11 @@ public final class MissionRecord {
     public void setFaction(String faction) { this.faction = faction; }
 
     public String getName() { return name; }
-    public void setName(String name) { this.name = name; this.category = MissionCategory.fromMissionName(name); }
+    public void setName(String name) {
+        this.name = name;
+        this.category = MissionCategory.fromMissionName(name);
+        recategorizeUnknownCombat();
+    }
 
     public String getLocalisedName() { return localisedName; }
     public void setLocalisedName(String localisedName) { this.localisedName = localisedName; }
@@ -123,7 +127,17 @@ public final class MissionRecord {
     public void setTargetTypeLocalised(String targetTypeLocalised) { this.targetTypeLocalised = targetTypeLocalised; }
 
     public int getKillCount() { return killCount; }
-    public void setKillCount(int killCount) { this.killCount = killCount; }
+    public void setKillCount(int killCount) {
+        this.killCount = killCount;
+        recategorizeUnknownCombat();
+    }
+
+    /** Journal massacre/assassinate names we do not yet list still carry {@code KillCount}. */
+    private void recategorizeUnknownCombat() {
+        if (killCount > 0 && getCategory() == MissionCategory.UNKNOWN) {
+            this.category = MissionCategory.COMBAT;
+        }
+    }
 
     public int getKillsCompleted() { return killsCompleted; }
     public void setKillsCompleted(int killsCompleted) { this.killsCompleted = Math.max(0, killsCompleted); }

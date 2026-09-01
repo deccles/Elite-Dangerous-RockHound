@@ -504,10 +504,10 @@ public final class CombatTargetTracker {
             return;
         }
         long other = otherRewardFromJson(event.getRawJson(), total);
-        int shared = sharedWithOthers(event.getRawJson());
+        int shared = event.getSharedWithOthers();
         String shipId = event.getTarget();
-        String shipDisplay = resolveShipDisplay(shipId);
-        String pilot = resolvePilotForKill(shipId);
+        String shipDisplay = firstNonBlank(event.getTargetLocalised(), resolveShipDisplay(shipId));
+        String pilot = firstNonBlank(resolvePilotForKill(shipId), event.getPilotLocalised());
         removeScannedVictim(pilot);
         KillVictim victim = new KillVictim(
                 event.getTimestamp(),
@@ -731,6 +731,16 @@ public final class CombatTargetTracker {
     }
 
     /** Fallback when no Ship_Localised was seen: {@code asp_scout} → {@code Asp Scout}. */
+    private static String firstNonBlank(String preferred, String fallback) {
+        if (preferred != null && !preferred.isBlank()) {
+            return preferred.trim();
+        }
+        if (fallback != null && !fallback.isBlank()) {
+            return fallback;
+        }
+        return fallback;
+    }
+
     static String prettyShipId(String shipId) {
         if (shipId == null || shipId.isBlank()) {
             return shipId;

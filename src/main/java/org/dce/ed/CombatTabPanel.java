@@ -240,7 +240,13 @@ public final class CombatTabPanel extends JPanel {
     }
 
     public void setMissionTracker(MissionTracker tracker) {
+        if (this.missionTracker != null) {
+            this.missionTracker.removeChangeListener(this::requestRefresh);
+        }
         this.missionTracker = tracker;
+        if (tracker != null) {
+            tracker.addChangeListener(this::requestRefresh);
+        }
         requestRefresh();
     }
 
@@ -280,6 +286,26 @@ public final class CombatTabPanel extends JPanel {
         if (event != null) {
             requestRefresh();
         }
+    }
+
+    /** Active combat-tab mission rows (placeholder dash row is not counted). */
+    int combatMissionCount() {
+        return missionsModel.dataRowCount();
+    }
+
+    String combatMissionNameAt(int index) {
+        MissionRow row = missionsModel.dataRowAt(index);
+        return row != null ? row.name() : null;
+    }
+
+    String combatMissionProgressAt(int index) {
+        MissionRow row = missionsModel.dataRowAt(index);
+        return row != null ? row.progress() : null;
+    }
+
+    String combatMissionTargetAt(int index) {
+        MissionRow row = missionsModel.dataRowAt(index);
+        return row != null ? row.target() : null;
     }
 
     public boolean isPointerOverInteractiveRegion(Point screenPoint) {
@@ -433,6 +459,34 @@ public final class CombatTabPanel extends JPanel {
 
     static boolean shouldRunCreditsRateTimer(boolean combatTabVisible, boolean activeSession) {
         return combatTabVisible && activeSession;
+    }
+
+    static Color killRowForeground(boolean wingShared, boolean player, long bountyCredits,
+            long highValueCredits) {
+        if (wingShared) {
+            return EdoUi.Internal.COMBAT_WING_KILL;
+        }
+        if (bountyCredits > 0L) {
+            if (bountyCredits >= highValueCredits) {
+                return EdoUi.User.SECONDARY_HIGHLIGHT;
+            }
+            return EdoUi.User.PRIMARY_HIGHLIGHT;
+        }
+        if (player) {
+            return EdoUi.User.CORE_BLUE;
+        }
+        return EdoUi.User.MAIN_TEXT;
+    }
+
+    private static Color killRowForeground(BountyRow bountyRow) {
+        if (bountyRow == null) {
+            return EdoUi.User.MAIN_TEXT;
+        }
+        return killRowForeground(
+                bountyRow.wingShared,
+                bountyRow.player,
+                bountyRow.bountyCredits,
+                OverlayPreferences.getCombatHighValueBountyCredits());
     }
 
     /** Keep BoxLayout from compressing the two-line metric row below its current font height. */
@@ -952,9 +1006,15 @@ public final class CombatTabPanel extends JPanel {
         private final String total;
         private final long bountyCredits;
         private final boolean player;
+        private final boolean wingShared;
 
         BountyRow(String pilot, String ship, String local, String remote, String total,
                 long bountyCredits, boolean player) {
+            this(pilot, ship, local, remote, total, bountyCredits, player, false);
+        }
+
+        BountyRow(String pilot, String ship, String local, String remote, String total,
+                long bountyCredits, boolean player, boolean wingShared) {
             this.pilot = pilot;
             this.ship = ship;
             this.local = local;
@@ -962,6 +1022,7 @@ public final class CombatTabPanel extends JPanel {
             this.total = total;
             this.bountyCredits = Math.max(0L, bountyCredits);
             this.player = player;
+            this.wingShared = wingShared;
         }
 
         static BountyRow fromLocked(CombatTargetTracker.LockedTarget t) {
@@ -1004,7 +1065,8 @@ public final class CombatTabPanel extends JPanel {
                     remote > 0L ? formatCompact(remote) : "—",
                     total > 0L ? formatCompact(total) : "—",
                     total,
-                    false);
+                    false,
+                    k.getSharedWithOthers() > 0);
         }
     }
 
@@ -1053,6 +1115,14 @@ public final class CombatTabPanel extends JPanel {
         void setRows(List<MissionRow> next) {
             rows = next != null ? List.copyOf(next) : List.of();
             fireTableDataChanged();
+        }
+
+        int dataRowCount() {
+            return rows.size();
+        }
+
+        MissionRow dataRowAt(int index) {
+            return index >= 0 && index < rows.size() ? rows.get(index) : null;
         }
 
         @Override public int getRowCount() { return Math.max(1, rows.size()); }
@@ -1118,18 +1188,7 @@ public final class CombatTabPanel extends JPanel {
             setBorder(new EmptyBorder(3, 6, 3, 6));
             setHorizontalAlignment(column >= 2 ? SwingConstants.RIGHT : SwingConstants.LEFT);
             BountyRow bountyRow = model.rowAt(row);
-            if (bountyRow != null && bountyRow.bountyCredits > 0L) {
-                long highValue = OverlayPreferences.getCombatHighValueBountyCredits();
-                if (bountyRow.bountyCredits >= highValue) {
-                    setForeground(EdoUi.User.SECONDARY_HIGHLIGHT);
-                } else {
-                    setForeground(EdoUi.User.PRIMARY_HIGHLIGHT);
-                }
-            } else if (bountyRow != null && bountyRow.player) {
-                setForeground(EdoUi.User.CORE_BLUE);
-            } else {
-                setForeground(EdoUi.User.MAIN_TEXT);
-            }
+            setForeground(killRowForeground(bountyRow));
             if (c instanceof JComponent jc) {
                 jc.setOpaque(false);
             }

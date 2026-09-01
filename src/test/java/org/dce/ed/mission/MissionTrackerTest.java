@@ -205,6 +205,31 @@ class MissionTrackerTest {
     }
 
     @Test
+    void wingSharedBounty_advancesMassacreProgress() {
+        MissionTracker tracker = new MissionTracker();
+        tracker.setCurrentSystemSupplier(() -> "Tenjin");
+        tracker.applyEvent((MissionAcceptedEvent) parser.parseRecord(
+                "{\"timestamp\":\"2026-09-01T00:20:00Z\",\"event\":\"MissionAccepted\","
+                        + "\"MissionID\":99,\"Name\":\"Mission_Massacre\","
+                        + "\"TargetFaction\":\"The Crimson Blade\",\"KillCount\":10,"
+                        + "\"DestinationSystem\":\"Tenjin\"}"));
+
+        BountyEvent shared = (BountyEvent) parser.parseRecord(
+                "{ \"timestamp\":\"2026-09-01T00:24:52Z\", \"event\":\"Bounty\","
+                        + " \"Rewards\":[ { \"Faction\":\"Colonia Research Department\", \"Reward\":162294 },"
+                        + " { \"Faction\":\"Last Phoenix Vault\", \"Reward\":316372 } ],"
+                        + " \"PilotName\":\"$npc_name_decorate:#name=Robert Avakian;\","
+                        + " \"PilotName_Localised\":\"Robert Avakian\", \"Target\":\"python\","
+                        + " \"TotalReward\":478666, \"VictimFaction\":\"The Crimson Blade\","
+                        + " \"SharedWithOthers\":1 }");
+        assertEquals(1, shared.getSharedWithOthers());
+        assertTrue(shared.isSharedWithWing());
+        tracker.applyEvent(shared);
+
+        assertEquals(1, tracker.findById(99L).getKillsCompleted());
+    }
+
+    @Test
     void factionKillBond_advancesConflictMassacreProgress() {
         MissionTracker tracker = new MissionTracker();
         tracker.setCurrentSystemSupplier(() -> "Gliese 868");

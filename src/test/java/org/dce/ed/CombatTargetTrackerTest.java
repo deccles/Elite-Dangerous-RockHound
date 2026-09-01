@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.util.List;
 
+import org.dce.ed.logreader.EliteLogParser;
 import org.dce.ed.logreader.event.BountyEvent;
 import org.dce.ed.logreader.event.FactionKillBondEvent;
 import org.dce.ed.logreader.event.RedeemVoucherEvent;
@@ -108,6 +109,24 @@ class CombatTargetTrackerTest {
 
         tracker.applyShipTargeted(unlock());
         assertNull(tracker.getLockedTarget());
+    }
+
+    @Test
+    void wingSharedBounty_usesJournalPilotAndMarksShared() {
+        BountyEvent shared = (BountyEvent) new EliteLogParser().parseRecord(
+                "{ \"timestamp\":\"2026-09-01T00:28:02Z\", \"event\":\"Bounty\","
+                        + " \"Rewards\":[ { \"Faction\":\"Last Phoenix Vault\", \"Reward\":67030 } ],"
+                        + " \"PilotName\":\"$npc_name_decorate:#name=John Cydonia;\","
+                        + " \"PilotName_Localised\":\"John Cydonia\", \"Target\":\"eagle\","
+                        + " \"TotalReward\":67030, \"VictimFaction\":\"The Crimson Blade\","
+                        + " \"SharedWithOthers\":1 }");
+        tracker.applyJournalEvent(shared);
+
+        assertEquals(1, tracker.getKills().size());
+        CombatTargetTracker.KillVictim kill = tracker.getKills().get(0);
+        assertEquals("John Cydonia", kill.getPilotName());
+        assertEquals(1, kill.getSharedWithOthers());
+        assertEquals(67_030L, kill.getTotalReward());
     }
 
     @Test

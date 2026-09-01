@@ -2,6 +2,7 @@ package org.dce.ed;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import org.dce.ed.ui.EdoUi;
 import org.junit.jupiter.api.Test;
 
 class CombatTabPanelCommandGridTest {
@@ -38,5 +39,13 @@ class CombatTabPanelCommandGridTest {
         assertEquals(true, CombatTabPanel.shouldRunCreditsRateTimer(true, true));
         assertEquals(false, CombatTabPanel.shouldRunCreditsRateTimer(false, true));
         assertEquals(false, CombatTabPanel.shouldRunCreditsRateTimer(true, false));
+    }
+
+    @Test
+    void wingSharedKillUsesPurpleInsteadOfBountyHighlight() {
+        assertEquals(EdoUi.Internal.COMBAT_WING_KILL,
+                CombatTabPanel.killRowForeground(true, false, 67_030L, 500_000L));
+        assertEquals(EdoUi.User.PRIMARY_HIGHLIGHT,
+                CombatTabPanel.killRowForeground(false, false, 67_030L, 500_000L));
     }
 }
