@@ -34,7 +34,7 @@ public final class RouteEdsmPrefetch {
         }
         for (int row = 0; row < rows.size(); row++) {
             RouteEntry entry = rows.get(row);
-            if (entry == null || entry.isBodyRow || entry.isSynthetic) {
+            if (!RouteEdsmWindow.isScanIconRow(entry)) {
                 continue;
             }
             if (entry.status == null || !entry.status.isUnresolved()) {

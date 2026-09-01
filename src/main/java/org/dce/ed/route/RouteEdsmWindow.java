@@ -15,7 +15,7 @@ public final class RouteEdsmWindow {
         int eligibleSystems = 0;
         for (int row = 0; row < rows.size(); row++) {
             RouteEntry entry = rows.get(row);
-            if (entry == null || entry.isBodyRow || entry.isSynthetic) {
+            if (!isScanIconRow(entry)) {
                 continue;
             }
             boolean eligible = row >= currentRow && eligibleSystems < Math.max(0, windowSize);
@@ -28,11 +28,15 @@ public final class RouteEdsmWindow {
         }
     }
 
+    /** Plotted system hops, including custom NavRoute intermediates. Body rows have no scan icon. */
+    static boolean isScanIconRow(RouteEntry entry) {
+        return entry != null && !entry.isBodyRow;
+    }
+
     private static int findCurrentRow(List<RouteEntry> rows) {
         for (int row = 0; row < rows.size(); row++) {
             RouteEntry entry = rows.get(row);
-            if (entry != null && !entry.isBodyRow && !entry.isSynthetic
-                    && entry.markerKind == RouteMarkerKind.CURRENT) {
+            if (isScanIconRow(entry) && entry.markerKind == RouteMarkerKind.CURRENT) {
                 return row;
             }
         }

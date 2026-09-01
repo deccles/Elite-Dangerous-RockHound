@@ -28,7 +28,7 @@ class RouteEdsmPrefetchTest {
     }
 
     @Test
-    void nextUnresolvedRowsIncludePendingThenDeferredAndSkipSynthetics() {
+    void nextUnresolvedRowsIncludePendingThenDeferredAndSkipBodyRows() {
         List<RouteEntry> rows = routeRows(8);
         rows.get(0).markerKind = RouteMarkerKind.CURRENT;
         rows.get(0).status = RouteScanStatus.PENDING;
@@ -42,7 +42,7 @@ class RouteEdsmPrefetchTest {
         List<Integer> selected = RouteEdsmPrefetch.nextUnresolvedRowIndexes(rows, 8,
                 entry -> inFlight.contains(entry.systemName));
 
-        assertEquals(List.of(Integer.valueOf(0), Integer.valueOf(5),
+        assertEquals(List.of(Integer.valueOf(0), Integer.valueOf(4), Integer.valueOf(5),
                 Integer.valueOf(6), Integer.valueOf(7), Integer.valueOf(8), Integer.valueOf(9)),
                 selected);
     }
