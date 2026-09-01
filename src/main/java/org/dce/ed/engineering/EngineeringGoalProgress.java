@@ -1399,6 +1399,13 @@ public final class EngineeringGoalProgress {
                     || normalizedId.contains(normalized)) {
                 return true;
             }
+            String mappedName = EngineeringJournalBlueprintResolver.mappedExperimentalDisplayName(candidate);
+            if (!mappedName.isBlank()
+                    && (mappedName.equals(normalizedName)
+                            || normalizedName.contains(mappedName)
+                            || mappedName.contains(normalizedName))) {
+                return true;
+            }
         }
         return false;
     }

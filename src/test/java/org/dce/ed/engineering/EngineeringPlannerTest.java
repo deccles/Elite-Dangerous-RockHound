@@ -150,4 +150,33 @@ class EngineeringPlannerTest {
         assertEquals(0, need.getOrDefault("carbon", 0).intValue(),
                 "grade-complete batch should not re-buy G1–G5 mats");
     }
+
+    @Test
+    void multiUnitScb_bothAtG3WithBossCells_g4DoesNotRebuyExperimental() {
+        // Repro: Corvette 2× 7A Specialised G3 + Boss Cells targeting G4. After restart, Need
+        // treated the sibling as stock and asked for Chemical Storage Units (Boss Cells) again.
+        EngineeringGoal goal = new EngineeringGoal(
+                "shield-cell-bank-specialised-g4",
+                "Shield Cell Bank",
+                "Specialised",
+                3,
+                0,
+                4,
+                "shield-cell-bank-boss-cells-experimental",
+                GoalPriority.MEDIUM,
+                true,
+                2,
+                0,
+                23L,
+                "Federal Corvette",
+                true);
+
+        EngineeringPlanner planner = new EngineeringPlanner(db);
+        Map<String, Integer> need = planner.materialsForGoal(goal);
+
+        assertEquals(0, need.getOrDefault("chemicalstorageunits", 0).intValue(),
+                "Boss Cells already on both cells must not reappear in Need: " + need);
+        assertTrue(need.getOrDefault("yttrium", 0) > 0 || need.getOrDefault("crackedindustrialfirmware", 0) > 0,
+                "G4 Specialised mats must still be needed: " + need);
+    }
 }

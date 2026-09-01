@@ -283,6 +283,29 @@ public final class EngineeringJournalBlueprintResolver {
     }
 
     /**
+     * Frontier {@code ExperimentalEffect} / {@code ApplyExperimentalEffect} codes whose catalog
+     * display names do not appear in the journal id (e.g. {@code special_shieldcell_oversized} →
+     * Boss Cells). Keys and values are {@link #normalizeToken(String)} form.
+     */
+    private static final Map<String, String> JOURNAL_EXPERIMENTAL_DISPLAY = Map.of(
+            "specialshieldcelloversized", "bosscells",
+            "specialshieldcellgradual", "recyclingcells",
+            "specialshieldcellefficient", "flowcontrol",
+            "specialshieldcelltoughened", "doublebraced",
+            "specialshieldcelllightweight", "strippeddown");
+
+    /**
+     * Catalog experimental display name for a Frontier journal effect id, or empty when unknown.
+     */
+    public static String mappedExperimentalDisplayName(String journalEffect) {
+        if (journalEffect == null || journalEffect.isBlank()) {
+            return "";
+        }
+        String mapped = JOURNAL_EXPERIMENTAL_DISPLAY.get(normalizeToken(journalEffect));
+        return mapped != null ? mapped : "";
+    }
+
+    /**
      * Maps a journal module / loadout item id to the catalog module type.
      * Hardpoint weapons share {@code Weapon_*} blueprint names; the item id is the disambiguator.
      */

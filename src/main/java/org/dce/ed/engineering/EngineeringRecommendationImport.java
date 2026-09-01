@@ -259,8 +259,12 @@ public final class EngineeringRecommendationImport {
         for (BlueprintGrade exp : database.experimentalsFor(moduleType, blueprintName)) {
             String name = normalize(exp.getName());
             String id = normalize(exp.getId());
+            String mappedNorm = EngineeringJournalBlueprintResolver.mappedExperimentalDisplayName(canonical);
             if ((!localisedNorm.isBlank() && (name.equals(localisedNorm) || id.equals(localisedNorm)))
-                    || (!canonicalNorm.isBlank() && (name.equals(canonicalNorm) || id.equals(canonicalNorm)))) {
+                    || (!canonicalNorm.isBlank() && (name.equals(canonicalNorm) || id.equals(canonicalNorm)))
+                    || (!mappedNorm.isBlank() && (name.equals(mappedNorm)
+                            || name.contains(mappedNorm)
+                            || mappedNorm.contains(name)))) {
                 return Optional.of(exp);
             }
         }

@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,6 +66,7 @@ import javax.swing.ScrollPaneConstants;
 import javax.swing.SortOrder;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.ToolTipManager;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -78,6 +80,7 @@ import javax.swing.table.TableRowSorter;
 import org.dce.ed.engineering.BlueprintGrade;
 import org.dce.ed.engineering.EngineeringCraftStore;
 import org.dce.ed.engineering.EngineeringDatabase;
+import org.dce.ed.engineering.EngineerAccessGate;
 import org.dce.ed.engineering.EngineeringGoal;
 import org.dce.ed.engineering.EngineeringGoalMerger;
 import org.dce.ed.engineering.EngineeringJournalBlueprintResolver;
@@ -203,7 +206,11 @@ public class EngineeringTabPanel extends JPanel {
     private static final String STATUS_READY = "Ready";
     private static final String STATUS_TRADES = "w/ Trades";
     private static final String STATUS_SHORT = "Short";
+    private static final String STATUS_LOCKED_PREFIX = "Locked";
     private static final String STATUS_HIDDEN = "Hidden";
+    /** Access-gate hover text is long; keep it up for a full minute while the pointer stays on the cell. */
+    private static final int ACCESS_TOOLTIP_DISMISS_MS = 60_000;
+    private static int overlayTooltipDismissMs = -1;
 
     private static final Icon STATUS_ICON_OK = StatusCircleIcon.check(EdoUi.User.SUCCESS);
     private static final Icon STATUS_ICON_TRADES = StatusCircleIcon.check(Color.YELLOW);
@@ -223,6 +230,8 @@ public class EngineeringTabPanel extends JPanel {
     /** When true on a renderer label, {@link EdoTableCellRenderer} paints digits via custom X (not JLabel align). */
     private static final String PAINT_CENTERED_RIGHT_PROP = "edo.paintCenteredRightNumber";
     private static final String PAINT_DIGIT_BLOCK_PROP = "edo.paintDigitBlock";
+    /** Hang a red * after aligned G# text without shifting the grade. */
+    private static final String PAINT_ACCESS_STAR_PROP = "edo.paintAccessStar";
     private static final int NUMBER_COL_EDGE_PAD = 4;
     /** Extra header width so sort chrome cannot clip labels like "Still need". */
     private static final int HEADER_SORT_CHROME_PAD = 28;
@@ -271,6 +280,8 @@ public class EngineeringTabPanel extends JPanel {
     private final TradeTableModel tradeModel = new TradeTableModel();
     private final JTable tradeTable;
     private JScrollPane goalsScroll;
+    private JPanel engineerAccessNotePanel;
+    private JLabel engineerAccessFootnote;
     private TableRowSorter<ShoppingTableModel> shoppingSorter;
     private JScrollPane shoppingScroll;
     private JScrollPane tradeScroll;
@@ -646,6 +657,27 @@ public class EngineeringTabPanel extends JPanel {
 
         p.add(north, BorderLayout.NORTH);
         p.add(goalsScroll = wrapScroll(goalsTable, 120), BorderLayout.CENTER);
+
+        engineerAccessFootnote = new JLabel(EngineerAccessGate.footnote(List.of())) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public String getToolTipText() {
+                return withAccessTooltipLinger(super.getToolTipText());
+            }
+        };
+        engineerAccessFootnote.setOpaque(false);
+        engineerAccessFootnote.setForeground(EdoUi.User.ERROR);
+        engineerAccessFootnote.setFont(base.deriveFont(Font.PLAIN, fontSize));
+        engineerAccessFootnote.setAlignmentX(Component.LEFT_ALIGNMENT);
+        engineerAccessNotePanel = new JPanel();
+        engineerAccessNotePanel.setOpaque(false);
+        engineerAccessNotePanel.setLayout(new BoxLayout(engineerAccessNotePanel, BoxLayout.Y_AXIS));
+        // One line of space between the table and the footnote.
+        engineerAccessNotePanel.add(Box.createVerticalStrut(fontSize));
+        engineerAccessNotePanel.add(engineerAccessFootnote);
+        engineerAccessNotePanel.setVisible(false);
+        p.add(engineerAccessNotePanel, BorderLayout.SOUTH);
 
         rebuildShipFilterCombo();
         return p;
@@ -1132,7 +1164,7 @@ public class EngineeringTabPanel extends JPanel {
         int wExp;
         goalsTable.putClientProperty(MEASURING_COLUMNS_PROP, Boolean.TRUE);
         try {
-            wTarget = clampColumnWidth(goalsTable, COL_GOAL_TARGET, 28, 80, rowSample);
+            wTarget = clampColumnWidth(goalsTable, COL_GOAL_TARGET, 36, 88, rowSample);
             wExp = clampColumnWidth(goalsTable, COL_GOAL_EXP, 76, 220, rowSample);
         } finally {
             goalsTable.putClientProperty(MEASURING_COLUMNS_PROP, null);
@@ -1204,7 +1236,9 @@ public class EngineeringTabPanel extends JPanel {
         setColumnPixelWidth(goalsTable, COL_GOAL_STATUS, wStatus);
         setColumnPixelWidth(goalsTable, COL_GOAL_EDIT, wEdit);
         setColumnPixelWidth(goalsTable, COL_GOAL_DELETE, wDelete);
-        installCenteredRightNumberColumn(goalsTable, COL_GOAL_TARGET, false, 8);
+        FontMetrics targetFm = goalsTable.getFontMetrics(goalsTable.getFont());
+        int starSlack = targetFm.stringWidth("*") + 2;
+        installCenteredRightNumberColumn(goalsTable, COL_GOAL_TARGET, false, 8 + starSlack);
         pinScrollLeft(goalsScroll);
         JTableHeader header = goalsTable.getTableHeader();
         if (header != null) {
@@ -1789,6 +1823,7 @@ public class EngineeringTabPanel extends JPanel {
 
             @Override
             public String getToolTipText(MouseEvent event) {
+                String tip = null;
                 Point p = event.getPoint();
                 int row = rowAtPoint(p);
                 int col = columnAtPoint(p);
@@ -1797,41 +1832,48 @@ public class EngineeringTabPanel extends JPanel {
                     if (modelCol == COL_GOAL_ENABLED) {
                         Object value = getValueAt(row, col);
                         if (value instanceof Boolean enabled) {
-                            return enabled
+                            tip = enabled
                                     ? "Included in materials and trades"
                                     : "Hidden from materials and trades";
                         }
                     }
-                    if (modelCol == COL_GOAL_PRIORITY) {
+                    if (tip == null && modelCol == COL_GOAL_PRIORITY) {
                         Object value = getValueAt(row, col);
                         if (value instanceof GoalPriority priority) {
-                            return priority.tooltip();
+                            tip = priority.tooltip();
                         }
                     }
-                    if (modelCol == COL_GOAL_STATUS) {
+                    if (tip == null && modelCol == COL_GOAL_STATUS) {
                         Object value = getValueAt(row, col);
                         if (value != null && STATUS_TRADES.equals(value.toString())) {
-                            return "Trades available to complete";
+                            tip = "Trades available to complete";
                         }
                     }
-                    if (modelCol == COL_GOAL_BLUEPRINT || modelCol == COL_GOAL_COMPONENT
-                            || modelCol == COL_GOAL_EXP) {
+                    if (tip == null && (modelCol == COL_GOAL_BLUEPRINT || modelCol == COL_GOAL_COMPONENT
+                            || modelCol == COL_GOAL_EXP)) {
                         String effectTip = engineeringEffectTipAt(row, modelCol);
                         if (effectTip != null && !effectTip.isBlank()) {
-                            return effectTip;
+                            tip = effectTip;
                         }
                     }
-                    // Prefer renderer tooltip (effect descriptions) over raw cell text.
-                    Component renderer = prepareRenderer(getCellRenderer(row, col), row, col);
-                    if (renderer instanceof JComponent jc) {
-                        String rendererTip = jc.getToolTipText();
-                        if (rendererTip != null && !rendererTip.isBlank()) {
-                            return rendererTip;
+                    if (tip == null) {
+                        // Prefer renderer tooltip (effect descriptions) over raw cell text.
+                        Component renderer = prepareRenderer(getCellRenderer(row, col), row, col);
+                        if (renderer instanceof JComponent jc) {
+                            String rendererTip = jc.getToolTipText();
+                            if (rendererTip != null && !rendererTip.isBlank()) {
+                                tip = rendererTip;
+                            }
                         }
                     }
                 }
-                String tip = TableCellToolTipSupport.cellTextAt(this, event);
-                return tip != null ? tip : super.getToolTipText(event);
+                if (tip == null) {
+                    tip = TableCellToolTipSupport.cellTextAt(this, event);
+                }
+                if (tip == null) {
+                    tip = super.getToolTipText(event);
+                }
+                return withAccessTooltipLinger(tip);
             }
 
             @Override
@@ -3364,6 +3406,8 @@ public class EngineeringTabPanel extends JPanel {
             }
         }
 
+        updateEngineerAccessFootnote(visibleGoals);
+
         shoppingModel.setRows(shopping);
         Map<String, Integer> shortfallsAfterTrades =
                 planner.shortfalls(displayGoals, displayMats, invAfterTrades);
@@ -3895,6 +3939,13 @@ public class EngineeringTabPanel extends JPanel {
             goalsTable.setRowHeight(Math.max(36, fontSize * 2 + 12));
             syncGoalsRowHeights();
         }
+        if (engineerAccessFootnote != null) {
+            engineerAccessFootnote.setFont(font.deriveFont(Font.PLAIN, fontSize));
+        }
+        if (engineerAccessNotePanel != null && engineerAccessNotePanel.getComponentCount() > 0) {
+            engineerAccessNotePanel.remove(0);
+            engineerAccessNotePanel.add(Box.createVerticalStrut(fontSize), 0);
+        }
         if (tradeTable != null) {
             tradeTable.setRowHeight(Math.max(18, fontSize + 6));
             syncTradeRowHeights();
@@ -3917,6 +3968,56 @@ public class EngineeringTabPanel extends JPanel {
         };
     }
 
+    private EngineerAccessGate.Block accessBlockFor(EngineeringGoal goal) {
+        return EngineerAccessGate.blockingGrade(goal, database, reputationTracker).orElse(null);
+    }
+
+    private void updateEngineerAccessFootnote(List<GoalUiRow> visibleGoals) {
+        if (engineerAccessNotePanel == null || engineerAccessFootnote == null) {
+            return;
+        }
+        LinkedHashSet<String> details = new LinkedHashSet<>();
+        LinkedHashSet<String> engineers = new LinkedHashSet<>();
+        if (visibleGoals != null) {
+            for (GoalUiRow row : visibleGoals) {
+                if (row == null || row.isMaterials()) {
+                    continue;
+                }
+                EngineerAccessGate.Block access = accessBlockFor(row.blueprint());
+                if (access == null) {
+                    continue;
+                }
+                if (access.detail() != null && !access.detail().isBlank()) {
+                    details.add(access.detail());
+                }
+                String who = access.engineer() != null ? access.engineer().trim() : "";
+                if (!who.isEmpty()) {
+                    engineers.add(who);
+                }
+            }
+        }
+        boolean show = !details.isEmpty();
+        engineerAccessNotePanel.setVisible(show);
+        if (!show) {
+            engineerAccessFootnote.setToolTipText(null);
+            return;
+        }
+        engineerAccessFootnote.setText(EngineerAccessGate.footnote(engineers));
+        engineerAccessFootnote.setToolTipText(
+                EngineerAccessGate.htmlTooltip(String.join("\n\n", details)));
+    }
+
+    private static String withAccessTooltipLinger(String tip) {
+        ToolTipManager mgr = ToolTipManager.sharedInstance();
+        if (overlayTooltipDismissMs < 0) {
+            overlayTooltipDismissMs = mgr.getDismissDelay();
+        }
+        mgr.setDismissDelay(EngineerAccessGate.isHtmlTooltip(tip)
+                ? ACCESS_TOOLTIP_DISMISS_MS
+                : overlayTooltipDismissMs);
+        return tip;
+    }
+
     private static String formatMaterialsGoalStatusText(GoalReadiness readiness) {
         // Materials reserves have no craft step — stocked means Ready (not Complete; that implied
         // the goal auto-finished and confused people who had just added an acquisition target).
@@ -3937,6 +4038,7 @@ public class EngineeringTabPanel extends JPanel {
                 boolean isSelected, boolean hasFocus, int row, int column) {
             // Shared renderer instance: always clear number-paint mode before column-specific setup.
             clearCenteredRightNumberPaint(this);
+            putClientProperty(PAINT_ACCESS_STAR_PROP, null);
             Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
             if (c instanceof JLabel label) {
                 label.setOpaque(false);
@@ -3974,6 +4076,10 @@ public class EngineeringTabPanel extends JPanel {
                 int x = in.left + Math.max(0, (innerW - block) / 2 + (block - textW));
                 int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
                 g2.drawString(text, x, y);
+                if (Boolean.TRUE.equals(getClientProperty(PAINT_ACCESS_STAR_PROP))) {
+                    g2.setColor(EdoUi.User.ERROR);
+                    g2.drawString("*", x + textW, y);
+                }
             } finally {
                 g2.dispose();
             }
@@ -4089,17 +4195,24 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
-    private static final class GoalTargetCellRenderer extends EdoTableCellRenderer {
+    private final class GoalTargetCellRenderer extends EdoTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
             Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
             if (c instanceof JLabel label) {
-                if (value != null) {
-                    String text = value.toString();
+                String text = value != null ? value.toString() : "";
+                int modelRow = table != null ? table.convertRowIndexToModel(row) : row;
+                GoalUiRow goalRow = goalRowAtUi(modelRow);
+                EngineerAccessGate.Block access = goalRow != null && goalRow.blueprint() != null
+                        ? accessBlockFor(goalRow.blueprint()) : null;
+                applyCenteredRightNumberPadding(label, table, column);
+                if (access != null) {
+                    label.putClientProperty(PAINT_ACCESS_STAR_PROP, Boolean.TRUE);
+                    label.setToolTipText(EngineerAccessGate.htmlTooltip(access.detail()));
+                } else {
                     label.setToolTipText(text.isBlank() || "—".equals(text) ? null : text);
                 }
-                applyCenteredRightNumberPadding(label, table, column);
             }
             return c;
         }
@@ -4221,7 +4334,13 @@ public class EngineeringTabPanel extends JPanel {
                     } else if (progress != null && !progress.isBlank()) {
                         tip = text + " · " + progress;
                     }
-                    setToolTipText(tip);
+                    EngineerAccessGate.Block access = accessBlockFor(goal);
+                    if (access != null) {
+                        barColor = Color.YELLOW;
+                        setToolTipText(EngineerAccessGate.htmlTooltip(access.detail()));
+                    } else {
+                        setToolTipText(tip);
+                    }
                     return this;
                 }
             }
@@ -4234,6 +4353,10 @@ public class EngineeringTabPanel extends JPanel {
 
             if (text.isBlank()) {
                 setToolTipText(null);
+            } else if (text.startsWith(STATUS_LOCKED_PREFIX)) {
+                EngineerAccessGate.Block access = goalRow != null && goalRow.blueprint() != null
+                        ? accessBlockFor(goalRow.blueprint()) : null;
+                setToolTipText(access != null ? EngineerAccessGate.htmlTooltip(access.detail()) : text);
             } else if (STATUS_TRADES.equals(text)) {
                 setToolTipText("Trades available to complete");
             } else {
@@ -4247,6 +4370,9 @@ public class EngineeringTabPanel extends JPanel {
             } else if (STATUS_COMPLETE.equals(text)) {
                 label.setIcon(STATUS_ICON_OK);
                 label.setForeground(EdoUi.User.SUCCESS);
+            } else if (text.startsWith(STATUS_LOCKED_PREFIX)) {
+                label.setIcon(STATUS_ICON_TRADES);
+                label.setForeground(Color.YELLOW);
             } else if (STATUS_READY.equals(text)) {
                 label.setIcon(STATUS_ICON_OK);
                 label.setForeground(EdoUi.User.SUCCESS);
@@ -4271,6 +4397,9 @@ public class EngineeringTabPanel extends JPanel {
         }
 
         private Color readinessColor(GoalReadiness readiness, String text) {
+            if (text != null && text.startsWith(STATUS_LOCKED_PREFIX)) {
+                return Color.YELLOW;
+            }
             if (readiness != null) {
                 return switch (readiness) {
                     case READY -> EdoUi.User.SUCCESS;
@@ -4297,9 +4426,8 @@ public class EngineeringTabPanel extends JPanel {
                 return;
             }
             int padX = 6;
-            int padY = 8;
+            int h = Math.max(4, Math.min((getHeight() * 3) / 8, getHeight() - 8));
             int w = Math.max(0, getWidth() - padX * 2);
-            int h = Math.max(8, getHeight() - padY * 2);
             int x = padX;
             int y = Math.max(0, (getHeight() - h) / 2);
             Graphics2D gPaint = (Graphics2D) g2.create();

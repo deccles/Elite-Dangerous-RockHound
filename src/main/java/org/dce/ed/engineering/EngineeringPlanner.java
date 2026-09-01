@@ -523,14 +523,14 @@ public final class EngineeringPlanner {
             required.merge(e.getKey(), e.getValue(), Integer::sum);
         }
         if (remaining > 1) {
-            // Further units are separate physical modules. Only treat them as "experimental-only"
-            // when nothing has been completed yet and the shared progress is already at target
-            // grade (multi-slot experimental apply on modules that are already graded). Once any
-            // unit is finished, remaining siblings still need full G0→target + experimental.
+            // Shared fromGrade is the worst incomplete module. When nothing is finished yet,
+            // remaining siblings are at that same progress (e.g. two G3 SCBs going to G4), not
+            // stock G0 — costing them as fresh modules re-added experimental mats like Chemical
+            // Storage Units after a restart. Once any unit is finished, unknown siblings are
+            // still treated as G0→target + experimental.
             EngineeringGoal extraUnit;
-            if (goal.getCompletedUnits() == 0
-                    && goal.getFromGrade() >= goal.getTargetGrade()) {
-                extraUnit = goal.withExperimentalApplied(false);
+            if (goal.getCompletedUnits() == 0) {
+                extraUnit = goal;
             } else {
                 extraUnit = goal.withProgress(0, 0).withExperimentalApplied(false);
             }

@@ -377,6 +377,67 @@ class EngineeringGoalProgressLoadoutTest {
     }
 
     @Test
+    void applyLoadout_twoScbsWithBossCellsJournalId_doesNotNeedChemicalStorageUnits() {
+        String loadoutJson = """
+                {
+                  "timestamp": "2026-09-01T18:00:00Z",
+                  "event": "Loadout",
+                  "Ship": "federation_corvette",
+                  "ShipID": 23,
+                  "Modules": [
+                    {
+                      "Slot": "Slot02_Size7",
+                      "Item": "int_shieldcellbank_size7_class5",
+                      "Engineering": {
+                        "BlueprintName": "ShieldCellBank_Specialised",
+                        "Level": 3,
+                        "Quality": 1.0,
+                        "ExperimentalEffect": "special_shieldcell_oversized"
+                      }
+                    },
+                    {
+                      "Slot": "Slot03_Size7",
+                      "Item": "int_shieldcellbank_size7_class5",
+                      "Engineering": {
+                        "BlueprintName": "ShieldCellBank_Specialised",
+                        "Level": 3,
+                        "Quality": 1.0,
+                        "ExperimentalEffect": "special_shieldcell_oversized"
+                      }
+                    }
+                  ]
+                }
+                """;
+        LoadoutEvent loadout = (LoadoutEvent) parser.parseRecord(loadoutJson);
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "shield-cell-bank-specialised-g4",
+                "Shield Cell Bank",
+                "Specialised",
+                0,
+                0,
+                4,
+                "shield-cell-bank-boss-cells-experimental",
+                GoalPriority.MEDIUM,
+                false,
+                2,
+                0,
+                23L,
+                "Federal Corvette",
+                true));
+
+        assertTrue(EngineeringGoalProgress.applyLoadout(goals, loadout, db));
+        EngineeringGoal goal = goals.get(0);
+        assertTrue(goal.isExperimentalApplied(), "Boss Cells journal id must count as applied");
+        assertEquals(3, goal.getFromGrade());
+
+        EngineeringPlanner planner = new EngineeringPlanner(db);
+        Map<String, Integer> need = planner.materialsForGoal(goal);
+        assertEquals(0, need.getOrDefault("chemicalstorageunits", 0).intValue(),
+                "already-applied Boss Cells must not reappear in Need: " + need);
+    }
+
+    @Test
     void applyLoadout_siblingExperimental_doesNotAdvanceOtherOverchargedGoals() {
         // Repro: one Huge Overcharged+Corrosive at G4 used to stamp G5 (G5 0/5) onto Auto Loader
         // and Incendiary Multi-cannon goals as well — looking "done" while those guns are stock.

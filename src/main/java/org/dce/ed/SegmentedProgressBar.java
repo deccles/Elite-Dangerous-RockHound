@@ -37,8 +37,10 @@ final class SegmentedProgressBar extends JComponent {
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             int padX = 6;
-            int previousPaintHeight = Math.max(1, getHeight() - 4);
-            int paintHeight = Math.max(progress.size(), (int) Math.round(previousPaintHeight * 0.8));
+            int innerHeight = Math.max(1, getHeight() - 4);
+            // Goals rows are two lines tall; keep a single bar well under half the cell.
+            int maxPaintHeight = Math.max(progress.size(), (getHeight() * 3) / 8);
+            int paintHeight = Math.min(innerHeight, maxPaintHeight);
             int padY = Math.max(0, (getHeight() - paintHeight) / 2);
             int gap = 1;
             int width = Math.max(0, getWidth() - padX * 2);
