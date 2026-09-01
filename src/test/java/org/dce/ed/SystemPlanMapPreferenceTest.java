@@ -47,6 +47,23 @@ class SystemPlanMapPreferenceTest {
         }
     }
 
+    @Test
+    void keplerOrbitGeometryIsOffWhenPlanMapIsDisabled() {
+        boolean savedMap = OverlayPreferences.isSystemPlanMapEnabled();
+        try {
+            OverlayPreferences.setSystemPlanMapEnabled(false);
+            assertFalse(SystemTabPanel.orbitGeometryEnabled());
+            assertFalse(SystemTabPanel.shouldRunOrbitEvolutionTimer(false, true),
+                    "from-ship sort must not run Kepler timers while the plan map is off");
+            OverlayPreferences.setSystemPlanMapEnabled(true);
+            assertTrue(SystemTabPanel.orbitGeometryEnabled());
+            assertTrue(SystemTabPanel.shouldRunOrbitEvolutionTimer(true, true));
+            assertFalse(SystemTabPanel.shouldRunOrbitEvolutionTimer(true, false));
+        } finally {
+            OverlayPreferences.setSystemPlanMapEnabled(savedMap);
+        }
+    }
+
     private static boolean containsComponent(Component component, Class<?> type) {
         return findComponent(component, type) != null;
     }

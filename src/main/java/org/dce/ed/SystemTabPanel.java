@@ -1197,7 +1197,8 @@ public class SystemTabPanel extends JPanel {
         bioHeaderAllDwellTimer.setRepeats(false);
 
         shipTelemetryRebuildTimer = new Timer(SHIP_TELEMETRY_REBUILD_DEBOUNCE_MS, e -> {
-            if (!OverlayPreferences.isSystemTabDistanceFromShip() || orbitAnimDemoActive) {
+            if (!orbitGeometryEnabled() || !OverlayPreferences.isSystemTabDistanceFromShip()
+                    || orbitAnimDemoActive) {
                 return;
             }
             Map<Integer, Double> next = computeShipCentricDistancesLs();
@@ -1209,7 +1210,8 @@ public class SystemTabPanel extends JPanel {
         shipTelemetryRebuildTimer.setRepeats(false);
 
         orbitEvolutionTimer = new Timer(ORBIT_EVOLUTION_REBUILD_INTERVAL_MS, e -> {
-            if (!OverlayPreferences.isSystemTabDistanceFromShip() || orbitAnimDemoActive) {
+            if (!orbitGeometryEnabled() || !OverlayPreferences.isSystemTabDistanceFromShip()
+                    || orbitAnimDemoActive) {
                 return;
             }
             Map<Integer, Double> next = computeShipCentricDistancesLs();
@@ -2052,7 +2054,7 @@ public class SystemTabPanel extends JPanel {
                 requestRebuild();
             }
 
-            if (OverlayPreferences.isSystemTabDistanceFromShip() && !nearRefDirty) {
+            if (orbitGeometryEnabled() && OverlayPreferences.isSystemTabDistanceFromShip() && !nearRefDirty) {
                 scheduleShipTelemetryRebuild();
             }
         });
@@ -2376,7 +2378,11 @@ public class SystemTabPanel extends JPanel {
 
     private void rebuildTable() {
         dedupeBodiesByName();
-        systemSession = SystemSessionFactory.open(state);
+        if (orbitGeometryEnabled()) {
+            systemSession = SystemSessionFactory.open(state);
+        } else {
+            systemSession = null;
+        }
         updateHeaderLabel();
 
         boolean justSeededBioCollapseDefaults = false;
@@ -2404,7 +2410,8 @@ public class SystemTabPanel extends JPanel {
         }
         SystemTabTableSortMode tableSortMode = OverlayPreferences.getSystemTabTableSortMode();
         boolean sortByValue = tableSortMode == SystemTabTableSortMode.BY_VALUE;
-        boolean shipDistMode = !sortByValue && tableSortMode == SystemTabTableSortMode.FROM_SHIP;
+        boolean orbitGeom = orbitGeometryEnabled();
+        boolean shipDistMode = orbitGeom && !sortByValue && tableSortMode == SystemTabTableSortMode.FROM_SHIP;
         Map<Integer, Double> shipCentric = shipDistMode ? computeShipCentricDistancesLs() : null;
         boolean shipAnchorMissing = shipDistMode && (shipCentric == null || shipCentric.isEmpty());
         if (shipAnchorMissing) {
@@ -2413,7 +2420,7 @@ public class SystemTabPanel extends JPanel {
         }
         Map<Integer, BodyInfo> bodies = state.getBodies();
         Map<Integer, Double> geometryFallbackDistLs = null;
-        if (!shipDistMode && bodies != null && !bodies.isEmpty()) {
+        if (orbitGeom && !shipDistMode && bodies != null && !bodies.isEmpty()) {
             int anchKey = SystemOrbitGeometry.primaryAnchorBodyMapKey(bodies);
             Map<Integer, double[]> posGeom = SystemOrbitGeometry.bodyPositionsMetres(bodies, tableDistanceEpoch(),
                     freezeBarycentreStarsDuringOrbitAnim());
@@ -2949,6 +2956,14 @@ public class SystemTabPanel extends JPanel {
     }
 
     private void applySystemPlanMapEnabledPreference() {
+        try {
+            applySystemPlanMapEnabledPreferenceLayout();
+        } finally {
+            refreshOrbitEvolutionTimerRunning();
+        }
+    }
+
+    private void applySystemPlanMapEnabledPreferenceLayout() {
         if (systemTablePane == null || systemTableMapSplit == null) {
             return;
         }
@@ -5612,21 +5627,34 @@ static class Row {
         refreshOrbitEvolutionTimerRunning();
     }
 
+    /**
+     * Kepler body positions exist to drive the plan map and map-backed table distances.
+     * With the System plan map preference off, the table uses journal arrival distances only.
+     */
+    static boolean orbitGeometryEnabled() {
+        return OverlayPreferences.isSystemPlanMapEnabled();
+    }
+
     private void refreshOrbitEvolutionTimerRunning() {
         if (orbitEvolutionTimer == null) {
             return;
         }
-        if (OverlayPreferences.isSystemTabDistanceFromShip()) {
+        if (shouldRunOrbitEvolutionTimer(orbitGeometryEnabled(), OverlayPreferences.isSystemTabDistanceFromShip())) {
             orbitEvolutionTimer.start();
         } else {
             orbitEvolutionTimer.stop();
         }
     }
 
+    static boolean shouldRunOrbitEvolutionTimer(boolean planMapEnabled, boolean distanceFromShip) {
+        return planMapEnabled && distanceFromShip;
+    }
+
     private void scheduleShipTelemetryRebuild() {
-        if (shipTelemetryRebuildTimer != null) {
-            shipTelemetryRebuildTimer.restart();
+        if (!orbitGeometryEnabled() || shipTelemetryRebuildTimer == null) {
+            return;
         }
+        shipTelemetryRebuildTimer.restart();
     }
 
     private static boolean shouldRefreshFleetCarrierProximity(EliteLogEvent event) {
@@ -5922,6 +5950,9 @@ static class Row {
     }
 
     private Map<Integer, Double> computeShipCentricDistancesLs() {
+        if (!orbitGeometryEnabled()) {
+            return Collections.emptyMap();
+        }
         Map<Integer, BodyInfo> bodies = snapshotBodiesForGeometry(state.getBodies());
         if (bodies == null || bodies.isEmpty()) {
             return Collections.emptyMap();
