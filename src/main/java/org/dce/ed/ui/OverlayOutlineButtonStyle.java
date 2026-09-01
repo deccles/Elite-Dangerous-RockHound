@@ -142,10 +142,37 @@ public final class OverlayOutlineButtonStyle {
     }
 
     /**
+     * Disabled outline labels always use Kill scripts idle gray. BasicButtonUI otherwise
+     * derives ink from {@code background.brighter()/darker()}, which is nearly invisible
+     * on dark hit-safe plates (Route tab Exec buttons restyled with {@code forceThemeInk=false}).
+     */
+    private static class OutlineButtonUI extends BasicButtonUI {
+        @Override
+        protected void paintText(Graphics g, AbstractButton b, java.awt.Rectangle textRect, String text) {
+            Color previous = b.getForeground();
+            boolean enabled = b.isEnabled();
+            try {
+                if (!enabled) {
+                    b.setForeground(EdoUi.Internal.OUTLINE_IDLE);
+                    b.getModel().setEnabled(true);
+                } else if (Boolean.TRUE.equals(b.getClientProperty(THEME_INK_KEY))) {
+                    b.setForeground(EdoUi.User.MAIN_TEXT);
+                }
+                super.paintText(g, b, textRect, text);
+            } finally {
+                if (!enabled) {
+                    b.getModel().setEnabled(false);
+                }
+                b.setForeground(previous);
+            }
+        }
+    }
+
+    /**
      * Always paints an opaque rounded plate before border/text so clicks land on Control Panel
      * buttons in hybrid / transparent overlay modes.
      */
-    private static final class HitSafeButtonUI extends BasicButtonUI {
+    private static final class HitSafeButtonUI extends OutlineButtonUI {
         static final HitSafeButtonUI INSTANCE = new HitSafeButtonUI();
 
         @Override
@@ -169,46 +196,6 @@ public final class OverlayOutlineButtonStyle {
         @Override
         protected void paintButtonPressed(Graphics g, AbstractButton b) {
             // Pressed shading would reintroduce rectangular/light artifacts on the plate.
-        }
-
-        @Override
-        protected void paintText(Graphics g, AbstractButton b, java.awt.Rectangle textRect, String text) {
-            if (Boolean.TRUE.equals(b.getClientProperty(THEME_INK_KEY))) {
-                // BasicButtonUI's disabled path derives ink from background.brighter()/darker(),
-                // which is nearly invisible on our dark hit-safe plates (Combat fighter orders).
-                // Disabled look matches Kill scripts idle: solid gray outline + text.
-                Color previous = b.getForeground();
-                boolean enabled = b.isEnabled();
-                try {
-                    b.setForeground(enabled ? EdoUi.User.MAIN_TEXT : EdoUi.Internal.OUTLINE_IDLE);
-                    if (!enabled) {
-                        b.getModel().setEnabled(true);
-                    }
-                    super.paintText(g, b, textRect, text);
-                } finally {
-                    if (!enabled) {
-                        b.getModel().setEnabled(false);
-                    }
-                    b.setForeground(previous);
-                }
-                return;
-            }
-            if (!b.getModel().isEnabled()) {
-                Object disabled = b.getClientProperty(DANGER_DISABLED_TEXT_KEY);
-                if (disabled instanceof Color disabledColor) {
-                    Color previous = b.getForeground();
-                    try {
-                        b.setForeground(disabledColor);
-                        b.getModel().setEnabled(true);
-                        super.paintText(g, b, textRect, text);
-                    } finally {
-                        b.getModel().setEnabled(false);
-                        b.setForeground(previous);
-                    }
-                    return;
-                }
-            }
-            super.paintText(g, b, textRect, text);
         }
     }
 
@@ -415,65 +402,19 @@ public final class OverlayOutlineButtonStyle {
     }
 
     /** Paints label text with live {@link EdoUi.User#MAIN_TEXT}. */
-    private static final class ThemeInkButtonUI extends BasicButtonUI {
+    private static final class ThemeInkButtonUI extends OutlineButtonUI {
         private static final ThemeInkButtonUI INSTANCE = new ThemeInkButtonUI();
 
         public static ComponentUI createUI(JComponent c) {
             return INSTANCE;
         }
-
-        @Override
-        protected void paintText(Graphics g, AbstractButton b, java.awt.Rectangle textRect, String text) {
-            if (!Boolean.TRUE.equals(b.getClientProperty(THEME_INK_KEY))) {
-                super.paintText(g, b, textRect, text);
-                return;
-            }
-            // BasicButtonUI's disabled path uses background.brighter()/darker(). Chip buttons are
-            // transparent, so that paints invisible black text (empty orange outline chips).
-            Color previous = b.getForeground();
-            boolean enabled = b.isEnabled();
-            try {
-                b.setForeground(enabled
-                        ? EdoUi.User.MAIN_TEXT
-                        : EdoUi.Internal.MAIN_TEXT_ALPHA_140);
-                if (!enabled) {
-                    b.getModel().setEnabled(true);
-                }
-                super.paintText(g, b, textRect, text);
-            } finally {
-                if (!enabled) {
-                    b.getModel().setEnabled(false);
-                }
-                b.setForeground(previous);
-            }
-        }
     }
 
-    private static final class DangerOutlineButtonUI extends BasicButtonUI {
+    private static final class DangerOutlineButtonUI extends OutlineButtonUI {
         private static final DangerOutlineButtonUI INSTANCE = new DangerOutlineButtonUI();
 
         public static ComponentUI createUI(JComponent c) {
             return INSTANCE;
-        }
-
-        @Override
-        protected void paintText(Graphics g, AbstractButton b, java.awt.Rectangle textRect, String text) {
-            if (!b.getModel().isEnabled()) {
-                Object disabled = b.getClientProperty(DANGER_DISABLED_TEXT_KEY);
-                if (disabled instanceof Color disabledColor) {
-                    Color previous = b.getForeground();
-                    try {
-                        b.setForeground(disabledColor);
-                        b.getModel().setEnabled(true);
-                        super.paintText(g, b, textRect, text);
-                    } finally {
-                        b.getModel().setEnabled(false);
-                        b.setForeground(previous);
-                    }
-                    return;
-                }
-            }
-            super.paintText(g, b, textRect, text);
         }
     }
 }
