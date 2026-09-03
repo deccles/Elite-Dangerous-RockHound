@@ -876,6 +876,27 @@ public final class CombatTabPanel extends JPanel {
                 : "—";
     }
 
+    static String formatKillLocal(CombatTargetTracker.KillVictim kill) {
+        if (kill == null) {
+            return "—";
+        }
+        long total = Math.max(0L, kill.getTotalReward());
+        long remote = Math.max(0L, kill.getOtherReward());
+        long local = Math.max(0L, total - remote);
+        if (local > 0L) {
+            return formatCompact(local);
+        }
+        return remote > 0L ? "Clean" : "—";
+    }
+
+    static String formatKillRemote(CombatTargetTracker.KillVictim kill) {
+        if (kill == null) {
+            return "—";
+        }
+        long remote = Math.max(0L, kill.getOtherReward());
+        return remote > 0L ? formatCompact(remote) : "—";
+    }
+
     static String formatTotal(CombatTargetTracker.LockedTarget target) {
         long bounty = target.getBounty() != null ? Math.max(0L, target.getBounty()) : 0L;
         if (isClean(target) && bounty == 0L) {
@@ -1041,7 +1062,7 @@ public final class CombatTabPanel extends JPanel {
             return new BountyRow(
                     dash(s.getPilotName()),
                     dash(s.getShipDisplay()),
-                    s.getFirstBounty() == 0L && "Clean".equalsIgnoreCase(s.getLegalStatus())
+                    "Clean".equalsIgnoreCase(s.getLegalStatus())
                             ? "Clean"
                             : formatCompact(s.getFirstBounty()),
                     formatRemote(s.getRemoteBounty(), s.isWarrantScanned()),
@@ -1052,8 +1073,6 @@ public final class CombatTabPanel extends JPanel {
 
         static BountyRow fromKill(CombatTargetTracker.KillVictim k) {
             long total = Math.max(0L, k.getTotalReward());
-            long remote = Math.max(0L, k.getOtherReward());
-            long local = Math.max(0L, total - remote);
             String pilot = k.getPilotName();
             if (pilot == null || pilot.isBlank()) {
                 pilot = k.getVictimFaction();
@@ -1061,8 +1080,8 @@ public final class CombatTabPanel extends JPanel {
             return new BountyRow(
                     dash(pilot),
                     dash(k.getShipDisplay()),
-                    local > 0L ? formatCompact(local) : "—",
-                    remote > 0L ? formatCompact(remote) : "—",
+                    formatKillLocal(k),
+                    formatKillRemote(k),
                     total > 0L ? formatCompact(total) : "—",
                     total,
                     false,

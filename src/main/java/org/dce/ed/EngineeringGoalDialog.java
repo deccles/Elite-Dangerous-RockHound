@@ -357,6 +357,7 @@ final class EngineeringGoalDialog extends JDialog {
             return;
         }
         blueprintSummaryLabel.setText(goal.getModuleType() + ": " + goal.getBlueprintName());
+        applyBlueprintSummaryHighlight(goal.getModuleType(), goal.getBlueprintName());
         quantitySpinner.setValue(goal.getQuantity());
         gradeCombo.removeAllItems();
         experimentalCombo.removeAllItems();
@@ -783,10 +784,13 @@ final class EngineeringGoalDialog extends JDialog {
                     setText(opt.displayLabel());
                     setToolTipText(database.blueprintEffectTooltip(
                             opt.moduleType(), opt.blueprintName(), opt.maxGrade()));
+                    setForeground(database.blueprintRequiresMercCoins(opt.moduleType(), opt.blueprintName())
+                            ? EdoUi.User.PRIMARY_HIGHLIGHT
+                            : EdoUi.User.MAIN_TEXT);
                 } else {
                     setToolTipText(null);
+                    setForeground(EdoUi.User.MAIN_TEXT);
                 }
-                setForeground(EdoUi.User.MAIN_TEXT);
                 setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
                 return c;
             }
@@ -880,7 +884,7 @@ final class EngineeringGoalDialog extends JDialog {
             if (!typed.equalsIgnoreCase(selectedBlueprint.fieldText())
                     && !typed.equalsIgnoreCase(selectedBlueprint.displayLabel())) {
                 selectedBlueprint = null;
-                blueprintSummaryLabel.setText(" ");
+                clearBlueprintSummary();
                 updateSelectionDetails();
             }
         }
@@ -946,7 +950,7 @@ final class EngineeringGoalDialog extends JDialog {
             selectedBlueprint = option;
             blueprintField.setText(option.fieldText());
             blueprintField.setCaretPosition(blueprintField.getText().length());
-            blueprintSummaryLabel.setText(option.moduleType() + ": " + option.blueprintName());
+            showBlueprintSummary(option.moduleType(), option.blueprintName());
         } finally {
             suppressBlueprintFieldEvents = false;
         }
@@ -1004,7 +1008,7 @@ final class EngineeringGoalDialog extends JDialog {
             BlueprintOption keep = findCatalogOption(selectedBlueprint.moduleType(), selectedBlueprint.blueprintName());
             if (keep == null) {
                 selectedBlueprint = null;
-                blueprintSummaryLabel.setText(" ");
+                clearBlueprintSummary();
                 updateSelectionDetails();
             } else {
                 selectedBlueprint = keep;
@@ -1070,7 +1074,7 @@ final class EngineeringGoalDialog extends JDialog {
     private void selectOption(BlueprintOption wanted) {
         if (wanted == null) {
             selectedBlueprint = null;
-            blueprintSummaryLabel.setText(" ");
+            clearBlueprintSummary();
             updateSelectionDetails();
             return;
         }
@@ -1085,7 +1089,7 @@ final class EngineeringGoalDialog extends JDialog {
         }
         if (match == null) {
             selectedBlueprint = null;
-            blueprintSummaryLabel.setText(" ");
+            clearBlueprintSummary();
             updateSelectionDetails();
             return;
         }
@@ -1093,7 +1097,7 @@ final class EngineeringGoalDialog extends JDialog {
         try {
             selectedBlueprint = match;
             blueprintField.setText(match.fieldText());
-            blueprintSummaryLabel.setText(match.moduleType() + ": " + match.blueprintName());
+            showBlueprintSummary(match.moduleType(), match.blueprintName());
         } finally {
             suppressBlueprintFieldEvents = false;
         }
@@ -1294,7 +1298,13 @@ final class EngineeringGoalDialog extends JDialog {
                 sb.append(", ");
             }
             first = false;
-            sb.append(e.getValue()).append("× ").append(htmlEscape(database.materialDisplayName(e.getKey())));
+            String name = htmlEscape(database.materialDisplayName(e.getKey()));
+            if (EngineeringMaterialKeys.isMercCoins(e.getKey())) {
+                sb.append("<span style='color:").append(EdoUi.htmlRgb(EdoUi.User.PRIMARY_HIGHLIGHT)).append(";'>")
+                        .append(e.getValue()).append("× ").append(name).append("</span>");
+            } else {
+                sb.append(e.getValue()).append("× ").append(name);
+            }
         }
         sb.append("</body></html>");
         return sb.toString();
@@ -1532,6 +1542,25 @@ final class EngineeringGoalDialog extends JDialog {
             return "";
         }
         return s.replace("&", "&amp;").replace("<", "&lt;");
+    }
+
+    private void showBlueprintSummary(String moduleType, String blueprintName) {
+        if (moduleType == null || blueprintName == null) {
+            clearBlueprintSummary();
+            return;
+        }
+        blueprintSummaryLabel.setText(moduleType + ": " + blueprintName);
+        applyBlueprintSummaryHighlight(moduleType, blueprintName);
+    }
+
+    private void clearBlueprintSummary() {
+        blueprintSummaryLabel.setText(" ");
+        blueprintSummaryLabel.setForeground(EdoUi.User.MAIN_TEXT);
+    }
+
+    private void applyBlueprintSummaryHighlight(String moduleType, String blueprintName) {
+        boolean merc = database.blueprintRequiresMercCoins(moduleType, blueprintName);
+        blueprintSummaryLabel.setForeground(merc ? EdoUi.User.PRIMARY_HIGHLIGHT : EdoUi.User.MAIN_TEXT);
     }
 
     private record BlueprintOption(String moduleType, String blueprintName, int maxGrade) {

@@ -118,6 +118,49 @@ public final class EngineeringDatabase {
         return list == null ? List.of() : list;
     }
 
+    /** True when any non-experimental grade of this recipe spends Merc Coins. */
+    public boolean blueprintRequiresMercCoins(String moduleType, String blueprintName) {
+        for (BlueprintGrade grade : gradesFor(moduleType, blueprintName)) {
+            if (grade.isExperimental()) {
+                continue;
+            }
+            for (MaterialRequirement mat : grade.getMaterials()) {
+                if (EngineeringMaterialKeys.isMercCoins(mat.getKey())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True when this module type has at least one non-experimental recipe and every such recipe
+     * spends Merc Coins (Cargo Rack, Abrasion Blaster, …). Mixed types such as Fuel Scoop are false.
+     */
+    public boolean moduleHasOnlyMercCoinBlueprints(String moduleType) {
+        if (moduleType == null || moduleType.isBlank()) {
+            return false;
+        }
+        boolean sawRecipe = false;
+        for (List<BlueprintGrade> list : byModuleAndName.values()) {
+            if (list == null || list.isEmpty()) {
+                continue;
+            }
+            BlueprintGrade sample = list.get(0);
+            if (sample == null || sample.isExperimental()) {
+                continue;
+            }
+            if (!EngineeringJournalBlueprintResolver.sameModuleType(moduleType, sample.getModuleType())) {
+                continue;
+            }
+            sawRecipe = true;
+            if (!blueprintRequiresMercCoins(sample.getModuleType(), sample.getName())) {
+                return false;
+            }
+        }
+        return sawRecipe;
+    }
+
     public List<BlueprintGrade> experimentalsFor(String moduleType, String parentBlueprintName) {
         List<BlueprintGrade> out = new ArrayList<>();
         for (BlueprintGrade bp : allBlueprints) {

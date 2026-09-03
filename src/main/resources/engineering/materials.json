@@ -1,5 +1,12 @@
 [
   {
+    "key": "merccoins",
+    "name": "Merc Coins",
+    "type": "Currency",
+    "subtype": "MercCoin",
+    "grade": 1
+  },
+  {
     "key": "aberrantshieldpatternanalysis",
     "name": "Aberrant Shield Pattern Analysis",
     "type": "Encoded",

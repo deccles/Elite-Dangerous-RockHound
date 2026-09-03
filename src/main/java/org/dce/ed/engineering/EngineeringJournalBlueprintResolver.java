@@ -344,6 +344,15 @@ public final class EngineeringJournalBlueprintResolver {
         if (m.contains("cannon")) {
             return "Cannon";
         }
+        if (m.contains("mininglaser")) {
+            return "Mining Laser";
+        }
+        if (m.contains("abrasionblaster") || m.contains("mining_abrblstr") || m.contains("abrblstr")) {
+            return "Abrasion Blaster";
+        }
+        if (m.contains("enzyme")) {
+            return "Enzyme Missile Rack";
+        }
         if (m.contains("torpedo")) {
             return "Torpedo Pylon";
         }
@@ -387,6 +396,12 @@ public final class EngineeringJournalBlueprintResolver {
         }
         if (m.contains("detailedsurfacescanner") || m.contains("surfacescanner")) {
             return "Surface Scanner";
+        }
+        if (m.contains("modulereinforcement")) {
+            return "Module Reinforcement Package";
+        }
+        if (m.contains("cargorack")) {
+            return "Cargo Rack";
         }
         if (m.contains("sensors") || m.contains("sensor")) {
             return "Sensors";

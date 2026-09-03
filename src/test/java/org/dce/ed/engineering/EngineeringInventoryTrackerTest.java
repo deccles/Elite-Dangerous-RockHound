@@ -157,6 +157,60 @@ class EngineeringInventoryTrackerTest {
         assertEquals(10, tracker.getCount("arsenic"));
     }
 
+    @Test
+    void statistics_setsMercCoinBalance() {
+        EngineeringInventoryTracker tracker = new EngineeringInventoryTracker();
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2026-09-01T15:30:12Z",
+                  "event": "Statistics",
+                  "Bank_Account": {
+                    "Current_Wealth": 1,
+                    "MercCoins_Current": 42
+                  }
+                }
+                """));
+        assertEquals(42, tracker.getCount("merccoins"));
+    }
+
+    @Test
+    void materialsSnapshot_preservesMercCoinBalance() {
+        EngineeringInventoryTracker tracker = new EngineeringInventoryTracker();
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2026-09-01T15:30:12Z",
+                  "event": "Statistics",
+                  "Bank_Account": { "MercCoins_Current": 42 }
+                }
+                """));
+        tracker.applyEvent(materialsSnapshot(
+                List.of(new MaterialStack("arsenic", "", 3)),
+                List.of(),
+                List.of()));
+        assertEquals(42, tracker.getCount("merccoins"));
+        assertEquals(3, tracker.getCount("arsenic"));
+    }
+
+    @Test
+    void statisticsWithoutMercCoinsField_leavesBalanceUnchanged() {
+        EngineeringInventoryTracker tracker = new EngineeringInventoryTracker();
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2026-09-01T15:30:12Z",
+                  "event": "Statistics",
+                  "Bank_Account": { "MercCoins_Current": 42 }
+                }
+                """));
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2017-09-25T15:18:31Z",
+                  "event": "Statistics",
+                  "Bank_Account": { "Current_Wealth": 148827050 }
+                }
+                """));
+        assertEquals(42, tracker.getCount("merccoins"));
+    }
+
     private static MaterialsEvent materialsSnapshot(List<MaterialStack> raw,
                                                     List<MaterialStack> manufactured,
                                                     List<MaterialStack> encoded) {

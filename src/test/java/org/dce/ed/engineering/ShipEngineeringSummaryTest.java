@@ -170,7 +170,7 @@ class ShipEngineeringSummaryTest {
         assertTrue(text.contains("\nOther\n"), text);
         assertTrue(text.contains("Fighter Hangar"), text);
         assertTrue(text.contains("Cargo Rack"), text);
-        assertTrue(text.contains("×2") || text.contains("Cargo Rack · Size 5 ×2"), text);
+        assertTrue(text.contains("\nNo Engineering\n"), text);
         assertTrue(text.contains("Advanced Docking Computer") || text.contains("Docking Computer"), text);
         assertTrue(text.contains("Supercruise Assist"), text);
         assertFalse(text.toLowerCase().contains("cockpit"), text);

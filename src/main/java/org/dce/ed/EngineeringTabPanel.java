@@ -32,6 +32,8 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.event.KeyEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.function.BooleanSupplier;
@@ -261,6 +263,9 @@ public class EngineeringTabPanel extends JPanel {
      */
     private boolean hideMatsFromOtherShips = true;
     private JCheckBox hideMatsFromOtherShipsCheckBox;
+    private JCheckBox includeMercCoinGoalsCheckBox;
+    private boolean suppressMercCoinFilterEvents;
+    private EngineeringBuildProgressDialog loadoutDialog;
 
     private final List<GoalReadiness> goalReadiness = new ArrayList<>();
     private final List<String> goalStatusText = new ArrayList<>();
@@ -614,6 +619,30 @@ public class EngineeringTabPanel extends JPanel {
             }
         }, passThroughEnabledSupplier);
         shipRow.add(hideMatsFromOtherShipsCheckBox);
+        includeMercCoinGoalsCheckBox = new JCheckBox("Include Merc Coin goals");
+        OverlayCheckBoxStyle.apply(includeMercCoinGoalsCheckBox);
+        includeMercCoinGoalsCheckBox.setFont(base.deriveFont(Font.PLAIN, fontSize));
+        includeMercCoinGoalsCheckBox.setSelected(OverlayPreferences.isEngineeringIncludeMercCoinGoals());
+        includeMercCoinGoalsCheckBox.setToolTipText(
+                "When off, Merc Coin recipes stay saved but are hidden from Goals, materials, trades, "
+                        + "Loadout modules that only have Merc Coin recipes, and View Summary");
+        includeMercCoinGoalsCheckBox.addActionListener(e -> {
+            if (suppressMercCoinFilterEvents) {
+                return;
+            }
+            OverlayPreferences.setEngineeringIncludeMercCoinGoals(includeMercCoinGoalsCheckBox.isSelected());
+            fireSessionChanged();
+            refreshUi();
+            if (loadoutDialog != null) {
+                loadoutDialog.syncMercCoinFilterFromPrefs();
+            }
+        });
+        HoverClickPoller.register(includeMercCoinGoalsCheckBox, INCLUDE_HOVER_DELAY_MS, () -> {
+            if (includeMercCoinGoalsCheckBox.isEnabled()) {
+                includeMercCoinGoalsCheckBox.doClick();
+            }
+        }, passThroughEnabledSupplier);
+        shipRow.add(includeMercCoinGoalsCheckBox);
         syncHideMatsCheckboxEnabled();
         north.add(shipRow);
         north.add(Box.createVerticalStrut(4));
@@ -2259,7 +2288,7 @@ public class EngineeringTabPanel extends JPanel {
             }
         }
         // Dialog loads journal progress on a background thread; don't block the EDT with a full rescan first.
-        EngineeringBuildProgressDialog.show(
+        EngineeringBuildProgressDialog dialog = EngineeringBuildProgressDialog.show(
                 owner,
                 List.copyOf(goals),
                 shipCatalog,
@@ -2268,7 +2297,32 @@ public class EngineeringTabPanel extends JPanel {
                 clientKey,
                 passThroughEnabledSupplier,
                 this::addGoalFromBuildProgress,
-                () -> List.copyOf(goals));
+                () -> List.copyOf(goals),
+                this::onLoadoutMercCoinFilterChanged);
+        loadoutDialog = dialog;
+        dialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                if (loadoutDialog == dialog) {
+                    loadoutDialog = null;
+                }
+            }
+        });
+    }
+
+    private void onLoadoutMercCoinFilterChanged() {
+        boolean include = OverlayPreferences.isEngineeringIncludeMercCoinGoals();
+        suppressMercCoinFilterEvents = true;
+        try {
+            if (includeMercCoinGoalsCheckBox != null
+                    && includeMercCoinGoalsCheckBox.isSelected() != include) {
+                includeMercCoinGoalsCheckBox.setSelected(include);
+            }
+        } finally {
+            suppressMercCoinFilterEvents = false;
+        }
+        fireSessionChanged();
+        refreshUi();
     }
 
     /**
@@ -2484,7 +2538,8 @@ public class EngineeringTabPanel extends JPanel {
                 || type == EliteEventType.MATERIAL_DISCARDED
                 || type == EliteEventType.MATERIAL_TRADE
                 || type == EliteEventType.ENGINEER_CRAFT
-                || type == EliteEventType.ENGINEER_CONTRIBUTION) {
+                || type == EliteEventType.ENGINEER_CONTRIBUTION
+                || type == EliteEventType.STATISTICS) {
             inventoryTracker.applyEvent(event);
             scheduleRefresh();
             if (type == EliteEventType.MATERIAL_TRADE && event instanceof MaterialTradeEvent tradeEvent) {
@@ -2732,6 +2787,9 @@ public class EngineeringTabPanel extends JPanel {
         if (hideMatsFromOtherShipsCheckBox != null) {
             hideMatsFromOtherShipsCheckBox.setSelected(hideMatsFromOtherShips);
         }
+        if (includeMercCoinGoalsCheckBox != null) {
+            includeMercCoinGoalsCheckBox.setSelected(OverlayPreferences.isEngineeringIncludeMercCoinGoals());
+        }
         syncHideMatsCheckboxEnabled();
         scheduleRefresh();
     }
@@ -2746,7 +2804,9 @@ public class EngineeringTabPanel extends JPanel {
             }
             if (goalsShipFilterId == null
                     || (g.hasShip() && g.getShipId() == goalsShipFilterId.longValue())) {
-                visible.add(GoalUiRow.blueprint(g, i));
+                if (isMercCoinGoalIncluded(g, database)) {
+                    visible.add(GoalUiRow.blueprint(g, i));
+                }
             }
         }
         for (int i = 0; i < materialsGoals.size(); i++) {
@@ -2803,6 +2863,19 @@ public class EngineeringTabPanel extends JPanel {
         boolean isEnabled() {
             return isIncludeInPlanning();
         }
+    }
+
+    static boolean isMercCoinGoalIncluded(EngineeringGoal goal, EngineeringDatabase database) {
+        return isMercCoinGoalIncluded(goal, database, OverlayPreferences.isEngineeringIncludeMercCoinGoals());
+    }
+
+    /** Merc Coin recipes are omitted when the Include Merc Coin goals checkbox is off. */
+    static boolean isMercCoinGoalIncluded(EngineeringGoal goal, EngineeringDatabase database,
+            boolean includeMercCoinGoals) {
+        if (includeMercCoinGoals || goal == null || database == null) {
+            return true;
+        }
+        return !database.blueprintRequiresMercCoins(goal.getModuleType(), goal.getBlueprintName());
     }
 
     /**
@@ -3472,7 +3545,7 @@ public class EngineeringTabPanel extends JPanel {
     private List<EngineeringGoal> activeGoalsForPlanning() {
         List<EngineeringGoal> out = new ArrayList<>();
         for (EngineeringGoal g : goals) {
-            if (g != null && g.isIncludeInPlanning()) {
+            if (g != null && g.isIncludeInPlanning() && isMercCoinGoalIncluded(g, database)) {
                 out.add(g);
             }
         }
@@ -4552,12 +4625,13 @@ public class EngineeringTabPanel extends JPanel {
             GoalUiRow goalRow = goalRowAtUi(modelRow);
             GoalNameLines lines = resolveGoalNameLines(goalRow, value);
             boolean showShip = goalsShipFilterId == null && !lines.shipLine().isBlank();
+            Color mercFg = mercCoinBlueprintForeground(goalRow);
 
             switch (goalsNameLayout) {
                 case FULL, SHIP_DOWN -> {
                     // Ship lives under Module when SHIP_DOWN — this column is Blueprint only.
                     topLine.setFont(base.deriveFont(Font.PLAIN, size));
-                    topLine.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+                    topLine.setForeground(mercFg != null ? mercFg : EdoUi.Internal.MAIN_TEXT_ALPHA_220);
                     topLine.setText(lines.blueprintLine());
                     topLine.setVisible(!lines.blueprintLine().isBlank());
                     midLine.setText("");
@@ -4574,6 +4648,7 @@ public class EngineeringTabPanel extends JPanel {
                     topLine.setForeground(EdoUi.User.MAIN_TEXT);
                     topLine.setText(lines.moduleLine());
                     topLine.setVisible(!lines.moduleLine().isBlank());
+                    midLine.setForeground(mercFg != null ? mercFg : EdoUi.Internal.MAIN_TEXT_ALPHA_220);
                     midLine.setText(lines.blueprintLine());
                     midLine.setVisible(!lines.blueprintLine().isBlank());
                     shipLine.setText(showShip ? lines.shipLine() : "");
@@ -4602,6 +4677,18 @@ public class EngineeringTabPanel extends JPanel {
             return effects != null && !effects.isBlank() ? effects : lines.tooltipText();
         }
         return lines.tooltipText();
+    }
+
+    /** Theme primary highlight (prefs high-value color) for Merc Coin recipes. */
+    private Color mercCoinBlueprintForeground(GoalUiRow goalRow) {
+        if (goalRow == null || goalRow.blueprint() == null || database == null) {
+            return null;
+        }
+        EngineeringGoal g = goalRow.blueprint();
+        if (!database.blueprintRequiresMercCoins(g.getModuleType(), g.getBlueprintName())) {
+            return null;
+        }
+        return EdoUi.User.PRIMARY_HIGHLIGHT;
     }
 
     /**
@@ -4948,6 +5035,13 @@ public class EngineeringTabPanel extends JPanel {
             fireTableDataChanged();
         }
 
+        ShoppingListRow rowAt(int rowIndex) {
+            if (rowIndex < 0 || rowIndex >= rows.size()) {
+                return null;
+            }
+            return rows.get(rowIndex);
+        }
+
         @Override
         public int getRowCount() {
             return rows.size();
@@ -4984,7 +5078,7 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
-    private static final class ShoppingCellRenderer extends EdoTableCellRenderer {
+    private final class ShoppingCellRenderer extends EdoTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int column) {
@@ -5001,6 +5095,13 @@ public class EngineeringTabPanel extends JPanel {
                         String text = value.toString();
                         label.setToolTipText(text.isBlank() ? null : text);
                     }
+                }
+            }
+            if (!isSelected && column == COL_MATERIAL) {
+                int modelRow = table.convertRowIndexToModel(row);
+                ShoppingListRow matRow = shoppingModel.rowAt(modelRow);
+                if (matRow != null && EngineeringMaterialKeys.isMercCoins(matRow.getMaterialKey())) {
+                    c.setForeground(EdoUi.User.PRIMARY_HIGHLIGHT);
                 }
             }
             if (!isSelected && column == COL_SHORT && value instanceof Integer shortfall) {

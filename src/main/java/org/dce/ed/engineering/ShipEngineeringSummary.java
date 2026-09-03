@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 import org.dce.ed.logreader.event.LoadoutEvent;
 
@@ -223,6 +224,22 @@ public final class ShipEngineeringSummary {
 
     public List<Row> rows() {
         return rows;
+    }
+
+    public ShipEngineeringSummary excluding(Predicate<Row> drop) {
+        if (drop == null) {
+            return this;
+        }
+        List<Row> kept = new ArrayList<>();
+        for (Row row : rows) {
+            if (!drop.test(row)) {
+                kept.add(row);
+            }
+        }
+        if (kept.size() == rows.size()) {
+            return this;
+        }
+        return new ShipEngineeringSummary(kept, otherModules, shipType, shipId, shipName);
     }
 
     public List<OtherModule> otherModules() {

@@ -503,11 +503,13 @@ public final class CombatTargetTracker {
         if (total <= 0L) {
             return;
         }
-        long other = otherRewardFromJson(event.getRawJson(), total);
+        long voucherOther = otherRewardFromJson(event.getRawJson(), total);
         int shared = event.getSharedWithOthers();
         String shipId = event.getTarget();
         String shipDisplay = firstNonBlank(event.getTargetLocalised(), resolveShipDisplay(shipId));
         String pilot = firstNonBlank(resolvePilotForKill(shipId), event.getPilotLocalised());
+        ScannedWantedShip scanned = findScanned(pilot);
+        long other = remoteBountyForKill(scanned, total, voucherOther);
         removeScannedVictim(pilot);
         KillVictim victim = new KillVictim(
                 event.getTimestamp(),
@@ -523,7 +525,7 @@ public final class CombatTargetTracker {
             kills.add(victim);
         }
         totalBountiesEarned += total;
-        totalOtherBounties += other;
+        totalOtherBounties += voucherOther;
         notifyListeners();
     }
 
@@ -562,30 +564,57 @@ public final class CombatTargetTracker {
     }
 
     /**
+     * Combat-tab Local/Remote for a kill: prefer the prior scan split (KWS remote vs local)
+     * when it matches this voucher. {@code voucherOther} stays the multi-faction remainder
+     * for {@link #totalOtherBounties}.
+     */
+    static long remoteBountyForKill(ScannedWantedShip scanned, long total, long voucherOther) {
+        if (scanned == null || total <= 0L) {
+            return voucherOther;
+        }
+        long local = Math.max(0L, scanned.getFirstBounty());
+        long remote = scanned.getRemoteBounty();
+        if (local == 0L && remote > 0L) {
+            return total;
+        }
+        if (local + remote == total || scanned.getCurrentBounty() == total) {
+            return remote;
+        }
+        return voucherOther;
+    }
+
+    /**
      * Scanned list is living targets only — drop the victim (and clear lock)
      * when a bounty kill is recorded.
      */
     private void removeScannedVictim(String pilotName) {
-        String pilotKey = BountyScanTracker.pilotKey(pilotName);
-        if (pilotKey == null || pilotKey.isBlank()) {
+        ScannedWantedShip scanned = findScanned(pilotName);
+        if (scanned != null) {
+            scannedWanted.remove(scanned.getPilotKey());
+        }
+        String folded = foldPilotKey(BountyScanTracker.pilotKey(pilotName));
+        if (folded.isEmpty()) {
             return;
-        }
-        String folded = foldPilotKey(pilotKey);
-        String mapKey = null;
-        for (String key : scannedWanted.keySet()) {
-            if (foldPilotKey(key).equals(folded)) {
-                mapKey = key;
-                break;
-            }
-        }
-        if (mapKey != null) {
-            scannedWanted.remove(mapKey);
         }
         LockedTarget locked = lockedTarget;
         if (locked != null
                 && foldPilotKey(BountyScanTracker.pilotKey(locked.getPilotName())).equals(folded)) {
             lockedTarget = null;
         }
+    }
+
+    private ScannedWantedShip findScanned(String pilotName) {
+        String pilotKey = BountyScanTracker.pilotKey(pilotName);
+        if (pilotKey == null || pilotKey.isBlank()) {
+            return null;
+        }
+        String folded = foldPilotKey(pilotKey);
+        for (Map.Entry<String, ScannedWantedShip> e : scannedWanted.entrySet()) {
+            if (foldPilotKey(e.getKey()).equals(folded)) {
+                return e.getValue();
+            }
+        }
+        return null;
     }
 
     void clearBountyStateOnRedeem() {

@@ -183,4 +183,44 @@ class EngineeringJournalBlueprintResolverTest {
         assertTrue(resolved.isPresent());
         assertEquals("Resistance Augmented", resolved.get().blueprintName());
     }
+
+    @Test
+    void resolve_mapsMercGearFuelScoopAndCargoRack() {
+        assertResolved(
+                "Slot01_Size6",
+                "int_fuelscoop_size6_class5",
+                "FuelScoop_ScoopRateEnhanced",
+                "Fuel Scoop",
+                "Scoop Rate Enhanced");
+        assertResolved(
+                "Slot04_Size6",
+                "int_cargorack_size6_class1",
+                "CargoRack_Extended",
+                "Cargo Rack",
+                "Extended");
+        assertResolved(
+                "MediumHardpoint1",
+                "hpt_beamlaser_fixed_medium",
+                "Weapon_PlasmaConversion",
+                "Beam Laser",
+                "Plasma Conversion");
+        assertResolved(
+                "TinyHardpoint1",
+                "int_detailedsurfacescanner_tiny",
+                "SurfaceScanner_LongRangeDetailed",
+                "Surface Scanner",
+                "Long Range Detailed");
+        assertResolved(
+                "PowerDistributor",
+                "int_powerdistributor_size6_class5",
+                "PowerDistributor_Balanced",
+                "Power Distributor",
+                "Balanced");
+        assertResolved(
+                "Slot08_Size4",
+                "int_modulereinforcement_size4_class5",
+                "ModuleReinforcement_HeavyDuty",
+                "Module Reinforcement Package",
+                "Heavy Duty");
+    }
 }

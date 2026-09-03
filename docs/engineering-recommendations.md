@@ -47,3 +47,32 @@ Return valid JSON without comments or Markdown fences. A minimal response is:
 ```
 
 RockHound imports recommendations by ship and exact module slot. Existing goals for matching slots are previewed as updates; new slots are previewed as additions; unrelated goals remain unchanged. The commander confirms the preview before any goals are changed.
+
+## Merc Coin (Operations) blueprints
+
+These recipes spend Merc Coins. Coriolis does not know them; RockHound does. Use the journal `BlueprintName` values below. Copy `Slot` and `Item` from the RockHound summary as usual — hardpoint recipes share a `Weapon_*` name, so `Item` is what selects Burst vs Beam vs Pulse (and so on).
+
+| Module | Recipe | `BlueprintName` | Grades |
+| --- | --- | --- | --- |
+| Fuel Scoop | Scoop Rate Enhanced | `FuelScoop_ScoopRateEnhanced` | G1–G5 |
+| Burst / Beam / Pulse Laser | Plasma Conversion | `Weapon_PlasmaConversion` | G1–G5 |
+| Surface Scanner | Long Range Detailed | `SurfaceScanner_LongRangeDetailed` | G2–G5 |
+| Cargo Rack | Extended | `CargoRack_Extended` | G2–G5 |
+| Power Distributor | Balanced | `PowerDistributor_Balanced` | G2–G5 |
+| Power Distributor | Support Focused | `PowerDistributor_SupportFocused` | G2–G5 |
+| Module Reinforcement Package | Heavy Duty | `ModuleReinforcement_HeavyDuty` | G2–G5 |
+| Fragment Cannon | Double Screaming | `Weapon_DoubleScreaming` | G2–G5 |
+| Rail Gun | Enduring Feedback | `Weapon_EnduringFeedback` | G2–G5 |
+| Abrasion Blaster | Far-reaching | `Weapon_FarReaching` | G2–G5 |
+| Mining Laser | Long Range | `Weapon_LongRange` | G2–G5 |
+| Missile Rack | Drag | `Weapon_Drag` | G2–G5 |
+| Missile Rack | Lightweight Thermal | `Weapon_LightweightThermal` | G2–G5 |
+| Missile Rack | Lockdown | `Weapon_Lockdown` | G2–G5 |
+| Missile Rack | Exposing | `Weapon_Exposing` | G2–G5 |
+| Multi-cannon | Rapid Phase | `Weapon_RapidPhase` | G2–G5 |
+| Enzyme Missile Rack | High-yield | `Weapon_HighYield` | G2–G5 |
+| Cannon | Force Impact | `Weapon_ForceImpact` | G2–G5 |
+| Beam Laser | Overloaded | `Weapon_Overloaded` | G2–G5 |
+| Burst Laser | Regenerative | `Weapon_Regenerative` | G2–G5 |
+
+Do not use display names (`Scoop Rate Enhanced`) as `BlueprintName`. Do not recommend these as Coriolis experimental effects.

@@ -9,10 +9,14 @@ import org.dce.ed.market.GalacticAveragePrices;
  */
 public final class EngineeringMaterialKeys {
 
+    /** Canonical key for Operations Merc Coins (not the material mercury). */
+    public static final String MERC_COINS = "merccoins";
+
     private static final Map<String, String> CANONICAL = Map.of(
             "sulfur", "sulphur",
             "legacyfirmware", "specialisedlegacyfirmware",
-            "consumerfirmware", "modifiedconsumerfirmware");
+            "consumerfirmware", "modifiedconsumerfirmware",
+            "merccoin", MERC_COINS);
 
     private EngineeringMaterialKeys() {
     }
@@ -24,6 +28,10 @@ public final class EngineeringMaterialKeys {
         }
         String norm = GalacticAveragePrices.normalizeMaterialKey(key);
         return CANONICAL.getOrDefault(norm, norm);
+    }
+
+    public static boolean isMercCoins(String key) {
+        return MERC_COINS.equals(canonicalKey(key));
     }
 
     /**

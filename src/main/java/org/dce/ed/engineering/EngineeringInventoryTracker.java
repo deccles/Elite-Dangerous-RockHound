@@ -18,6 +18,8 @@ import org.dce.ed.logreader.event.MaterialStack;
 import org.dce.ed.logreader.event.MaterialTradeEvent;
 import org.dce.ed.logreader.event.MaterialsEvent;
 
+import com.google.gson.JsonObject;
+
 /**
  * Commander engineering material inventory from journal events.
  */
@@ -56,10 +58,14 @@ public final class EngineeringInventoryTracker {
         }
         boolean changed = false;
         if (event instanceof MaterialsEvent e) {
+            Integer mercCoins = counts.get(EngineeringMaterialKeys.MERC_COINS);
             counts.clear();
             applyStacks(e.getRaw());
             applyStacks(e.getManufactured());
             applyStacks(e.getEncoded());
+            if (mercCoins != null) {
+                counts.put(EngineeringMaterialKeys.MERC_COINS, mercCoins);
+            }
             changed = true;
         } else if (event instanceof MaterialCollectedEvent e) {
             changed = add(e.getName(), e.getNameLocalised(), e.getCount());
@@ -79,6 +85,8 @@ public final class EngineeringInventoryTracker {
             if (e.isMaterialContribution()) {
                 changed = add(e.getMaterial(), e.getMaterialLocalised(), -e.getQuantity());
             }
+        } else if (event.getType() == EliteEventType.STATISTICS) {
+            changed = applyMercCoinBalance(event);
         }
         if (changed) {
             notifyChanged();
@@ -101,7 +109,8 @@ public final class EngineeringInventoryTracker {
                         || type == EliteEventType.MATERIAL_DISCARDED
                         || type == EliteEventType.MATERIAL_TRADE
                         || type == EliteEventType.ENGINEER_CRAFT
-                        || type == EliteEventType.ENGINEER_CONTRIBUTION) {
+                        || type == EliteEventType.ENGINEER_CONTRIBUTION
+                        || type == EliteEventType.STATISTICS) {
                     applyEvent(event);
                 }
             }
@@ -120,6 +129,40 @@ public final class EngineeringInventoryTracker {
         }
         counts.merge(key, delta, (a, b) -> Math.max(0, a + b));
         return true;
+    }
+
+    private boolean applyMercCoinBalance(EliteLogEvent event) {
+        Integer balance = mercCoinsFromStatistics(event);
+        if (balance == null) {
+            return false;
+        }
+        int value = Math.max(0, balance.intValue());
+        Integer previous = counts.get(EngineeringMaterialKeys.MERC_COINS);
+        if (previous != null && previous.intValue() == value) {
+            return false;
+        }
+        counts.put(EngineeringMaterialKeys.MERC_COINS, value);
+        return true;
+    }
+
+    /** Journal {@code Statistics.Bank_Account.MercCoins_Current}; null when the field is absent. */
+    static Integer mercCoinsFromStatistics(EliteLogEvent event) {
+        if (event == null || event.getRawJson() == null) {
+            return null;
+        }
+        JsonObject raw = event.getRawJson();
+        if (!raw.has("Bank_Account") || !raw.get("Bank_Account").isJsonObject()) {
+            return null;
+        }
+        JsonObject bank = raw.getAsJsonObject("Bank_Account");
+        if (!bank.has("MercCoins_Current") || bank.get("MercCoins_Current").isJsonNull()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(bank.get("MercCoins_Current").getAsInt());
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private void applyStacks(List<MaterialStack> stacks) {

@@ -126,6 +126,8 @@ public final class OverlayPreferences {
     private static final String KEY_ENGINEERING_BLUEPRINT_SORT_DESC = "overlay.engineering.blueprintPicker.sortDescending";
     private static final String KEY_ENGINEERING_BLUEPRINT_INSTALLED_ONLY =
             "overlay.engineering.blueprintPicker.installedOnly";
+    private static final String KEY_ENGINEERING_INCLUDE_MERC_COIN_GOALS =
+            "overlay.engineering.includeMercCoinGoals";
     /** Last ship chosen in Add Goal; kept until the equipped ship changes. */
     private static final String KEY_ENGINEERING_ADD_GOAL_PREFERRED_SHIP_ID =
             "overlay.engineering.addGoal.preferredShipId";
@@ -695,6 +697,15 @@ public final class OverlayPreferences {
 
     public static void setEngineeringBlueprintPickerInstalledOnly(boolean installedOnly) {
         PREFS.putBoolean(KEY_ENGINEERING_BLUEPRINT_INSTALLED_ONLY, installedOnly);
+    }
+
+    /** When false, Merc Coin recipes stay saved but are omitted from Goals / materials / trades. Default on. */
+    public static boolean isEngineeringIncludeMercCoinGoals() {
+        return PREFS.getBoolean(KEY_ENGINEERING_INCLUDE_MERC_COIN_GOALS, true);
+    }
+
+    public static void setEngineeringIncludeMercCoinGoals(boolean include) {
+        PREFS.putBoolean(KEY_ENGINEERING_INCLUDE_MERC_COIN_GOALS, include);
     }
 
     public static boolean isEngineeringMaterialsSectionVisible() {

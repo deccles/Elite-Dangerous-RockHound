@@ -103,6 +103,82 @@ class CombatTargetTrackerTest {
     }
 
     @Test
+    void cleanTargetWithKwsBountyStaysRemoteWhenLegalStatusStaysClean() {
+        EliteLogParser parser = new EliteLogParser();
+        tracker.applyJournalEvent(parser.parseRecord(
+                "{ \"timestamp\":\"2026-09-03T20:06:37Z\", \"event\":\"ShipTargeted\","
+                        + " \"TargetLocked\":true, \"Ship\":\"type7\", \"Ship_Localised\":\"Type-7 Transporter\","
+                        + " \"ScanStage\":3, \"PilotName\":\"$npc_name_decorate:#name=Anthony John Kay;\","
+                        + " \"PilotName_Localised\":\"Anthony John Kay\", \"PilotRank\":\"Deadly\","
+                        + " \"Faction\":\"Colonia Research Department\", \"LegalStatus\":\"Clean\" }"));
+        tracker.applyJournalEvent(parser.parseRecord(
+                "{ \"timestamp\":\"2026-09-03T20:06:42Z\", \"event\":\"ShipTargeted\","
+                        + " \"TargetLocked\":true, \"Ship\":\"type7\", \"Ship_Localised\":\"Type-7 Transporter\","
+                        + " \"ScanStage\":3, \"PilotName\":\"$npc_name_decorate:#name=Anthony John Kay;\","
+                        + " \"PilotName_Localised\":\"Anthony John Kay\", \"PilotRank\":\"Deadly\","
+                        + " \"Faction\":\"Colonia Research Department\", \"LegalStatus\":\"Clean\","
+                        + " \"Bounty\":167445 }"));
+        tracker.applyJournalEvent(parser.parseRecord(
+                "{ \"timestamp\":\"2026-09-03T20:06:44Z\", \"event\":\"ShipTargeted\","
+                        + " \"TargetLocked\":true, \"Ship\":\"type7\", \"Ship_Localised\":\"Type-7 Transporter\","
+                        + " \"ScanStage\":3, \"PilotName\":\"$npc_name_decorate:#name=Anthony John Kay;\","
+                        + " \"PilotName_Localised\":\"Anthony John Kay\", \"PilotRank\":\"Deadly\","
+                        + " \"Faction\":\"Colonia Research Department\", \"LegalStatus\":\"Clean\" }"));
+        tracker.applyJournalEvent(parser.parseRecord(
+                "{ \"timestamp\":\"2026-09-03T20:06:46Z\", \"event\":\"ShipTargeted\","
+                        + " \"TargetLocked\":true, \"Ship\":\"type7\", \"Ship_Localised\":\"Type-7 Transporter\","
+                        + " \"ScanStage\":3, \"PilotName\":\"$npc_name_decorate:#name=Anthony John Kay;\","
+                        + " \"PilotName_Localised\":\"Anthony John Kay\", \"PilotRank\":\"Deadly\","
+                        + " \"Faction\":\"Colonia Research Department\", \"LegalStatus\":\"Clean\","
+                        + " \"Bounty\":167445 }"));
+
+        CombatTargetTracker.LockedTarget target = tracker.getLockedTarget();
+        assertEquals("Clean", CombatTabPanel.formatLocal(target));
+        assertEquals("167K", CombatTabPanel.formatRemote(target));
+        assertEquals("167K", CombatTabPanel.formatTotal(target));
+        assertEquals(1, tracker.getScannedWantedShips().size());
+        CombatTargetTracker.ScannedWantedShip scanned = tracker.getScannedWantedShips().get(0);
+        assertEquals(0L, scanned.getFirstBounty());
+        assertEquals(167_445L, scanned.getRemoteBounty());
+        assertEquals("Clean", scanned.getLegalStatus());
+
+        tracker.applyJournalEvent(parser.parseRecord(
+                "{ \"timestamp\":\"2026-09-03T20:06:58Z\", \"event\":\"Bounty\","
+                        + " \"Rewards\":[ { \"Faction\":\"Ukraine Colonist Alliance\", \"Reward\":167445 } ],"
+                        + " \"PilotName\":\"$npc_name_decorate:#name=Anthony John Kay;\","
+                        + " \"PilotName_Localised\":\"Anthony John Kay\", \"Target\":\"type7\","
+                        + " \"Target_Localised\":\"Type-7 Transporter\", \"TotalReward\":167445,"
+                        + " \"VictimFaction\":\"Colonia Research Department\" }"));
+
+        assertTrue(tracker.getScannedWantedShips().isEmpty());
+        assertEquals(1, tracker.getKills().size());
+        CombatTargetTracker.KillVictim kill = tracker.getKills().get(0);
+        assertEquals("Anthony John Kay", kill.getPilotName());
+        assertEquals(167_445L, kill.getTotalReward());
+        assertEquals(167_445L, kill.getOtherReward());
+        assertEquals(0L, tracker.getTotalOtherBounties());
+        assertEquals("Clean", CombatTabPanel.formatKillLocal(kill));
+        assertEquals("167K", CombatTabPanel.formatKillRemote(kill));
+    }
+
+    @Test
+    void killInheritsLocalRemoteSplitFromPriorKwsScan() {
+        tracker.applyShipTargeted(stage3("Carlos", 242_475L, "Wanted", false));
+        tracker.applyShipTargeted(stage3("Carlos", 305_335L, "Wanted", false));
+        tracker.applyBounty(bounty(
+                "{ \"Rewards\":[{\"Faction\":\"A\",\"Reward\":305335}], "
+                        + "\"TotalReward\":305335, \"Target\":\"viper\", \"VictimFaction\":\"Pirates\" }",
+                305_335L));
+
+        CombatTargetTracker.KillVictim kill = tracker.getKills().get(0);
+        assertEquals(242_475L, kill.getTotalReward() - kill.getOtherReward());
+        assertEquals(62_860L, kill.getOtherReward());
+        assertEquals("242K", CombatTabPanel.formatKillLocal(kill));
+        assertEquals("62K", CombatTabPanel.formatKillRemote(kill));
+        assertEquals(0L, tracker.getTotalOtherBounties());
+    }
+
+    @Test
     void clearsLockedTargetOnUnlock() {
         tracker.applyShipTargeted(stage3("Raider", 50_000L, "Wanted", false));
         assertNotNull(tracker.getLockedTarget());

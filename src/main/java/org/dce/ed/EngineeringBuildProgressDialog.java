@@ -11,6 +11,8 @@ import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
@@ -27,6 +29,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
@@ -59,6 +62,7 @@ import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.ui.AlwaysOnTopPopupFactory;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.ui.HoverClickPoller;
+import org.dce.ed.ui.OverlayCheckBoxStyle;
 import org.dce.ed.ui.OverlayComboBoxStyle;
 import org.dce.ed.ui.OverlayOutlineButtonStyle;
 import org.dce.ed.ui.OverlayScrollPaneSupport;
@@ -94,6 +98,9 @@ final class EngineeringBuildProgressDialog extends JDialog {
 	private SwingWorker<?, ?> loadWorker;
 	private final Function<AddGoalRequest, EngineeringGoal> addGoalHandler;
 	private final Supplier<List<EngineeringGoal>> goalsSupplier;
+	private final Runnable mercCoinFilterListener;
+	private final JCheckBox includeMercCoinGoalsCheckBox;
+	private boolean suppressMercCoinFilterEvents;
 	private String clientKey = "";
 	private int pendingRestoreScrollY = -1;
 
@@ -103,7 +110,8 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			EngineeringDatabase database,
 			BooleanSupplier passThroughEnabledSupplier,
 			Function<AddGoalRequest, EngineeringGoal> addGoalHandler,
-			Supplier<List<EngineeringGoal>> goalsSupplier) {
+			Supplier<List<EngineeringGoal>> goalsSupplier,
+			Runnable mercCoinFilterListener) {
 		super(owner, "Loadout", ModalityType.MODELESS);
 		setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 		this.database = database;
@@ -112,6 +120,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		this.initialShipFilterId = initialShipFilterId;
 		this.addGoalHandler = addGoalHandler;
 		this.goalsSupplier = goalsSupplier != null ? goalsSupplier : List::of;
+		this.mercCoinFilterListener = mercCoinFilterListener;
 		this.baseFont = OverlayPreferences.getUiFont() != null ? OverlayPreferences.getUiFont() : getFont();
 		this.fontSize = OverlayPreferences.getUiFontSize();
 
@@ -155,6 +164,28 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			rebuildContent();
 		});
 		filterRow.add(shipCombo);
+		includeMercCoinGoalsCheckBox = new JCheckBox("Include Merc Coin goals");
+		OverlayCheckBoxStyle.apply(includeMercCoinGoalsCheckBox);
+		includeMercCoinGoalsCheckBox.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		includeMercCoinGoalsCheckBox.setSelected(OverlayPreferences.isEngineeringIncludeMercCoinGoals());
+		includeMercCoinGoalsCheckBox.setToolTipText(
+				"When off, hide modules that only have Merc Coin recipes, and hide those recipes on other modules");
+		includeMercCoinGoalsCheckBox.addActionListener(e -> {
+			if (suppressMercCoinFilterEvents) {
+				return;
+			}
+			OverlayPreferences.setEngineeringIncludeMercCoinGoals(includeMercCoinGoalsCheckBox.isSelected());
+			if (mercCoinFilterListener != null) {
+				mercCoinFilterListener.run();
+			}
+			rebuildContent();
+		});
+		HoverClickPoller.register(includeMercCoinGoalsCheckBox, HOVER_CLICK_DELAY_MS, () -> {
+			if (includeMercCoinGoalsCheckBox.isEnabled()) {
+				includeMercCoinGoalsCheckBox.doClick();
+			}
+		}, passThroughEnabledSupplier);
+		filterRow.add(includeMercCoinGoalsCheckBox);
 		north.add(filterRow, BorderLayout.CENTER);
 
 		countsLabel = new JLabel(" ");
@@ -248,7 +279,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		return 960;
 	}
 
-	static void show(Window owner,
+	static EngineeringBuildProgressDialog show(Window owner,
 			List<EngineeringGoal> goals,
 			EngineeringShipCatalog shipCatalog,
 			Long initialShipFilterId,
@@ -256,12 +287,14 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			String clientKey,
 			BooleanSupplier passThroughEnabledSupplier,
 			Function<AddGoalRequest, EngineeringGoal> addGoalHandler,
-			Supplier<List<EngineeringGoal>> goalsSupplier) {
+			Supplier<List<EngineeringGoal>> goalsSupplier,
+			Runnable mercCoinFilterListener) {
 		EngineeringBuildProgressDialog dialog = new EngineeringBuildProgressDialog(
 				owner, shipCatalog, initialShipFilterId, database, passThroughEnabledSupplier,
-				addGoalHandler, goalsSupplier);
+				addGoalHandler, goalsSupplier, mercCoinFilterListener);
 		dialog.setVisible(true);
 		dialog.startLoad(goals, clientKey);
+		return dialog;
 	}
 
 	private void startLoad(List<EngineeringGoal> goals, String clientKey) {
@@ -424,7 +457,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			return;
 		}
 
-		ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, database);
+		ShipEngineeringSummary summary = summaryForDisplay(loadout);
 		currentSummary = summary;
 		List<Row> visible = summary.rows();
 		countsLabel.setText(summary.countsLine());
@@ -464,6 +497,30 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		contentPanel.add(Box.createVerticalGlue());
 		contentPanel.revalidate();
 		contentPanel.repaint();
+	}
+
+	void syncMercCoinFilterFromPrefs() {
+		boolean include = OverlayPreferences.isEngineeringIncludeMercCoinGoals();
+		suppressMercCoinFilterEvents = true;
+		try {
+			if (includeMercCoinGoalsCheckBox != null
+					&& includeMercCoinGoalsCheckBox.isSelected() != include) {
+				includeMercCoinGoalsCheckBox.setSelected(include);
+			}
+		} finally {
+			suppressMercCoinFilterEvents = false;
+		}
+		if (isVisible()) {
+			rebuildContent();
+		}
+	}
+
+	private ShipEngineeringSummary summaryForDisplay(LoadoutEvent loadout) {
+		ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, database);
+		if (OverlayPreferences.isEngineeringIncludeMercCoinGoals() || database == null) {
+			return summary;
+		}
+		return summary.excluding(row -> database.moduleHasOnlyMercCoinBlueprints(row.moduleType()));
 	}
 
 	private static final int FIXED_BLUEPRINT_COMBO_W = 230;
@@ -1063,7 +1120,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 			return null;
 		}
 		LoadoutEvent loadout = loadoutsByShip.get(shipId);
-		ShipEngineeringSummary summary = ShipEngineeringSummary.fromLoadout(loadout, database);
+		ShipEngineeringSummary summary = summaryForDisplay(loadout);
 		String title = resolveShipTitle(shipId.longValue());
 		StringBuilder text = new StringBuilder(summary.toClipboardText(
 				title, this::goalTargetGradeFor, this::experimentalDisplayFor));
@@ -1226,7 +1283,8 @@ final class EngineeringBuildProgressDialog extends JDialog {
 	private void appendGoalsSection(StringBuilder sb, long shipId) {
 		List<EngineeringGoal> goals = new ArrayList<>();
 		for (EngineeringGoal goal : goalsSupplier.get()) {
-			if (goal != null && goal.hasShip() && goal.getShipId() == shipId) {
+			if (goal != null && goal.hasShip() && goal.getShipId() == shipId
+					&& EngineeringTabPanel.isMercCoinGoalIncluded(goal, database)) {
 				goals.add(goal);
 			}
 		}
@@ -1320,6 +1378,10 @@ final class EngineeringBuildProgressDialog extends JDialog {
 				continue;
 			}
 			if (EngineeringJournalBlueprintResolver.sameModuleType(moduleType, bp.getModuleType())) {
+				if (!OverlayPreferences.isEngineeringIncludeMercCoinGoals()
+						&& database.blueprintRequiresMercCoins(bp.getModuleType(), bp.getName())) {
+					continue;
+				}
 				names.putIfAbsent(bp.getName(), Boolean.TRUE);
 			}
 		}
@@ -1365,10 +1427,13 @@ final class EngineeringBuildProgressDialog extends JDialog {
 					boolean isSelected, boolean cellHasFocus) {
 				Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 				setEnabled(true);
-				setForeground(EdoUi.User.MAIN_TEXT);
+				String name = value != null ? value.toString() : "";
+				setForeground(database != null && !isNoneComboChoice(name)
+						&& database.blueprintRequiresMercCoins(moduleType, name)
+						? EdoUi.User.PRIMARY_HIGHLIGHT
+						: EdoUi.User.MAIN_TEXT);
 				setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
 				setOpaque(true);
-				String name = value != null ? value.toString() : "";
 				setToolTipText(database != null && !isNoneComboChoice(name)
 						? database.blueprintEffectTooltip(moduleType, name, 0)
 						: null);

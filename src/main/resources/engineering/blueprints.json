@@ -48903,5 +48903,5284 @@
         "isGood": true
       }
     ]
+  },
+  {
+    "id": "fuel-scoop-scoop-rate-enhanced-g1",
+    "inaraBlueprintId": 201,
+    "moduleType": "Fuel Scoop",
+    "name": "Scoop Rate Enhanced",
+    "grade": 1,
+    "experimental": false,
+    "description": "Increased power draw to improve fuel scoop rate.",
+    "engineers": [
+      "Bill Turner",
+      "Lori Jameson",
+      "Marsha Hicks"
+    ],
+    "materials": [
+      {
+        "key": "phosphorus",
+        "count": 1
+      },
+      {
+        "key": "gridresistors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Scoop Rate",
+        "effect": "+10%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+3%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "fuel-scoop-scoop-rate-enhanced-g2",
+    "inaraBlueprintId": 201,
+    "moduleType": "Fuel Scoop",
+    "name": "Scoop Rate Enhanced",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased power draw to improve fuel scoop rate.",
+    "engineers": [
+      "Bill Turner",
+      "Lori Jameson",
+      "Marsha Hicks"
+    ],
+    "materials": [
+      {
+        "key": "chromium",
+        "count": 1
+      },
+      {
+        "key": "gridresistors",
+        "count": 1
+      },
+      {
+        "key": "chemicalprocessors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Scoop Rate",
+        "effect": "+20%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+6%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "fuel-scoop-scoop-rate-enhanced-g3",
+    "inaraBlueprintId": 201,
+    "moduleType": "Fuel Scoop",
+    "name": "Scoop Rate Enhanced",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased power draw to improve fuel scoop rate.",
+    "engineers": [
+      "Bill Turner",
+      "Lori Jameson",
+      "Marsha Hicks"
+    ],
+    "materials": [
+      {
+        "key": "chromium",
+        "count": 1
+      },
+      {
+        "key": "chemicalprocessors",
+        "count": 1
+      },
+      {
+        "key": "conductiveceramics",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Scoop Rate",
+        "effect": "+30%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+9%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "fuel-scoop-scoop-rate-enhanced-g4",
+    "inaraBlueprintId": 201,
+    "moduleType": "Fuel Scoop",
+    "name": "Scoop Rate Enhanced",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased power draw to improve fuel scoop rate.",
+    "engineers": [
+      "Lori Jameson",
+      "Marsha Hicks"
+    ],
+    "materials": [
+      {
+        "key": "chemicalprocessors",
+        "count": 2
+      },
+      {
+        "key": "chemicaldistillery",
+        "count": 1
+      },
+      {
+        "key": "protolightalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Scoop Rate",
+        "effect": "+40%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+12%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "fuel-scoop-scoop-rate-enhanced-g5",
+    "inaraBlueprintId": 201,
+    "moduleType": "Fuel Scoop",
+    "name": "Scoop Rate Enhanced",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased power draw to improve fuel scoop rate.",
+    "engineers": [
+      "Marsha Hicks"
+    ],
+    "materials": [
+      {
+        "key": "tellurium",
+        "count": 1
+      },
+      {
+        "key": "chemicalmanipulators",
+        "count": 1
+      },
+      {
+        "key": "protoheatradiators",
+        "count": 1
+      },
+      {
+        "key": "protoradiolicalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 30
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Scoop Rate",
+        "effect": "+50%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+15%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "burst-laser-plasma-conversion-g1",
+    "inaraBlueprintId": 202,
+    "moduleType": "Burst Laser",
+    "name": "Plasma Conversion",
+    "grade": 1,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "phosphorus",
+        "count": 1
+      },
+      {
+        "key": "heatconductionwiring",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+5%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-3%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-3.9%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+3.9%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "burst-laser-plasma-conversion-g2",
+    "inaraBlueprintId": 202,
+    "moduleType": "Burst Laser",
+    "name": "Plasma Conversion",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "arsenic",
+        "count": 1
+      },
+      {
+        "key": "heatconductionwiring",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+10%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-5%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-6.6%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+6.6%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "burst-laser-plasma-conversion-g3",
+    "inaraBlueprintId": 202,
+    "moduleType": "Burst Laser",
+    "name": "Plasma Conversion",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "arsenic",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "phasealloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+20%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-7%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-9.4%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+9.4%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "burst-laser-plasma-conversion-g4",
+    "inaraBlueprintId": 202,
+    "moduleType": "Burst Laser",
+    "name": "Plasma Conversion",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon"
+    ],
+    "materials": [
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "phasealloys",
+        "count": 1
+      },
+      {
+        "key": "refinedfocuscrystals",
+        "count": 1
+      },
+      {
+        "key": "configurablecomponents",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+30%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-9%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-12.4%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+12.4%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "burst-laser-plasma-conversion-g5",
+    "inaraBlueprintId": 202,
+    "moduleType": "Burst Laser",
+    "name": "Plasma Conversion",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon"
+    ],
+    "materials": [
+      {
+        "key": "technetium",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "modifiedembeddedfirmware",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 30
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+40%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-11%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-15.5%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+15.5%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "beam-laser-plasma-conversion-g1",
+    "inaraBlueprintId": 203,
+    "moduleType": "Beam Laser",
+    "name": "Plasma Conversion",
+    "grade": 1,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "phosphorus",
+        "count": 1
+      },
+      {
+        "key": "heatconductionwiring",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+5%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-3%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-3.9%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+3.9%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "beam-laser-plasma-conversion-g2",
+    "inaraBlueprintId": 203,
+    "moduleType": "Beam Laser",
+    "name": "Plasma Conversion",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "arsenic",
+        "count": 1
+      },
+      {
+        "key": "heatconductionwiring",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+10%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-5%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-6.6%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+6.6%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "beam-laser-plasma-conversion-g3",
+    "inaraBlueprintId": 203,
+    "moduleType": "Beam Laser",
+    "name": "Plasma Conversion",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "arsenic",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "phasealloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+20%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-7%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-9.4%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+9.4%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "beam-laser-plasma-conversion-g4",
+    "inaraBlueprintId": 203,
+    "moduleType": "Beam Laser",
+    "name": "Plasma Conversion",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon"
+    ],
+    "materials": [
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "phasealloys",
+        "count": 1
+      },
+      {
+        "key": "refinedfocuscrystals",
+        "count": 1
+      },
+      {
+        "key": "configurablecomponents",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+30%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-9%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-12.4%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+12.4%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "beam-laser-plasma-conversion-g5",
+    "inaraBlueprintId": 203,
+    "moduleType": "Beam Laser",
+    "name": "Plasma Conversion",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon"
+    ],
+    "materials": [
+      {
+        "key": "technetium",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "modifiedembeddedfirmware",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 30
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+40%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-11%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-15.5%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+15.5%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "pulse-laser-plasma-conversion-g1",
+    "inaraBlueprintId": 204,
+    "moduleType": "Pulse Laser",
+    "name": "Plasma Conversion",
+    "grade": 1,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "phosphorus",
+        "count": 1
+      },
+      {
+        "key": "heatconductionwiring",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+5%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-3%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-3.9%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+3.9%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "pulse-laser-plasma-conversion-g2",
+    "inaraBlueprintId": 204,
+    "moduleType": "Pulse Laser",
+    "name": "Plasma Conversion",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "arsenic",
+        "count": 1
+      },
+      {
+        "key": "heatconductionwiring",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+10%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-5%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-6.6%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+6.6%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "pulse-laser-plasma-conversion-g3",
+    "inaraBlueprintId": 204,
+    "moduleType": "Pulse Laser",
+    "name": "Plasma Conversion",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "arsenic",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "phasealloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+20%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-7%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-9.4%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+9.4%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "pulse-laser-plasma-conversion-g4",
+    "inaraBlueprintId": 204,
+    "moduleType": "Pulse Laser",
+    "name": "Plasma Conversion",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "phasealloys",
+        "count": 1
+      },
+      {
+        "key": "refinedfocuscrystals",
+        "count": 1
+      },
+      {
+        "key": "configurablecomponents",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+30%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-9%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-12.4%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+12.4%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "pulse-laser-plasma-conversion-g5",
+    "inaraBlueprintId": 204,
+    "moduleType": "Pulse Laser",
+    "name": "Plasma Conversion",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased power draw to convert a portion of damage to plasma.",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon"
+    ],
+    "materials": [
+      {
+        "key": "technetium",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "modifiedembeddedfirmware",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 30
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+40%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-11%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal",
+        "effect": "-15.5%",
+        "isGood": false
+      },
+      {
+        "property": "Plasma",
+        "effect": "+15.5%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "surface-scanner-long-range-detailed-g2",
+    "inaraBlueprintId": 205,
+    "moduleType": "Surface Scanner",
+    "name": "Long Range Detailed",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased mass and power draw is traded for better probe radius.",
+    "engineers": [
+      "Bill Turner",
+      "Etienne Dorn",
+      "Felicity Farseer",
+      "Hera Tani",
+      "Juri Ishmaak",
+      "Lei Cheung",
+      "Lori Jameson",
+      "Tiana Fortune"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "germanium",
+        "count": 1
+      },
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Probe Radius",
+        "effect": "+33%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "surface-scanner-long-range-detailed-g3",
+    "inaraBlueprintId": 205,
+    "moduleType": "Surface Scanner",
+    "name": "Long Range Detailed",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased mass and power draw is traded for better probe radius.",
+    "engineers": [
+      "Bill Turner",
+      "Etienne Dorn",
+      "Felicity Farseer",
+      "Hera Tani",
+      "Juri Ishmaak",
+      "Lei Cheung",
+      "Lori Jameson",
+      "Tiana Fortune"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "germanium",
+        "count": 1
+      },
+      {
+        "key": "phasealloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Probe Radius",
+        "effect": "+50%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "surface-scanner-long-range-detailed-g4",
+    "inaraBlueprintId": 205,
+    "moduleType": "Surface Scanner",
+    "name": "Long Range Detailed",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased mass and power draw is traded for better probe radius.",
+    "engineers": [
+      "Bill Turner",
+      "Etienne Dorn",
+      "Hera Tani",
+      "Juri Ishmaak",
+      "Lei Cheung",
+      "Lori Jameson"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "niobium",
+        "count": 1
+      },
+      {
+        "key": "phasealloys",
+        "count": 1
+      },
+      {
+        "key": "protolightalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Probe Radius",
+        "effect": "+75.2%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "surface-scanner-long-range-detailed-g5",
+    "inaraBlueprintId": 205,
+    "moduleType": "Surface Scanner",
+    "name": "Long Range Detailed",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased mass and power draw is traded for better probe radius.",
+    "engineers": [
+      "Bill Turner",
+      "Etienne Dorn",
+      "Hera Tani",
+      "Juri Ishmaak",
+      "Lei Cheung",
+      "Lori Jameson"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "tin",
+        "count": 1
+      },
+      {
+        "key": "protoradiolicalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Probe Radius",
+        "effect": "+100%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "cargo-rack-extended-g2",
+    "inaraBlueprintId": 206,
+    "moduleType": "Cargo Rack",
+    "name": "Extended",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased cargo capacity.",
+    "engineers": [
+      "Bill Turner",
+      "Ram Tah",
+      "Tiana Fortune"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "vanadium",
+        "count": 1
+      },
+      {
+        "key": "manganese",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Cargo Capacity",
+        "effect": "+12.5%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "cargo-rack-extended-g3",
+    "inaraBlueprintId": 206,
+    "moduleType": "Cargo Rack",
+    "name": "Extended",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased cargo capacity.",
+    "engineers": [
+      "Bill Turner",
+      "Ram Tah",
+      "Tiana Fortune"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "vanadium",
+        "count": 1
+      },
+      {
+        "key": "niobium",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Cargo Capacity",
+        "effect": "+18.8%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "cargo-rack-extended-g4",
+    "inaraBlueprintId": 206,
+    "moduleType": "Cargo Rack",
+    "name": "Extended",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased cargo capacity.",
+    "engineers": [
+      "Bill Turner",
+      "Ram Tah",
+      "Tiana Fortune"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "highdensitycomposites",
+        "count": 1
+      },
+      {
+        "key": "tin",
+        "count": 1
+      },
+      {
+        "key": "niobium",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Cargo Capacity",
+        "effect": "+25%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "cargo-rack-extended-g5",
+    "inaraBlueprintId": 206,
+    "moduleType": "Cargo Rack",
+    "name": "Extended",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased cargo capacity.",
+    "engineers": [
+      "Bill Turner",
+      "Ram Tah",
+      "Tiana Fortune"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "proprietarycomposites",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 30
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Cargo Capacity",
+        "effect": "+34.4%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "power-distributor-balanced-g2",
+    "inaraBlueprintId": 208,
+    "moduleType": "Power Distributor",
+    "name": "Balanced",
+    "grade": 2,
+    "experimental": false,
+    "description": "Moderate distributor rate and charge increase and reduced power draw by increasing mass and reducing integrity.",
+    "engineers": [
+      "Etienne Dorn",
+      "Hera Tani",
+      "Marco Qwent",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "sulphur",
+        "count": 1
+      },
+      {
+        "key": "specialisedlegacyfirmware",
+        "count": 1
+      },
+      {
+        "key": "chemicalprocessors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Weapons Capacity",
+        "effect": "+7%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Capacity",
+        "effect": "+7%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Capacity",
+        "effect": "+7%",
+        "isGood": true
+      },
+      {
+        "property": "Weapons Recharge",
+        "effect": "+7.7%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Recharge",
+        "effect": "+7.7%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Recharge",
+        "effect": "+7.7%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+3.3%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-3.3%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-1.7%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "power-distributor-balanced-g3",
+    "inaraBlueprintId": 208,
+    "moduleType": "Power Distributor",
+    "name": "Balanced",
+    "grade": 3,
+    "experimental": false,
+    "description": "Moderate distributor rate and charge increase and reduced power draw by increasing mass and reducing integrity.",
+    "engineers": [
+      "Etienne Dorn",
+      "Hera Tani",
+      "Marco Qwent",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "specialisedlegacyfirmware",
+        "count": 1
+      },
+      {
+        "key": "chemicalprocessors",
+        "count": 1
+      },
+      {
+        "key": "highdensitycomposites",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Weapons Capacity",
+        "effect": "+10.5%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Capacity",
+        "effect": "+10.5%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Capacity",
+        "effect": "+10.5%",
+        "isGood": true
+      },
+      {
+        "property": "Weapons Recharge",
+        "effect": "+11.5%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Recharge",
+        "effect": "+11.5%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Recharge",
+        "effect": "+11.5%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+5%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-5%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-2.5%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "power-distributor-balanced-g4",
+    "inaraBlueprintId": 208,
+    "moduleType": "Power Distributor",
+    "name": "Balanced",
+    "grade": 4,
+    "experimental": false,
+    "description": "Moderate distributor rate and charge increase and reduced power draw by increasing mass and reducing integrity.",
+    "engineers": [
+      "Etienne Dorn",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "chemicalprocessors",
+        "count": 1
+      },
+      {
+        "key": "highdensitycomposites",
+        "count": 1
+      },
+      {
+        "key": "selenium",
+        "count": 1
+      },
+      {
+        "key": "chemicalmanipulators",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Weapons Capacity",
+        "effect": "+15.8%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Capacity",
+        "effect": "+15.8%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Capacity",
+        "effect": "+15.8%",
+        "isGood": true
+      },
+      {
+        "property": "Weapons Recharge",
+        "effect": "+17.3%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Recharge",
+        "effect": "+17.3%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Recharge",
+        "effect": "+17.3%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+75.2%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-7.5%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-3.8%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "power-distributor-balanced-g5",
+    "inaraBlueprintId": 208,
+    "moduleType": "Power Distributor",
+    "name": "Balanced",
+    "grade": 5,
+    "experimental": false,
+    "description": "Moderate distributor rate and charge increase and reduced power draw by increasing mass and reducing integrity.",
+    "engineers": [
+      "Etienne Dorn",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "proprietarycomposites",
+        "count": 1
+      },
+      {
+        "key": "chemicalmanipulators",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "exquisitefocuscrystals",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Weapons Capacity",
+        "effect": "+21%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Capacity",
+        "effect": "+21%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Capacity",
+        "effect": "+21%",
+        "isGood": true
+      },
+      {
+        "property": "Weapons Recharge",
+        "effect": "+23%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Recharge",
+        "effect": "+23%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Recharge",
+        "effect": "+23%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+10%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-10%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-5%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "power-distributor-support-focused-g2",
+    "inaraBlueprintId": 209,
+    "moduleType": "Power Distributor",
+    "name": "Support Focused",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased engine and systems capacity and charge rate at the cost of reduced weapons capacity and charge rate.",
+    "engineers": [
+      "Etienne Dorn",
+      "Hera Tani",
+      "Marco Qwent",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "sulphur",
+        "count": 1
+      },
+      {
+        "key": "specialisedlegacyfirmware",
+        "count": 1
+      },
+      {
+        "key": "conductivecomponents",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Weapons Capacity",
+        "effect": "-8.3%",
+        "isGood": false
+      },
+      {
+        "property": "Weapons Recharge",
+        "effect": "-5.6%",
+        "isGood": false
+      },
+      {
+        "property": "Engines Capacity",
+        "effect": "+15%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Recharge",
+        "effect": "+13.3%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Capacity",
+        "effect": "+15%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Recharge",
+        "effect": "+13.3%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "power-distributor-support-focused-g3",
+    "inaraBlueprintId": 209,
+    "moduleType": "Power Distributor",
+    "name": "Support Focused",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased engine and systems capacity and charge rate at the cost of reduced weapons capacity and charge rate.",
+    "engineers": [
+      "Etienne Dorn",
+      "Hera Tani",
+      "Marco Qwent",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "anomalousbulkscandata",
+        "count": 1
+      },
+      {
+        "key": "chromium",
+        "count": 1
+      },
+      {
+        "key": "electrochemicalarrays",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Weapons Capacity",
+        "effect": "-12.5%",
+        "isGood": false
+      },
+      {
+        "property": "Weapons Recharge",
+        "effect": "-10%",
+        "isGood": false
+      },
+      {
+        "property": "Engines Capacity",
+        "effect": "+22.5%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Recharge",
+        "effect": "+20%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Capacity",
+        "effect": "+22.5%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Recharge",
+        "effect": "+20%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "power-distributor-support-focused-g4",
+    "inaraBlueprintId": 209,
+    "moduleType": "Power Distributor",
+    "name": "Support Focused",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased engine and systems capacity and charge rate at the cost of reduced weapons capacity and charge rate.",
+    "engineers": [
+      "Etienne Dorn",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "unidentifiedscanarchives",
+        "count": 1
+      },
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "selenium",
+        "count": 1
+      },
+      {
+        "key": "polymercapacitors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Weapons Capacity",
+        "effect": "-18.8%",
+        "isGood": false
+      },
+      {
+        "property": "Weapons Recharge",
+        "effect": "-15%",
+        "isGood": false
+      },
+      {
+        "property": "Engines Capacity",
+        "effect": "+33.8%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Recharge",
+        "effect": "+30.1%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Capacity",
+        "effect": "+33.8%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Recharge",
+        "effect": "+30.1%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "power-distributor-support-focused-g5",
+    "inaraBlueprintId": 209,
+    "moduleType": "Power Distributor",
+    "name": "Support Focused",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased engine and systems capacity and charge rate at the cost of reduced weapons capacity and charge rate.",
+    "engineers": [
+      "Etienne Dorn",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "classifiedscandatabanks",
+        "count": 1
+      },
+      {
+        "key": "cadmium",
+        "count": 1
+      },
+      {
+        "key": "proprietarycomposites",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Weapons Capacity",
+        "effect": "-25%",
+        "isGood": false
+      },
+      {
+        "property": "Weapons Recharge",
+        "effect": "-20%",
+        "isGood": false
+      },
+      {
+        "property": "Engines Capacity",
+        "effect": "+45%",
+        "isGood": true
+      },
+      {
+        "property": "Engines Recharge",
+        "effect": "+40%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Capacity",
+        "effect": "+45%",
+        "isGood": true
+      },
+      {
+        "property": "Systems Recharge",
+        "effect": "+40%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "module-reinforcement-package-heavy-duty-g2",
+    "inaraBlueprintId": 214,
+    "moduleType": "Module Reinforcement Package",
+    "name": "Heavy Duty",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased module protection at the cost of increased mass.",
+    "engineers": [
+      "Petra Olmanova",
+      "Selene Jean"
+    ],
+    "materials": [
+      {
+        "key": "carbon",
+        "count": 1
+      },
+      {
+        "key": "iron",
+        "count": 1
+      },
+      {
+        "key": "shieldemitters",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Mass",
+        "effect": "+33.3%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "+8.3%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Protection",
+        "effect": "+8.3%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "module-reinforcement-package-heavy-duty-g3",
+    "inaraBlueprintId": 214,
+    "moduleType": "Module Reinforcement Package",
+    "name": "Heavy Duty",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased module protection at the cost of increased mass.",
+    "engineers": [
+      "Petra Olmanova",
+      "Selene Jean"
+    ],
+    "materials": [
+      {
+        "key": "iron",
+        "count": 1
+      },
+      {
+        "key": "shieldemitters",
+        "count": 1
+      },
+      {
+        "key": "highdensitycomposites",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Mass",
+        "effect": "+50%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "+12.5%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Protection",
+        "effect": "+12.5%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "module-reinforcement-package-heavy-duty-g4",
+    "inaraBlueprintId": 214,
+    "moduleType": "Module Reinforcement Package",
+    "name": "Heavy Duty",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased module protection at the cost of increased mass.",
+    "engineers": [
+      "Petra Olmanova",
+      "Selene Jean"
+    ],
+    "materials": [
+      {
+        "key": "shieldemitters",
+        "count": 1
+      },
+      {
+        "key": "highdensitycomposites",
+        "count": 1
+      },
+      {
+        "key": "proprietarycomposites",
+        "count": 1
+      },
+      {
+        "key": "tungsten",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Mass",
+        "effect": "+75.2%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "+18.8%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Protection",
+        "effect": "+18.8%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "module-reinforcement-package-heavy-duty-g5",
+    "inaraBlueprintId": 214,
+    "moduleType": "Module Reinforcement Package",
+    "name": "Heavy Duty",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased module protection at the cost of increased mass.",
+    "engineers": [
+      "Petra Olmanova",
+      "Selene Jean"
+    ],
+    "materials": [
+      {
+        "key": "compoundshielding",
+        "count": 1
+      },
+      {
+        "key": "ruthenium",
+        "count": 1
+      },
+      {
+        "key": "protoheatradiators",
+        "count": 1
+      },
+      {
+        "key": "coredynamicscomposites",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Mass",
+        "effect": "+100%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "+25%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Protection",
+        "effect": "+25%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "fragment-cannon-double-screaming-g2",
+    "inaraBlueprintId": 215,
+    "moduleType": "Fragment Cannon",
+    "name": "Double Screaming",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, burst size and reduced reload time at the cost of reduced maximum range, rate of fire and increased mass and power draw.",
+    "engineers": [
+      "Marsha Hicks",
+      "Tod \"The Blaster\" McQuinn",
+      "Zacariah Nemo"
+    ],
+    "materials": [
+      {
+        "key": "carbon",
+        "count": 1
+      },
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "-2.5%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+2.4%",
+        "isGood": true
+      },
+      {
+        "property": "Burst Size",
+        "effect": "+1",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+33.3%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+6.7%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+22.2%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+20%",
+        "isGood": false
+      },
+      {
+        "property": "Reload Time",
+        "effect": "-50%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "fragment-cannon-double-screaming-g3",
+    "inaraBlueprintId": 215,
+    "moduleType": "Fragment Cannon",
+    "name": "Double Screaming",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, burst size and reduced reload time at the cost of reduced maximum range, rate of fire and increased mass and power draw.",
+    "engineers": [
+      "Marsha Hicks",
+      "Tod \"The Blaster\" McQuinn",
+      "Zacariah Nemo"
+    ],
+    "materials": [
+      {
+        "key": "carbon",
+        "count": 1
+      },
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "tin",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "-3.3%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+23.5%",
+        "isGood": true
+      },
+      {
+        "property": "Burst Size",
+        "effect": "+1",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+33.3%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+10%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+33.9%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+30%",
+        "isGood": false
+      },
+      {
+        "property": "Reload Time",
+        "effect": "-50%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "fragment-cannon-double-screaming-g4",
+    "inaraBlueprintId": 215,
+    "moduleType": "Fragment Cannon",
+    "name": "Double Screaming",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, burst size and reduced reload time at the cost of reduced maximum range, rate of fire and increased mass and power draw.",
+    "engineers": [
+      "Marsha Hicks",
+      "Zacariah Nemo"
+    ],
+    "materials": [
+      {
+        "key": "vanadium",
+        "count": 1
+      },
+      {
+        "key": "crackedindustrialfirmware",
+        "count": 1
+      },
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "securityfirmwarepatch",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "-5%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+44.2%",
+        "isGood": true
+      },
+      {
+        "property": "Burst Size",
+        "effect": "+1",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+15%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+51.1%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+45.1%",
+        "isGood": false
+      },
+      {
+        "property": "Reload Time",
+        "effect": "-50%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "fragment-cannon-double-screaming-g5",
+    "inaraBlueprintId": 215,
+    "moduleType": "Fragment Cannon",
+    "name": "Double Screaming",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, burst size and reduced reload time at the cost of reduced maximum range, rate of fire and increased mass and power draw.",
+    "engineers": [
+      "Marsha Hicks",
+      "Zacariah Nemo"
+    ],
+    "materials": [
+      {
+        "key": "highdensitycomposites",
+        "count": 1
+      },
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "configurablecomponents",
+        "count": 1
+      },
+      {
+        "key": "modifiedembeddedfirmware",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 50
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "-7.5%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+58.1%",
+        "isGood": true
+      },
+      {
+        "property": "Burst Size",
+        "effect": "+1",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+166.7%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+20%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+67.8%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+60%",
+        "isGood": false
+      },
+      {
+        "property": "Reload Time",
+        "effect": "-50%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "rail-gun-enduring-feedback-g2",
+    "inaraBlueprintId": 216,
+    "moduleType": "Rail Gun",
+    "name": "Enduring Feedback",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased mass, power draw and reduced damage to improve reload time, heat generation, range and ammo capacity. Includes Feedback Cascade effect.",
+    "engineers": [
+      "Etienne Dorn",
+      "The Sarge",
+      "Tod \"The Blaster\" McQuinn"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "sulphur",
+        "count": 1
+      },
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Mass",
+        "effect": "+30%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+11.7%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+15.4%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-10.4%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-13.3%",
+        "isGood": true
+      },
+      {
+        "property": "Maximum Range",
+        "effect": "+33.3%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+300%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+32.5%",
+        "isGood": true
+      },
+      {
+        "property": "Reload Time",
+        "effect": "+8.3%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "rail-gun-enduring-feedback-g3",
+    "inaraBlueprintId": 216,
+    "moduleType": "Rail Gun",
+    "name": "Enduring Feedback",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased mass, power draw and reduced damage to improve reload time, heat generation, range and ammo capacity. Includes Feedback Cascade effect.",
+    "engineers": [
+      "Etienne Dorn",
+      "The Sarge",
+      "Tod \"The Blaster\" McQuinn"
+    ],
+    "materials": [
+      {
+        "key": "sulphur",
+        "count": 1
+      },
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "niobium",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Mass",
+        "effect": "+45%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+17.5%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+25%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-15.4%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-20%",
+        "isGood": true
+      },
+      {
+        "property": "Maximum Range",
+        "effect": "+50%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+350%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+50%",
+        "isGood": true
+      },
+      {
+        "property": "Reload Time",
+        "effect": "+12.5%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "rail-gun-enduring-feedback-g4",
+    "inaraBlueprintId": 216,
+    "moduleType": "Rail Gun",
+    "name": "Enduring Feedback",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased mass, power draw and reduced damage to improve reload time, heat generation, range and ammo capacity. Includes Feedback Cascade effect.",
+    "engineers": [
+      "Etienne Dorn",
+      "Tod \"The Blaster\" McQuinn"
+    ],
+    "materials": [
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "niobium",
+        "count": 1
+      },
+      {
+        "key": "conductivepolymers",
+        "count": 1
+      },
+      {
+        "key": "tin",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Mass",
+        "effect": "+67.7%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+26.3%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+43%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-33.7%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-30.1%",
+        "isGood": true
+      },
+      {
+        "property": "Maximum Range",
+        "effect": "+75.2%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+425.6%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+75%",
+        "isGood": true
+      },
+      {
+        "property": "Reload Time",
+        "effect": "+18.8%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "rail-gun-enduring-feedback-g5",
+    "inaraBlueprintId": 216,
+    "moduleType": "Rail Gun",
+    "name": "Enduring Feedback",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased mass, power draw and reduced damage to improve reload time, heat generation, range and ammo capacity. Includes Feedback Cascade effect.",
+    "engineers": [
+      "Etienne Dorn",
+      "Tod \"The Blaster\" McQuinn"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "biotechconductors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 50
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Mass",
+        "effect": "+90%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+35%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+66.7%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-29.6%",
+        "isGood": false
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-40%",
+        "isGood": true
+      },
+      {
+        "property": "Maximum Range",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+500%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Reload Time",
+        "effect": "+25%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "abrasion-blaster-far-reaching-g2",
+    "inaraBlueprintId": 217,
+    "moduleType": "Abrasion Blaster",
+    "name": "Far-reaching",
+    "grade": 2,
+    "experimental": false,
+    "description": "Reduced power draw, distributor draw and thermal load with increased shot speed and maximum range at the cost of integrity.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder"
+    ],
+    "materials": [
+      {
+        "key": "sulphur",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "+133.3%",
+        "isGood": true
+      },
+      {
+        "property": "Shot Speed",
+        "effect": "+133.3%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+133.3%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-16.7%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-16.7%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-16.7%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-16.7%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "abrasion-blaster-far-reaching-g3",
+    "inaraBlueprintId": 217,
+    "moduleType": "Abrasion Blaster",
+    "name": "Far-reaching",
+    "grade": 3,
+    "experimental": false,
+    "description": "Reduced power draw, distributor draw and thermal load with increased shot speed and maximum range at the cost of integrity.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder"
+    ],
+    "materials": [
+      {
+        "key": "chromium",
+        "count": 1
+      },
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "heatexchangers",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "+200%",
+        "isGood": true
+      },
+      {
+        "property": "Shot Speed",
+        "effect": "+200%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+200%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-25%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-25%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-25%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-25%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "abrasion-blaster-far-reaching-g4",
+    "inaraBlueprintId": 217,
+    "moduleType": "Abrasion Blaster",
+    "name": "Far-reaching",
+    "grade": 4,
+    "experimental": false,
+    "description": "Reduced power draw, distributor draw and thermal load with increased shot speed and maximum range at the cost of integrity.",
+    "engineers": [
+      "Juri Ishmaak"
+    ],
+    "materials": [
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "conductivepolymers",
+        "count": 1
+      },
+      {
+        "key": "selenium",
+        "count": 1
+      },
+      {
+        "key": "heatvanes",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "+300%",
+        "isGood": true
+      },
+      {
+        "property": "Shot Speed",
+        "effect": "+300%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+300%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-37.6%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-37.6%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-37.6%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-37.6%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "abrasion-blaster-far-reaching-g5",
+    "inaraBlueprintId": 217,
+    "moduleType": "Abrasion Blaster",
+    "name": "Far-reaching",
+    "grade": 5,
+    "experimental": false,
+    "description": "Reduced power draw, distributor draw and thermal load with increased shot speed and maximum range at the cost of integrity.",
+    "engineers": [
+      "Juri Ishmaak"
+    ],
+    "materials": [
+      {
+        "key": "crackedindustrialfirmware",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "biotechconductors",
+        "count": 1
+      },
+      {
+        "key": "protoheatradiators",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "+400%",
+        "isGood": true
+      },
+      {
+        "property": "Shot Speed",
+        "effect": "+400%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+400%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-50%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-50%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-50%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-50%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "mining-laser-long-range-g2",
+    "inaraBlueprintId": 218,
+    "moduleType": "Mining Laser",
+    "name": "Long Range",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased range with reduced power draw, distributor draw and thermal load at the cost of reduced integrity and damage.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder"
+    ],
+    "materials": [
+      {
+        "key": "sulphur",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "+133.3%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+288.9%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-1.7%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-1.7%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "+117%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "-1.7%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "-5%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "mining-laser-long-range-g3",
+    "inaraBlueprintId": 218,
+    "moduleType": "Mining Laser",
+    "name": "Long Range",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased range with reduced power draw, distributor draw and thermal load at the cost of reduced integrity and damage.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder"
+    ],
+    "materials": [
+      {
+        "key": "chromium",
+        "count": 1
+      },
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "heatexchangers",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 5
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "+200%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+400%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-25%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-25%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "+75.5%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "-25%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "-5%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "mining-laser-long-range-g4",
+    "inaraBlueprintId": 218,
+    "moduleType": "Mining Laser",
+    "name": "Long Range",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased range with reduced power draw, distributor draw and thermal load at the cost of reduced integrity and damage.",
+    "engineers": [
+      "Juri Ishmaak"
+    ],
+    "materials": [
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "conductivepolymers",
+        "count": 1
+      },
+      {
+        "key": "selenium",
+        "count": 1
+      },
+      {
+        "key": "heatvanes",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "+300%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+567.9%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-37.6%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-37.6%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "+12.8%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "-37.6%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "-5%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "mining-laser-long-range-g5",
+    "inaraBlueprintId": 218,
+    "moduleType": "Mining Laser",
+    "name": "Long Range",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased range with reduced power draw, distributor draw and thermal load at the cost of reduced integrity and damage.",
+    "engineers": [
+      "Juri Ishmaak"
+    ],
+    "materials": [
+      {
+        "key": "crackedindustrialfirmware",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "biotechconductors",
+        "count": 1
+      },
+      {
+        "key": "protoheatradiators",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Maximum Range",
+        "effect": "+400%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "+733.3%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-50%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-50%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-49%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-50%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "-5%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-drag-g2",
+    "inaraBlueprintId": 219,
+    "moduleType": "Missile Rack",
+    "name": "Drag",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size and rate of fire at the cost on increased mass, power draw and distributor draw.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "vanadium",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Damage Per Second",
+        "effect": "+7.1%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+7.1%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+66.7%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+66.7%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+50%",
+        "isGood": false
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "+13.9%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+8.3%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-drag-g3",
+    "inaraBlueprintId": 219,
+    "moduleType": "Missile Rack",
+    "name": "Drag",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size and rate of fire at the cost on increased mass, power draw and distributor draw.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "precipitatedalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Damage Per Second",
+        "effect": "+11.1%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+11.1%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+75%",
+        "isGood": false
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "+20.9%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+12.5%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-drag-g4",
+    "inaraBlueprintId": 219,
+    "moduleType": "Missile Rack",
+    "name": "Drag",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size and rate of fire at the cost on increased mass, power draw and distributor draw.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "highdensitycomposites",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Damage Per Second",
+        "effect": "+17.7%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+17.7%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+150%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+166.7%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+112.8%",
+        "isGood": false
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "+31.4%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+18.8%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-drag-g5",
+    "inaraBlueprintId": 219,
+    "moduleType": "Missile Rack",
+    "name": "Drag",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size and rate of fire at the cost on increased mass, power draw and distributor draw.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "proprietarycomposites",
+        "count": 1
+      },
+      {
+        "key": "technetium",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 40
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Damage Per Second",
+        "effect": "+25%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+25%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+200%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+200%",
+        "isGood": true
+      },
+      {
+        "property": "Mass",
+        "effect": "+150%",
+        "isGood": false
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "+41.7%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+25%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-lightweight-thermal-g2",
+    "inaraBlueprintId": 220,
+    "moduleType": "Missile Rack",
+    "name": "Lightweight Thermal",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, rate of fire and reduced mass, power draw and distributor draw at the cost of reduced integrity.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "vanadium",
+        "count": 1
+      },
+      {
+        "key": "manganese",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Ammo Maximum",
+        "effect": "+33.3%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+33.3%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+3.5%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+3.5%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-20%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "-30%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-6.7%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-13.3%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-lightweight-thermal-g3",
+    "inaraBlueprintId": 220,
+    "moduleType": "Missile Rack",
+    "name": "Lightweight Thermal",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, rate of fire and reduced mass, power draw and distributor draw at the cost of reduced integrity.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "conductiveceramics",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Ammo Maximum",
+        "effect": "+50%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+50%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+5.3%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+5.3%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-30%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "-45%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-10%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-20%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-lightweight-thermal-g4",
+    "inaraBlueprintId": 220,
+    "moduleType": "Missile Rack",
+    "name": "Lightweight Thermal",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, rate of fire and reduced mass, power draw and distributor draw at the cost of reduced integrity.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "phasealloys",
+        "count": 1
+      },
+      {
+        "key": "protolightalloys",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Ammo Maximum",
+        "effect": "+72.2%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+83.3%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+8.1%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+8.1%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-45.1%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "-67.7%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-15%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-30.1%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-lightweight-thermal-g5",
+    "inaraBlueprintId": 220,
+    "moduleType": "Missile Rack",
+    "name": "Lightweight Thermal",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, rate of fire and reduced mass, power draw and distributor draw at the cost of reduced integrity.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "protolightalloys",
+        "count": 1
+      },
+      {
+        "key": "protoradiolicalloys",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 40
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Ammo Maximum",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+11.1%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+11.1%",
+        "isGood": true
+      },
+      {
+        "property": "Integrity",
+        "effect": "-60%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "-90%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "-20%",
+        "isGood": true
+      },
+      {
+        "property": "Distributor Draw",
+        "effect": "-40%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-lockdown-g2",
+    "inaraBlueprintId": 221,
+    "moduleType": "Missile Rack",
+    "name": "Lockdown",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, integrity and reduced thermal load at the cost of increased power draw and mass and reduced rate of fire and damage.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "nickel",
+        "count": 1
+      },
+      {
+        "key": "vanadium",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+33.3%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+10%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+33.3%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "-31%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+40%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "+33.3%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-3.3%",
+        "isGood": true
+      },
+      {
+        "property": "Armour Piercing",
+        "effect": "+13.3%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-21.8%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-lockdown-g3",
+    "inaraBlueprintId": 221,
+    "moduleType": "Missile Rack",
+    "name": "Lockdown",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, integrity and reduced thermal load at the cost of increased power draw and mass and reduced rate of fire and damage.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "tungsten",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+50%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+15%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+50%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "-29.8%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+60%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "+50%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-5%",
+        "isGood": true
+      },
+      {
+        "property": "Armour Piercing",
+        "effect": "+20%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-17.8%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-lockdown-g4",
+    "inaraBlueprintId": 221,
+    "moduleType": "Missile Rack",
+    "name": "Lockdown",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, integrity and reduced thermal load at the cost of increased power draw and mass and reduced rate of fire and damage.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "tungsten",
+        "count": 1
+      },
+      {
+        "key": "molybdenum",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+83.3%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+22.6%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+72.2%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "-27.9%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+90.2%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "+75.2%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-7.5%",
+        "isGood": true
+      },
+      {
+        "property": "Armour Piercing",
+        "effect": "+30%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-11.6%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-lockdown-g5",
+    "inaraBlueprintId": 221,
+    "moduleType": "Missile Rack",
+    "name": "Lockdown",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size, integrity and reduced thermal load at the cost of increased power draw and mass and reduced rate of fire and damage.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "molybdenum",
+        "count": 1
+      },
+      {
+        "key": "technetium",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 45
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+30%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "-25.9%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+120%",
+        "isGood": false
+      },
+      {
+        "property": "Integrity",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "-10%",
+        "isGood": true
+      },
+      {
+        "property": "Armour Piercing",
+        "effect": "+40%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-5.5%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "multi-cannon-rapid-phase-g2",
+    "inaraBlueprintId": 223,
+    "moduleType": "Multi-cannon",
+    "name": "Rapid Phase",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased shots per round, ammo capacity, clip size and rate of fire at the cost of reduced range and increased jitter.",
+    "engineers": [
+      "Marsha Hicks",
+      "Tod \"The Blaster\" McQuinn",
+      "Zacariah Nemo"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "heatdispersionplate",
+        "count": 1
+      },
+      {
+        "key": "conductivecomponents",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Rounds Per Shot",
+        "effect": "0%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "-0.5%",
+        "isGood": false
+      },
+      {
+        "property": "Damage",
+        "effect": "-10%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+10.5%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+68.2%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Maximum Range",
+        "effect": "-16.7%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "-50%",
+        "isGood": false
+      },
+      {
+        "property": "Jitter",
+        "effect": "+1.25",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "multi-cannon-rapid-phase-g3",
+    "inaraBlueprintId": 223,
+    "moduleType": "Multi-cannon",
+    "name": "Rapid Phase",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased shots per round, ammo capacity, clip size and rate of fire at the cost of reduced range and increased jitter.",
+    "engineers": [
+      "Marsha Hicks",
+      "Tod \"The Blaster\" McQuinn",
+      "Zacariah Nemo"
+    ],
+    "materials": [
+      {
+        "key": "specialisedlegacyfirmware",
+        "count": 1
+      },
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "precipitatedalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Rounds Per Shot",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+110%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-10%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+16.7%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+102.4%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+150%",
+        "isGood": true
+      },
+      {
+        "property": "Maximum Range",
+        "effect": "-25%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "-32.5%",
+        "isGood": false
+      },
+      {
+        "property": "Jitter",
+        "effect": "+1.5",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "multi-cannon-rapid-phase-g4",
+    "inaraBlueprintId": 223,
+    "moduleType": "Multi-cannon",
+    "name": "Rapid Phase",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased shots per round, ammo capacity, clip size and rate of fire at the cost of reduced range and increased jitter.",
+    "engineers": [
+      "Marsha Hicks",
+      "Tod \"The Blaster\" McQuinn"
+    ],
+    "materials": [
+      {
+        "key": "modifiedconsumerfirmware",
+        "count": 1
+      },
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "conductiveceramics",
+        "count": 1
+      },
+      {
+        "key": "thermicalloys",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Rounds Per Shot",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+129.2%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-10%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+27.4%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+154%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+226%",
+        "isGood": true
+      },
+      {
+        "property": "Maximum Range",
+        "effect": "-37.6%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "-15.5%",
+        "isGood": false
+      },
+      {
+        "property": "Jitter",
+        "effect": "+2.26",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "multi-cannon-rapid-phase-g5",
+    "inaraBlueprintId": 223,
+    "moduleType": "Multi-cannon",
+    "name": "Rapid Phase",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased shots per round, ammo capacity, clip size and rate of fire at the cost of reduced range and increased jitter.",
+    "engineers": [
+      "Marsha Hicks",
+      "Tod \"The Blaster\" McQuinn"
+    ],
+    "materials": [
+      {
+        "key": "precipitatedalloys",
+        "count": 1
+      },
+      {
+        "key": "configurablecomponents",
+        "count": 1
+      },
+      {
+        "key": "conductiveceramics",
+        "count": 1
+      },
+      {
+        "key": "technetium",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 45
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Rounds Per Shot",
+        "effect": "+200%",
+        "isGood": true
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+278%",
+        "isGood": true
+      },
+      {
+        "property": "Damage",
+        "effect": "-10%",
+        "isGood": false
+      },
+      {
+        "property": "Rate of Fire",
+        "effect": "+40%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+204.8%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+300%",
+        "isGood": true
+      },
+      {
+        "property": "Maximum Range",
+        "effect": "-50%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Falloff Start",
+        "effect": "-10%",
+        "isGood": false
+      },
+      {
+        "property": "Jitter",
+        "effect": "+3",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "enzyme-missile-rack-high-yield-g2",
+    "inaraBlueprintId": 224,
+    "moduleType": "Enzyme Missile Rack",
+    "name": "High-yield",
+    "grade": 2,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size and damage at the cost of increased mass and power draw.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "vanadium",
+        "count": 1
+      },
+      {
+        "key": "conductivecomponents",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+6.7%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+20%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "0%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+100%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "enzyme-missile-rack-high-yield-g3",
+    "inaraBlueprintId": 224,
+    "moduleType": "Enzyme Missile Rack",
+    "name": "High-yield",
+    "grade": 3,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size and damage at the cost of increased mass and power draw.",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalscrap",
+        "count": 1
+      },
+      {
+        "key": "vanadium",
+        "count": 1
+      },
+      {
+        "key": "electrochemicalarrays",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+10%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+30%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "0%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+100%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "enzyme-missile-rack-high-yield-g4",
+    "inaraBlueprintId": 224,
+    "moduleType": "Enzyme Missile Rack",
+    "name": "High-yield",
+    "grade": 4,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size and damage at the cost of increased mass and power draw.",
+    "engineers": [
+      "Juri Ishmaak"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalequipment",
+        "count": 1
+      },
+      {
+        "key": "highdensitycomposites",
+        "count": 1
+      },
+      {
+        "key": "tin",
+        "count": 1
+      },
+      {
+        "key": "polymercapacitors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 20
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+15%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+45.1%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "0%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+100%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "enzyme-missile-rack-high-yield-g5",
+    "inaraBlueprintId": 224,
+    "moduleType": "Enzyme Missile Rack",
+    "name": "High-yield",
+    "grade": 5,
+    "experimental": false,
+    "description": "Increased ammo capacity, clip size and damage at the cost of increased mass and power draw.",
+    "engineers": [
+      "Juri Ishmaak"
+    ],
+    "materials": [
+      {
+        "key": "mechanicalcomponents",
+        "count": 1
+      },
+      {
+        "key": "proprietarycomposites",
+        "count": 1
+      },
+      {
+        "key": "modifiedembeddedfirmware",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 45
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Power Draw",
+        "effect": "+20%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+60%",
+        "isGood": false
+      },
+      {
+        "property": "Ammo Maximum",
+        "effect": "+20%",
+        "isGood": true
+      },
+      {
+        "property": "Ammo Clip Size",
+        "effect": "+100%",
+        "isGood": true
+      }
+    ]
+  },
+  {
+    "id": "cannon-force-impact-g2",
+    "inaraBlueprintId": 225,
+    "moduleType": "Cannon",
+    "name": "Force Impact",
+    "grade": 2,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Marsha Hicks",
+      "The Sarge",
+      "Tod \"The Blaster\" McQuinn"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "cannon-force-impact-g3",
+    "inaraBlueprintId": 225,
+    "moduleType": "Cannon",
+    "name": "Force Impact",
+    "grade": 3,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Marsha Hicks",
+      "The Sarge"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "cannon-force-impact-g4",
+    "inaraBlueprintId": 225,
+    "moduleType": "Cannon",
+    "name": "Force Impact",
+    "grade": 4,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Marsha Hicks",
+      "The Sarge"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "cannon-force-impact-g5",
+    "inaraBlueprintId": 225,
+    "moduleType": "Cannon",
+    "name": "Force Impact",
+    "grade": 5,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Marsha Hicks",
+      "The Sarge"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "beam-laser-overloaded-g2",
+    "inaraBlueprintId": 226,
+    "moduleType": "Beam Laser",
+    "name": "Overloaded",
+    "grade": 2,
+    "experimental": false,
+    "description": "Dramatically increases the damage at the cost of increased mass, heat generation, power draw and distributor draw",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "chromium",
+        "count": 1
+      },
+      {
+        "key": "conductivecomponents",
+        "count": 1
+      },
+      {
+        "key": "nickel",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 10
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Distributor Draw",
+        "effect": "+33.3%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+33.3%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "+23.8%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+66.6%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+16.7%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "beam-laser-overloaded-g3",
+    "inaraBlueprintId": 226,
+    "moduleType": "Beam Laser",
+    "name": "Overloaded",
+    "grade": 3,
+    "experimental": false,
+    "description": "Dramatically increases the damage at the cost of increased mass, heat generation, power draw and distributor draw",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "chromium",
+        "count": 1
+      },
+      {
+        "key": "conductivecomponents",
+        "count": 1
+      },
+      {
+        "key": "electrochemicalarrays",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 15
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Distributor Draw",
+        "effect": "+50%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+50%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "+31.7%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+100%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+25%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "beam-laser-overloaded-g4",
+    "inaraBlueprintId": 226,
+    "moduleType": "Beam Laser",
+    "name": "Overloaded",
+    "grade": 4,
+    "experimental": false,
+    "description": "Dramatically increases the damage at the cost of increased mass, heat generation, power draw and distributor draw",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon"
+    ],
+    "materials": [
+      {
+        "key": "electrochemicalarrays",
+        "count": 1
+      },
+      {
+        "key": "highdensitycomposites",
+        "count": 1
+      },
+      {
+        "key": "polymercapacitors",
+        "count": 1
+      },
+      {
+        "key": "focuscrystals",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 25
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Distributor Draw",
+        "effect": "+75.2%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+75.2%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "+47.5%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+150.4%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+37.6%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "beam-laser-overloaded-g5",
+    "inaraBlueprintId": 226,
+    "moduleType": "Beam Laser",
+    "name": "Overloaded",
+    "grade": 5,
+    "experimental": false,
+    "description": "Dramatically increases the damage at the cost of increased mass, heat generation, power draw and distributor draw",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon"
+    ],
+    "materials": [
+      {
+        "key": "zirconium",
+        "count": 1
+      },
+      {
+        "key": "militarysupercapacitors",
+        "count": 1
+      },
+      {
+        "key": "modifiedembeddedfirmware",
+        "count": 1
+      },
+      {
+        "key": "focuscrystals",
+        "count": 1
+      },
+      {
+        "key": "merccoins",
+        "count": 50
+      }
+    ],
+    "modifiers": [
+      {
+        "property": "Distributor Draw",
+        "effect": "+100%",
+        "isGood": false
+      },
+      {
+        "property": "Damage Per Second",
+        "effect": "+100%",
+        "isGood": true
+      },
+      {
+        "property": "Thermal Load",
+        "effect": "+71.4%",
+        "isGood": false
+      },
+      {
+        "property": "Mass",
+        "effect": "+200%",
+        "isGood": false
+      },
+      {
+        "property": "Power Draw",
+        "effect": "+50%",
+        "isGood": false
+      }
+    ]
+  },
+  {
+    "id": "missile-rack-exposing-g2",
+    "inaraBlueprintId": 227,
+    "moduleType": "Missile Rack",
+    "name": "Exposing",
+    "grade": 2,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "missile-rack-exposing-g3",
+    "inaraBlueprintId": 227,
+    "moduleType": "Missile Rack",
+    "name": "Exposing",
+    "grade": 3,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Juri Ishmaak",
+      "Liz Ryder",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "missile-rack-exposing-g4",
+    "inaraBlueprintId": 227,
+    "moduleType": "Missile Rack",
+    "name": "Exposing",
+    "grade": 4,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Juri Ishmaak",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "missile-rack-exposing-g5",
+    "inaraBlueprintId": 227,
+    "moduleType": "Missile Rack",
+    "name": "Exposing",
+    "grade": 5,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Juri Ishmaak",
+      "Petra Olmanova"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "burst-laser-regenerative-g2",
+    "inaraBlueprintId": 228,
+    "moduleType": "Burst Laser",
+    "name": "Regenerative",
+    "grade": 2,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "burst-laser-regenerative-g3",
+    "inaraBlueprintId": 228,
+    "moduleType": "Burst Laser",
+    "name": "Regenerative",
+    "grade": 3,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon",
+      "The Dweller"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "burst-laser-regenerative-g4",
+    "inaraBlueprintId": 228,
+    "moduleType": "Burst Laser",
+    "name": "Regenerative",
+    "grade": 4,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
+  },
+  {
+    "id": "burst-laser-regenerative-g5",
+    "inaraBlueprintId": 228,
+    "moduleType": "Burst Laser",
+    "name": "Regenerative",
+    "grade": 5,
+    "experimental": false,
+    "description": "",
+    "engineers": [
+      "Broo Tarquin",
+      "Mel Brandon"
+    ],
+    "materials": [
+      {
+        "key": "merccoins",
+        "count": 1
+      }
+    ],
+    "modifiers": []
   }
 ]

@@ -94,4 +94,47 @@ class EngineeringRecommendationImportTest {
         assertEquals(GoalPriority.HIGH, updated.getPriority(), "existing planning priority is preserved");
         assertTrue(goals.contains(unrelated));
     }
+
+    @Test
+    void parsesMercCoinFuelScoopRecommendation() {
+        String slef = """
+                {
+                  "header":{"appName":"Recommendation Agent","appVersion":"1"},
+                  "data":{
+                    "event":"Loadout","Ship":"anaconda","ShipID":4,"ShipName":"Hauler",
+                    "Modules":[{
+                      "Slot":"Slot01_Size6","Item":"int_fuelscoop_size6_class5",
+                      "Engineering":{"BlueprintName":"FuelScoop_ScoopRateEnhanced","Level":5}
+                    }]
+                  }
+                }
+                """;
+
+        EngineeringRecommendationImport.Plan plan = EngineeringRecommendationImport.parse(slef, database);
+
+        assertFalse(plan.hasErrors(), plan.errors().toString());
+        assertEquals(1, plan.goals().size());
+        EngineeringGoal goal = plan.goals().get(0);
+        assertEquals("Fuel Scoop", goal.getModuleType());
+        assertEquals("Scoop Rate Enhanced", goal.getBlueprintName());
+        assertEquals(5, goal.getTargetGrade());
+        assertEquals("Slot01_Size6", goal.getTargetSlot());
+    }
+
+    @Test
+    void parsesMercCoinPlasmaConversionForBeamLaser() {
+        String slef = """
+                {"data":{"event":"Loadout","Ship":"vulture","ShipID":2,"Modules":[{
+                  "Slot":"MediumHardpoint1","Item":"hpt_beamlaser_fixed_medium",
+                  "Engineering":{"BlueprintName":"Weapon_PlasmaConversion","Level":3}
+                }]}}
+                """;
+
+        EngineeringRecommendationImport.Plan plan = EngineeringRecommendationImport.parse(slef, database);
+
+        assertFalse(plan.hasErrors(), plan.errors().toString());
+        assertEquals("Beam Laser", plan.goals().get(0).getModuleType());
+        assertEquals("Plasma Conversion", plan.goals().get(0).getBlueprintName());
+        assertEquals(3, plan.goals().get(0).getTargetGrade());
+    }
 }
