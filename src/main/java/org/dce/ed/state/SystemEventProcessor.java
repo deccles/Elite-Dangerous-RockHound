@@ -41,8 +41,6 @@ import org.dce.ed.util.EdsmClient;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.RingGeometryUtil;
 import org.dce.ed.util.RingSummaryFormatter;
-import org.dce.ed.util.SpanshBodyExobiologyInfo;
-import org.dce.ed.util.SpanshLandmarkCache;
 import org.dce.ed.util.ExplorationBodyCredits;
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
 
@@ -932,16 +930,6 @@ public class SystemEventProcessor {
                 // Publish first (so UI can render immediately), then return.
                 info.setPredictions(filtered);
 
-                if (!SystemCache.isBulkSystemWrite()
-                        && !Boolean.TRUE.equals(info.getWasFootfalled())
-                        && info.getSpanshLandmarks() == null) {
-                    SpanshBodyExobiologyInfo spanshInfo = SpanshLandmarkCache.getInstance()
-                            .getOrFetch(info.getStarSystem(), info.getBodyName());
-                    if (spanshInfo != null) {
-                        info.setSpanshLandmarks(spanshInfo.getLandmarks());
-                        info.setSpanshExcludeFromExobiology(spanshInfo.isExcludeFromExobiology());
-                    }
-                }
                 boolean bonusApplies = FirstBonusHelper.firstBonusApplies(info);
 
                 BioScanPredictionEvent bioScanPredictionEvent = new BioScanPredictionEvent(
@@ -961,16 +949,6 @@ public class SystemEventProcessor {
 
         // *** FIX: publish to BodyInfo BEFORE dispatching the event ***
         info.setPredictions(candidates);
-        if (!SystemCache.isBulkSystemWrite()
-                && !Boolean.TRUE.equals(info.getWasFootfalled())
-                && info.getSpanshLandmarks() == null) {
-            SpanshBodyExobiologyInfo spanshInfo = SpanshLandmarkCache.getInstance()
-                    .getOrFetch(info.getStarSystem(), info.getBodyName());
-            if (spanshInfo != null) {
-                info.setSpanshLandmarks(spanshInfo.getLandmarks());
-                info.setSpanshExcludeFromExobiology(spanshInfo.isExcludeFromExobiology());
-            }
-        }
         boolean bonusApplies = FirstBonusHelper.firstBonusApplies(info);
 
         BioScanPredictionEvent bioScanPredictionEvent = new BioScanPredictionEvent(

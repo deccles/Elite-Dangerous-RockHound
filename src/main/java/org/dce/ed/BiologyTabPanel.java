@@ -70,8 +70,6 @@ import org.dce.ed.session.EdoSessionState.BiologySrvMarkerEntry;
 import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.util.FirstBonusHelper;
-import org.dce.ed.util.SpanshBodyExobiologyInfo;
-import org.dce.ed.util.SpanshLandmarkCache;
 import org.dce.ed.tts.PollyTtsCached;
 import org.dce.ed.tts.TtsSprintf;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
@@ -1443,17 +1441,6 @@ private List<BioRow> buildRows(BodyInfo body) {
         Map<String, Integer> counts = body.getBioSampleCountsSnapshot();
         Map<String, List<BodyInfo.BioSamplePoint>> points = body.getBioSamplePointsSnapshot();
 
-        if (!Boolean.TRUE.equals(body.getWasFootfalled()) && body.getSpanshLandmarks() == null) {
-            SpanshLandmarkCache spanshCache = SpanshLandmarkCache.getInstance();
-            SpanshBodyExobiologyInfo info = spanshCache.getIfPresent(body.getStarSystem(), body.getBodyName());
-            if (info != null) {
-                body.setSpanshLandmarks(info.getLandmarks());
-                body.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
-            } else {
-                spanshCache.requestFetch(body.getStarSystem(), body.getBodyName(),
-                        () -> SwingUtilities.invokeLater(() -> refreshTableForCurrentBody(false)));
-            }
-        }
         boolean firstBonus = FirstBonusHelper.firstBonusApplies(body);
 
         body.reconcileStalePartialBioState();

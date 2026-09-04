@@ -43,7 +43,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -123,9 +122,6 @@ import org.dce.ed.systemmap.SystemSession;
 import org.dce.ed.systemmap.SystemSessionFactory;
 import org.dce.ed.systemmodel.SystemModelService;
 import org.dce.ed.util.SystemOrbitGeometry;
-import org.dce.ed.util.SpanshBodyExobiologyInfo;
-import org.dce.ed.util.SpanshLandmarkCache;
-
 import org.dce.ed.ui.DistanceToggleIcons;
 import org.dce.ed.ui.EdoMiningSplitPaneUi;
 import org.dce.ed.ui.HoverClickPoller;
@@ -224,8 +220,6 @@ public class SystemTabPanel extends JPanel {
     private final EdsmClient edsmClient = new EdsmClient();
     private final TtsSprintf firstDiscoveredSystemTts = new TtsSprintf(new PollyTtsCached());
     private final Set<String> announcedFirstDiscoveredSystemKeys = Collections.synchronizedSet(new HashSet<>());
-    /** Prevents table repaints from scheduling duplicate Spansh lookups for the same unresolved body. */
-    private final Set<String> spanshBioFetchRequested = Collections.synchronizedSet(new HashSet<>());
 
     // When we receive Status.json indicating we're near/on a body, we highlight that body and its bio rows.
     // Stored as bodyId so it remains stable even if the display name changes slightly.
@@ -4043,40 +4037,6 @@ public class SystemTabPanel extends JPanel {
         return w;
     }
 
-    /**
-     * Loads optional Spansh metadata away from Swing painting. The renderer remains cache-only and repaints after a
-     * successful background lookup.
-     */
-    private void requestSpanshBioInfoAsync(BodyInfo body) {
-        if (body == null || !body.hasBio() || Boolean.TRUE.equals(body.getWasFootfalled())
-                || body.getSpanshLandmarks() != null) {
-            return;
-        }
-        String systemName = body.getStarSystem();
-        String bodyName = body.getBodyName();
-        if (systemName == null || systemName.isBlank() || bodyName == null || bodyName.isBlank()) {
-            return;
-        }
-        String key = systemName + "\t" + bodyName;
-        if (!spanshBioFetchRequested.add(key)) {
-            return;
-        }
-        CompletableFuture
-                .supplyAsync(() -> SpanshLandmarkCache.getInstance().getOrFetch(systemName, bodyName))
-                .thenAccept(info -> applySpanshBioInfo(body, info));
-    }
-
-    private void applySpanshBioInfo(BodyInfo body, SpanshBodyExobiologyInfo info) {
-        if (info == null) {
-            return;
-        }
-        SwingUtilities.invokeLater(() -> {
-            body.setSpanshLandmarks(info.getLandmarks());
-            body.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
-            table.repaint();
-        });
-    }
-
     // ---------------------------------------------------------------------
     // Table model
     // ---------------------------------------------------------------------
@@ -4159,8 +4119,7 @@ public class SystemTabPanel extends JPanel {
                 return c;
             }
 
-            requestSpanshBioInfoAsync(b);
-            boolean hasBio = !BioTableBuilder.spanshExobiologyExclusionActive(b) && b.hasBio();
+            boolean hasBio = b.hasBio();
             boolean showBioExpand = BioTableBuilder.hasExpandableBioDetails(b);
             boolean bioLinesVisible = isBioDetailRowsVisibleForBodyId(b.getBodyId());
 
@@ -5246,10 +5205,6 @@ static class Row {
                     atmo = atmo.replaceAll("atmosphere",  "");
                     return atmo;
                 case 2:
-                    // Spansh “no bio signals” unless journal/FSS contradicts
-                    if (BioTableBuilder.spanshExobiologyExclusionActive(b)) {
-                        return "";
-                    }
                     if (b.hasBio() && b.hasGeo()) return "Bio + Geo";
                     if (b.hasGeo()) return "Geo";
                     return "";
@@ -5459,7 +5414,7 @@ static class Row {
             return "";
         }
         BodyInfo b = r.body;
-        if (b == null || BioTableBuilder.spanshExobiologyExclusionActive(b) || !b.hasBio()) {
+        if (b == null || !b.hasBio()) {
             return "";
         }
         String cell = BioTableBuilder.formatBodyBioColumnText(b);

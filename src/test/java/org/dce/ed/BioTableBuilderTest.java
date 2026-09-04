@@ -174,7 +174,7 @@ class BioTableBuilderTest {
         BodyInfo body = new BodyInfo();
         body.setHasBio(true);
         body.setNumberOfBioSignals(1);
-        spanshResolvedNoLandmarks(body);
+        markUnmappedForFirstBonus(body);
         body.setPredictions(new ArrayList<>(List.of(
                 makeCandidate("Stratum Prasinum", 1_600_000L),
                 makeCandidate("Stratum Roseum", 1_600_000L),
@@ -193,7 +193,7 @@ class BioTableBuilderTest {
         BodyInfo body = new BodyInfo();
         body.setHasBio(true);
         body.setNumberOfBioSignals(4);
-        spanshResolvedNoLandmarks(body);
+        markUnmappedForFirstBonus(body);
         body.setPredictions(new ArrayList<>(List.of(
                 makeCandidate("Bacterium Acies"),
                 makeCandidate("Bacterium Albus"))));
@@ -207,7 +207,7 @@ class BioTableBuilderTest {
         BodyInfo body = new BodyInfo();
         body.setHasBio(true);
         body.setNumberOfBioSignals(4);
-        spanshResolvedNoLandmarks(body);
+        markUnmappedForFirstBonus(body);
         body.setPredictions(new ArrayList<>(List.of(
                 makeCandidate("Bacterium Acies"),
                 makeCandidate("Bacterium Albus"))));
@@ -223,7 +223,7 @@ class BioTableBuilderTest {
         BodyInfo body = new BodyInfo();
         body.setBodyId(BODY_ID);
         body.setHasBio(true);
-        spanshResolvedNoLandmarks(body);
+        markUnmappedForFirstBonus(body);
         body.setObservedGenusPrefixes(null);
         body.setObservedBioDisplayNames(null);
         body.setPredictions(new ArrayList<>(List.of(
@@ -291,11 +291,11 @@ class BioTableBuilderTest {
     }
 
     /**
-     * Spansh was consulted and found no landmarks — unlocks first-discovery bonus estimates
+     * Journal reports the planet unmapped — unlocks first-discovery bonus estimates
      * (see {@link org.dce.ed.util.FirstBonusHelper}).
      */
-    private static void spanshResolvedNoLandmarks(BodyInfo body) {
-        body.setSpanshLandmarks(Collections.emptyList());
+    private static void markUnmappedForFirstBonus(BodyInfo body) {
+        body.setWasMapped(Boolean.FALSE);
     }
 
     @Test

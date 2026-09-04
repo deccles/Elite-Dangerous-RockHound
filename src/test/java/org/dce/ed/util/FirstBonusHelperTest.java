@@ -3,41 +3,46 @@ package org.dce.ed.util;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Collections;
-import java.util.List;
-
+import org.dce.ed.cache.CachedBody;
+import org.dce.ed.state.BodyInfo;
 import org.junit.jupiter.api.Test;
 
 class FirstBonusHelperTest {
 
     @Test
-    void explicitNoPriorFootfallAppliesBonusEvenWhenSpanshHasLandmarks() {
-        List<SpanshLandmark> landmarks = List.of(
-                new SpanshLandmark("Biological", "Stratum", 1.0, 2.0));
-
-        assertTrue(FirstBonusHelper.firstBonusApplies(false, landmarks));
+    void unmappedPlanetAppliesBonus() {
+        assertTrue(FirstBonusHelper.firstBonusApplies(Boolean.FALSE));
     }
 
     @Test
-    void explicitPriorFootfallSuppressesBonus() {
-        assertFalse(FirstBonusHelper.firstBonusApplies(true, Collections.emptyList()));
+    void mappedPlanetSuppressesBonus() {
+        assertFalse(FirstBonusHelper.firstBonusApplies(Boolean.TRUE));
     }
 
     @Test
-    void unknownFootfallAppliesOptimisticBonusWhenSpanshIsUnavailable() {
-        assertTrue(FirstBonusHelper.firstBonusApplies(null, null));
+    void unknownMappingSuppressesBonus() {
+        assertFalse(FirstBonusHelper.firstBonusApplies((Boolean) null));
     }
 
     @Test
-    void unknownFootfallAppliesBonusWhenSpanshHasNoLandmarks() {
-        assertTrue(FirstBonusHelper.firstBonusApplies(null, Collections.emptyList()));
+    void bodyInfoUsesWasMappedNotFootfall() {
+        BodyInfo body = new BodyInfo();
+        body.setWasMapped(Boolean.TRUE);
+        body.setWasFootfalled(Boolean.FALSE);
+        assertFalse(FirstBonusHelper.firstBonusApplies(body));
+
+        body.setWasMapped(Boolean.FALSE);
+        assertTrue(FirstBonusHelper.firstBonusApplies(body));
     }
 
     @Test
-    void unknownFootfallSuppressesBonusWhenSpanshHasLandmarks() {
-        List<SpanshLandmark> landmarks = List.of(
-                new SpanshLandmark("Biological", "Stratum", 1.0, 2.0));
+    void cachedBodyUsesWasMapped() {
+        CachedBody body = new CachedBody();
+        body.wasMapped = Boolean.TRUE;
+        body.wasFootfalled = Boolean.FALSE;
+        assertFalse(FirstBonusHelper.firstBonusApplies(body));
 
-        assertFalse(FirstBonusHelper.firstBonusApplies(null, landmarks));
+        body.wasMapped = Boolean.FALSE;
+        assertTrue(FirstBonusHelper.firstBonusApplies(body));
     }
 }

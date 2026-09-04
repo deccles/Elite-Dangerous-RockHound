@@ -15,7 +15,6 @@ import org.dce.ed.exobiology.ExobiologyData;
 import org.dce.ed.exobiology.ExobiologyData.AtmosphereType;
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.exobiology.ExobiologyData.PlanetType;
-import org.dce.ed.util.SpanshLandmark;
 
 /**
  * Pure domain representation of a single stellar body.
@@ -265,12 +264,6 @@ public class BodyInfo {
 	 * for this visit (legacy discovery on another machine, etc.).
 	 */
 	private boolean edsmFssBackfill;
-
-	/** Spansh exobiology landmarks for this body (null = not fetched). Used to derive first-bonus. */
-	private List<SpanshLandmark> spanshLandmarks = null;
-
-	/** True when Spansh has signals for this body but none are Biological; body should be excluded from exobiology lists. */
-	private Boolean spanshExcludeFromExobiology = null;
 
 	public void addObservedBioDisplayName(String name) {
 		if (name == null || name.isEmpty()) {
@@ -631,21 +624,6 @@ public class BodyInfo {
 		return wasFootfalled;
 	}
 
-	public List<SpanshLandmark> getSpanshLandmarks() {
-		return spanshLandmarks;
-	}
-
-	public void setSpanshLandmarks(List<SpanshLandmark> spanshLandmarks) {
-		this.spanshLandmarks = spanshLandmarks;
-	}
-
-	public Boolean getSpanshExcludeFromExobiology() {
-		return spanshExcludeFromExobiology;
-	}
-	public void setSpanshExcludeFromExobiology(Boolean spanshExcludeFromExobiology) {
-		this.spanshExcludeFromExobiology = spanshExcludeFromExobiology;
-	}
-
 	public Boolean getWasMapped() {
 		return wasMapped;
 	}
@@ -696,23 +674,10 @@ public class BodyInfo {
 	}
 
 	/**
-	 * Whether the system-tab bio column would show the leaf icon (FSS/journal bio, not Spansh-excluded).
+	 * Whether the system-tab bio column would show the leaf icon.
 	 */
 	public boolean showsExobiologyLeafIndicator() {
-		if (!hasBio()) {
-			return false;
-		}
-		if (!Boolean.TRUE.equals(getSpanshExcludeFromExobiology())) {
-			return true;
-		}
-		Integer sig = getNumberOfBioSignals();
-		if (sig != null && sig.intValue() > 0) {
-			return true;
-		}
-		if (getObservedBioDisplayNames() != null && !getObservedBioDisplayNames().isEmpty()) {
-			return true;
-		}
-		return getObservedGenusPrefixes() != null && !getObservedGenusPrefixes().isEmpty();
+		return hasBio();
 	}
 
 	/**

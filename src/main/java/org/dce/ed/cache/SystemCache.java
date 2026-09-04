@@ -575,12 +575,6 @@ public final class SystemCache implements SystemStore {
             info.setWasMapped(cb.wasMapped);
             info.setWasDiscovered(cb.wasDiscovered);
             info.setWasFootfalled(cb.wasFootfalled);
-            if (cb.spanshLandmarks != null) {
-                info.setSpanshLandmarks(new ArrayList<>(cb.spanshLandmarks));
-            }
-            if (cb.spanshExcludeFromExobiology != null) {
-                info.setSpanshExcludeFromExobiology(cb.spanshExcludeFromExobiology);
-            }
             if (cb.analysedBioDisplayNames != null && !cb.analysedBioDisplayNames.isEmpty()) {
                 info.setAnalysedBioDisplayNames(new java.util.HashSet<>(cb.analysedBioDisplayNames));
             }
@@ -1066,8 +1060,6 @@ public final class SystemCache implements SystemStore {
             cb.wasMapped = b.getWasMapped();
             cb.wasDiscovered = b.getWasDiscovered();
             cb.wasFootfalled = b.getWasFootfalled();
-            cb.spanshLandmarks = b.getSpanshLandmarks() != null ? new ArrayList<>(b.getSpanshLandmarks()) : null;
-            cb.spanshExcludeFromExobiology = b.getSpanshExcludeFromExobiology();
             if (b.isPlanetaryBodyForRingDisplay()
                     && b.getRingSummaryLines() != null
                     && !b.getRingSummaryLines().isEmpty()) {
@@ -1099,12 +1091,6 @@ public final class SystemCache implements SystemStore {
                 if (cb.wasFootfalled == null || (Boolean.FALSE.equals(cb.wasFootfalled) && Boolean.TRUE.equals(prev.wasFootfalled))) {
                     cb.wasFootfalled = prev.wasFootfalled;
                 }
-                if (cb.spanshLandmarks == null && prev.spanshLandmarks != null) {
-                    cb.spanshLandmarks = new ArrayList<>(prev.spanshLandmarks);
-                }
-                if (cb.spanshExcludeFromExobiology == null && prev.spanshExcludeFromExobiology != null) {
-                    cb.spanshExcludeFromExobiology = prev.spanshExcludeFromExobiology;
-                }
                 if (b.isPlanetaryBodyForRingDisplay()
                         && (cb.ringTypes == null || cb.ringTypes.isEmpty())
                         && prev.ringTypes != null && !prev.ringTypes.isEmpty()) {
@@ -1124,9 +1110,6 @@ public final class SystemCache implements SystemStore {
                 if ((cb.planetaryRingBands == null || cb.planetaryRingBands.isEmpty())
                         && prev.planetaryRingBands != null && !prev.planetaryRingBands.isEmpty()) {
                     cb.planetaryRingBands = new ArrayList<>(prev.planetaryRingBands);
-                }
-                if (cb.spanshPredictedGenera == null && prev.spanshPredictedGenera != null) {
-                    cb.spanshPredictedGenera = new ArrayList<>(prev.spanshPredictedGenera);
                 }
                 if (cb.gravityMS == null && prev.gravityMS != null) {
                     cb.gravityMS = prev.gravityMS;
@@ -1460,9 +1443,8 @@ public final class SystemCache implements SystemStore {
      * Absolute path to the SQLite system-cache database file (same rules as the internal cache).
      * Intended for developer tools; does not open a connection.
      * <p>
-     * Tables include {@code systems} (per-system {@code payload_json}), {@code overlay_global_state}
-     * (singleton row for app-wide values such as unsold exobiology credits), and {@code spansh_body_exobiology}
-     * (persisted Spansh body exobiology lookups).
+     * Tables include {@code systems} (per-system {@code payload_json}) and {@code overlay_global_state}
+     * (singleton row for app-wide values such as unsold exobiology credits).
      */
     public static Path getSqliteCacheDbPath() {
         String override = System.getProperty(CACHE_DB_PATH_PROPERTY);

@@ -1,14 +1,13 @@
 package org.dce.ed.util;
 
-import java.util.List;
-
 import org.dce.ed.cache.CachedBody;
 import org.dce.ed.state.BodyInfo;
 
 /**
- * Central place for first-scan / first-footfall bonus logic.
- * Journal footfall state is authoritative. Spansh landmarks are used only when journal footfall
- * state is unknown; completely unknown state receives the optimistic payout estimate.
+ * Vista Genomics first-discovery (5×) bonus for payout estimates.
+ * Journal {@code WasMapped} is the only input: bonus applies only when the planet
+ * has not been surface-mapped by another commander. Missing/unknown mapping is
+ * treated as mapped (no bonus).
  */
 public final class FirstBonusHelper {
 
@@ -22,7 +21,7 @@ public final class FirstBonusHelper {
         if (body == null) {
             return false;
         }
-        return firstBonusApplies(body.getWasFootfalled(), body.getSpanshLandmarks());
+        return firstBonusApplies(body.getWasMapped());
     }
 
     /**
@@ -32,20 +31,13 @@ public final class FirstBonusHelper {
         if (body == null) {
             return false;
         }
-        return firstBonusApplies(body.wasFootfalled, body.spanshLandmarks);
+        return firstBonusApplies(body.wasMapped);
     }
 
     /**
-     * Core logic: an explicit journal footfall value wins. When the journal value is unknown,
-     * Spansh landmarks suppress the bonus; absent or unresolved Spansh data receives the optimistic
-     * estimate.
-     * <p>
-     * This keeps estimates useful for newly discovered systems that Spansh has not indexed yet.
+     * Bonus applies only when the journal reports the planet as unmapped.
      */
-    public static boolean firstBonusApplies(Boolean wasFootfalled, List<SpanshLandmark> spanshLandmarks) {
-        if (wasFootfalled != null) {
-            return !wasFootfalled;
-        }
-        return spanshLandmarks == null || spanshLandmarks.isEmpty();
+    public static boolean firstBonusApplies(Boolean wasMapped) {
+        return Boolean.FALSE.equals(wasMapped);
     }
 }

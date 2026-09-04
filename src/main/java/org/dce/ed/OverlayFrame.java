@@ -67,8 +67,6 @@ import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.util.ExplorationBodyCredits;
 import org.dce.ed.util.FirstBonusHelper;
-import org.dce.ed.util.SpanshBodyExobiologyInfo;
-import org.dce.ed.util.SpanshLandmarkCache;
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
 import org.dce.ed.mining.GoogleSheetsBackend;
 import org.dce.ed.tts.PollyTtsCached;
@@ -1696,18 +1694,11 @@ private void installExoCreditsTracker() {
                 if (st != null) {
                     BodyInfo body = st.getBodies().get(so.getBodyId());
                     if (body != null) {
-                        if (!Boolean.TRUE.equals(body.getWasFootfalled()) && body.getSpanshLandmarks() == null) {
-                            SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getOrFetch(body.getStarSystem(), body.getBodyName());
-                            if (info != null) {
-                                body.setSpanshLandmarks(info.getLandmarks());
-                                body.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
-                            }
-                        }
                         firstBonus = FirstBonusHelper.firstBonusApplies(body);
                     }
                 }
             } catch (Exception ignored) {
-                // best-effort; omit first-bonus until Spansh/body state is known
+                // best-effort; omit first-bonus unless journal mapping state is known
             }
 
             Long payout = ExobiologyData.estimatePayout(so.getGenusLocalised(), so.getSpeciesLocalised(), firstBonus);

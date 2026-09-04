@@ -17,8 +17,6 @@ import org.dce.ed.state.BodyInfo;
 import org.dce.ed.ui.EdoUi;
 import org.dce.ed.util.FirstBonusHelper;
 import org.dce.ed.util.RingSummaryFormatter;
-import org.dce.ed.util.SpanshBodyExobiologyInfo;
-import org.dce.ed.util.SpanshLandmarkCache;
 import org.dce.ed.util.ValuableBodyExplorationEstimate;
 
 final class BioTableBuilder {
@@ -38,39 +36,6 @@ final class BioTableBuilder {
             return Double.MAX_VALUE;
         }
         return Math.round(rawLs / DIST_LS_SORT_QUANTUM) * DIST_LS_SORT_QUANTUM;
-    }
-
-    /**
-     * FSS / journal shows real exobiology on this body (contradicts Spansh “no biological signals” heuristics).
-     */
-    static boolean hasLocalBioEvidence(BodyInfo b) {
-        if (b == null) {
-            return false;
-        }
-        Integer sig = b.getNumberOfBioSignals();
-        if (sig != null && sig.intValue() > 0) {
-            return true;
-        }
-        if (b.getObservedBioDisplayNames() != null && !b.getObservedBioDisplayNames().isEmpty()) {
-            return true;
-        }
-        if (b.getObservedGenusPrefixes() != null && !b.getObservedGenusPrefixes().isEmpty()) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * When true, hide exobiology-only UI that depends on Spansh’s exclude flag (no local contradiction).
-     */
-    static boolean spanshExobiologyExclusionActive(BodyInfo b) {
-        if (b == null) {
-            return false;
-        }
-        if (!Boolean.TRUE.equals(b.getSpanshExcludeFromExobiology())) {
-            return false;
-        }
-        return !hasLocalBioEvidence(b);
     }
 
     /**
@@ -380,7 +345,7 @@ final class BioTableBuilder {
         List<java.util.Map.Entry<Integer, BodyInfo>> sorted = new ArrayList<>(bodiesByMapKey.entrySet());
         for (java.util.Map.Entry<Integer, BodyInfo> ent : sorted) {
             BodyInfo b = ent.getValue();
-            if (b != null && b.hasBio() && !spanshExobiologyExclusionActive(b)) {
+            if (b != null && b.hasBio()) {
                 ensureBioPredictionsPopulated(b);
             }
         }
@@ -431,7 +396,7 @@ final class BioTableBuilder {
                 continue;
             }
             String bioHeader = null;
-            if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
+            if (b.hasBio()) {
                 bioHeader = computeBioHeaderSummary(b);
             }
             Double distCol = null;
@@ -489,13 +454,6 @@ final class BioTableBuilder {
             boolean hasObservedNames = observedNamesRaw != null && !observedNamesRaw.isEmpty();
             boolean hasPreds = preds != null && !preds.isEmpty();
 
-            if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
-                SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getIfPresent(b.getStarSystem(), b.getBodyName());
-                if (info != null) {
-                    b.setSpanshLandmarks(info.getLandmarks());
-                    b.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
-                }
-            }
             boolean firstBonus = FirstBonusHelper.firstBonusApplies(b);
 
             // If literally nothing but "hasBio", show a generic message
@@ -838,23 +796,14 @@ final class BioTableBuilder {
     }
 
     /**
-     * True when the system tab could list one or more exobiology lines under this body (excluding Spansh-only
-     * exclusion with no local journal evidence).
+     * True when the system tab could list one or more exobiology lines under this body.
      */
     static boolean hasExpandableBioDetails(BodyInfo b) {
         if (b == null || !b.hasBio()) {
             return false;
         }
         ensureBioPredictionsPopulated(b);
-        if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
-            SpanshBodyExobiologyInfo info =
-                    SpanshLandmarkCache.getInstance().getIfPresent(b.getStarSystem(), b.getBodyName());
-            if (info != null) {
-                b.setSpanshLandmarks(info.getLandmarks());
-                b.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
-            }
-        }
-        return !spanshExobiologyExclusionActive(b);
+        return true;
     }
 
     /**
@@ -902,7 +851,7 @@ final class BioTableBuilder {
         if (b.isHighValue()) {
             max = Math.max(max, ValuableBodyExplorationEstimate.resolveCreditsForDisplay(b));
         }
-        if (b.hasBio() && !spanshExobiologyExclusionActive(b)) {
+        if (b.hasBio()) {
             BioColumnHeaderParts parts = buildBioColumnHeaderParts(b);
             if (parts != null && parts.maxRemainingCredits != null) {
                 max = Math.max(max, parts.maxRemainingCredits.longValue());
@@ -929,16 +878,6 @@ final class BioTableBuilder {
             return Long.MIN_VALUE;
         }
 
-        if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
-            SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance().getIfPresent(b.getStarSystem(), b.getBodyName());
-            if (info != null) {
-                b.setSpanshLandmarks(info.getLandmarks());
-                b.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
-            }
-        }
-        if (spanshExobiologyExclusionActive(b)) {
-            return Long.MIN_VALUE;
-        }
         boolean firstBonus = FirstBonusHelper.firstBonusApplies(b);
 
         long max = Long.MIN_VALUE;
@@ -1130,22 +1069,7 @@ final class BioTableBuilder {
         if (!b.hasBio()) {
             return null;
         }
-        if (spanshExobiologyExclusionActive(b)) {
-            return null;
-        }
         ensureBioPredictionsPopulated(b);
-
-        if (!Boolean.TRUE.equals(b.getWasFootfalled()) && b.getSpanshLandmarks() == null) {
-            SpanshBodyExobiologyInfo sinfo =
-                    SpanshLandmarkCache.getInstance().getIfPresent(b.getStarSystem(), b.getBodyName());
-            if (sinfo != null) {
-                b.setSpanshLandmarks(sinfo.getLandmarks());
-                b.setSpanshExcludeFromExobiology(sinfo.isExcludeFromExobiology());
-            }
-        }
-        if (spanshExobiologyExclusionActive(b)) {
-            return null;
-        }
 
         List<ExobiologyData.BioCandidate> preds = b.getPredictions();
         Set<String> genusPrefixes = b.getObservedGenusPrefixes();

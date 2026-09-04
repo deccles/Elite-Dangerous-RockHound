@@ -36,8 +36,6 @@ import org.dce.ed.state.BodyInfo;
 import org.dce.ed.state.SystemEventProcessor;
 import org.dce.ed.state.SystemState;
 import org.dce.ed.util.FirstBonusHelper;
-import org.dce.ed.util.SpanshBodyExobiologyInfo;
-import org.dce.ed.util.SpanshLandmarkCache;
 
 /**
  * Standalone utility with a main() that scans all Elite Dangerous journal files
@@ -406,7 +404,7 @@ public class RescanJournalsMain {
 			}
 
 			// Exobiology unsold total: during bulk, leave the preserved session value alone
-			// (first-bonus needs live Spansh; do not guess Analyse payouts while replaying).
+			// (first-bonus needs journal WasMapped; do not guess Analyse payouts while replaying).
 			if (!SystemCache.isBulkSystemWrite()) {
 				if (event.getType() == EliteEventType.SELL_ORGANIC_DATA) {
 					exoCreditsTotal = 0L;
@@ -419,14 +417,6 @@ public class RescanJournalsMain {
 						boolean firstBonus = false;
 						BodyInfo body = state.getBodies().get(so.getBodyId());
 						if (body != null) {
-							if (!Boolean.TRUE.equals(body.getWasFootfalled()) && body.getSpanshLandmarks() == null) {
-								SpanshBodyExobiologyInfo info = SpanshLandmarkCache.getInstance()
-										.getOrFetch(body.getStarSystem(), body.getBodyName());
-								if (info != null) {
-									body.setSpanshLandmarks(info.getLandmarks());
-									body.setSpanshExcludeFromExobiology(info.isExcludeFromExobiology());
-								}
-							}
 							firstBonus = FirstBonusHelper.firstBonusApplies(body);
 						}
 

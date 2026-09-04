@@ -8,7 +8,6 @@ import java.util.Set;
 
 import org.dce.ed.exobiology.ExobiologyData.BioCandidate;
 import org.dce.ed.state.PlanetaryRingBand;
-import org.dce.ed.util.SpanshLandmark;
 
 /**
  * Represents one body as stored in the cache.
@@ -122,12 +121,6 @@ public class CachedBody {
 	public Boolean wasDiscovered;
 	public Boolean wasFootfalled;
 
-	/** Spansh exobiology landmarks (null = not fetched). First bonus does not apply when non-empty. */
-	public List<SpanshLandmark> spanshLandmarks;
-
-	/** True when Spansh has signals but none Biological; body should be excluded from exobiology lists. */
-	public Boolean spanshExcludeFromExobiology;
-
 	/** Ring type names for this body (e.g. "Icy pristine"). Stored so cached systems show rings in Nearby. */
 	public List<String> ringTypes;
 
@@ -140,9 +133,6 @@ public class CachedBody {
 	public Double radius;
 
 	public Double axialTilt;
-
-	/** Genus/species names from Spansh landmarks (community-recorded biology). Kept separate from {@link #predictions} (our scan/model prediction). */
-	public List<String> spanshPredictedGenera;
 
 	public int getNumberOfBioSignals() {
 		return numberOfBioSignals;
