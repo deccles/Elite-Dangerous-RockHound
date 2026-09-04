@@ -13,6 +13,8 @@ public final class EngineeringSessionData {
     private List<ShipPersisted> knownShips = new ArrayList<>();
     /** null = All ships. */
     private Long goalsShipFilterId;
+    /** null / blank / {@code Any} = all engineers. */
+    private String goalsEngineerFilter;
 
     /** When true and a ship filter is set, materials/trades exclude other ships' goals. */
     private Boolean hideMatsFromOtherShips;
@@ -59,6 +61,14 @@ public final class EngineeringSessionData {
 
     public void setGoalsShipFilterId(Long goalsShipFilterId) {
         this.goalsShipFilterId = goalsShipFilterId;
+    }
+
+    public String getGoalsEngineerFilter() {
+        return goalsEngineerFilter;
+    }
+
+    public void setGoalsEngineerFilter(String goalsEngineerFilter) {
+        this.goalsEngineerFilter = goalsEngineerFilter;
     }
 
     /** null = legacy sessions (treat as true). */

@@ -254,9 +254,13 @@ public class EngineeringTabPanel extends JPanel {
     private final EngineeringShipCatalog shipCatalog = new EngineeringShipCatalog();
     /** null = show / plan for all ships. */
     private Long goalsShipFilterId;
+    /** null = Any engineer. */
+    private String goalsEngineerFilter;
     /** How Module / Blueprint / Ship are shown in the Goals table. */
     private GoalsNameLayout goalsNameLayout = GoalsNameLayout.FULL;
     private JComboBox<ShipFilterItem> shipFilterCombo;
+    private JComboBox<String> engineerFilterCombo;
+    private boolean suppressEngineerFilterEvents;
     /**
      * When true and a ship is selected, materials/trades only include that ship's goals.
      * Goals table filtering is independent (already ship-scoped via the chooser).
@@ -601,6 +605,16 @@ public class EngineeringTabPanel extends JPanel {
         shipFilterCombo.setToolTipText("Filter which goals are listed");
         shipFilterCombo.addActionListener(e -> onShipFilterChanged());
         shipRow.add(shipFilterCombo);
+        JLabel engineerLbl = new JLabel("Engineer:");
+        engineerLbl.setFont(base.deriveFont(Font.PLAIN, fontSize));
+        engineerLbl.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
+        shipRow.add(engineerLbl);
+        engineerFilterCombo = new JComboBox<>();
+        styleEngineerFilterCombo(engineerFilterCombo, base);
+        engineerFilterCombo.setToolTipText("Show only goals that engineer can still work");
+        populateEngineerFilterCombo();
+        engineerFilterCombo.addActionListener(e -> onEngineerFilterChanged());
+        shipRow.add(engineerFilterCombo);
         hideMatsFromOtherShipsCheckBox = new JCheckBox("Hide other ship Mats");
         OverlayCheckBoxStyle.apply(hideMatsFromOtherShipsCheckBox);
         hideMatsFromOtherShipsCheckBox.setFont(base.deriveFont(Font.PLAIN, fontSize));
@@ -2298,7 +2312,9 @@ public class EngineeringTabPanel extends JPanel {
                 passThroughEnabledSupplier,
                 this::addGoalFromBuildProgress,
                 () -> List.copyOf(goals),
-                this::onLoadoutMercCoinFilterChanged);
+                this::onLoadoutMercCoinFilterChanged,
+                goalsEngineerFilter,
+                this::onLoadoutEngineerFilterChanged);
         loadoutDialog = dialog;
         dialog.addWindowListener(new WindowAdapter() {
             @Override
@@ -2323,6 +2339,13 @@ public class EngineeringTabPanel extends JPanel {
         }
         fireSessionChanged();
         refreshUi();
+    }
+
+    private void onLoadoutEngineerFilterChanged() {
+        if (loadoutDialog == null) {
+            return;
+        }
+        setGoalsEngineerFilter(loadoutDialog.selectedEngineerFilter(), false);
     }
 
     /**
@@ -2708,6 +2731,7 @@ public class EngineeringTabPanel extends JPanel {
         }
         data.setKnownShips(ships);
         data.setGoalsShipFilterId(goalsShipFilterId);
+        data.setGoalsEngineerFilter(goalsEngineerFilter);
         data.setHideMatsFromOtherShips(Boolean.valueOf(hideMatsFromOtherShips));
         state.setEngineering(data);
     }
@@ -2717,6 +2741,7 @@ public class EngineeringTabPanel extends JPanel {
         materialsGoals.clear();
         shipCatalog.clear();
         goalsShipFilterId = null;
+        goalsEngineerFilter = null;
         hideMatsFromOtherShips = true;
         if (state != null && state.getEngineering() != null) {
             EngineeringSessionData eng = state.getEngineering();
@@ -2727,6 +2752,7 @@ public class EngineeringTabPanel extends JPanel {
                 }
             }
             goalsShipFilterId = eng.getGoalsShipFilterId();
+            goalsEngineerFilter = blankToNullEngineer(eng.getGoalsEngineerFilter());
             hideMatsFromOtherShips = eng.hideMatsFromOtherShipsOrDefault();
             for (EngineeringGoalPersisted p : eng.goalsOrEmpty()) {
                 if ("__inventory_consolidation__".equals(p.getBlueprintId())) {
@@ -2784,6 +2810,7 @@ public class EngineeringTabPanel extends JPanel {
             }
         }
         rebuildShipFilterCombo();
+        syncEngineerFilterComboFromState();
         if (hideMatsFromOtherShipsCheckBox != null) {
             hideMatsFromOtherShipsCheckBox.setSelected(hideMatsFromOtherShips);
         }
@@ -2804,7 +2831,8 @@ public class EngineeringTabPanel extends JPanel {
             }
             if (goalsShipFilterId == null
                     || (g.hasShip() && g.getShipId() == goalsShipFilterId.longValue())) {
-                if (isMercCoinGoalIncluded(g, database)) {
+                if (isMercCoinGoalIncluded(g, database)
+                        && (database == null || database.engineerCanWorkGoal(g, goalsEngineerFilter))) {
                     visible.add(GoalUiRow.blueprint(g, i));
                 }
             }
@@ -2812,6 +2840,9 @@ public class EngineeringTabPanel extends JPanel {
         for (int i = 0; i < materialsGoals.size(); i++) {
             MaterialsGoal g = materialsGoals.get(i);
             if (g == null) {
+                continue;
+            }
+            if (!EngineeringDatabase.isAnyEngineerFilter(goalsEngineerFilter)) {
                 continue;
             }
             // Unassigned materials goals are commander-wide and always visible.
@@ -3023,6 +3054,95 @@ public class EngineeringTabPanel extends JPanel {
         syncHideMatsCheckboxEnabled();
         fireSessionChanged();
         refreshUi();
+    }
+
+    private static final String ENGINEER_FILTER_ANY = "Any";
+
+    private void populateEngineerFilterCombo() {
+        if (engineerFilterCombo == null) {
+            return;
+        }
+        suppressEngineerFilterEvents = true;
+        try {
+            engineerFilterCombo.removeAllItems();
+            engineerFilterCombo.addItem(ENGINEER_FILTER_ANY);
+            if (database != null) {
+                for (String name : database.catalogEngineerNames()) {
+                    engineerFilterCombo.addItem(name);
+                }
+            }
+            engineerFilterCombo.setSelectedItem(engineerFilterComboLabel(goalsEngineerFilter));
+        } finally {
+            suppressEngineerFilterEvents = false;
+        }
+    }
+
+    private void syncEngineerFilterComboFromState() {
+        if (engineerFilterCombo == null) {
+            return;
+        }
+        suppressEngineerFilterEvents = true;
+        try {
+            engineerFilterCombo.setSelectedItem(engineerFilterComboLabel(goalsEngineerFilter));
+        } finally {
+            suppressEngineerFilterEvents = false;
+        }
+    }
+
+    private void onEngineerFilterChanged() {
+        if (suppressEngineerFilterEvents) {
+            return;
+        }
+        String selected = (String) engineerFilterCombo.getSelectedItem();
+        setGoalsEngineerFilter(selected, true);
+    }
+
+    private void setGoalsEngineerFilter(String nextRaw, boolean syncLoadout) {
+        String next = blankToNullEngineer(nextRaw);
+        if ((goalsEngineerFilter == null && next == null)
+                || (goalsEngineerFilter != null && goalsEngineerFilter.equalsIgnoreCase(next))) {
+            syncEngineerFilterComboFromState();
+            return;
+        }
+        goalsEngineerFilter = next;
+        syncEngineerFilterComboFromState();
+        fireSessionChanged();
+        refreshUi();
+        if (syncLoadout && loadoutDialog != null) {
+            loadoutDialog.syncEngineerFilter(goalsEngineerFilter);
+        }
+    }
+
+    private static String engineerFilterComboLabel(String engineer) {
+        return EngineeringDatabase.isAnyEngineerFilter(engineer) ? ENGINEER_FILTER_ANY : engineer;
+    }
+
+    private static String blankToNullEngineer(String engineer) {
+        if (EngineeringDatabase.isAnyEngineerFilter(engineer)) {
+            return null;
+        }
+        return engineer.trim();
+    }
+
+    private void styleEngineerFilterCombo(JComboBox<String> combo, Font base) {
+        OverlayComboBoxStyle.apply(combo, base);
+        combo.setMaximumRowCount(24);
+        Dimension pref = combo.getPreferredSize();
+        combo.setPreferredSize(new Dimension(Math.max(200, pref.width), pref.height));
+        OverlayScrollPaneSupport.installSubtleScrollBarsOnComboPopup(combo);
+        combo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                setEnabled(true);
+                setText(value != null ? value.toString() : ENGINEER_FILTER_ANY);
+                setForeground(EdoUi.User.MAIN_TEXT);
+                setBackground(isSelected ? EdoUi.ED_ORANGE_LESS_TRANS : EdoUi.User.PANEL_BG);
+                setOpaque(true);
+                return c;
+            }
+        });
     }
 
     private void syncHideMatsCheckboxEnabled() {
@@ -3568,19 +3688,30 @@ public class EngineeringTabPanel extends JPanel {
      */
     private List<EngineeringGoal> displayScopedGoals(List<EngineeringGoal> planningGoals) {
         Long shipScope = planningShipScopeId();
-        if (shipScope == null) {
+        boolean engineerScoped = !EngineeringDatabase.isAnyEngineerFilter(goalsEngineerFilter);
+        if (shipScope == null && !engineerScoped) {
             return planningGoals;
         }
         List<EngineeringGoal> out = new ArrayList<>();
         for (EngineeringGoal g : planningGoals) {
-            if (g != null && g.hasShip() && g.getShipId() == shipScope.longValue()) {
-                out.add(g);
+            if (g == null) {
+                continue;
             }
+            if (shipScope != null && (!g.hasShip() || g.getShipId() != shipScope.longValue())) {
+                continue;
+            }
+            if (engineerScoped && !database.engineerCanWorkGoal(g, goalsEngineerFilter)) {
+                continue;
+            }
+            out.add(g);
         }
         return out;
     }
 
     private List<MaterialsGoal> displayScopedMaterialsGoals(List<MaterialsGoal> planningMats) {
+        if (!EngineeringDatabase.isAnyEngineerFilter(goalsEngineerFilter)) {
+            return List.of();
+        }
         Long shipScope = planningShipScopeId();
         if (shipScope == null) {
             return planningMats;

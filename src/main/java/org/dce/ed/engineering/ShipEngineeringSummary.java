@@ -242,6 +242,13 @@ public final class ShipEngineeringSummary {
         return new ShipEngineeringSummary(kept, otherModules, shipType, shipId, shipName);
     }
 
+    public ShipEngineeringSummary withoutOtherModules() {
+        if (otherModules.isEmpty()) {
+            return this;
+        }
+        return new ShipEngineeringSummary(rows, List.of(), shipType, shipId, shipName);
+    }
+
     public List<OtherModule> otherModules() {
         return otherModules;
     }

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeSet;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -37,6 +38,7 @@ public final class EngineeringDatabase {
     private final Map<String, EngineeringMaterial> materialsByKey;
     private final List<EngineeringMaterial> allMaterials;
     private final Map<String, EngineeringMaterial> traderRowByTypeSubtypeGrade;
+    private final List<String> catalogEngineerNames;
 
     private EngineeringDatabase(List<BlueprintGrade> blueprints, List<EngineeringMaterial> materials) {
         this.allBlueprints = List.copyOf(blueprints);
@@ -63,6 +65,19 @@ public final class EngineeringDatabase {
         this.materialsByKey = Collections.unmodifiableMap(matMap);
         this.allMaterials = List.copyOf(materials);
         this.traderRowByTypeSubtypeGrade = buildTraderRowIndex(materials);
+
+        TreeSet<String> engineerNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (BlueprintGrade bp : this.allBlueprints) {
+            if (bp == null) {
+                continue;
+            }
+            for (String name : bp.getEngineers()) {
+                if (name != null && !name.isBlank() && !name.trim().startsWith("@")) {
+                    engineerNames.add(name.trim());
+                }
+            }
+        }
+        this.catalogEngineerNames = List.copyOf(engineerNames);
     }
 
     private static Map<String, EngineeringMaterial> buildTraderRowIndex(List<EngineeringMaterial> materials) {
@@ -159,6 +174,118 @@ public final class EngineeringDatabase {
             }
         }
         return sawRecipe;
+    }
+
+    /** Catalog engineer display names, sorted, unique. */
+    public List<String> catalogEngineerNames() {
+        return catalogEngineerNames;
+    }
+
+    public static boolean isAnyEngineerFilter(String engineer) {
+        return engineer == null || engineer.isBlank() || "any".equalsIgnoreCase(engineer.trim());
+    }
+
+    public boolean engineerOffersModuleType(String moduleType, String engineer) {
+        if (isAnyEngineerFilter(engineer) || moduleType == null || moduleType.isBlank()) {
+            return isAnyEngineerFilter(engineer);
+        }
+        for (BlueprintGrade bp : allBlueprints) {
+            if (bp == null || bp.isExperimental()) {
+                continue;
+            }
+            if (EngineeringJournalBlueprintResolver.sameModuleType(moduleType, bp.getModuleType())
+                    && engineerNamedIn(bp.getEngineers(), engineer)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean engineerOffersBlueprint(String moduleType, String blueprintName, String engineer) {
+        if (isAnyEngineerFilter(engineer)) {
+            return true;
+        }
+        if (moduleType == null || moduleType.isBlank()
+                || blueprintName == null || blueprintName.isBlank()) {
+            return false;
+        }
+        for (BlueprintGrade bp : gradesFor(moduleType, blueprintName)) {
+            if (bp == null || bp.isExperimental()) {
+                continue;
+            }
+            if (engineerNamedIn(bp.getEngineers(), engineer)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean engineerOffersExperimental(String moduleType, String parentBlueprintName,
+            String experimentalName, String engineer) {
+        if (isAnyEngineerFilter(engineer)) {
+            return true;
+        }
+        if (experimentalName == null || experimentalName.isBlank()) {
+            return false;
+        }
+        for (BlueprintGrade bp : experimentalsFor(moduleType, parentBlueprintName)) {
+            if (bp == null || bp.getName() == null) {
+                continue;
+            }
+            if (bp.getName().equalsIgnoreCase(experimentalName.trim())
+                    && engineerNamedIn(bp.getEngineers(), engineer)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True when {@code engineer} can apply at least one remaining grade or experimental on this goal.
+     */
+    public boolean engineerCanWorkGoal(EngineeringGoal goal, String engineer) {
+        if (isAnyEngineerFilter(engineer)) {
+            return true;
+        }
+        if (goal == null) {
+            return false;
+        }
+        int from = goal.getFromGrade();
+        int target = goal.getTargetGrade();
+        for (int grade = from + 1; grade <= target; grade++) {
+            for (BlueprintGrade bp : gradesFor(goal.getModuleType(), goal.getBlueprintName())) {
+                if (bp != null && !bp.isExperimental() && bp.getGrade() == grade
+                        && engineerNamedIn(bp.getEngineers(), engineer)) {
+                    return true;
+                }
+            }
+        }
+        if (goal.getExperimentalId() != null && !goal.getExperimentalId().isBlank()
+                && !goal.isExperimentalApplied()) {
+            Optional<BlueprintGrade> exp = findById(goal.getExperimentalId());
+            if (exp.isPresent() && engineerNamedIn(exp.get().getEngineers(), engineer)) {
+                return true;
+            }
+            for (BlueprintGrade bp : experimentalsFor(goal.getModuleType(), goal.getBlueprintName())) {
+                if (bp != null && engineerNamedIn(bp.getEngineers(), engineer)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static boolean engineerNamedIn(List<String> engineers, String who) {
+        String key = EngineerReputationTracker.normalize(who);
+        if (key.isEmpty() || engineers == null) {
+            return false;
+        }
+        for (String name : engineers) {
+            if (key.equals(EngineerReputationTracker.normalize(name))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public List<BlueprintGrade> experimentalsFor(String moduleType, String parentBlueprintName) {
