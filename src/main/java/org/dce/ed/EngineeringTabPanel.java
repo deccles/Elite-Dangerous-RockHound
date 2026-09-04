@@ -87,6 +87,7 @@ import org.dce.ed.engineering.EngineeringGoal;
 import org.dce.ed.engineering.EngineeringGoalMerger;
 import org.dce.ed.engineering.EngineeringJournalBlueprintResolver;
 import org.dce.ed.engineering.EngineeringLoadoutExperimentalPatch;
+import org.dce.ed.engineering.EngineeringLoadoutFreshness;
 import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.EngineeringGoalProgress;
@@ -111,6 +112,7 @@ import org.dce.ed.logreader.EliteLogEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.MaterialTradeEvent;
+import org.dce.ed.logreader.event.ModuleRetrieveEvent;
 import org.dce.ed.logreader.event.SetUserShipNameEvent;
 import org.dce.ed.logreader.event.StoredShipsEvent;
 import org.dce.ed.session.EdoSessionState;
@@ -291,6 +293,8 @@ public class EngineeringTabPanel extends JPanel {
     private JScrollPane goalsScroll;
     private JPanel engineerAccessNotePanel;
     private JLabel engineerAccessFootnote;
+    private JLabel loadoutWaitLabel;
+    private JPanel loadoutWaitPanel;
     private TableRowSorter<ShoppingTableModel> shoppingSorter;
     private JScrollPane shoppingScroll;
     private JScrollPane tradeScroll;
@@ -659,6 +663,21 @@ public class EngineeringTabPanel extends JPanel {
         shipRow.add(includeMercCoinGoalsCheckBox);
         syncHideMatsCheckboxEnabled();
         north.add(shipRow);
+
+        loadoutWaitLabel = new JLabel("<html>" + EngineeringLoadoutFreshness.WAIT_MESSAGE + "</html>");
+        loadoutWaitLabel.setOpaque(false);
+        loadoutWaitLabel.setForeground(EdoUi.User.WARNING);
+        loadoutWaitLabel.setFont(base.deriveFont(Font.PLAIN, fontSize));
+        loadoutWaitLabel.setToolTipText(EngineeringLoadoutFreshness.WAIT_TOOLTIP);
+        loadoutWaitLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        loadoutWaitPanel = new JPanel();
+        loadoutWaitPanel.setOpaque(false);
+        loadoutWaitPanel.setLayout(new BoxLayout(loadoutWaitPanel, BoxLayout.Y_AXIS));
+        loadoutWaitPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        loadoutWaitPanel.add(Box.createVerticalStrut(4));
+        loadoutWaitPanel.add(loadoutWaitLabel);
+        loadoutWaitPanel.setVisible(false);
+        north.add(loadoutWaitPanel);
         north.add(Box.createVerticalStrut(4));
 
         JPanel header = new JPanel(new BorderLayout(4, 0));
@@ -2609,22 +2628,23 @@ public class EngineeringTabPanel extends JPanel {
             }
         }
         if (type == EliteEventType.LOADOUT && event instanceof LoadoutEvent loadout) {
-            shipCatalog.rememberLoadout(loadout);
-            String clientKey = EliteDangerousOverlay.clientKey;
-            if (clientKey != null && !clientKey.isBlank()) {
-                EngineeringCraftStore.rememberLoadout(clientKey, loadout);
+            applyAuthoritativeLiveLoadout(loadout, true);
+        }
+        if (type == EliteEventType.MODULE_RETRIEVE || type == EliteEventType.MODULE_STORE) {
+            if (event instanceof ModuleRetrieveEvent retrieve) {
+                EngineeringLoadoutFreshness.onModuleRetrieve(retrieve);
+            } else {
+                EngineeringLoadoutFreshness.onModuleStore();
             }
-            SwingUtilities.invokeLater(() -> {
-                refreshGoalShipLabels(loadout.getShipId());
-                rebuildShipFilterCombo();
-                EngineeringGoalDialog.refreshActiveShipChoices();
-                if (EngineeringGoalProgress.applyLoadout(goals, loadout, database)) {
-                    fireSessionChanged();
-                    refreshUi();
-                } else {
-                    fireSessionChanged();
-                }
-            });
+            LoadoutEvent patched = EliteOverlayTabbedPane.getLatestLoadout();
+            boolean retrieveTrusted = event instanceof ModuleRetrieveEvent retrieve
+                    && retrieve.hasJournalEngineering();
+            if (patched != null && (retrieveTrusted
+                    || (event.getTimestamp() != null
+                            && event.getTimestamp().equals(patched.getTimestamp())))) {
+                applyAuthoritativeLiveLoadout(patched, false);
+            }
+            updateLoadoutWaitBanner();
         }
         if (type == EliteEventType.STORED_SHIPS && event instanceof StoredShipsEvent stored) {
             shipCatalog.rememberStoredShips(stored);
@@ -2640,6 +2660,40 @@ public class EngineeringTabPanel extends JPanel {
                 fireSessionChanged();
                 refreshUi();
             });
+        }
+    }
+
+    /**
+     * @param refreshShipCatalog when true (real {@code Loadout}), refresh ship labels/filters
+     */
+    private void applyAuthoritativeLiveLoadout(LoadoutEvent loadout, boolean refreshShipCatalog) {
+        shipCatalog.rememberLoadout(loadout);
+        String clientKey = EliteDangerousOverlay.clientKey;
+        if (clientKey != null && !clientKey.isBlank()) {
+            EngineeringCraftStore.rememberLoadout(clientKey, loadout);
+        }
+        Runnable apply = () -> {
+            if (refreshShipCatalog) {
+                refreshGoalShipLabels(loadout.getShipId());
+                rebuildShipFilterCombo();
+                EngineeringGoalDialog.refreshActiveShipChoices();
+            }
+            boolean goalsChanged = EngineeringGoalProgress.applyLoadout(
+                    goals, loadout, database, true);
+            fireSessionChanged();
+            if (goalsChanged || !refreshShipCatalog) {
+                refreshUi();
+            } else {
+                updateLoadoutWaitBanner();
+            }
+            if (loadoutDialog != null) {
+                loadoutDialog.reloadPreservingScroll();
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            apply.run();
+        } else {
+            SwingUtilities.invokeLater(apply);
         }
     }
 
@@ -3600,6 +3654,7 @@ public class EngineeringTabPanel extends JPanel {
         }
 
         updateEngineerAccessFootnote(visibleGoals);
+        updateLoadoutWaitBanner();
 
         shoppingModel.setRows(shopping);
         Map<String, Integer> shortfallsAfterTrades =
@@ -4174,6 +4229,35 @@ public class EngineeringTabPanel extends JPanel {
 
     private EngineerAccessGate.Block accessBlockFor(EngineeringGoal goal) {
         return EngineerAccessGate.blockingGrade(goal, database, reputationTracker).orElse(null);
+    }
+
+    void syncLoadoutWaitBanner() {
+        updateLoadoutWaitBanner();
+    }
+
+    private void updateLoadoutWaitBanner() {
+        if (loadoutWaitPanel == null || loadoutWaitLabel == null) {
+            return;
+        }
+        boolean show = EngineeringLoadoutFreshness.isAwaitingLoadout();
+        loadoutWaitLabel.setText(show
+                ? "<html>" + EngineeringLoadoutFreshness.WAIT_MESSAGE + "</html>"
+                : "");
+        loadoutWaitLabel.setVisible(show);
+        loadoutWaitPanel.setVisible(show);
+        loadoutWaitPanel.setMaximumSize(show
+                ? new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE)
+                : new Dimension(Integer.MAX_VALUE, 0));
+        java.awt.Container parent = loadoutWaitPanel.getParent();
+        if (parent != null) {
+            parent.revalidate();
+            parent.repaint();
+        }
+        revalidate();
+        repaint();
+        if (loadoutDialog != null) {
+            loadoutDialog.syncLoadoutWaitBanner();
+        }
     }
 
     private void updateEngineerAccessFootnote(List<GoalUiRow> visibleGoals) {

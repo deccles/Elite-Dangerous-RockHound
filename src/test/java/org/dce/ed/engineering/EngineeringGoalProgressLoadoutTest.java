@@ -1,6 +1,7 @@
 package org.dce.ed.engineering;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -298,6 +299,60 @@ class EngineeringGoalProgressLoadoutTest {
         EngineeringGoalProgress.applyLoadout(goals, loadout, db);
         assertTrue(goals.get(0).isComplete(), "stale stock FSD Loadout must not wipe craft Complete");
         assertTrue(goals.get(1).isComplete(), "stale stock PD Loadout must not wipe craft Complete");
+    }
+
+    @Test
+    void applyLoadout_liveStockSwap_resetsQty1ProgressAndNeed() {
+        String loadoutJson = """
+                {
+                  "timestamp": "2026-09-04T05:00:00Z",
+                  "event": "Loadout",
+                  "Ship": "federation_corvette",
+                  "ShipID": 23,
+                  "Modules": [
+                    {
+                      "Slot": "LifeSupport",
+                      "Item": "int_lifesupport_size3_class2",
+                      "On": true,
+                      "Priority": 0,
+                      "Health": 1.0
+                    }
+                  ]
+                }
+                """;
+        LoadoutEvent loadout = (LoadoutEvent) parser.parseRecord(loadoutJson);
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "life-support-lightweight-g5",
+                "Life Support",
+                "Lightweight",
+                4,
+                0,
+                5,
+                "",
+                GoalPriority.MEDIUM,
+                false,
+                1,
+                0,
+                23L,
+                "Federal Corvette",
+                true,
+                "LifeSupport"));
+
+        assertFalse(EngineeringGoalProgress.applyLoadout(goals, loadout, db),
+                "stale stock snapshot must not reset G4");
+        assertEquals(4, goals.get(0).getFromGrade());
+
+        assertTrue(EngineeringGoalProgress.applyLoadout(goals, loadout, db, true));
+        EngineeringGoal goal = goals.get(0);
+        assertEquals(0, goal.getFromGrade());
+        assertEquals(0, goal.getCraftsAtCurrentGrade());
+        assertFalse(goal.isComplete());
+
+        EngineeringPlanner planner = new EngineeringPlanner(db);
+        Map<String, Integer> need = planner.materialsForGoal(goal);
+        assertTrue(need.getOrDefault("phosphorus", 0) >= 1,
+                "G0 Life Support must request G1 materials: " + need);
     }
 
     @Test

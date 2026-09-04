@@ -53,6 +53,7 @@ import org.dce.ed.engineering.EngineeringGoalProgress.ModuleUnitProgress;
 import org.dce.ed.engineering.EngineeringGoalSlotMatcher;
 import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringJournalBlueprintResolver;
+import org.dce.ed.engineering.EngineeringLoadoutFreshness;
 import org.dce.ed.engineering.EngineeringShipCatalog;
 import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.ShipEngineeringSummary;
@@ -85,6 +86,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 	private final Long initialShipFilterId;
 	private final JComboBox<ShipFilterItem> shipCombo;
 	private final JLabel countsLabel;
+	private final JLabel loadoutWaitLabel;
 	private final JPanel contentPanel;
 	private final JScrollPane contentScroll;
 	private final Font baseFont;
@@ -222,10 +224,24 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		filterRow.add(includeMercCoinGoalsCheckBox);
 		north.add(filterRow, BorderLayout.CENTER);
 
+		loadoutWaitLabel = new JLabel("<html>" + EngineeringLoadoutFreshness.WAIT_MESSAGE + "</html>");
+		loadoutWaitLabel.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
+		loadoutWaitLabel.setForeground(EdoUi.User.WARNING);
+		loadoutWaitLabel.setToolTipText(EngineeringLoadoutFreshness.WAIT_TOOLTIP);
+		loadoutWaitLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		loadoutWaitLabel.setVisible(false);
+
 		countsLabel = new JLabel(" ");
 		countsLabel.setFont(baseFont.deriveFont(Font.PLAIN, fontSize));
 		countsLabel.setForeground(EdoUi.Internal.MAIN_TEXT_ALPHA_220);
-		north.add(countsLabel, BorderLayout.SOUTH);
+		countsLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		JPanel southBits = new JPanel();
+		southBits.setOpaque(false);
+		southBits.setLayout(new BoxLayout(southBits, BoxLayout.Y_AXIS));
+		southBits.add(loadoutWaitLabel);
+		southBits.add(countsLabel);
+		north.add(southBits, BorderLayout.SOUTH);
 
 		JPanel northWithRule = new JPanel(new BorderLayout());
 		northWithRule.setOpaque(false);
@@ -338,6 +354,27 @@ final class EngineeringBuildProgressDialog extends JDialog {
 		startLoad(goals, clientKey, false);
 	}
 
+	void reloadPreservingScroll() {
+		if (!isDisplayable()) {
+			return;
+		}
+		syncLoadoutWaitBanner();
+		startLoad(goalsSupplier.get(), clientKey, true);
+	}
+
+	void syncLoadoutWaitBanner() {
+		if (loadoutWaitLabel == null) {
+			return;
+		}
+		boolean show = EngineeringLoadoutFreshness.isAwaitingLoadout();
+		loadoutWaitLabel.setText(show
+				? "<html>" + EngineeringLoadoutFreshness.WAIT_MESSAGE + "</html>"
+				: "");
+		loadoutWaitLabel.setVisible(show);
+		revalidate();
+		repaint();
+	}
+
 	private void startLoad(List<EngineeringGoal> goals, String clientKey, boolean preserveScroll) {
 		List<EngineeringGoal> goalSnapshot = goals != null ? List.copyOf(goals) : List.of();
 		String key = clientKey != null ? clientKey : "";
@@ -419,6 +456,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 	private void showLoading() {
 		contentPanel.removeAll();
 		countsLabel.setText(" ");
+		syncLoadoutWaitBanner();
 		JLabel loading = mutedLabel("Loading loadout…");
 		loading.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(loading);
@@ -469,6 +507,7 @@ final class EngineeringBuildProgressDialog extends JDialog {
 	}
 
 	private void rebuildContent() {
+		syncLoadoutWaitBanner();
 		contentPanel.removeAll();
 		ShipFilterItem filter = (ShipFilterItem) shipCombo.getSelectedItem();
 		Long shipFilterId = filter != null && filter.shipId() != null ? filter.shipId() : null;

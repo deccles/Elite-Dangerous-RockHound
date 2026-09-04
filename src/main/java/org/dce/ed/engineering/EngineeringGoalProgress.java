@@ -782,13 +782,26 @@ public final class EngineeringGoalProgress {
     public static boolean applyLoadout(List<EngineeringGoal> goals,
                                        LoadoutEvent loadout,
                                        EngineeringDatabase database) {
+        return applyLoadout(goals, loadout, database, false);
+    }
+
+    /**
+     * @param stockModulesAuthoritative when true, a stock (no {@code Engineering}) module in the
+     *        loadout is the fitted part — reset that goal to G0. When false, ignore stock snapshots
+     *        so a stale Loadout after {@code EngineerCraft} cannot wipe journal progress.
+     */
+    public static boolean applyLoadout(List<EngineeringGoal> goals,
+                                       LoadoutEvent loadout,
+                                       EngineeringDatabase database,
+                                       boolean stockModulesAuthoritative) {
         if (goals == null || goals.isEmpty() || loadout == null) {
             return false;
         }
         EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
         boolean changed = false;
         for (int i = 0; i < goals.size(); i++) {
-            EngineeringGoal updated = applyLoadoutToGoal(goals.get(i), loadout, db);
+            EngineeringGoal updated = applyLoadoutToGoal(
+                    goals.get(i), loadout, db, stockModulesAuthoritative);
             if (!updated.equals(goals.get(i))) {
                 goals.set(i, updated);
                 changed = true;
@@ -821,6 +834,13 @@ public final class EngineeringGoalProgress {
     private static EngineeringGoal applyLoadoutToGoal(EngineeringGoal goal,
                                                         LoadoutEvent loadout,
                                                         EngineeringDatabase db) {
+        return applyLoadoutToGoal(goal, loadout, db, false);
+    }
+
+    private static EngineeringGoal applyLoadoutToGoal(EngineeringGoal goal,
+                                                        LoadoutEvent loadout,
+                                                        EngineeringDatabase db,
+                                                        boolean stockModulesAuthoritative) {
         if (goal == null) {
             return goal;
         }
@@ -904,14 +924,21 @@ public final class EngineeringGoalProgress {
         // materials as done). Journal craft-roll counts that are ahead of Loadout Quality must
         // not regress.
         //
-        // Stock-only matches (module present, no Engineering block) are NOT authoritative:
-        // Elite often omits a Loadout after EngineerCraft, so the last snapshot still looks
-        // unengineered and must not wipe craft/journal progress (FSD/PD after restart).
+        // Stock-only matches (module present, no Engineering block) are NOT authoritative unless
+        // {@code stockModulesAuthoritative}: Elite often omits a Loadout after EngineerCraft, so
+        // the last snapshot still looks unengineered and must not wipe craft/journal progress
+        // (FSD/PD after restart). A live Loadout after storing/swapping the part is authoritative.
         if (sawMatchingModule && goal.getQuantity() <= 1) {
             if (completeOnShip >= 1) {
                 return goal.withCompletedUnits(1)
                         .withProgress(goal.getTargetGrade(), 0)
                         .withExperimentalApplied(!goal.getExperimentalId().isBlank());
+            }
+            if (stockModulesAuthoritative) {
+                EngineeringGoal fitted = bestPartial != null ? bestPartial : worstIncomplete;
+                if (fitted != null) {
+                    return fitted.withCompletedUnits(0);
+                }
             }
             if (bestPartial == null) {
                 if (sawConflictingExperimentalModule

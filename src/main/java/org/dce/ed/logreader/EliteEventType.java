@@ -52,6 +52,8 @@ public enum EliteEventType {
     SRV_DESTROYED("SRVDestroyed"),
     CARGO("Cargo"),
     LOADOUT("Loadout"),
+    MODULE_RETRIEVE("ModuleRetrieve"),
+    MODULE_STORE("ModuleStore"),
     STORED_SHIPS("StoredShips"),
     SET_USER_SHIP_NAME("SetUserShipName"),
     SHIP_LOCKER("ShipLocker"),
@@ -155,6 +157,8 @@ public enum EliteEventType {
             case LIFTOFF -> "Ship lifted off from planetary surface.";
             case LOAD_GAME -> "Game loaded; commander, ship, and credits.";
             case LOADOUT -> "Ship loadout snapshot (modules, hull health at snapshot).";
+            case MODULE_RETRIEVE -> "Stored module fitted from Outfitting; includes engineering Level when modified.";
+            case MODULE_STORE -> "Fitted module stored from Outfitting; core slots include a stock ReplacementItem.";
             case LOCATION -> "Commander location updated (system, body, docked state).";
             case MATERIALS -> "Raw/engineered materials inventory updated.";
             case MATERIAL_COLLECTED -> "Engineering material collected.";

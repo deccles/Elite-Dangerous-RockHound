@@ -40,6 +40,8 @@ import org.dce.ed.logreader.event.MissionFailedEvent;
 import org.dce.ed.logreader.event.MissionRedirectedEvent;
 import org.dce.ed.logreader.event.MissionsEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
+import org.dce.ed.logreader.event.ModuleRetrieveEvent;
+import org.dce.ed.logreader.event.ModuleStoreEvent;
 import org.dce.ed.logreader.event.SetUserShipNameEvent;
 import org.dce.ed.logreader.event.StoredShipsEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
@@ -112,6 +114,10 @@ public class EliteLogParser {
                 return parseLoadGame(ts, obj);
             case LOADOUT:
                 return parseLoadout(ts, obj);
+            case MODULE_RETRIEVE:
+                return parseModuleRetrieve(ts, obj);
+            case MODULE_STORE:
+                return parseModuleStore(ts, obj);
             case STORED_SHIPS:
                 return parseStoredShips(ts, obj);
             case SET_USER_SHIP_NAME:
@@ -442,6 +448,39 @@ public class EliteLogParser {
         List<StoredShipsEvent.StoredShip> here = parseStoredShipList(obj, "ShipsHere", false);
         List<StoredShipsEvent.StoredShip> remote = parseStoredShipList(obj, "ShipsRemote", true);
         return new StoredShipsEvent(ts, obj, station, here, remote);
+    }
+
+    private ModuleRetrieveEvent parseModuleRetrieve(Instant ts, JsonObject obj) {
+        return new ModuleRetrieveEvent(
+                ts,
+                obj,
+                getString(obj, "Slot"),
+                getString(obj, "Ship"),
+                getLong(obj, "ShipID", -1L),
+                getString(obj, "RetrievedItem"),
+                getString(obj, "EngineerModifications"),
+                getInt(obj, "Level", 0),
+                optionalQuality(obj),
+                getString(obj, "SwapOutItem"));
+    }
+
+    private ModuleStoreEvent parseModuleStore(Instant ts, JsonObject obj) {
+        return new ModuleStoreEvent(
+                ts,
+                obj,
+                getString(obj, "Slot"),
+                getString(obj, "Ship"),
+                getLong(obj, "ShipID", -1L),
+                getString(obj, "StoredItem"),
+                getString(obj, "EngineerModifications"),
+                getInt(obj, "Level", 0),
+                optionalQuality(obj),
+                getString(obj, "ReplacementItem"));
+    }
+
+    private static double optionalQuality(JsonObject obj) {
+        Double quality = optionalJsonDouble(obj, "Quality");
+        return quality != null ? quality.doubleValue() : Double.NaN;
     }
 
     private SetUserShipNameEvent parseSetUserShipName(Instant ts, JsonObject obj) {

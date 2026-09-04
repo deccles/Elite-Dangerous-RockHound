@@ -61,8 +61,12 @@ import org.dce.ed.logreader.event.FsdTargetEvent;
 import org.dce.ed.logreader.event.LoadGameEvent;
 import org.dce.ed.logreader.event.LoadoutEvent;
 import org.dce.ed.logreader.event.EngineerCraftEvent;
+import org.dce.ed.logreader.event.ModuleRetrieveEvent;
+import org.dce.ed.logreader.event.ModuleStoreEvent;
 import org.dce.ed.logreader.event.SetUserShipNameEvent;
 import org.dce.ed.engineering.EngineeringLoadoutExperimentalPatch;
+import org.dce.ed.engineering.EngineeringLoadoutFreshness;
+import org.dce.ed.engineering.EngineeringLoadoutSlotPatch;
 import org.dce.ed.logreader.event.LocationEvent;
 import org.dce.ed.logreader.event.ProspectedAsteroidEvent;
 import org.dce.ed.logreader.event.StartJumpEvent;
@@ -653,6 +657,11 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			combatTab.handleLogEvent(event);
 		}
 		engineeringTab.handleLogEvent(event);
+		if (event instanceof LoadoutEvent
+				|| event instanceof ModuleRetrieveEvent
+				|| event instanceof ModuleStoreEvent) {
+			SwingUtilities.invokeLater(engineeringTab::syncLoadoutWaitBanner);
+		}
 		if (event instanceof org.dce.ed.logreader.event.MissionAcceptedEvent
 				|| event instanceof org.dce.ed.logreader.event.MissionCompletedEvent
 				|| event instanceof org.dce.ed.logreader.event.MissionFailedEvent
@@ -943,8 +952,47 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		}
 	}
 
+	/**
+	 * Elite does not write {@code Loadout} until you leave stored modules / Outfitting.
+	 * Apply {@code ModuleRetrieve} / {@code ModuleStore} to the live snapshot: named engineering
+	 * is trusted; missing engineering is treated as stock until the next real {@code Loadout}.
+	 *
+	 * @return true when {@link #getLatestLoadout()} was replaced with a patched event
+	 */
+	public static boolean applyOutfittingSlotChangeToLatestLoadout(EliteLogEvent event) {
+		if (!(event instanceof ModuleRetrieveEvent) && !(event instanceof ModuleStoreEvent)) {
+			return false;
+		}
+		LoadoutEvent current = getLatestLoadout();
+		if (current == null || current.getRawJson() == null) {
+			return false;
+		}
+		String raw = current.getRawJson().toString();
+		String patched = null;
+		if (event instanceof ModuleRetrieveEvent retrieve) {
+			patched = EngineeringLoadoutSlotPatch.patchRetrieve(raw, retrieve);
+		} else if (event instanceof ModuleStoreEvent store) {
+			patched = EngineeringLoadoutSlotPatch.patchStore(raw, store);
+		}
+		if (patched == null || patched.isBlank()) {
+			return false;
+		}
+		try {
+			EliteLogEvent parsed = new EliteLogParser().parseRecord(patched);
+			if (!(parsed instanceof LoadoutEvent updated)) {
+				return false;
+			}
+			loadoutEventx = updated;
+			NpcCrewTracker.getInstance().onLoadout(updated);
+			return true;
+		} catch (Exception ex) {
+			return false;
+		}
+	}
+
 	public void handleLogEvent(EliteLogEvent event) {
         if (event instanceof LoadoutEvent e) {
+        	EngineeringLoadoutFreshness.clear();
         	loadoutEventx = e;
         	NpcCrewTracker.getInstance().onLoadout(e);
         	for (Runnable r : loadoutChangeListeners) {
@@ -952,6 +1000,18 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
         	}
         } else if (event instanceof EngineerCraftEvent craft
         		&& applyEngineerCraftToLatestLoadout(craft)) {
+        	for (Runnable r : loadoutChangeListeners) {
+        		SwingUtilities.invokeLater(r);
+        	}
+        } else if (event instanceof ModuleRetrieveEvent retrieve) {
+        	applyOutfittingSlotChangeToLatestLoadout(retrieve);
+        	EngineeringLoadoutFreshness.onModuleRetrieve(retrieve);
+        	for (Runnable r : loadoutChangeListeners) {
+        		SwingUtilities.invokeLater(r);
+        	}
+        } else if (event instanceof ModuleStoreEvent store) {
+        	applyOutfittingSlotChangeToLatestLoadout(store);
+        	EngineeringLoadoutFreshness.onModuleStore();
         	for (Runnable r : loadoutChangeListeners) {
         		SwingUtilities.invokeLater(r);
         	}
