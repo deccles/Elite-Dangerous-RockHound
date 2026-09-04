@@ -9,7 +9,12 @@ import org.dce.ed.ui.EdoUi;
 
 /**
  * Whether a goal's next blueprint grades are locked by engineer access rank (the Grade N Access
- * bar at the workshop), independent of module craft progress and materials.
+ * bar at the workshop).
+ *
+ * <p>Workshop rolls on this module raise that bar, so a G0 (or otherwise still-rollable) part is
+ * not gated just because a later grade is above current access. The warning is for when this
+ * module can no longer be used to climb — typically it is already past what this engineer can
+ * apply, often because another engineer did the earlier grades.
  */
 public final class EngineerAccessGate {
 
@@ -37,7 +42,6 @@ public final class EngineerAccessGate {
         if (target <= from) {
             return Optional.empty();
         }
-        String elsewhere = "";
         for (int grade = from + 1; grade <= target; grade++) {
             BlueprintGrade bp = gradeOf(database, goal, grade);
             if (bp == null || bp.getEngineers().isEmpty()) {
@@ -47,9 +51,9 @@ public final class EngineerAccessGate {
             int best = ranks.bestRank(engineers);
             String who = bestNamed(engineers, ranks);
             if (best >= grade) {
-                if (elsewhere.isBlank()) {
-                    elsewhere = ableEngineers(engineers, ranks, grade);
-                }
+                continue;
+            }
+            if (canRaiseAccessOnThisModule(goal, database, ranks, engineers, from, grade)) {
                 continue;
             }
             String summary = "Locked G" + grade;
@@ -59,13 +63,10 @@ public final class EngineerAccessGate {
             if (!who.isBlank()) {
                 detail.append(". ").append(who).append(" is Grade ").append(best).append(" Access");
             }
-            detail.append(".\n\nBuy a cheap unused module from Outfitting (a small pulse laser or 1D ")
-                    .append("shield booster), fit it, and roll G1–G").append(Math.max(1, grade - 1))
-                    .append(" on that throwaway at their workshop.");
-            detail.append("\n\nDo not re-engineer modules that are already done, and do not switch ")
-                    .append("this module to a different blueprint — that wipes current grades.");
-            if (!elsewhere.isBlank()) {
-                detail.append("\n\n").append(elsewhere).append('.');
+            detail.append('.');
+            if (grade > 1) {
+                detail.append("\n\nAdd a goal that engineers from G0 to G").append(grade - 1)
+                        .append(" to account for the additional materials.");
             }
             return Optional.of(new Block(grade, best, who, summary, detail.toString()));
         }
@@ -122,6 +123,50 @@ public final class EngineerAccessGate {
         return sb.toString();
     }
 
+    /**
+     * True when an engineer who offers {@code lockedGrade} can still roll an earlier remaining
+     * grade on this module, which raises their access bar at the workshop.
+     */
+    private static boolean canRaiseAccessOnThisModule(EngineeringGoal goal,
+                                                      EngineeringDatabase database,
+                                                      EngineerReputationTracker ranks,
+                                                      List<String> lockedGradeEngineers,
+                                                      int from,
+                                                      int lockedGrade) {
+        if (from + 1 >= lockedGrade) {
+            return false;
+        }
+        for (String engineer : lockedGradeEngineers) {
+            if (engineer == null || engineer.isBlank()) {
+                continue;
+            }
+            int rank = ranks.rank(engineer);
+            for (int g = from + 1; g < lockedGrade; g++) {
+                BlueprintGrade step = gradeOf(database, goal, g);
+                if (step == null || !namedIn(step.getEngineers(), engineer)) {
+                    continue;
+                }
+                if (rank >= g) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean namedIn(List<String> engineers, String who) {
+        String key = EngineerReputationTracker.normalize(who);
+        if (key.isEmpty() || engineers == null) {
+            return false;
+        }
+        for (String name : engineers) {
+            if (key.equals(EngineerReputationTracker.normalize(name))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static BlueprintGrade gradeOf(EngineeringDatabase database, EngineeringGoal goal, int grade) {
         for (BlueprintGrade bp : database.gradesFor(goal.getModuleType(), goal.getBlueprintName())) {
             if (bp != null && !bp.isExperimental() && bp.getGrade() == grade) {
@@ -147,16 +192,4 @@ public final class EngineerAccessGate {
         return bestName;
     }
 
-    private static String ableEngineers(List<String> engineers, EngineerReputationTracker ranks, int grade) {
-        List<String> able = new ArrayList<>();
-        for (String name : engineers) {
-            if (name != null && !name.isBlank() && ranks.rank(name) >= grade) {
-                able.add(name);
-            }
-        }
-        if (able.isEmpty()) {
-            return "";
-        }
-        return "G" + grade + " is available from " + String.join(", ", able);
-    }
 }
