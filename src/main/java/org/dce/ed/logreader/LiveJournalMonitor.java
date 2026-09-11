@@ -572,6 +572,7 @@ public final class LiveJournalMonitor {
                             statusBodyId
                     );
             dispatch(event);
+            StatusHistoryLog.append(json);
 
         } catch (IOException | JsonSyntaxException ex) {
             ex.printStackTrace();
