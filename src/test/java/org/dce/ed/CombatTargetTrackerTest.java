@@ -202,7 +202,87 @@ class CombatTargetTrackerTest {
         CombatTargetTracker.KillVictim kill = tracker.getKills().get(0);
         assertEquals("John Cydonia", kill.getPilotName());
         assertEquals(1, kill.getSharedWithOthers());
+        assertTrue(kill.isWingmateKill());
         assertEquals(67_030L, kill.getTotalReward());
+    }
+
+    @Test
+    void ownSharedBountyWhileLocked_isNotWingmateKill() {
+        tracker.applyShipTargeted(stage3("Spite", 1_058_574L, "None", false));
+        tracker.applyBounty(bounty(
+                "{ \"Rewards\":[ { \"Faction\":\"Empire League\", \"Reward\":747912 },"
+                        + " { \"Faction\":\"Justice Party\", \"Reward\":310662 } ],"
+                        + " \"PilotName\":\"$npc_name_decorate:#name=Spite;\","
+                        + " \"PilotName_Localised\":\"Spite\", \"Target\":\"ferdelance\","
+                        + " \"TotalReward\":1058574, \"VictimFaction\":\"Crimson Pirates\","
+                        + " \"SharedWithOthers\":2 }",
+                1_058_574L));
+
+        CombatTargetTracker.KillVictim kill = tracker.getKills().get(0);
+        assertEquals("Spite", kill.getPilotName());
+        assertEquals(2, kill.getSharedWithOthers());
+        assertFalse(kill.isWingmateKill());
+    }
+
+    @Test
+    void ownSharedBountyAfterUnlock_isNotWingmateKill() {
+        tracker.applyShipTargeted(stage3("Hunger", 748_132L, "None", false));
+        tracker.applyShipTargeted(unlock());
+        tracker.applyBounty(bounty(
+                "{ \"Rewards\":[ { \"Faction\":\"Empire League\", \"Reward\":487772 },"
+                        + " { \"Faction\":\"Justice Party\", \"Reward\":260360 } ],"
+                        + " \"PilotName\":\"$npc_name_decorate:#name=Hunger;\","
+                        + " \"PilotName_Localised\":\"Hunger\", \"Target\":\"krait_mkii\","
+                        + " \"TotalReward\":748132, \"VictimFaction\":\"Crimson Pirates\","
+                        + " \"SharedWithOthers\":1 }",
+                748_132L));
+
+        CombatTargetTracker.KillVictim kill = tracker.getKills().get(0);
+        assertEquals("Hunger", kill.getPilotName());
+        assertFalse(kill.isWingmateKill());
+    }
+
+    @Test
+    void wingmateBountyWhileLockedOnSomeoneElse_isWingmateKill() {
+        tracker.applyShipTargeted(stage3("Chumbleblubber", 215_739L, "None", false));
+        tracker.applyBounty(bounty(
+                "{ \"Rewards\":[ { \"Faction\":\"Earth Defense Fleet\", \"Reward\":38582 } ],"
+                        + " \"PilotName\":\"$npc_name_decorate:#name=Ronin;\","
+                        + " \"PilotName_Localised\":\"Ronin\", \"Target\":\"eagle\","
+                        + " \"TotalReward\":38582, \"VictimFaction\":\"Clan of G 89-32\","
+                        + " \"SharedWithOthers\":1 }",
+                38_582L));
+
+        CombatTargetTracker.KillVictim kill = tracker.getKills().get(0);
+        assertEquals("Ronin", kill.getPilotName());
+        assertTrue(kill.isWingmateKill());
+        assertEquals("Chumbleblubber", tracker.getLockedTarget().getPilotName());
+    }
+
+    @Test
+    void shipNameTokenKill_showsTrailingNameAndIsOwnKill() {
+        EliteLogParser parser = new EliteLogParser();
+        tracker.applyJournalEvent(parser.parseRecord(
+                "{ \"timestamp\":\"2026-09-08T21:59:19Z\", \"event\":\"ShipTargeted\","
+                        + " \"TargetLocked\":true, \"Ship\":\"anaconda\", \"ScanStage\":3,"
+                        + " \"PilotName\":\"$ShipName_General; Blaze\", \"PilotRank\":\"Elite\","
+                        + " \"Faction\":\"Kigana Jet Syndicate\", \"LegalStatus\":\"None\","
+                        + " \"Bounty\":1001200 }"));
+        assertEquals("Blaze", tracker.getLockedTarget().getPilotName());
+
+        tracker.applyJournalEvent(parser.parseRecord(
+                "{ \"timestamp\":\"2026-09-08T22:00:51Z\", \"event\":\"Bounty\","
+                        + " \"Rewards\":[ { \"Faction\":\"Union of Kigana Coalition\", \"Reward\":571600 },"
+                        + " { \"Faction\":\"Kigana Gold Bridge Network\", \"Reward\":429600 } ],"
+                        + " \"PilotName\":\"$ShipName_General; Blaze\", \"Target\":\"anaconda\","
+                        + " \"TotalReward\":1001200, \"VictimFaction\":\"Kigana Jet Syndicate\","
+                        + " \"SharedWithOthers\":2 }"));
+
+        CombatTargetTracker.KillVictim kill = tracker.getKills().get(0);
+        assertEquals("Blaze", kill.getPilotName());
+        assertEquals("Anaconda", kill.getShipDisplay());
+        assertEquals(2, kill.getSharedWithOthers());
+        assertFalse(kill.isWingmateKill());
     }
 
     @Test
@@ -372,9 +452,21 @@ class CombatTargetTrackerTest {
     }
 
     @Test
+    void bountyWithoutLocalisedShipNameUsesCanonicalDisplay() {
+        tracker.applyBounty(bounty(
+                "{ \"Rewards\":[{\"Faction\":\"A\",\"Reward\":1400000}], "
+                        + "\"TotalReward\":1400000, \"Target\":\"corsair\", \"VictimFaction\":\"Faction A\" }",
+                1_400_000L));
+
+        assertEquals("Corsair", tracker.getKills().get(0).getShipDisplay());
+    }
+
+    @Test
     void prettyShipIdTitleCasesInternalIds() {
         assertEquals("Asp Scout", CombatTargetTracker.prettyShipId("asp_scout"));
         assertEquals("Eagle", CombatTargetTracker.prettyShipId("eagle"));
+        assertEquals("Anaconda", CombatTargetTracker.prettyShipId("anaconda"));
+        assertEquals("Corsair", CombatTargetTracker.prettyShipId("corsair"));
         assertEquals("Cobra MkIV", CombatTargetTracker.prettyShipId("cobramkiv"));
         assertEquals("Type-10 Defender", CombatTargetTracker.prettyShipId("type9_military"));
     }
@@ -447,6 +539,38 @@ class CombatTargetTrackerTest {
         assertEquals("Dana", tracker.getKills().get(0).getPilotName());
         assertEquals(10_000L, tracker.getTotalBountiesEarned());
         assertEquals(3_000L, tracker.getTotalOtherBounties());
+    }
+
+    @Test
+    void sessionRoundTripPreservesWingmateKillFlag() {
+        tracker.applyShipTargeted(stage3("Spite", 1_058_574L, "None", false));
+        tracker.applyBounty(bountyAt(
+                "{ \"PilotName_Localised\":\"Spite\", \"Target\":\"ferdelance\","
+                        + " \"TotalReward\":1058574, \"VictimFaction\":\"Pirates\","
+                        + " \"SharedWithOthers\":2 }",
+                1_058_574L,
+                Instant.parse("2026-06-22T13:10:00Z")));
+        tracker.applyBounty(bountyAt(
+                "{ \"PilotName_Localised\":\"Ronin\", \"Target\":\"eagle\","
+                        + " \"TotalReward\":38582, \"VictimFaction\":\"Pirates\","
+                        + " \"SharedWithOthers\":1 }",
+                38_582L,
+                Instant.parse("2026-06-22T13:12:00Z")));
+
+        EdoSessionState state = new EdoSessionState();
+        tracker.fillSessionState(state);
+        assertEquals("Spite", state.getCombat().killsOrEmpty().get(0).getPilotName());
+        assertEquals(Boolean.FALSE, state.getCombat().killsOrEmpty().get(0).getWingmateKill());
+        assertEquals("Ronin", state.getCombat().killsOrEmpty().get(1).getPilotName());
+        assertEquals(Boolean.TRUE, state.getCombat().killsOrEmpty().get(1).getWingmateKill());
+
+        tracker.resetForTests();
+        tracker.applySessionState(state);
+        List<CombatTargetTracker.KillVictim> restored = tracker.getKills();
+        assertEquals("Ronin", restored.get(0).getPilotName());
+        assertTrue(restored.get(0).isWingmateKill());
+        assertEquals("Spite", restored.get(1).getPilotName());
+        assertFalse(restored.get(1).isWingmateKill());
     }
 
     @Test

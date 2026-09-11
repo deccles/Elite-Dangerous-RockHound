@@ -60,6 +60,10 @@ class BountyScanJournalFlowTest {
         assertEquals("Carlos SpicyWeiner", BountyScanTracker.pilotKey("Carlos SpicyWeiner"));
         assertEquals("Carlos SpicyWeiner",
                 BountyScanTracker.pilotKey("$npc_name_decorate:#name=Carlos SpicyWeiner;"));
+        assertEquals("Blaze", BountyScanTracker.pilotKey("$ShipName_General; Blaze"));
+        assertEquals("Star Bird", BountyScanTracker.pilotKey("$ShipName_General; Star Bird"));
+        assertEquals("$ShipName_Military_Federation;",
+                BountyScanTracker.pilotKey("$ShipName_Military_Federation;"));
     }
 
     @Test

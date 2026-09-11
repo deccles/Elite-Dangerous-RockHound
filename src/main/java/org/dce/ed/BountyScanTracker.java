@@ -244,13 +244,15 @@ public final class BountyScanTracker {
         if (trimmed.isEmpty()) {
             return null;
         }
-        if (trimmed.startsWith("$npc_name_decorate:")) {
-            String extracted = extractDecoratedNpcName(trimmed);
-            if (extracted != null && !extracted.isBlank()) {
-                trimmed = extracted.trim();
-            }
+        String extracted = extractDecoratedNpcName(trimmed);
+        if (extracted != null && !extracted.isBlank()) {
+            return extracted.trim();
         }
-        return trimmed.isEmpty() ? null : trimmed;
+        extracted = extractTrailingLocalisedName(trimmed);
+        if (extracted != null && !extracted.isBlank()) {
+            return extracted.trim();
+        }
+        return trimmed;
     }
 
     /** {@code $npc_name_decorate:#name=Pilot Name;} → {@code Pilot Name}. */
@@ -268,5 +270,22 @@ public final class BountyScanTracker {
             name = name.substring(0, end);
         }
         return name.trim();
+    }
+
+    /**
+     * Named NPC ships often have no {@code PilotName_Localised}:
+     * {@code $ShipName_General; Blaze} → {@code Blaze}.
+     * Tokens with nothing after {@code ;} (e.g. {@code $ShipName_Military_Federation;}) stay unchanged.
+     */
+    static String extractTrailingLocalisedName(String token) {
+        if (token == null || !token.startsWith("$")) {
+            return null;
+        }
+        int semi = token.indexOf(';');
+        if (semi < 0 || semi >= token.length() - 1) {
+            return null;
+        }
+        String trailing = token.substring(semi + 1).trim();
+        return trailing.isEmpty() ? null : trailing;
     }
 }

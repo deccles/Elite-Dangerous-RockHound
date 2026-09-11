@@ -25,7 +25,9 @@ public final class BountyEvent extends EliteLogEvent implements CombatRewardEven
         this.victimFaction = stringField(rawJson, "VictimFaction");
         this.target = stringField(rawJson, "Target");
         this.targetLocalised = stringField(rawJson, "Target_Localised");
-        this.pilotLocalised = stringField(rawJson, "PilotName_Localised");
+        this.pilotLocalised = firstNonBlank(
+                stringField(rawJson, "PilotName_Localised"),
+                stringField(rawJson, "PilotName"));
         this.sharedWithOthers = intField(rawJson, "SharedWithOthers");
     }
 
@@ -79,6 +81,16 @@ public final class BountyEvent extends EliteLogEvent implements CombatRewardEven
         } catch (RuntimeException ignored) {
             return 0;
         }
+    }
+
+    private static String firstNonBlank(String preferred, String fallback) {
+        if (preferred != null && !preferred.isBlank()) {
+            return preferred.trim();
+        }
+        if (fallback != null && !fallback.isBlank()) {
+            return fallback.trim();
+        }
+        return null;
     }
 
     private static String stringField(JsonObject o, String key) {

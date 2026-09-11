@@ -461,6 +461,9 @@ public final class CombatTabPanel extends JPanel {
         return combatTabVisible && activeSession;
     }
 
+    /**
+     * Kill-row color: purple only for a wingmate's kill (not this commander's own shared bounty).
+     */
     static Color killRowForeground(boolean wingShared, boolean player, long bountyCredits,
             long highValueCredits) {
         if (wingShared) {
@@ -1085,7 +1088,7 @@ public final class CombatTabPanel extends JPanel {
                     total > 0L ? formatCompact(total) : "—",
                     total,
                     false,
-                    k.getSharedWithOthers() > 0);
+                    k.isWingmateKill());
         }
     }
 

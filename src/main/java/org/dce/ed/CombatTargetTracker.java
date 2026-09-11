@@ -124,10 +124,19 @@ public final class CombatTargetTracker {
         private final long otherReward;
         private final int sharedWithOthers;
         private final boolean combatBond;
+        /** True when a wingmate landed the kill and this commander only received a share. */
+        private final boolean wingmateKill;
 
         public KillVictim(Instant timestamp, String target, String shipDisplay, String pilotName,
                 String victimFaction, long totalReward, long otherReward, int sharedWithOthers,
                 boolean combatBond) {
+            this(timestamp, target, shipDisplay, pilotName, victimFaction, totalReward, otherReward,
+                    sharedWithOthers, combatBond, false);
+        }
+
+        public KillVictim(Instant timestamp, String target, String shipDisplay, String pilotName,
+                String victimFaction, long totalReward, long otherReward, int sharedWithOthers,
+                boolean combatBond, boolean wingmateKill) {
             this.timestamp = timestamp;
             this.target = target;
             this.shipDisplay = shipDisplay;
@@ -137,15 +146,16 @@ public final class CombatTargetTracker {
             this.otherReward = otherReward;
             this.sharedWithOthers = sharedWithOthers;
             this.combatBond = combatBond;
+            this.wingmateKill = wingmateKill;
         }
 
         public Instant getTimestamp() { return timestamp; }
         public String getTarget() { return target; }
         public String getShipDisplay() {
             if (shipDisplay != null && !shipDisplay.isBlank()) {
-                return shipDisplay;
+                return prettyShipId(shipDisplay);
             }
-            return target;
+            return prettyShipId(target);
         }
         public String getPilotName() { return pilotName; }
         public String getVictimFaction() { return victimFaction; }
@@ -153,6 +163,7 @@ public final class CombatTargetTracker {
         public long getOtherReward() { return otherReward; }
         public int getSharedWithOthers() { return sharedWithOthers; }
         public boolean isCombatBond() { return combatBond; }
+        public boolean isWingmateKill() { return wingmateKill; }
     }
 
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
@@ -166,6 +177,8 @@ public final class CombatTargetTracker {
     private final List<KillVictim> kills = new ArrayList<>();
 
     private volatile LockedTarget lockedTarget;
+    /** Last lock dropped by {@code TargetLocked:false}, kept to match a bounty that arrives after unlock. */
+    private volatile LockedTarget lastUnlockedTarget;
     private volatile long totalBountiesEarned;
     private volatile long totalOtherBounties;
     private volatile Runnable sessionStateChangeCallback;
@@ -220,6 +233,7 @@ public final class CombatTargetTracker {
             kills.clear();
         }
         lockedTarget = null;
+        lastUnlockedTarget = null;
         totalBountiesEarned = 0L;
         totalOtherBounties = 0L;
         sessionStateChangeCallback = null;
@@ -266,6 +280,7 @@ public final class CombatTargetTracker {
                 row.setOtherReward(k.getOtherReward());
                 row.setSharedWithOthers(k.getSharedWithOthers());
                 row.setCombatBond(k.isCombatBond());
+                row.setWingmateKill(Boolean.valueOf(k.isWingmateKill()));
                 killsOut.add(row);
             }
         }
@@ -323,6 +338,10 @@ public final class CombatTargetTracker {
                     } catch (RuntimeException ignored) {
                     }
                 }
+                int shared = Math.max(0, row.getSharedWithOthers());
+                boolean wingmateKill = row.getWingmateKill() != null
+                        ? row.getWingmateKill().booleanValue()
+                        : shared > 0;
                 kills.add(new KillVictim(
                         when,
                         row.getTarget(),
@@ -331,8 +350,9 @@ public final class CombatTargetTracker {
                         row.getVictimFaction(),
                         Math.max(0L, row.getTotalReward()),
                         Math.max(0L, row.getOtherReward()),
-                        Math.max(0, row.getSharedWithOthers()),
-                        row.isCombatBond()));
+                        shared,
+                        row.isCombatBond(),
+                        wingmateKill));
             }
         }
         totalBountiesEarned = Math.max(0L, combat.getTotalBountiesEarned());
@@ -353,6 +373,7 @@ public final class CombatTargetTracker {
     public void applyJournalEvent(EliteLogEvent event) {
         if (event instanceof LoadGameEvent) {
             lockedTarget = null;
+            lastUnlockedTarget = null;
             scannedWanted.clear();
             scannedCleanPilots.clear();
             shipDisplayById.clear();
@@ -388,11 +409,13 @@ public final class CombatTargetTracker {
         rememberShipIdentity(event);
         if (!event.isTargetLocked()) {
             if (lockedTarget != null) {
+                lastUnlockedTarget = lockedTarget;
                 lockedTarget = null;
                 notifyListeners();
             }
             return;
         }
+        lastUnlockedTarget = null;
 
         String pilotKey = BountyScanTracker.pilotKey(event.getPilotName());
         LockedTarget previous = lockedTarget;
@@ -418,7 +441,7 @@ public final class CombatTargetTracker {
                 scanned = new ScannedWantedShip(
                         pilotKey,
                         displayPilot(event),
-                        event.getShipDisplayName(),
+                        displayShipName(event),
                         locallyClean ? "Clean" : event.getLegalStatus(),
                         locallyClean ? 0L : bounty.longValue(),
                         event.isPlayer());
@@ -434,8 +457,9 @@ public final class CombatTargetTracker {
                 if (bounty.longValue() > scanned.currentBounty) {
                     scanned.currentBounty = bounty.longValue();
                 }
-                if (event.getShipDisplayName() != null && !event.getShipDisplayName().isBlank()) {
-                    scanned.shipDisplay = event.getShipDisplayName();
+                String scannedShip = displayShipName(event);
+                if (scannedShip != null && !scannedShip.isBlank()) {
+                    scanned.shipDisplay = scannedShip;
                 }
                 if (scanned.firstBounty > 0L
                         && event.getLegalStatus() != null && !event.getLegalStatus().isBlank()) {
@@ -468,7 +492,7 @@ public final class CombatTargetTracker {
         if ("Unknown".equals(pilot) && samePilot) {
             pilot = previous.getPilotName();
         }
-        String ship = event.getShipDisplayName();
+        String ship = displayShipName(event);
         if ((ship == null || ship.isBlank()) && samePilot) {
             ship = previous.getShipDisplay();
         }
@@ -506,11 +530,20 @@ public final class CombatTargetTracker {
         long voucherOther = otherRewardFromJson(event.getRawJson(), total);
         int shared = event.getSharedWithOthers();
         String shipId = event.getTarget();
-        String shipDisplay = firstNonBlank(event.getTargetLocalised(), resolveShipDisplay(shipId));
-        String pilot = firstNonBlank(resolvePilotForKill(shipId), event.getPilotLocalised());
+        String shipDisplay = prettyShipId(
+                firstNonBlank(event.getTargetLocalised(), resolveShipDisplay(shipId)));
+        String journalPilot = firstNonBlank(
+                BountyScanTracker.pilotKey(event.getPilotLocalised()),
+                event.getPilotLocalised());
+        boolean ownKill = isOwnKill(journalPilot);
+        boolean wingmateKill = shared > 0 && !ownKill;
+        String pilot = firstNonBlank(journalPilot, resolvePilotForKill(shipId));
         ScannedWantedShip scanned = findScanned(pilot);
         long other = remoteBountyForKill(scanned, total, voucherOther);
         removeScannedVictim(pilot);
+        if (ownKill && lockedTarget == null) {
+            lastUnlockedTarget = null;
+        }
         KillVictim victim = new KillVictim(
                 event.getTimestamp(),
                 shipId,
@@ -520,7 +553,8 @@ public final class CombatTargetTracker {
                 total,
                 other,
                 shared,
-                false);
+                false,
+                wingmateKill);
         synchronized (kills) {
             kills.add(victim);
         }
@@ -644,6 +678,26 @@ public final class CombatTargetTracker {
     }
 
     /**
+     * Own kill if this commander currently has the victim locked, or just unlocked them
+     * (journals often write {@code TargetLocked:false} immediately before the {@code Bounty}).
+     */
+    private boolean isOwnKill(String bountyPilot) {
+        if (victimMatches(lockedTarget, bountyPilot)) {
+            return true;
+        }
+        return lockedTarget == null && victimMatches(lastUnlockedTarget, bountyPilot);
+    }
+
+    private static boolean victimMatches(LockedTarget engaged, String bountyPilot) {
+        if (engaged == null) {
+            return false;
+        }
+        String engagedKey = foldPilotKey(BountyScanTracker.pilotKey(engaged.getPilotName()));
+        String bountyKey = foldPilotKey(BountyScanTracker.pilotKey(bountyPilot));
+        return !engagedKey.isEmpty() && engagedKey.equals(bountyKey);
+    }
+
+    /**
      * Remote column text: {@code ?} = not warrant-scanned yet, {@code 0} = scanned with no
      * additional bounty, otherwise the compact amount is left to the UI via {@code remoteBounty}.
      */
@@ -710,7 +764,7 @@ public final class CombatTargetTracker {
         if (shipId == null) {
             return;
         }
-        String display = event.getShipDisplayName();
+        String display = displayShipName(event);
         if (display != null && !display.isBlank()) {
             shipDisplayById.put(shipId, display.trim());
         }
@@ -727,14 +781,22 @@ public final class CombatTargetTracker {
         }
         String cached = shipDisplayById.get(shipId);
         if (cached != null && !cached.isBlank()) {
-            return cached;
+            return prettyShipId(cached);
         }
         LockedTarget locked = lockedTarget;
         if (locked != null && locked.getShipDisplay() != null && !locked.getShipDisplay().isBlank()) {
             // Best-effort when killing the current lock without a prior id cache hit.
-            return locked.getShipDisplay();
+            return prettyShipId(locked.getShipDisplay());
         }
         return prettyShipId(shipIdRaw);
+    }
+
+    /** Localised journal name when present, otherwise {@link ShipTypeNames} for the internal id. */
+    private static String displayShipName(ShipTargetedEvent event) {
+        if (event == null) {
+            return null;
+        }
+        return prettyShipId(firstNonBlank(event.getShipLocalised(), event.getShip()));
     }
 
     private String resolvePilotForKill(String shipIdRaw) {

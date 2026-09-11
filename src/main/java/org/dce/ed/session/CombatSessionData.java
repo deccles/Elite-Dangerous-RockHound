@@ -173,6 +173,7 @@ public final class CombatSessionData {
         private long otherReward;
         private int sharedWithOthers;
         private boolean combatBond;
+        private Boolean wingmateKill;
 
         public String getTimestamp() { return timestamp; }
         public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
@@ -192,5 +193,8 @@ public final class CombatSessionData {
         public void setSharedWithOthers(int sharedWithOthers) { this.sharedWithOthers = sharedWithOthers; }
         public boolean isCombatBond() { return combatBond; }
         public void setCombatBond(boolean combatBond) { this.combatBond = combatBond; }
+        /** {@code null} in older session JSON: treat {@code sharedWithOthers > 0} as a wingmate kill. */
+        public Boolean getWingmateKill() { return wingmateKill; }
+        public void setWingmateKill(Boolean wingmateKill) { this.wingmateKill = wingmateKill; }
     }
 }

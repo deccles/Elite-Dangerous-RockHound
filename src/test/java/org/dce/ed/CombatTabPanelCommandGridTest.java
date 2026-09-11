@@ -42,7 +42,7 @@ class CombatTabPanelCommandGridTest {
     }
 
     @Test
-    void wingSharedKillUsesPurpleInsteadOfBountyHighlight() {
+    void wingmateKillUsesPurpleInsteadOfBountyHighlight() {
         assertEquals(EdoUi.Internal.COMBAT_WING_KILL,
                 CombatTabPanel.killRowForeground(true, false, 67_030L, 500_000L));
         assertEquals(EdoUi.User.PRIMARY_HIGHLIGHT,

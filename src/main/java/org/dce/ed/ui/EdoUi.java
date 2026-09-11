@@ -149,7 +149,7 @@ public final class EdoUi {
          */
         public static final Color HIT_PLATE_BG = new Color(28, 30, 36);
 
-        /** Combat kills table: bounty shared with a wingmate (distinct from bounty green/yellow). */
+        /** Combat kills table: a wingmate's kill that this commander received a share of. */
         public static final Color COMBAT_WING_KILL = new Color(196, 92, 255);
 
         /** Engineering blueprint tooltip: positive modifier line. */
