@@ -83,6 +83,7 @@ public final class VoiceCacheWarmer {
     private static final Set<String> REQUIRED_WARMUP_TEMPLATES = Set.of(
             "First Discovered System",
             NpcCrewTracker.FIGHTER_PILOT_REMINDER_SPEECH,
+            org.dce.ed.OperationsWrongShipWarner.WRONG_SHIP_SPEECH,
             BountyScanTracker.FIRST_BOUNTY_SPEECH,
             BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH,
             org.dce.ed.mission.MissionSpeechTracker.TARGET_DESTROYED_SPEECH,

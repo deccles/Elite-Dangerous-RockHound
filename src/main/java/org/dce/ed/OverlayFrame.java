@@ -116,6 +116,8 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
 
     private static final TtsSprintf CARRIER_JUMP_TTS = new TtsSprintf(new PollyTtsCached());
 
+    private static final TtsSprintf OPERATIONS_TTS = new TtsSprintf(new PollyTtsCached());
+
     private final LineBorder overlayBorder = new LineBorder(
             new java.awt.Color(200, 200, 255, 180),
             1,
@@ -268,6 +270,14 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
     public void warnUnplannedEngineeringCraft() {
         Toolkit.getDefaultToolkit().beep();
         setTransientOverlayStatus("Engineered a Module with no goal", true);
+    }
+
+    public void warnWrongOperationsShip() {
+        OPERATIONS_TTS.speakf(OperationsWrongShipWarner.WRONG_SHIP_SPEECH);
+        setTransientOverlayStatus(
+                OperationsWrongShipWarner.wrongShipStatusMessage(
+                        OverlayPreferences.getOperationsPreferredShips()),
+                true);
     }
 
     private void setTransientOverlayStatus(String message, boolean error) {
@@ -934,6 +944,7 @@ public class OverlayFrame extends JFrame implements OverlayUiPreviewHost {
         tabs.getMissionsTabPanel().setImmediateSessionStateChangeCallback(this::flushSessionStateNow);
         tabs.getEngineeringTabPanel().setSessionStateChangeCallback(debouncedSave);
         tabs.getEngineeringTabPanel().setUnplannedCraftWarningCallback(this::warnUnplannedEngineeringCraft);
+        OperationsWrongShipWarner.getInstance().setWarningCallback(this::warnWrongOperationsShip);
         tabs.getBiologyTabPanel().setSessionStateChangeCallback(debouncedSave);
         NpcCrewTracker.getInstance().setSessionStateChangeCallback(debouncedSave);
         CombatTargetTracker.getInstance().setSessionStateChangeCallback(debouncedSave);

@@ -84,6 +84,8 @@ public enum EliteEventType {
     /** Under fire — coincides with the in-game “Under Attack” voice line. */
     UNDER_ATTACK("UnderAttack"),
     MUSIC("Music"),
+    /** Player joined a wing (matchmade Operations lobby or a normal wing). */
+    WING_JOIN("WingJoin"),
     RESERVOIR_REPLENISHED("ReservoirReplenished"),
     PROSPECTED_ASTEROID("ProspectedAsteroid"),
     SHIP_TARGETED("ShipTargeted"),
@@ -171,6 +173,7 @@ public enum EliteEventType {
             case MISSION_REDIRECTED -> "Mission destination changed.";
             case MISSIONS -> "Active missions list updated.";
             case MUSIC -> "Background music track changed.";
+            case WING_JOIN -> "Commander joined a wing (Operations matchmaking or a player wing).";
             case NAV_ROUTE -> "Galactic route plotted or updated.";
             case NAV_ROUTE_CLEAR -> "Galactic route cleared.";
             case PROGRESS -> "Powerplay/BGS progress updated.";

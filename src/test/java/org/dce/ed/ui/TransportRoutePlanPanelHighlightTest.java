@@ -37,11 +37,11 @@ class TransportRoutePlanPanelHighlightTest {
                 new TransportLocation("Sol", "Galileo", 0, 0, 0), 0, systems -> { }, List.of());
         panel.updateCurrentLocation("Lave", "Lave Station");
 
-        assertEquals("Did you forget your delivery and donations again, Commander?",
+        assertEquals("Did you forget your delivery and donations again Commander?",
                 panel.departureReminderAt("Lave", "Lave Station").orElseThrow());
 
         panel.updateMissionCompleted(2L);
-        assertEquals("Did you forget your delivery again, Commander?",
+        assertEquals("Did you forget your delivery again Commander?",
                 panel.departureReminderAt("Lave", "Lave Station").orElseThrow());
     }
 
@@ -60,7 +60,7 @@ class TransportRoutePlanPanelHighlightTest {
                 {"Inventory":[{"Name_Localised":"Gold","Count":8,"MissionID":1}]}
                 """).getAsJsonObject());
 
-        assertEquals("Did you forget your donations again, Commander?",
+        assertEquals("Did you forget your donations again Commander?",
                 panel.departureReminderAt("Lave", "Lave Station").orElseThrow());
     }
     @Test

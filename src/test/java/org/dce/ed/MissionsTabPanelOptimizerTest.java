@@ -62,7 +62,7 @@ class MissionsTabPanelOptimizerTest {
         panel.handleLogEvent(new EliteLogEvent.GenericEvent(
                 Instant.now(), EliteEventType.UNDOCKED, new JsonObject()));
 
-        assertEquals("Did you forget your delivery again, Commander?", spoken.get());
+        assertEquals("Did you forget your delivery again Commander?", spoken.get());
     }
     @Test
     void transportTabProvidesOptimizeStopsButton() {

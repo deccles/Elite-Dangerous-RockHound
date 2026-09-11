@@ -1,7 +1,12 @@
 package org.dce.ed;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -88,6 +93,24 @@ public final class ShipTypeNames {
             return;
         }
         LEARNED.put(k, display);
+    }
+
+    /** Unique display names for every known ship type, sorted for combo boxes. */
+    public static List<String> knownDisplayNames() {
+        Set<String> unique = new LinkedHashSet<>(KNOWN.values());
+        List<String> out = new ArrayList<>(unique);
+        out.sort(Comparator.comparing(String::toString, String.CASE_INSENSITIVE_ORDER));
+        return List.copyOf(out);
+    }
+
+    /** True when both values name the same ship type (journal id or display label). */
+    public static boolean sameType(String a, String b) {
+        String da = display(a);
+        String db = display(b);
+        if (da.isEmpty() || db.isEmpty()) {
+            return false;
+        }
+        return key(da).equals(key(db));
     }
 
     /**

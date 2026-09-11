@@ -26,6 +26,8 @@ class ShipTypeNamesTest {
         assertEquals("Caspian Explorer", ShipTypeNames.display("explorer_nx"));
         assertEquals("Type-11 Prospector", ShipTypeNames.display("lakonminer"));
         assertEquals("Mandalay", ShipTypeNames.display("mandalay"));
+        assertEquals("Anaconda", ShipTypeNames.display("anaconda"));
+        assertEquals("Corsair", ShipTypeNames.display("corsair"));
     }
 
     @Test
@@ -54,5 +56,20 @@ class ShipTypeNamesTest {
         assertTrue(ShipTypeNames.looksInternal("asp_scout"));
         assertFalse(ShipTypeNames.looksInternal("Cobra Mk IV"));
         assertFalse(ShipTypeNames.looksInternal(""));
+    }
+
+    @Test
+    void knownDisplayNamesIncludesCorvetteAndAnaconda() {
+        assertTrue(ShipTypeNames.knownDisplayNames().contains("Federal Corvette"));
+        assertTrue(ShipTypeNames.knownDisplayNames().contains("Anaconda"));
+        assertTrue(ShipTypeNames.knownDisplayNames().contains("Panther Clipper MkII"));
+    }
+
+    @Test
+    void sameTypeMatchesJournalIdAndDisplayName() {
+        assertTrue(ShipTypeNames.sameType("federation_corvette", "Federal Corvette"));
+        assertTrue(ShipTypeNames.sameType("PantherMkII", "Panther Clipper MkII"));
+        assertTrue(ShipTypeNames.sameType("anaconda", "Anaconda"));
+        assertFalse(ShipTypeNames.sameType("panthermkii", "Federal Corvette"));
     }
 }

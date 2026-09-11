@@ -5,6 +5,9 @@ import java.awt.Font;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -89,6 +92,15 @@ public final class OverlayPreferences {
             "speech.announcement.bountyScan.valuableThresholdCredits";
     /** Combat tab: bounty total at/above this uses secondary highlight. Credits. */
     private static final String KEY_COMBAT_HIGH_VALUE_BOUNTY_CREDITS = "combat.highValueBountyCredits";
+    /** Speak a warning when joining an Operations lobby (right-panel GuiFocus then WingJoin) in the wrong ship. */
+    private static final String KEY_OPERATIONS_WRONG_SHIP_WARN_ENABLED = "combat.operations.wrongShip.warnEnabled";
+    /** Display names of the ships allowed for Operations, separated by {@link #OPERATIONS_SHIP_SEPARATOR}. */
+    private static final String KEY_OPERATIONS_PREFERRED_SHIPS = "combat.operations.preferredShips";
+    /** Pre-list single-ship key, still read once so existing settings migrate. */
+    private static final String KEY_OPERATIONS_PREFERRED_SHIP = "combat.operations.preferredShip";
+    /** No ship display name contains a pipe, so it is safe as a list separator. */
+    private static final String OPERATIONS_SHIP_SEPARATOR = "|";
+    private static final String DEFAULT_OPERATIONS_PREFERRED_SHIP = "Anaconda";
     private static final String KEY_SPEECH_MISSION_PROGRESS_ENABLED =
             "speech.announcement.missionProgress.enabled";
     /** Last {@link org.dce.ed.tts.VoicePackManager#SPEECH_PACK_REVISION} successfully installed while AWS synthesis was off. */
@@ -919,6 +931,55 @@ public final class OverlayPreferences {
 
     public static void setAutoSwitchCombatOnReward(boolean enabled) {
         PREFS.putBoolean(KEY_AUTOSWITCH_COMBAT_ON_REWARD, enabled);
+    }
+
+    public static boolean isOperationsWrongShipWarnEnabled() {
+        return PREFS.getBoolean(KEY_OPERATIONS_WRONG_SHIP_WARN_ENABLED, true);
+    }
+
+    public static void setOperationsWrongShipWarnEnabled(boolean enabled) {
+        PREFS.putBoolean(KEY_OPERATIONS_WRONG_SHIP_WARN_ENABLED, enabled);
+    }
+
+    /**
+     * Ships allowed for Operations as generic display names (Anaconda, Federal Corvette, …).
+     * Operations sometimes wants a passenger or utility hull, so more than one is allowed.
+     * Falls back to the legacy single-ship key, then to {@link #DEFAULT_OPERATIONS_PREFERRED_SHIP}.
+     */
+    public static List<String> getOperationsPreferredShips() {
+        String raw = PREFS.get(KEY_OPERATIONS_PREFERRED_SHIPS, "");
+        if (raw == null || raw.isBlank()) {
+            raw = PREFS.get(KEY_OPERATIONS_PREFERRED_SHIP, "");
+        }
+        List<String> ships = splitOperationsPreferredShips(raw);
+        return ships.isEmpty() ? List.of(DEFAULT_OPERATIONS_PREFERRED_SHIP) : ships;
+    }
+
+    public static void setOperationsPreferredShips(List<String> displayNames) {
+        List<String> cleaned = (displayNames == null) ? List.of() : dedupeShipNames(displayNames);
+        if (cleaned.isEmpty()) {
+            cleaned = List.of(DEFAULT_OPERATIONS_PREFERRED_SHIP);
+        }
+        PREFS.put(KEY_OPERATIONS_PREFERRED_SHIPS, String.join(OPERATIONS_SHIP_SEPARATOR, cleaned));
+        // Drop the legacy single-ship value so it cannot resurface as a stale fallback.
+        PREFS.remove(KEY_OPERATIONS_PREFERRED_SHIP);
+    }
+
+    static List<String> splitOperationsPreferredShips(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return dedupeShipNames(Arrays.asList(raw.split("\\" + OPERATIONS_SHIP_SEPARATOR, -1)));
+    }
+
+    private static List<String> dedupeShipNames(List<String> names) {
+        LinkedHashSet<String> unique = new LinkedHashSet<>();
+        for (String name : names) {
+            if (name != null && !name.isBlank()) {
+                unique.add(name.trim());
+            }
+        }
+        return List.copyOf(unique);
     }
 
     public static boolean isAutoExpandBioOnTargetedBody() {

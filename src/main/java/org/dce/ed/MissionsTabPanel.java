@@ -1384,16 +1384,16 @@ public class MissionsTabPanel extends JPanel {
     private static void speakDepartureReminder(String reminder) {
         if (!OverlayPreferences.isSpeechEnabled() || reminder == null) return;
         switch (reminder) {
-            case "Did you forget your delivery again, Commander?" ->
-                    DEPARTURE_TTS.speakf("Did you forget your delivery again, Commander?");
-            case "Did you forget your deliveries again, Commander?" ->
-                    DEPARTURE_TTS.speakf("Did you forget your deliveries again, Commander?");
-            case "Did you forget your donations again, Commander?" ->
-                    DEPARTURE_TTS.speakf("Did you forget your donations again, Commander?");
-            case "Did you forget your delivery and donations again, Commander?" ->
-                    DEPARTURE_TTS.speakf("Did you forget your delivery and donations again, Commander?");
-            case "Did you forget your deliveries and donations again, Commander?" ->
-                    DEPARTURE_TTS.speakf("Did you forget your deliveries and donations again, Commander?");
+            case "Did you forget your delivery again Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your delivery again Commander?");
+            case "Did you forget your deliveries again Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your deliveries again Commander?");
+            case "Did you forget your donations again Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your donations again Commander?");
+            case "Did you forget your delivery and donations again Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your delivery and donations again Commander?");
+            case "Did you forget your deliveries and donations again Commander?" ->
+                    DEPARTURE_TTS.speakf("Did you forget your deliveries and donations again Commander?");
             default -> { }
         }
     }

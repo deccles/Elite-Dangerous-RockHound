@@ -16,7 +16,9 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -42,6 +44,8 @@ import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
+import javax.swing.ListModel;
+import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
@@ -186,6 +190,8 @@ public class PreferencesDialog extends JDialog {
 	private JCheckBox routeFuelPredictionConsiderScoopCheckBox;
 	private JCheckBox autoSwitchCombatWhenAttackedCheckBox;
 	private JCheckBox autoSwitchCombatOnRewardCheckBox;
+	private JCheckBox operationsWrongShipWarnCheckBox;
+	private JList<String> operationsPreferredShipList;
 
 	/** Overlay tab: System tab ship / plan-map reference body mode */
 	private JComboBox<SystemTabShipRefMode> systemTabShipRefModeComboBox;
@@ -301,8 +307,9 @@ public class PreferencesDialog extends JDialog {
 		String prospectorListTwo = VoiceCacheWarmer.sampleProspectorListTwoForVoicePack();
 		PREFERENCE_SPEECH_TEST_CLIPS = new PreferenceSpeechTestClip[] {
 				new PreferenceSpeechTestClip("Welcome commander"),
-				new PreferenceSpeechTestClip("Did you forget your limpets again commander?"),
+				new PreferenceSpeechTestClip("Did you forget your limpets again Commander?"),
 				new PreferenceSpeechTestClip(NpcCrewTracker.FIGHTER_PILOT_REMINDER_SPEECH),
+				new PreferenceSpeechTestClip(OperationsWrongShipWarner.WRONG_SHIP_SPEECH),
 				new PreferenceSpeechTestClip(BountyScanTracker.FIRST_BOUNTY_SPEECH, Long.valueOf(250_000L)),
 				new PreferenceSpeechTestClip(BountyScanTracker.ADDITIONAL_BOUNTY_SPEECH,
 						Long.valueOf(60_000L), Long.valueOf(310_000L)),
@@ -1984,6 +1991,7 @@ public class PreferencesDialog extends JDialog {
 
 		addLeftStackedSection(panel, createCombatBountyValueBox(), 8);
 		addLeftStackedSection(panel, createCombatAutoSwitchBox(), 8);
+		addLeftStackedSection(panel, createOperationsShipWarnBox(), 8);
 
 		JLabel intro = new JLabel(
 				"<html>Choose which Combat-tab command buttons to show. Unchecked commands stay hidden; "
@@ -2025,6 +2033,77 @@ public class PreferencesDialog extends JDialog {
 		autoSwitchCombatOnRewardCheckBox.setSelected(OverlayPreferences.isAutoSwitchCombatOnReward());
 		box.add(autoSwitchCombatOnRewardCheckBox, gbc);
 		return box;
+	}
+
+	private JPanel createOperationsShipWarnBox() {
+		JPanel box = new JPanel(new GridBagLayout());
+		box.setOpaque(false);
+		box.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createLineBorder(EdoUi.Internal.GRAY_120),
+				"Operations ships"));
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.gridx = 0;
+		gbc.gridy = 0;
+		gbc.anchor = GridBagConstraints.WEST;
+		gbc.insets = new Insets(4, 8, 4, 8);
+
+		operationsWrongShipWarnCheckBox = new JCheckBox("Warn when joining Operations in the wrong ship");
+		operationsWrongShipWarnCheckBox.setOpaque(false);
+		operationsWrongShipWarnCheckBox.setSelected(OverlayPreferences.isOperationsWrongShipWarnEnabled());
+		operationsWrongShipWarnCheckBox.setToolTipText(
+				"When the right-hand ship panel was the last cockpit panel before a WingJoin, treat that as "
+						+ "the Operations lobby and speak a reminder if you are not in one of the selected ships.");
+		box.add(operationsWrongShipWarnCheckBox, gbc);
+
+		gbc.gridy++;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.weightx = 1.0;
+		box.add(new JLabel("Operations ships (Ctrl-click for more than one):"), gbc);
+
+		gbc.gridy++;
+		gbc.fill = GridBagConstraints.BOTH;
+		gbc.weighty = 1.0;
+		operationsPreferredShipList = new JList<>(
+				ShipTypeNames.knownDisplayNames().toArray(String[]::new));
+		operationsPreferredShipList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+		operationsPreferredShipList.setVisibleRowCount(6);
+		operationsPreferredShipList.setToolTipText(
+				"Generic ship types allowed for Operations. Some Operations need passengers, so pick every "
+						+ "hull you are happy to launch in.");
+		selectOperationsPreferredShips(OverlayPreferences.getOperationsPreferredShips());
+		JScrollPane shipScroll = new JScrollPane(operationsPreferredShipList);
+		shipScroll.setPreferredSize(new Dimension(240, 120));
+		box.add(shipScroll, gbc);
+
+		Runnable syncEnabled = () -> operationsPreferredShipList.setEnabled(
+				operationsWrongShipWarnCheckBox.isSelected());
+		operationsWrongShipWarnCheckBox.addActionListener(e -> syncEnabled.run());
+		syncEnabled.run();
+		return box;
+	}
+
+	private void selectOperationsPreferredShips(List<String> preferred) {
+		if (operationsPreferredShipList == null) {
+			return;
+		}
+		ListModel<String> model = operationsPreferredShipList.getModel();
+		List<Integer> indices = new ArrayList<>();
+		for (String want : preferred) {
+			for (int i = 0; i < model.getSize(); i++) {
+				if (ShipTypeNames.sameType(model.getElementAt(i), want)) {
+					indices.add(Integer.valueOf(i));
+					break;
+				}
+			}
+		}
+		if (indices.isEmpty() && model.getSize() > 0) {
+			indices.add(Integer.valueOf(0));
+		}
+		operationsPreferredShipList.setSelectedIndices(
+				indices.stream().mapToInt(Integer::intValue).toArray());
+		if (!indices.isEmpty()) {
+			operationsPreferredShipList.ensureIndexIsVisible(indices.get(0).intValue());
+		}
 	}
 
 	private JPanel createCombatBountyValueBox() {
@@ -2822,6 +2901,13 @@ public class PreferencesDialog extends JDialog {
 		}
 		if (autoSwitchCombatOnRewardCheckBox != null) {
 			OverlayPreferences.setAutoSwitchCombatOnReward(autoSwitchCombatOnRewardCheckBox.isSelected());
+		}
+		if (operationsWrongShipWarnCheckBox != null) {
+			OverlayPreferences.setOperationsWrongShipWarnEnabled(operationsWrongShipWarnCheckBox.isSelected());
+		}
+		if (operationsPreferredShipList != null) {
+			OverlayPreferences.setOperationsPreferredShips(
+					operationsPreferredShipList.getSelectedValuesList());
 		}
 
         if (autoSwitchGalaxyMapToRouteCheckBox != null) {

@@ -432,7 +432,7 @@ public final class TransportRoutePlanPanel extends JPanel {
         String work = deliveries.isEmpty() ? "donations"
                 : deliveries.size() == 1 ? (donations ? "delivery and donations" : "delivery")
                 : (donations ? "deliveries and donations" : "deliveries");
-        return Optional.of("Did you forget your " + work + " again, Commander?");
+        return Optional.of("Did you forget your " + work + " again Commander?");
     }
 
     private static boolean isDonation(TransportPlanAction action) {

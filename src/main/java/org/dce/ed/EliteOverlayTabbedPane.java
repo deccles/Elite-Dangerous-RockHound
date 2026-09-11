@@ -1019,6 +1019,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 		NpcCrewTracker.getInstance().applyJournalEvent(event);
 		BountyScanTracker.getInstance().applyJournalEvent(event);
+		OperationsWrongShipWarner.getInstance().applyJournalEvent(event);
 		// CombatTargetTracker also receives events in processJournalEvent fan-out below.
 
         if (event instanceof org.dce.ed.logreader.event.StatusEvent se) {
@@ -2312,7 +2313,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			System.out.println("Not low limpets");
 			return;
 		}
-		tts.speakf("Did you forget your limpets again commander?");
+		tts.speakf("Did you forget your limpets again Commander?");
 	}
 
 	private static JsonObject readJsonObject(Path file) {
