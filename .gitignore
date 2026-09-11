@@ -14,3 +14,4 @@
 /debug-*.log
 /.worktrees/
 /tools/engineering/html/
+__pycache__/
