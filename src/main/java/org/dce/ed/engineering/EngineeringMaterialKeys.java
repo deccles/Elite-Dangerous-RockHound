@@ -16,6 +16,10 @@ public final class EngineeringMaterialKeys {
             "sulfur", "sulphur",
             "legacyfirmware", "specialisedlegacyfirmware",
             "consumerfirmware", "modifiedconsumerfirmware",
+            "proprietarycomposites", "fedproprietarycomposites",
+            "corecomposites", "fedcorecomposites",
+            "coredynamicscomposites", "fedcorecomposites",
+            "classifiedscandatabanks", "scandatabanks",
             "merccoin", MERC_COINS);
 
     private EngineeringMaterialKeys() {

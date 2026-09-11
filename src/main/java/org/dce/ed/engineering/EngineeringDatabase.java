@@ -62,6 +62,12 @@ public final class EngineeringDatabase {
         for (EngineeringMaterial m : materials) {
             matMap.put(m.getKey(), m);
         }
+        for (EngineeringMaterial m : materials) {
+            String compact = GalacticAveragePrices.normalizeMaterialKey(m.getKey());
+            if (!compact.isBlank()) {
+                matMap.putIfAbsent(compact, m);
+            }
+        }
         this.materialsByKey = Collections.unmodifiableMap(matMap);
         this.allMaterials = List.copyOf(materials);
         this.traderRowByTypeSubtypeGrade = buildTraderRowIndex(materials);
@@ -461,7 +467,12 @@ public final class EngineeringDatabase {
         if (key == null || key.isBlank()) {
             return Optional.empty();
         }
-        EngineeringMaterial m = materialsByKey.get(key);
+        String canon = EngineeringMaterialKeys.canonicalKey(key);
+        EngineeringMaterial m = materialsByKey.get(canon);
+        if (m != null) {
+            return Optional.of(m);
+        }
+        m = materialsByKey.get(key);
         if (m != null) {
             return Optional.of(m);
         }

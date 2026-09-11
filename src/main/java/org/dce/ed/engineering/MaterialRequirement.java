@@ -10,7 +10,7 @@ public final class MaterialRequirement {
     private final int count;
 
     public MaterialRequirement(String key, int count) {
-        this.key = key != null ? key : "";
+        this.key = EngineeringMaterialKeys.canonicalKey(key);
         this.count = Math.max(0, count);
     }
 
