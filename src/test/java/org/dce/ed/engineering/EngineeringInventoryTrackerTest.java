@@ -1,6 +1,7 @@
 package org.dce.ed.engineering;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import java.time.Instant;
@@ -209,6 +210,104 @@ class EngineeringInventoryTrackerTest {
                 }
                 """));
         assertEquals(42, tracker.getCount("merccoins"));
+    }
+
+    @Test
+    void cargoCraft_subtractsMercCoinsTheJournalOmitsFromIngredients() {
+        EngineeringInventoryTracker tracker = new EngineeringInventoryTracker();
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2026-09-28T17:46:57Z",
+                  "event": "Statistics",
+                  "Bank_Account": { "MercCoins_Current": 197 }
+                }
+                """));
+        // Two G4 rolls (40 each), two G2 (15 each), three G3 (20 each) = 170. 197 - 170 = 27.
+        applyCargoCraft(tracker, 4);
+        applyCargoCraft(tracker, 4);
+        applyCargoCraft(tracker, 2);
+        applyCargoCraft(tracker, 2);
+        applyCargoCraft(tracker, 3);
+        applyCargoCraft(tracker, 3);
+        applyCargoCraft(tracker, 3);
+        assertEquals(27, tracker.getCount("merccoins"));
+
+        // 5:45 PM: four G4 rolls took the reported 307 to the 147 the game showed.
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2026-09-28T21:32:56Z",
+                  "event": "Statistics",
+                  "Bank_Account": { "MercCoins_Current": 307 }
+                }
+                """));
+        for (int i = 0; i < 4; i++) {
+            applyCargoCraft(tracker, 4);
+        }
+        assertEquals(147, tracker.getCount("merccoins"));
+
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2026-09-28T21:00:00Z",
+                  "event": "Statistics",
+                  "Bank_Account": { "MercCoins_Current": 27 }
+                }
+                """));
+        assertEquals(27, tracker.getCount("merccoins"));
+    }
+
+    @Test
+    void cargoCraft_withNoKnownBalance_leavesMercCoinsUnset() {
+        EngineeringInventoryTracker tracker = new EngineeringInventoryTracker();
+        applyCargoCraft(tracker, 2);
+        assertEquals(0, tracker.getCount("merccoins"));
+        assertFalse(tracker.snapshot().containsKey("merccoins"));
+    }
+
+    @Test
+    void experimentalApply_doesNotChargeAGradeRollOfMercCoins() {
+        EngineeringInventoryTracker tracker = new EngineeringInventoryTracker();
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2026-09-28T17:46:57Z",
+                  "event": "Statistics",
+                  "Bank_Account": { "MercCoins_Current": 100 }
+                }
+                """));
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2026-09-28T19:58:40Z",
+                  "event": "EngineerCraft",
+                  "Slot": "Slot04_Size6",
+                  "Module": "int_cargorack_size6_class1",
+                  "Ingredients": [
+                    {"Name": "MechanicalScrap", "Count": 1}
+                  ],
+                  "Engineer": "Bill Turner",
+                  "BlueprintName": "CargoRackS6C1_Extended",
+                  "Level": 4,
+                  "Quality": 1.0,
+                  "ApplyExperimentalEffect": "special_example"
+                }
+                """));
+        assertEquals(100, tracker.getCount("merccoins"));
+    }
+
+    private void applyCargoCraft(EngineeringInventoryTracker tracker, int level) {
+        tracker.applyEvent(parser.parseRecord("""
+                {
+                  "timestamp": "2026-09-28T19:58:40Z",
+                  "event": "EngineerCraft",
+                  "Slot": "Slot04_Size6",
+                  "Module": "int_cargorack_size6_class1",
+                  "Ingredients": [
+                    {"Name": "MechanicalScrap", "Count": 1}
+                  ],
+                  "Engineer": "Bill Turner",
+                  "BlueprintName": "CargoRackS6C1_Extended",
+                  "Level": %d,
+                  "Quality": 0.5
+                }
+                """.formatted(level)));
     }
 
     private static MaterialsEvent materialsSnapshot(List<MaterialStack> raw,

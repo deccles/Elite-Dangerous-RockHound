@@ -24,6 +24,7 @@ public enum EliteEventType {
     REPUTATION("Reputation"),
     ENGINEER_PROGRESS("EngineerProgress"),
     LOAD_GAME("LoadGame"),
+    GAME_MODE_CHANGE("GameModeChange"),
     LOCATION("Location"),
     START_JUMP("StartJump"),
     UNDOCKED("Undocked"),
@@ -158,6 +159,7 @@ public enum EliteEventType {
             case LEAVE_BODY -> "Commander left orbital cruise near a body.";
             case LIFTOFF -> "Ship lifted off from planetary surface.";
             case LOAD_GAME -> "Game loaded; commander, ship, and credits.";
+            case GAME_MODE_CHANGE -> "Switched between the main game and an Operation (GameMode).";
             case LOADOUT -> "Ship loadout snapshot (modules, hull health at snapshot).";
             case MODULE_RETRIEVE -> "Stored module fitted from Outfitting; includes engineering Level when modified.";
             case MODULE_STORE -> "Fitted module stored from Outfitting; core slots include a stock ReplacementItem.";
