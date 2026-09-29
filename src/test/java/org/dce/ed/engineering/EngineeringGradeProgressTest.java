@@ -1,6 +1,7 @@
 package org.dce.ed.engineering;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -88,6 +89,61 @@ class EngineeringGradeProgressTest {
         Map<String, Integer> required = planner.materialsForGoal(goal);
         int firmware = required.getOrDefault("specialisedlegacyfirmware", 0);
         assertEquals(10, firmware, "G1+G2 ×5 specialised legacy firmware (conservative)");
+    }
+
+    /**
+     * Slot03 cargo rack, Sept 28: G4 rolls 0.2004, 0.4012 at rank 4, then 0.6511, 0.901 at rank 5.
+     * The game finished the grade at 0.901 (all four rows checked at Bill Turner).
+     */
+    @Test
+    void afterCraft_qualityAboveEightyPercentFinishesTheGrade() {
+        EngineeringGoal goal = new EngineeringGoal("id", "Cargo Rack", "Extended", 3, 0, 4, "");
+        goal = EngineeringGradeProgress.afterCraft(goal, 4, 0.901);
+        assertEquals(4, goal.getFromGrade());
+        assertTrue(goal.isCurrentUnitComplete());
+    }
+
+    /** An unfinished grade tops out at 0.80: four of five rolls. */
+    @Test
+    void afterCraft_eightyPercentStillHasARollLeft() {
+        EngineeringGoal goal = new EngineeringGoal("id", "Cargo Rack", "Extended", 3, 0, 4, "");
+        goal = EngineeringGradeProgress.afterCraft(goal, 4, 0.8);
+        assertEquals(3, goal.getFromGrade());
+        assertFalse(goal.isCurrentUnitComplete());
+    }
+
+    /** Rank rose after two rolls: the 4th roll meets rank 5's requirement even at Quality 0.80. */
+    @Test
+    void afterCraft_rollsMeetTheRequirementAtTheCurrentRank() {
+        EngineeringGoal goal = new EngineeringGoal("id", "Cargo Rack", "Extended", 3, 0, 4, "");
+        goal = EngineeringGradeProgress.afterCraft(goal, 4, 0.2, 4);
+        goal = EngineeringGradeProgress.afterCraft(goal, 4, 0.4, 4);
+        goal = EngineeringGradeProgress.afterCraft(goal, 4, 0.6, 5);
+        assertEquals(3, goal.getFromGrade(), "three rolls, rank 5 needs four");
+        assertEquals(3, goal.getRollsAtCurrentGrade());
+        goal = EngineeringGradeProgress.afterCraft(goal, 4, 0.8, 5);
+        assertEquals(4, goal.getFromGrade());
+    }
+
+    @Test
+    void afterCraft_lowerRankNeedsMoreRolls() {
+        EngineeringGoal goal = new EngineeringGoal("id", "Cargo Rack", "Extended", 3, 0, 4, "");
+        for (double q : new double[] {0.2, 0.4, 0.6, 0.8}) {
+            goal = EngineeringGradeProgress.afterCraft(goal, 4, q, 4);
+        }
+        assertEquals(3, goal.getFromGrade(), "rank 4 needs five G4 rolls");
+        goal = EngineeringGradeProgress.afterCraft(goal, 4, 1.0, 4);
+        assertEquals(4, goal.getFromGrade());
+    }
+
+    /** Quality 0.5 on the first of two rolls must not count as two rolls. */
+    @Test
+    void afterCraft_highQualityStepDoesNotSkipARoll() {
+        EngineeringGoal goal = new EngineeringGoal("id", "Cargo Rack", "Extended", 1, 0, 4, "");
+        goal = EngineeringGradeProgress.afterCraft(goal, 2, 0.5006, 5);
+        assertEquals(1, goal.getFromGrade(), "rank 5 G2 needs two rolls");
+        goal = EngineeringGradeProgress.afterCraft(goal, 2, 1.0, 5);
+        assertEquals(2, goal.getFromGrade());
     }
 
     @Test

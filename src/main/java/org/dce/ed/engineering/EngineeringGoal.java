@@ -37,6 +37,12 @@ public final class EngineeringGoal {
      * Empty = unscoped (best-effort 1:1 match among same module type on the ship).
      */
     private final List<String> targetSlots;
+    /**
+     * Actual rolls done at grade {@code fromGrade + 1} during this journal replay or live session.
+     * {@link #craftsAtCurrentGrade} is a 5-roll-scale estimate that Quality can inflate, so it cannot
+     * tell when the engineer's rank requirement is met. In memory only: not saved, not in equals.
+     */
+    private final int rollsAtCurrentGrade;
 
     public EngineeringGoal(String blueprintId,
                            String moduleType,
@@ -256,6 +262,45 @@ public final class EngineeringGoal {
             }
         }
         this.targetSlots = List.copyOf(normalizedSlots);
+        this.rollsAtCurrentGrade = 0;
+    }
+
+    private EngineeringGoal(EngineeringGoal base, int rollsAtCurrentGrade) {
+        this.blueprintId = base.blueprintId;
+        this.moduleType = base.moduleType;
+        this.blueprintName = base.blueprintName;
+        this.fromGrade = base.fromGrade;
+        this.craftsAtCurrentGrade = base.craftsAtCurrentGrade;
+        this.targetGrade = base.targetGrade;
+        this.experimentalId = base.experimentalId;
+        this.priority = base.priority;
+        this.enabled = base.enabled;
+        this.experimentalApplied = base.experimentalApplied;
+        this.quantity = base.quantity;
+        this.completedUnits = base.completedUnits;
+        this.shipId = base.shipId;
+        this.shipLabel = base.shipLabel;
+        this.targetSlots = base.targetSlots;
+        this.rollsAtCurrentGrade = Math.max(0, rollsAtCurrentGrade);
+    }
+
+    public int getRollsAtCurrentGrade() {
+        return rollsAtCurrentGrade;
+    }
+
+    public EngineeringGoal withRollsAtCurrentGrade(int rolls) {
+        if (Math.max(0, rolls) == rollsAtCurrentGrade) {
+            return this;
+        }
+        return new EngineeringGoal(this, rolls);
+    }
+
+    /** Carries the roll count onto {@code next} while it is still working the same grade. */
+    private EngineeringGoal keepRolls(EngineeringGoal next) {
+        if (rollsAtCurrentGrade <= 0 || next.fromGrade != fromGrade) {
+            return next;
+        }
+        return next.withRollsAtCurrentGrade(rollsAtCurrentGrade);
     }
 
     public String getBlueprintId() {
@@ -374,7 +419,7 @@ public final class EngineeringGoal {
     }
 
     public EngineeringGoal withProgress(int newFromGrade, int newCraftsAtCurrentGrade) {
-        return new EngineeringGoal(
+        return keepRolls(new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
@@ -389,14 +434,14 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlots);
+                targetSlots));
     }
 
     public EngineeringGoal withExperimentalApplied(boolean applied) {
         if (experimentalApplied == applied) {
             return this;
         }
-        return new EngineeringGoal(
+        return keepRolls(new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
@@ -411,7 +456,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlots);
+                targetSlots));
     }
 
     public EngineeringGoal withPriority(GoalPriority newPriority) {
@@ -419,7 +464,7 @@ public final class EngineeringGoal {
         if (priority == p) {
             return this;
         }
-        return new EngineeringGoal(
+        return keepRolls(new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
@@ -434,7 +479,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlots);
+                targetSlots));
     }
 
     public EngineeringGoal withIncludeInPlanning(boolean include) {
@@ -445,7 +490,7 @@ public final class EngineeringGoal {
         if (enabled == include) {
             return this;
         }
-        return new EngineeringGoal(
+        return keepRolls(new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
@@ -460,7 +505,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 include,
-                targetSlots);
+                targetSlots));
     }
 
     public EngineeringGoal withQuantity(int newQuantity) {
@@ -468,7 +513,7 @@ public final class EngineeringGoal {
         if (quantity == q && completedUnits <= q) {
             return this;
         }
-        return new EngineeringGoal(
+        return keepRolls(new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
@@ -483,7 +528,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlots);
+                targetSlots));
     }
 
     public EngineeringGoal withCompletedUnits(int newCompletedUnits) {
@@ -491,7 +536,7 @@ public final class EngineeringGoal {
         if (completedUnits == units) {
             return this;
         }
-        return new EngineeringGoal(
+        return keepRolls(new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
@@ -506,7 +551,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlots);
+                targetSlots));
     }
 
     /**
@@ -536,7 +581,7 @@ public final class EngineeringGoal {
         } else if (progFrom < fromGrade) {
             crafts = 0;
         }
-        return new EngineeringGoal(
+        return keepRolls(new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
@@ -551,7 +596,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                targetSlots);
+                targetSlots));
     }
 
     public EngineeringGoal withFromGrade(int newFromGrade) {
@@ -583,7 +628,7 @@ public final class EngineeringGoal {
         if (shipId == newShipId && shipLabel.equals(label)) {
             return this;
         }
-        return new EngineeringGoal(
+        return keepRolls(new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
@@ -598,7 +643,7 @@ public final class EngineeringGoal {
                 newShipId,
                 label,
                 enabled,
-                targetSlots);
+                targetSlots));
     }
 
     public EngineeringGoal withTargetSlot(String newTargetSlot) {
@@ -611,7 +656,7 @@ public final class EngineeringGoal {
         if (targetSlots.equals(slots)) {
             return this;
         }
-        return new EngineeringGoal(
+        return keepRolls(new EngineeringGoal(
                 blueprintId,
                 moduleType,
                 blueprintName,
@@ -626,7 +671,7 @@ public final class EngineeringGoal {
                 shipId,
                 shipLabel,
                 enabled,
-                slots);
+                slots));
     }
 
     public EngineeringGoal withUserSettings(int newTargetGrade,

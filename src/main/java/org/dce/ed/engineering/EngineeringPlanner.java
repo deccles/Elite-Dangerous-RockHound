@@ -16,9 +16,26 @@ import java.util.Set;
 public final class EngineeringPlanner {
 
     private final EngineeringDatabase database;
+    /**
+     * When set, each goal is costed from these per-module snapshots (identity keys) instead of
+     * copying one shared fromGrade onto every remaining unit.
+     */
+    private Map<EngineeringGoal, List<EngineeringGoal>> unitMaterialPlans = Map.of();
 
     public EngineeringPlanner(EngineeringDatabase database) {
         this.database = database != null ? database : EngineeringDatabase.getInstance();
+    }
+
+    /**
+     * Per-module progress used for Need. Pass an identity map keyed by the same goal instances
+     * that will be planned. Empty or null restores shared-fromGrade costing.
+     */
+    public void setUnitMaterialPlans(Map<EngineeringGoal, List<EngineeringGoal>> plans) {
+        if (plans == null || plans.isEmpty()) {
+            unitMaterialPlans = Map.of();
+        } else {
+            unitMaterialPlans = plans;
+        }
     }
 
     public List<ShoppingListRow> buildShoppingList(List<EngineeringGoal> goals,
@@ -501,6 +518,20 @@ public final class EngineeringPlanner {
     }
 
     private void accumulateBlueprintGoalMaterials(EngineeringGoal goal, Map<String, Integer> required) {
+        List<EngineeringGoal> units = unitMaterialPlans.get(goal);
+        if (units != null && !units.isEmpty()) {
+            for (EngineeringGoal unit : units) {
+                if (unit == null || unit.isComplete()) {
+                    continue;
+                }
+                Map<String, Integer> one = new LinkedHashMap<>();
+                accumulateSingleUnitMaterials(unit, one);
+                for (Map.Entry<String, Integer> e : one.entrySet()) {
+                    required.merge(e.getKey(), e.getValue(), Integer::sum);
+                }
+            }
+            return;
+        }
         int remaining = goal.remainingUnits();
         if (remaining <= 0) {
             return;

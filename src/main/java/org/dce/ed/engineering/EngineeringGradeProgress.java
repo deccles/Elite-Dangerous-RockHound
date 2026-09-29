@@ -13,6 +13,17 @@ public final class EngineeringGradeProgress {
     public static final int ROLLS_PER_GRADE = 5;
 
     /**
+     * Journal {@code Quality} at or above this means the grade is finished. Each roll adds
+     * 1 / (rolls the grade needs at the rank when rolling), and rank only rises, so an unfinished
+     * grade reads at most 0.80. Finished grades read 0.85, 0.90 or 0.99 when the rank rose mid-grade.
+     */
+    public static final double GRADE_COMPLETE_QUALITY = 0.82;
+
+    public static boolean isGradeComplete(double quality) {
+        return !Double.isNaN(quality) && quality >= GRADE_COMPLETE_QUALITY;
+    }
+
+    /**
      * Rolls to finish {@code grade} at engineer access {@code rank} (both 1–5).
      *
      * <pre>
@@ -114,9 +125,26 @@ public final class EngineeringGradeProgress {
         if (craftLevel <= goal.getFromGrade()) {
             return goal;
         }
+        int rollsAtLevel = (craftLevel == goal.getFromGrade() + 1 ? goal.getRollsAtCurrentGrade() : 0) + 1;
+        EngineeringGoal next = afterCraftBySchedule(goal, craftLevel, quality, engineerRank);
+        if (next.getFromGrade() >= craftLevel) {
+            return next;
+        }
+        // Elite finishes a grade once the rolls done reach the requirement at the rank of this roll.
+        // When the rank rose mid-grade, Quality then stops short of 1.0 (0.85, 0.90, 0.99): the early
+        // rolls were measured on the slower schedule.
+        if (engineerRank > 0 && rollsAtLevel >= rollsRequired(engineerRank, craftLevel)) {
+            return next.withProgress(craftLevel, 0);
+        }
+        return next.withRollsAtCurrentGrade(rollsAtLevel);
+    }
 
+    private static EngineeringGoal afterCraftBySchedule(EngineeringGoal goal,
+                                                        int craftLevel,
+                                                        double quality,
+                                                        int engineerRank) {
         int rollsForLevel = rollsRequired(engineerRank, craftLevel);
-        boolean qualityComplete = !Double.isNaN(quality) && quality >= 0.999d;
+        boolean qualityComplete = isGradeComplete(quality);
 
         if (qualityComplete) {
             return goal.withProgress(craftLevel, 0);
@@ -163,14 +191,15 @@ public final class EngineeringGradeProgress {
         if (Double.isNaN(quality) || quality <= 0.01d || rollsPerGrade <= 0) {
             return 0;
         }
-        if (quality >= 0.999d) {
+        if (isGradeComplete(quality)) {
             return rollsPerGrade;
         }
         int rolls = (int) Math.round(quality * rollsPerGrade);
         if (rolls <= 0) {
             rolls = 1;
         }
-        return Math.min(rollsPerGrade, rolls);
+        // Below the finished threshold the grade still has rolls left, whatever the rounding says.
+        return Math.min(rollsPerGrade - 1, rolls);
     }
 
     /** Legacy 5-scale craft count from quality (stored on {@link EngineeringGoal}). */

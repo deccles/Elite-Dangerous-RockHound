@@ -417,6 +417,81 @@ class EngineeringGoalProgressLoadoutTest {
         assertTrue(EngineeringGoalProgress.hasDisplayCraftProgress(goals.get(0), loadout, db));
         double frac = EngineeringGoalProgress.displayCompletionFraction(goals.get(0), loadout, db, 0);
         assertTrue(frac > 0.05 && frac < 1.0, "expected partial bar fill, got " + frac);
+
+        EngineeringGoal cargo = new EngineeringGoal(
+                "cargo-rack-extended-g5",
+                "Cargo Rack",
+                "Extended",
+                0,
+                0,
+                5,
+                "",
+                true,
+                false,
+                2,
+                0);
+        EngineeringGoal nearlyG4 = new EngineeringGoal(
+                "cargo-rack-extended-g5", "Cargo Rack", "Extended", 3, 2, 5, "");
+        EngineeringGoal preEng = new EngineeringGoal(
+                "cargo-rack-extended-g5", "Cargo Rack", "Extended", 1, 0, 5, "");
+        List<Double> cargoFills = EngineeringGoalProgress.completionFractionsForUnits(
+                cargo, List.of(preEng, nearlyG4), 0);
+        assertEquals(2, cargoFills.size());
+        assertTrue(cargoFills.get(0) > 0.55,
+                "the rack through G3 and into G4 must fill most of its segment, got " + cargoFills);
+        assertTrue(cargoFills.get(1) < 0.25,
+                "the other pre-engineered rack stays a short segment, got " + cargoFills);
+    }
+
+    /** Slot04 finished G4, Slot03 is at G4 quality 0.901: one full segment and one about 90% full. */
+    @Test
+    void completionFractions_finishedRackFillsItsSegment() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "cargo-rack-extended-g5", "Cargo Rack", "Extended", 0, 0, 4, "",
+                true, false, 2, 0, 19L, "Panther Clipper Mk II");
+        Map<String, EngineeringGoal> instances = new java.util.LinkedHashMap<>();
+        instances.put("Slot03_Size6|int_cargorack_size6_class1",
+                new EngineeringGoal("cargo-rack-extended-g5", "Cargo Rack", "Extended", 3, 4, 4, ""));
+        instances.put("Slot04_Size6|int_cargorack_size6_class1",
+                new EngineeringGoal("cargo-rack-extended-g5", "Cargo Rack", "Extended", 4, 0, 4, "")
+                        .withCompletedUnits(1));
+        List<EngineeringGoal> units = EngineeringGoalProgress.selectUnitsToCost(goal, instances, db);
+        assertEquals(1, units.size(), "only Slot03 still needs rolls");
+
+        List<Double> fills = EngineeringGoalProgress.completionFractionsForUnits(goal, units, 5);
+        assertEquals(2, fills.size());
+        assertEquals(1.0, fills.get(0), 1e-9, "Slot04 is finished, got " + fills);
+        assertTrue(fills.get(1) > 0.8 && fills.get(1) < 1.0, "Slot03 is nearly done, got " + fills);
+    }
+
+    @Test
+    void selectUnitsToCost_quantityOne_keepsTheMoreEngineeredRack() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "cargo-rack-extended-g5",
+                "Cargo Rack",
+                "Extended",
+                1,
+                0,
+                5,
+                "",
+                true,
+                false,
+                1,
+                0);
+        EngineeringGoal nearlyG4 = new EngineeringGoal(
+                "cargo-rack-extended-g5", "Cargo Rack", "Extended", 3, 2, 5, "");
+        EngineeringGoal preEng = new EngineeringGoal(
+                "cargo-rack-extended-g5", "Cargo Rack", "Extended", 1, 0, 5, "");
+        java.util.Map<String, EngineeringGoal> instances = new java.util.LinkedHashMap<>();
+        instances.put("Slot04_Size6|int_cargorack_size6_class1", preEng);
+        instances.put("Slot03_Size6|int_cargorack_size6_class1", nearlyG4);
+
+        java.util.List<EngineeringGoal> units =
+                EngineeringGoalProgress.selectUnitsToCost(goal, instances, db);
+
+        assertEquals(1, units.size());
+        assertEquals(3, units.get(0).getFromGrade());
+        assertEquals(2, units.get(0).getCraftsAtCurrentGrade());
     }
 
     @Test
@@ -560,6 +635,187 @@ class EngineeringGoalProgressLoadoutTest {
                 "Incendiary must not inherit Corrosive gun grades");
         assertTrue(!goals.get(1).isComplete());
         assertTrue(!goals.get(2).isComplete());
+    }
+
+    @Test
+    void applyLoadout_spareStockCargoRacksDoNotErasePreEngineeredProgress() {
+        String loadoutJson = """
+                {
+                  "timestamp": "2026-09-28T14:50:42Z",
+                  "event": "Loadout",
+                  "Ship": "panthermkii",
+                  "ShipID": 19,
+                  "Modules": [
+                    {
+                      "Slot": "Slot01_Size8",
+                      "Item": "int_cargorack_size8_class1",
+                      "On": true,
+                      "Priority": 1,
+                      "Health": 1.0
+                    },
+                    {
+                      "Slot": "Slot03_Size6",
+                      "Item": "int_cargorack_size6_class1",
+                      "On": true,
+                      "Priority": 1,
+                      "Health": 1.0,
+                      "Engineering": {
+                        "EngineerID": 399998,
+                        "BlueprintName": "CargoRackS6C1_Extended",
+                        "Level": 1,
+                        "Quality": 1.0
+                      }
+                    },
+                    {
+                      "Slot": "Slot04_Size6",
+                      "Item": "int_cargorack_size6_class1",
+                      "On": true,
+                      "Priority": 1,
+                      "Health": 1.0,
+                      "Engineering": {
+                        "EngineerID": 399998,
+                        "BlueprintName": "CargoRackS6C1_Extended",
+                        "Level": 1,
+                        "Quality": 1.0
+                      }
+                    },
+                    {
+                      "Slot": "Slot05_Size6",
+                      "Item": "int_cargorack_size6_class1",
+                      "On": true,
+                      "Priority": 1,
+                      "Health": 1.0
+                    }
+                  ]
+                }
+                """;
+        LoadoutEvent loadout = (LoadoutEvent) parser.parseRecord(loadoutJson);
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "cargo-rack-extended-g5",
+                "Cargo Rack",
+                "Extended",
+                3,
+                2,
+                5,
+                "",
+                true,
+                false,
+                2,
+                0,
+                19L,
+                "Panther Clipper Mk II"));
+
+        EngineeringGoalProgress.applyLoadout(goals, loadout, db);
+        assertEquals(3, goals.get(0).getFromGrade(),
+                "stale G1 loadout and stock racks must not wipe mid-G4 craft progress");
+        assertEquals(2, goals.get(0).getCraftsAtCurrentGrade());
+    }
+
+    @Test
+    void cargoRackJournalCraft_advancesExtendedGoal() {
+        String craftJson = """
+                {
+                  "timestamp": "2026-09-28T15:17:00Z",
+                  "event": "EngineerCraft",
+                  "Slot": "Slot03_Size6",
+                  "Module": "int_cargorack_size6_class1",
+                  "Ingredients": [
+                    {"Name": "mechanicalscrap", "Count": 1},
+                    {"Name": "vanadium", "Count": 1},
+                    {"Name": "manganese", "Count": 1}
+                  ],
+                  "Engineer": "Bill Turner",
+                  "BlueprintName": "CargoRackS6C1_Extended",
+                  "Level": 2,
+                  "Quality": 0.2
+                }
+                """;
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(new EngineeringGoal(
+                "cargo-rack-extended-g5",
+                "Cargo Rack",
+                "Extended",
+                0,
+                0,
+                5,
+                "",
+                true,
+                false,
+                2,
+                0,
+                19L,
+                "Panther Clipper Mk II"));
+        var craft = (org.dce.ed.logreader.event.EngineerCraftEvent) parser.parseRecord(craftJson);
+        assertTrue(EngineeringGoalProgress.applyCraft(goals, craft, db, 19L));
+        assertEquals(1, goals.get(0).getFromGrade());
+        assertTrue(goals.get(0).getCraftsAtCurrentGrade() > 0);
+    }
+
+    /**
+     * One rack finished at G4 (Quality 0.901) and a pre-engineered sibling must not become "both
+     * Complete". The shared fromGrade of the finished rack was stacked on top of completedUnits
+     * that already counted that same rack.
+     */
+    @Test
+    void cargoRackG4ShortOfQualityOne_doesNotCompleteBothUnits() {
+        EngineeringGoal stuck = new EngineeringGoal(
+                "cargo-rack-extended-g5",
+                "Cargo Rack",
+                "Extended",
+                4,
+                0,
+                4,
+                "",
+                true,
+                false,
+                2,
+                1,
+                19L,
+                "Panther Clipper Mk II");
+        String loadoutJson = """
+                {
+                  "timestamp": "2026-09-28T18:26:24Z",
+                  "event": "Loadout",
+                  "Ship": "panthermkii",
+                  "ShipID": 19,
+                  "Modules": [
+                    {
+                      "Slot": "Slot03_Size6",
+                      "Item": "int_cargorack_size6_class1",
+                      "Engineering": {
+                        "Engineer": "Bill Turner",
+                        "EngineerID": 300010,
+                        "BlueprintName": "CargoRackS6C1_Extended",
+                        "Level": 4,
+                        "Quality": 0.901
+                      }
+                    },
+                    {
+                      "Slot": "Slot04_Size6",
+                      "Item": "int_cargorack_size6_class1",
+                      "Engineering": {
+                        "Engineer": "Bill Turner",
+                        "EngineerID": 399998,
+                        "BlueprintName": "CargoRackS6C1_Extended",
+                        "Level": 1,
+                        "Quality": 1.0
+                      }
+                    }
+                  ]
+                }
+                """;
+        List<EngineeringGoal> goals = new ArrayList<>();
+        goals.add(stuck);
+        LoadoutEvent loadout = (LoadoutEvent) parser.parseRecord(loadoutJson);
+        EngineeringGoalProgress.applyLoadout(goals, loadout, db);
+        EngineeringGoal updated = goals.get(0);
+        assertFalse(updated.isComplete(),
+                "qty 2 at G4 must stay open while the second rack is only pre-engineered, fromGrade="
+                        + updated.getFromGrade() + " completed=" + updated.getCompletedUnits());
+        assertTrue(updated.getFromGrade() < updated.getTargetGrade()
+                        || updated.getCompletedUnits() < updated.getQuantity(),
+                "the unfinished rack must remain");
     }
 
     private static EngineeringGoal mcGoal(long shipId, String experimentalId, int fromGrade, int crafts) {

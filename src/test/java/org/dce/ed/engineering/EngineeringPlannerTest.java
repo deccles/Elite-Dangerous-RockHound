@@ -3,6 +3,7 @@ package org.dce.ed.engineering;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -178,5 +179,42 @@ class EngineeringPlannerTest {
                 "Boss Cells already on both cells must not reappear in Need: " + need);
         assertTrue(need.getOrDefault("yttrium", 0) > 0 || need.getOrDefault("crackedindustrialfirmware", 0) > 0,
                 "G4 Specialised mats must still be needed: " + need);
+    }
+
+    @Test
+    void cargoRackQuantity_costsEachModuleOnItsOwnProgress() {
+        EngineeringGoal goal = new EngineeringGoal(
+                "cargo-rack-extended-g5",
+                "Cargo Rack",
+                "Extended",
+                0,
+                0,
+                5,
+                "",
+                true,
+                false,
+                2,
+                0);
+        EngineeringGoal advanced = new EngineeringGoal(
+                "cargo-rack-extended-g5", "Cargo Rack", "Extended", 3, 2, 5, "");
+        EngineeringGoal lagging = new EngineeringGoal(
+                "cargo-rack-extended-g5", "Cargo Rack", "Extended", 1, 0, 5, "");
+
+        EngineeringPlanner sharedPlanner = new EngineeringPlanner(db);
+        int sharedMerc = sharedPlanner.materialsForGoal(goal).get(EngineeringMaterialKeys.MERC_COINS);
+
+        EngineeringPlanner splitPlanner = new EngineeringPlanner(db);
+        Map<EngineeringGoal, List<EngineeringGoal>> units = new IdentityHashMap<>();
+        units.put(goal, List.of(advanced, lagging));
+        splitPlanner.setUnitMaterialPlans(units);
+        int splitMerc = splitPlanner.materialsForGoal(goal).get(EngineeringMaterialKeys.MERC_COINS);
+
+        EngineeringPlanner one = new EngineeringPlanner(db);
+        int expected = one.materialsForGoal(advanced).get(EngineeringMaterialKeys.MERC_COINS)
+                + one.materialsForGoal(lagging).get(EngineeringMaterialKeys.MERC_COINS);
+        assertEquals(expected, splitMerc);
+        assertTrue(splitMerc < sharedMerc,
+                "spent rolls on the advanced rack must drop out of Need");
+        assertTrue(splitMerc > 241, "two racks through G5 still need more Merc Coins than 241");
     }
 }

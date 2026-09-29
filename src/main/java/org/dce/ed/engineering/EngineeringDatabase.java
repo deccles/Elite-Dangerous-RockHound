@@ -139,6 +139,29 @@ public final class EngineeringDatabase {
         return list == null ? List.of() : list;
     }
 
+    /**
+     * Lowest non-experimental grade in the catalog for this recipe. Cargo Rack Extended starts at 2
+     * (grade 1 is the pre-engineered module). Returns 1 when the recipe is unknown.
+     */
+    public int minimumNonExperimentalGrade(String moduleType, String blueprintName) {
+        int min = Integer.MAX_VALUE;
+        for (BlueprintGrade grade : gradesFor(moduleType, blueprintName)) {
+            if (grade != null && !grade.isExperimental()) {
+                min = Math.min(min, grade.getGrade());
+            }
+        }
+        return min == Integer.MAX_VALUE ? 1 : min;
+    }
+
+    /**
+     * A stock module (no Engineering block) can be the start of this recipe only when grade 1 exists.
+     * Recipes that begin at grade 2 require the pre-engineered module; spare stock racks are not
+     * unfinished copies of that goal.
+     */
+    public boolean stockModuleCanReceive(String moduleType, String blueprintName) {
+        return minimumNonExperimentalGrade(moduleType, blueprintName) <= 1;
+    }
+
     /** True when any non-experimental grade of this recipe spends Merc Coins. */
     public boolean blueprintRequiresMercCoins(String moduleType, String blueprintName) {
         for (BlueprintGrade grade : gradesFor(moduleType, blueprintName)) {

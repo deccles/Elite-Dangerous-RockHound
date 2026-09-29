@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.dce.ed.cache.SystemCache;
 import org.dce.ed.logreader.EliteJournalReader;
@@ -33,7 +34,15 @@ public final class EngineeringCraftStore {
     private static final String CRAFTS_TABLE = "engineering_crafts";
     private static final String LOADOUTS_TABLE = "engineering_ship_loadouts";
 
+    /** Bumped on every write so readers can cache parsed crafts/loadouts between changes. */
+    private static final AtomicLong REVISION = new AtomicLong();
+
     private EngineeringCraftStore() {
+    }
+
+    /** Changes whenever stored crafts or loadouts change. */
+    public static long revision() {
+        return REVISION.get();
     }
 
     /**
@@ -148,6 +157,8 @@ public final class EngineeringCraftStore {
             }
         } catch (Exception ex) {
             System.err.println("[EDO] Engineering craft reparse failed: " + ex.getMessage());
+        } finally {
+            REVISION.incrementAndGet();
         }
     }
 
@@ -227,6 +238,7 @@ public final class EngineeringCraftStore {
                     ps.setString(4, patched);
                     ps.executeUpdate();
                 }
+                REVISION.incrementAndGet();
                 return true;
             }
         } catch (Exception ex) {
@@ -272,6 +284,8 @@ public final class EngineeringCraftStore {
             }
         } catch (Exception ex) {
             System.err.println("[EDO] Engineering loadout store failed: " + ex.getMessage());
+        } finally {
+            REVISION.incrementAndGet();
         }
     }
 
@@ -434,6 +448,8 @@ public final class EngineeringCraftStore {
             }
         } catch (Exception ex) {
             System.err.println("[EDO] Engineering craft store failed: " + ex.getMessage());
+        } finally {
+            REVISION.incrementAndGet();
         }
     }
 

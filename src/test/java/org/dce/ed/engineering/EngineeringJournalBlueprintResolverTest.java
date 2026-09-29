@@ -185,6 +185,19 @@ class EngineeringJournalBlueprintResolverTest {
     }
 
     @Test
+    void resolve_mapsSizedCargoRackExtendedJournalName() {
+        Optional<EngineeringJournalBlueprintResolver.ResolvedBlueprint> resolved =
+                EngineeringJournalBlueprintResolver.resolve(
+                        "Slot03_Size6",
+                        "int_cargorack_size6_class1",
+                        "CargoRackS6C1_Extended",
+                        db);
+        assertTrue(resolved.isPresent(), "CargoRackS6C1_Extended");
+        assertEquals("Cargo Rack", resolved.get().moduleType());
+        assertEquals("Extended", resolved.get().blueprintName());
+    }
+
+    @Test
     void resolve_mapsMercGearFuelScoopAndCargoRack() {
         assertResolved(
                 "Slot01_Size6",

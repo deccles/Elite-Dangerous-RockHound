@@ -95,7 +95,14 @@ class EngineeringGoalProgressCraftSyncTest {
                     """.formatted(quality));
 
             assertTrue(EngineeringGoalProgress.hasMatchingGoal(goals, craft, db, -1L));
-            assertTrue(EngineeringGoalProgress.applyCraft(goals, craft, db));
+            boolean applied = EngineeringGoalProgress.applyCraft(goals, craft, db);
+            if (quality <= 0.85) {
+                assertTrue(applied);
+            }
+            if (quality == 0.85) {
+                // Rank rose mid-grade: the 4th roll finished G1; the 1.0 roll after it is extra.
+                assertTrue(goals.get(0).isComplete());
+            }
         }
 
         EngineeringGoal completed = goals.get(0);

@@ -2,7 +2,9 @@ package org.dce.ed.engineering;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -58,11 +60,9 @@ public final class EngineeringGoalProgress {
             }
             EngineeringGoal updated = goal;
             if (craft.getLevel() > 0 && matchesCraft(goal, craft, db)) {
-                EngineeringGoal gradeUpdated = EngineeringGradeProgress.afterCraft(
-                        updated, craft.getLevel(), craft.getQuality());
-                if (!gradeUpdated.equals(updated)) {
-                    updated = gradeUpdated;
-                }
+                int rank = EngineerRankHistory.shared().rankAt(craft.getEngineer(), craft.getTimestamp());
+                updated = EngineeringGradeProgress.afterCraft(
+                        updated, craft.getLevel(), craft.getQuality(), rank);
             }
             if (matchesExperimentalCraft(goal, craft, db)) {
                 EngineeringGoal expUpdated = updated.withExperimentalApplied(true);
@@ -70,7 +70,8 @@ public final class EngineeringGoalProgress {
                     updated = expUpdated;
                 }
             }
-            if (!updated.equals(goal)) {
+            // The roll count is outside equals; keep it even when nothing else moved.
+            if (!updated.equals(goal) || updated.getRollsAtCurrentGrade() != goal.getRollsAtCurrentGrade()) {
                 goals.set(i, advanceCompletedUnits(updated));
                 changed = true;
             }
@@ -188,6 +189,52 @@ public final class EngineeringGoalProgress {
             }
         }
         return replayed || loadoutChanged || merged || goalsChanged(saved, goals);
+    }
+
+    /**
+     * Rebuilds quantity &gt; 1 goals from each module's own stored crafts plus the latest stored
+     * loadouts. Live {@link #applyCraft} advances one shared progress count, so a roll on one rack
+     * stacks on another rack's rolls and can mark both racks finished. Goals with no stored crafts
+     * keep their current progress.
+     *
+     * @return true when any goal changed
+     */
+    public static boolean rebuildMultiUnitGoalsFromStore(List<EngineeringGoal> goals,
+                                                         String clientKey,
+                                                         EngineeringDatabase database) {
+        if (goals == null || goals.isEmpty() || clientKey == null || clientKey.isBlank()) {
+            return false;
+        }
+        EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
+        List<Integer> indexes = new ArrayList<>();
+        List<EngineeringGoal> work = new ArrayList<>();
+        for (int i = 0; i < goals.size(); i++) {
+            EngineeringGoal goal = goals.get(i);
+            if (goal != null && goal.getQuantity() > 1) {
+                indexes.add(i);
+                work.add(goal.resetJournalProgress());
+            }
+        }
+        if (work.isEmpty()) {
+            return false;
+        }
+        boolean[] evidence = new boolean[work.size()];
+        if (!replayCraftHistoryFromStore(work, clientKey, db, evidence)) {
+            return false;
+        }
+        applyStoredLoadouts(work, clientKey, db);
+        boolean changed = false;
+        for (int k = 0; k < work.size(); k++) {
+            if (!evidence[k]) {
+                continue;
+            }
+            int i = indexes.get(k);
+            if (!work.get(k).equals(goals.get(i))) {
+                goals.set(i, work.get(k));
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     /** Replays ship-attributed crafts from {@link EngineeringCraftStore}. */
@@ -432,6 +479,92 @@ public final class EngineeringGoalProgress {
             }
         }
         return rows;
+    }
+
+    /**
+     * Per-module rolls to buy for each goal. Keys are the same goal instances passed in.
+     * Empty when the craft store has no matching modules, so the planner keeps the goal's own
+     * fromGrade. When modules differ (one rack mid-grade, the other still at the pre-engineered
+     * grade), each is costed on its own instead of copying the worst grade onto every unit.
+     */
+    public static Map<EngineeringGoal, List<EngineeringGoal>> materialUnitsByGoal(
+            List<EngineeringGoal> goals,
+            String clientKey,
+            EngineeringDatabase database) {
+        Map<EngineeringGoal, List<EngineeringGoal>> out = new IdentityHashMap<>();
+        if (goals == null || goals.isEmpty() || clientKey == null || clientKey.isBlank()) {
+            return out;
+        }
+        EngineeringDatabase db = database != null ? database : EngineeringDatabase.getInstance();
+        List<EngineeringGoal> templates = new ArrayList<>(goals.size());
+        for (EngineeringGoal goal : goals) {
+            templates.add(goal != null
+                    ? goal.resetJournalProgress()
+                    : new EngineeringGoal("", "", "", 0, 1, ""));
+        }
+        List<Map<String, EngineeringGoal>> byGoal = collectInstancesFromStore(templates, clientKey, db);
+        Map<Long, LoadoutEvent> latestLoadoutByShip = EngineeringCraftStore.loadLatestLoadouts(clientKey);
+        if (!EngineeringCraftStore.hasCrafts(clientKey) && latestLoadoutByShip.isEmpty()) {
+            return out;
+        }
+        for (LoadoutEvent loadout : latestLoadoutByShip.values()) {
+            mergeLoadoutIntoInstances(templates, byGoal, loadout, db);
+        }
+        for (int i = 0; i < goals.size(); i++) {
+            EngineeringGoal goal = goals.get(i);
+            if (goal == null) {
+                continue;
+            }
+            List<EngineeringGoal> units = selectUnitsToCost(goal, byGoal.get(i), db);
+            if (!units.isEmpty()) {
+                out.put(goal, units);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Incomplete modules to cost, capped at the goal quantity. No journal instances → empty,
+     * so the caller keeps the goal's saved progress.
+     */
+    static List<EngineeringGoal> selectUnitsToCost(EngineeringGoal goal,
+                                                    Map<String, EngineeringGoal> instances,
+                                                    EngineeringDatabase db) {
+        if (goal == null || instances == null || instances.isEmpty()) {
+            return List.of();
+        }
+        EngineeringDatabase database = db != null ? db : EngineeringDatabase.getInstance();
+        int quantity = Math.max(1, goal.getQuantity());
+        int finished = 0;
+        List<EngineeringGoal> incomplete = new ArrayList<>();
+        for (EngineeringGoal instance : instances.values()) {
+            if (instance == null) {
+                continue;
+            }
+            if (instance.isComplete() || instance.getCompletedUnits() > 0) {
+                finished++;
+                continue;
+            }
+            incomplete.add(instance);
+        }
+        int remaining = quantity - finished;
+        if (remaining <= 0) {
+            return List.of(goal.withProgress(goal.getTargetGrade(), 0)
+                    .withCompletedUnits(goal.getQuantity()));
+        }
+        // Quantity is the modules the commander is building. When more racks match than that
+        // count, keep the furthest-along ones (dropping quantity 2 → 1 must not snap to the
+        // pre-engineered sibling and hide the rack already rolled toward the target).
+        incomplete.sort(Comparator.comparingInt(EngineeringGoalProgress::progressScore).reversed());
+        if (incomplete.size() > remaining) {
+            incomplete = new ArrayList<>(incomplete.subList(0, remaining));
+        }
+        int baseline = Math.max(0, database.minimumNonExperimentalGrade(
+                goal.getModuleType(), goal.getBlueprintName()) - 1);
+        while (incomplete.size() < remaining) {
+            incomplete.add(blankUnitProgress(goal).withProgress(baseline, 0));
+        }
+        return incomplete;
     }
 
     private static List<Map<String, EngineeringGoal>> collectInstancesFromStore(
@@ -853,6 +986,7 @@ public final class EngineeringGoalProgress {
         EngineeringGoal worstIncomplete = null;
         int worstIncompleteScore = Integer.MAX_VALUE;
         boolean sawMatchingModule = false;
+        boolean sawStockCountedModule = false;
         boolean sawConflictingExperimentalModule = false;
         boolean incompleteMissingExperimental = false;
 
@@ -865,11 +999,18 @@ public final class EngineeringGoalProgress {
             }
             LoadoutEvent.Engineering engineering = module.getEngineering();
             if (engineering == null) {
-                // Stock / unengineered module of this type still counts as an unfinished G0 unit.
+                // Stock / unengineered module of this type still counts as an unfinished G0 unit,
+                // but only when the recipe can be applied to a stock part. Cargo Rack Extended
+                // starts at grade 2 on a pre-engineered rack; the ship's other cargo racks must
+                // not pin the goal at G0.
+                if (!db.stockModuleCanReceive(goal.getModuleType(), goal.getBlueprintName())) {
+                    continue;
+                }
                 String itemType = EngineeringJournalBlueprintResolver.moduleItemToModuleType(module.getItem());
                 if (itemType != null && !itemType.isBlank()
                         && goal.getModuleType().equalsIgnoreCase(itemType)) {
                     sawMatchingModule = true;
+                    sawStockCountedModule = true;
                     if (!goal.getExperimentalId().isBlank()) {
                         incompleteMissingExperimental = true;
                     }
@@ -970,6 +1111,11 @@ public final class EngineeringGoalProgress {
             if (incompleteMissingExperimental) {
                 progressed = progressed.withExperimentalApplied(false);
             }
+            // A stale Loadout (no Engineering update after EngineerCraft) must not erase rolls
+            // already replayed. A real stock sibling of a grade-1 recipe still snaps Need down.
+            if (!sawStockCountedModule && progressScore(goal) > progressScore(progressed)) {
+                return mergeProgress(goal.withCompletedUnits(completedUnits), progressed, true);
+            }
             return progressed;
         }
         if (sawMatchingModule && !goal.getExperimentalId().isBlank() && completeOnShip == 0) {
@@ -990,7 +1136,7 @@ public final class EngineeringGoalProgress {
         if (level > 0) {
             int loadoutFrom;
             int loadoutCrafts;
-            if (quality >= 0.999d) {
+            if (EngineeringGradeProgress.isGradeComplete(quality)) {
                 loadoutFrom = Math.min(level, template.getTargetGrade());
                 loadoutCrafts = 0;
             } else {
@@ -1049,6 +1195,56 @@ public final class EngineeringGoalProgress {
             sum += unitFracs.get(i);
         }
         return Math.min(1.0, sum / qty);
+    }
+
+    /**
+     * Status fills from per-module snapshots (crafts merged with loadout). A stale Loadout still
+     * shows the pre-engineered grade after later rolls; these snapshots carry the journal crafts.
+     * Empty when there are no snapshots, so the caller keeps the loadout-only bar.
+     */
+    public static List<Double> completionFractionsForUnits(EngineeringGoal goal,
+                                                           List<EngineeringGoal> units,
+                                                           int engineerRank) {
+        if (goal == null || units == null || units.isEmpty()) {
+            return List.of();
+        }
+        int qty = Math.max(1, goal.getQuantity());
+        if (units.size() == 1 && units.get(0) != null && units.get(0).getCompletedUnits() >= qty
+                && units.get(0).isCurrentUnitComplete()) {
+            return new ArrayList<>(java.util.Collections.nCopies(qty, 1.0));
+        }
+        List<Double> fills = new ArrayList<>();
+        for (EngineeringGoal unit : units) {
+            if (unit == null) {
+                continue;
+            }
+            fills.add(EngineeringGradeProgress.unitCompletionFraction(unit, engineerRank));
+        }
+        // selectUnitsToCost lists only unfinished modules; the rest of the quantity is done.
+        int finished = Math.max(0, qty - fills.size());
+        for (int i = 0; i < finished; i++) {
+            fills.add(1.0);
+        }
+        fills.sort(java.util.Comparator.reverseOrder());
+        if (fills.size() > qty) {
+            fills = new ArrayList<>(fills.subList(0, qty));
+        }
+        while (fills.size() < qty) {
+            fills.add(0.0);
+        }
+        return fills;
+    }
+
+    /** Mean of per-module fills, 0..1. */
+    public static double averageCompletionFraction(List<Double> fills) {
+        if (fills == null || fills.isEmpty()) {
+            return 0.0;
+        }
+        double sum = 0.0;
+        for (Double fill : fills) {
+            sum += fill != null ? fill : 0.0;
+        }
+        return Math.min(1.0, sum / fills.size());
     }
 
     /** Individual module fills for the stacked Status display, completed modules first. */
@@ -1202,7 +1398,7 @@ public final class EngineeringGoalProgress {
                                                           LoadoutEvent.Engineering engineering,
                                                           EngineeringDatabase db) {
         int level = engineering.getLevel();
-        if (level < goal.getTargetGrade() || engineering.getQuality() < 0.999d) {
+        if (level < goal.getTargetGrade() || !EngineeringGradeProgress.isGradeComplete(engineering.getQuality())) {
             return false;
         }
         if (goal.getExperimentalId().isBlank()) {
@@ -1283,9 +1479,18 @@ public final class EngineeringGoalProgress {
                                                  EngineeringGoal replayed,
                                                  boolean replayHadEvidence) {
         EngineeringGoal merged = replayed;
-        if (saved.getFromGrade() > replayed.getFromGrade()) {
+        // A multi-unit goal stores one shared fromGrade plus a completed count. Pasting a saved
+        // fromGrade that is already at the target on top of a replay that counted that same module
+        // in completedUnits marks every remaining unit done (qty 2, one rack at G4 → both Complete).
+        boolean savedGradeDoubleCountsFinishedUnit = replayHadEvidence
+                && saved.getCompletedUnits() > 0
+                && saved.getFromGrade() >= saved.getTargetGrade()
+                && replayed.getFromGrade() < replayed.getTargetGrade()
+                && saved.getFromGrade() > replayed.getFromGrade();
+        if (!savedGradeDoubleCountsFinishedUnit && saved.getFromGrade() > replayed.getFromGrade()) {
             merged = merged.withProgress(saved.getFromGrade(), saved.getCraftsAtCurrentGrade());
-        } else if (saved.getFromGrade() == replayed.getFromGrade()
+        } else if (!savedGradeDoubleCountsFinishedUnit
+                && saved.getFromGrade() == replayed.getFromGrade()
                 && saved.getCraftsAtCurrentGrade() > replayed.getCraftsAtCurrentGrade()) {
             merged = merged.withProgress(saved.getFromGrade(), saved.getCraftsAtCurrentGrade());
         }

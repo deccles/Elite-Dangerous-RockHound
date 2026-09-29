@@ -20,7 +20,13 @@ import org.dce.ed.logreader.event.EngineerProgressEvent;
 public final class EngineerReputationTracker {
 
     private final Map<String, Integer> rankByEngineer = new ConcurrentHashMap<>();
+    private final EngineerRankHistory history = new EngineerRankHistory();
     private volatile Runnable changeCallback;
+
+    /** Rank at each point in time, for replaying crafts against the rank when they were rolled. */
+    public EngineerRankHistory history() {
+        return history;
+    }
 
     public void setChangeCallback(Runnable changeCallback) {
         this.changeCallback = changeCallback;
@@ -67,6 +73,7 @@ public final class EngineerReputationTracker {
                 }
                 if (r > 0) {
                     next.put(normalize(entry.engineer()), Integer.valueOf(r));
+                    history.record(entry.engineer(), progress.getTimestamp(), r);
                 }
             }
             if (!next.equals(rankByEngineer)) {
@@ -91,6 +98,7 @@ public final class EngineerReputationTracker {
                         continue;
                     }
                 }
+                history.record(entry.engineer(), progress.getTimestamp(), r);
                 Integer prev = rankByEngineer.put(key, Integer.valueOf(r));
                 if (prev == null || prev.intValue() != r) {
                     changed = true;
