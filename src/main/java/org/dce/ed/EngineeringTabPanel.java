@@ -18,13 +18,18 @@ import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -53,6 +58,7 @@ import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JFileChooser;
+import javax.swing.JFrame;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JOptionPane;
@@ -93,6 +99,7 @@ import org.dce.ed.engineering.EngineeringShipRef;
 import org.dce.ed.engineering.EngineeringGoalProgress;
 import org.dce.ed.engineering.EngineeringGradeProgress;
 import org.dce.ed.engineering.EngineeringInventoryTracker;
+import org.dce.ed.engineering.EngineerRankHistory;
 import org.dce.ed.engineering.EngineerReputationTracker;
 import org.dce.ed.engineering.EngineeringMaterialKeys;
 import org.dce.ed.engineering.EngineeringPlanner;
@@ -250,6 +257,18 @@ public class EngineeringTabPanel extends JPanel {
     private final EngineerReputationTracker reputationTracker = new EngineerReputationTracker();
     private final EngineeringPlanner planner = new EngineeringPlanner(database);
     private final MaterialTradePlanner tradePlanner = new MaterialTradePlanner(database);
+    /** Live refresh costs each fitted module. Tests plan the goal objects they pass in. */
+    private boolean planFromFittedUnits = true;
+    /** Same per-module snapshots as Need, so Status shows journal rolls a stale Loadout omitted. */
+    private Map<EngineeringGoal, List<EngineeringGoal>> fittedUnitPlans = Map.of();
+    /**
+     * Building {@link #fittedUnitPlans} reads and parses every stored craft. Refreshes fire on
+     * each material pickup, so reuse the last result until the store or the goals change.
+     */
+    private long fittedPlansRevision = -1L;
+    private String fittedPlansClientKey;
+    private List<EngineeringGoal> fittedPlansGoals = List.of();
+    private List<List<EngineeringGoal>> fittedPlansByIndex = List.of();
 
     private final List<EngineeringGoal> goals = new ArrayList<>();
     private final List<MaterialsGoal> materialsGoals = new ArrayList<>();
@@ -310,6 +329,8 @@ public class EngineeringTabPanel extends JPanel {
     private boolean materialsSectionVisible = OverlayPreferences.isEngineeringMaterialsSectionVisible();
     /** Saved trade/materials divider still needs restoring once the split has a real height. */
     private boolean lowerSplitDividerRestorePending;
+    /** Tests lay the panel out off-screen; divider moves must not overwrite saved positions. */
+    private boolean suppressSplitPersistence;
     /** Saved Goals/(trades+mats) divider still needs restoring once the split has a real height. */
     private boolean mainSplitDividerRestorePending;
 
@@ -504,7 +525,7 @@ public class EngineeringTabPanel extends JPanel {
         EdoMiningSplitPaneUi.install(lowerSplit);
         lowerSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
             // Only user/layout moves while expanded count as "where it was last time".
-            if (materialsSectionVisible && !lowerSplitDividerRestorePending
+            if (!suppressSplitPersistence && materialsSectionVisible && !lowerSplitDividerRestorePending
                     && lowerSplit.getDividerSize() > 0 && lowerSplit.isShowing()
                     && lowerSplit.getDividerLocation() > 0) {
                 OverlayPreferences.setEngineeringLowerSplitDividerLocation(lowerSplit.getDividerLocation());
@@ -533,7 +554,7 @@ public class EngineeringTabPanel extends JPanel {
         mainSplit.setFocusable(false);
         EdoMiningSplitPaneUi.install(mainSplit);
         mainSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (!mainSplitDividerRestorePending
+            if (!suppressSplitPersistence && !mainSplitDividerRestorePending
                     && mainSplit.getDividerSize() > 0 && mainSplit.isShowing()
                     && mainSplit.getDividerLocation() > 0) {
                 OverlayPreferences.setEngineeringMainSplitDividerLocation(mainSplit.getDividerLocation());
@@ -571,6 +592,7 @@ public class EngineeringTabPanel extends JPanel {
 
         inventoryTracker.setChangeCallback(this::scheduleRefresh);
         reputationTracker.setChangeCallback(this::scheduleRefresh);
+        EngineerRankHistory.useShared(reputationTracker.history());
         installEngineeringTableLayoutListeners();
         installRecommendationImportInteractions();
         refreshUi();
@@ -910,9 +932,10 @@ public class EngineeringTabPanel extends JPanel {
 
     /**
      * Expanded: header + list with "Hide Required Materials" at the bottom.
-     * Collapsed: just a "Show Required Materials" button directly below Trade Suggestions;
-     * the rest of the area is empty (and punched fully transparent in hybrid mode —
-     * see {@link #paint(Graphics)}).
+     * Collapsed: just a "Show Required Materials" button at the bottom of the lower
+     * split. Trade Suggestions takes the remaining height (see
+     * {@link #pinCollapsedLowerSplitDivider()}). The button strip is punched fully
+     * transparent in hybrid mode — see {@link #paint(Graphics)}.
      */
     private void applyMaterialsSectionLayout() {
         if (materialsPanel == null) {
@@ -958,45 +981,32 @@ public class EngineeringTabPanel extends JPanel {
             });
         } else {
             // Remember where the divider was before collapsing.
-            if (!lowerSplitDividerRestorePending && lowerSplit.isShowing()
+            if (!suppressSplitPersistence && !lowerSplitDividerRestorePending && lowerSplit.isShowing()
                     && lowerSplit.getDividerLocation() > 0) {
                 OverlayPreferences.setEngineeringLowerSplitDividerLocation(lowerSplit.getDividerLocation());
             }
             lowerSplitDividerRestorePending = false;
             lowerSplit.setDividerSize(0);
-            // All extra space goes below the divider (the punched-transparent band), so the
-            // trade panel hugs its content and the Show button sits directly under it.
-            lowerSplit.setResizeWeight(0.0);
+            // Extra dialog height belongs to Trade Suggestions. The Show button keeps only
+            // its own strip; a short list should use the free space instead of scrolling.
+            lowerSplit.setResizeWeight(1.0);
             SwingUtilities.invokeLater(this::pinCollapsedLowerSplitDivider);
         }
     }
 
     /**
-     * While collapsed, pin the divider to the trade panel's preferred height: the Show button
-     * lands directly below the trade content and everything under it is empty (punched
-     * transparent in hybrid mode).
+     * While collapsed, give Trade Suggestions every pixel the lower split has except the
+     * Show button strip. A tall dialog then grows the trade viewport, so the scrollbar
+     * appears only when the rows themselves exceed that space. Dragging the Goals separator
+     * resizes this split and the pin follows, instead of leaving the extra height empty.
      */
     private void pinCollapsedLowerSplitDivider() {
         if (lowerSplit == null || materialsSectionVisible || lowerSplit.getHeight() <= 0) {
             return;
         }
-        Component top = lowerSplit.getTopComponent();
-        if (top == null) {
-            return;
-        }
-        int pref = top.getPreferredSize().height;
-        // The trade scroller reports a fixed preferred height; substitute the table's real
-        // content height so the panel shrinks to hug a short list and grows to fit a long one.
-        // The max-divider clamp below means the scrollbar only appears once the content would
-        // exceed the space the user has given the dialog.
-        if (tradeScroll != null && tradeScroll.isVisible()) {
-            int scrollPref = tradeScroll.getPreferredSize().height;
-            int contentH = tradeTable.getPreferredSize().height + 4;
-            pref = pref - scrollPref + contentH;
-        }
         int min = lowerSplit.getMinimumDividerLocation();
         int max = lowerSplit.getMaximumDividerLocation();
-        lowerSplit.setDividerLocation(Math.max(min, Math.min(pref, max)));
+        lowerSplit.setDividerLocation(Math.max(min, max));
     }
 
     private void restoreLowerSplitDividerLocation() {
@@ -1027,8 +1037,9 @@ public class EngineeringTabPanel extends JPanel {
     }
 
     /**
-     * Selective (hybrid) mode with Materials Required collapsed: punch the whole materials area
-     * fully transparent except the Show button (same idea as Control Panel's Kill scripts strip).
+     * Selective (hybrid) mode with Materials Required collapsed: punch everything below the last
+     * trade row fully transparent except the Show button and any trade status text (same idea as
+     * Control Panel's Kill scripts strip).
      */
     @Override
     public void paint(Graphics g) {
@@ -1049,25 +1060,29 @@ public class EngineeringTabPanel extends JPanel {
                 materialsPanel.getParent(), materialsPanel.getBounds(), this);
         Rectangle keep = SwingUtilities.convertRectangle(
                 materialsToggleButton.getParent(), materialsToggleButton.getBounds(), this);
+        // Trade Suggestions fills the space above the Show button, so a short list leaves an
+        // empty band inside the trade section. Clear from the last visible trade content down.
+        int top = area.y;
+        Rectangle rows = visibleTradeRowsBounds(this);
+        if (rows != null) {
+            top = Math.min(top, rows.y + rows.height);
+        } else if (tradeEmptyLabel.isShowing()) {
+            Rectangle label = SwingUtilities.convertRectangle(
+                    tradeEmptyLabel.getParent(), tradeEmptyLabel.getBounds(), this);
+            top = Math.min(top, label.y + label.height);
+        }
+        java.awt.geom.Area band = new java.awt.geom.Area(
+                new Rectangle(0, top, getWidth(), Math.max(0, getHeight() - top)));
+        band.subtract(new java.awt.geom.Area(keep));
+        String status = tradeStatusLabel.getText();
+        if (tradeStatusLabel.isShowing() && status != null && !status.isBlank()) {
+            band.subtract(new java.awt.geom.Area(SwingUtilities.convertRectangle(
+                    tradeStatusLabel.getParent(), tradeStatusLabel.getBounds(), this)));
+        }
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-            // Full-width band from the top of the materials area to the tab's bottom edge,
-            // minus the toggle button itself.
-            if (keep.y > area.y) {
-                g2.fillRect(0, area.y, getWidth(), keep.y - area.y);
-            }
-            if (keep.x > 0) {
-                g2.fillRect(0, keep.y, keep.x, keep.height);
-            }
-            int keepRight = keep.x + keep.width;
-            if (keepRight < getWidth()) {
-                g2.fillRect(keepRight, keep.y, getWidth() - keepRight, keep.height);
-            }
-            int keepBottom = keep.y + keep.height;
-            if (getHeight() > keepBottom) {
-                g2.fillRect(0, keepBottom, getWidth(), getHeight() - keepBottom);
-            }
+            g2.fill(band);
         } finally {
             g2.dispose();
         }
@@ -2097,6 +2112,102 @@ public class EngineeringTabPanel extends JPanel {
         syncTradeRowHeights();
     }
 
+    /**
+     * For tests: plan {@code testGoals} against {@code inventory} and refresh Trade Suggestions.
+     * Turns the Merc Coin goals checkbox on for this panel without writing preferences.
+     */
+    void refreshTradePlanForTest(List<EngineeringGoal> testGoals, Map<String, Integer> inventory) {
+        goals.clear();
+        materialsGoals.clear();
+        if (testGoals != null) {
+            for (EngineeringGoal goal : testGoals) {
+                if (goal != null) {
+                    goals.add(goal);
+                }
+            }
+        }
+        suppressMercCoinFilterEvents = true;
+        try {
+            if (includeMercCoinGoalsCheckBox != null) {
+                includeMercCoinGoalsCheckBox.setSelected(true);
+            }
+        } finally {
+            suppressMercCoinFilterEvents = false;
+        }
+        inventoryTracker.replaceCountsForTest(inventory);
+        boolean previous = planFromFittedUnits;
+        planFromFittedUnits = false;
+        try {
+            refreshUi();
+        } finally {
+            planFromFittedUnits = previous;
+        }
+    }
+
+    boolean tradeSuggestionsVisibleForTest() {
+        return tradeScroll != null && tradeScroll.isVisible();
+    }
+
+    boolean tradeEmptyLabelVisibleForTest() {
+        return tradeEmptyLabel.isVisible();
+    }
+
+    /**
+     * For tests: collapse Materials and show the panel off-screen so the split gets a real
+     * height. Divider moves are not written to preferences. Caller must
+     * {@link #disposeCollapsedTradeLayoutForTest(JFrame)}.
+     */
+    JFrame layoutCollapsedTradeSectionForTest(int width, int height) {
+        suppressSplitPersistence = true;
+        materialsSectionVisible = false;
+        applyMaterialsSectionLayout();
+        if (tradeScroll != null && tradeTable != null && tradeTable.getRowCount() > 0) {
+            tradeScroll.setVisible(true);
+        }
+        JFrame frame = new JFrame();
+        frame.setUndecorated(true);
+        frame.add(this);
+        frame.setBounds(-3200, -3200, width, height);
+        frame.setVisible(true);
+        // Leave Goals a short strip so the assertion is about Trade Suggestions, not a saved divider.
+        if (mainSplit != null && mainSplit.getHeight() > 0) {
+            int goals = Math.min(220, Math.max(mainSplit.getMinimumDividerLocation(),
+                    mainSplit.getMaximumDividerLocation() / 3));
+            mainSplit.setDividerLocation(goals);
+        }
+        pinCollapsedLowerSplitDivider();
+        frame.validate();
+        pinCollapsedLowerSplitDivider();
+        if (tradeScroll != null && tradeTable != null && tradeTable.getRowCount() > 0) {
+            tradeScroll.setVisible(true);
+        }
+        frame.validate();
+        return frame;
+    }
+
+    void disposeCollapsedTradeLayoutForTest(JFrame frame) {
+        if (frame != null) {
+            frame.dispose();
+        }
+        suppressSplitPersistence = false;
+    }
+
+    int tradeViewportHeightForTest() {
+        return tradeScroll.getViewport().getExtentSize().height;
+    }
+
+    boolean tradeVerticalBarVisibleForTest() {
+        return tradeScroll.getVerticalScrollBar().isVisible();
+    }
+
+    int collapsedTradePaneHeightForTest() {
+        return lowerSplit.getTopComponent().getHeight();
+    }
+
+    int collapsedLowerSplitMaxDividerForTest() {
+        return lowerSplit.getMaximumDividerLocation();
+    }
+
     public void applyOverlayBackground(Color bgWithAlpha, boolean treatAsTransparent) {
         boolean opaque = !treatAsTransparent;
         setOpaque(opaque);
@@ -2164,7 +2275,7 @@ public class EngineeringTabPanel extends JPanel {
         if (SelectiveHitSupport.containsScreenPoint(goalsPanel, screenPoint)) {
             return true;
         }
-        if (SelectiveHitSupport.containsScreenPoint(tradeScroll, screenPoint)) {
+        if (isPointerOverTradeRows(screenPoint)) {
             return true;
         }
         if (SelectiveHitSupport.containsScreenPoint(materialsToggleButton, screenPoint)) {
@@ -2179,6 +2290,35 @@ public class EngineeringTabPanel extends JPanel {
             return true;
         }
         return SelectiveHitSupport.isOverModelColumnCell(tradeTable, screenPoint, COL_TRADE_ACTION);
+    }
+
+    /**
+     * Trade rows on screen, clipped to the scroller. The scroller can be much taller than a short
+     * list; the empty space under the last row must stay pass-through.
+     */
+    private boolean isPointerOverTradeRows(Point screenPoint) {
+        Rectangle rows = visibleTradeRowsBounds(this);
+        if (rows == null || screenPoint == null || !isShowing()) {
+            return false;
+        }
+        Point origin = getLocationOnScreen();
+        return rows.contains(screenPoint.x - origin.x, screenPoint.y - origin.y);
+    }
+
+    /** Visible trade table rows in {@code target} coordinates, or null when none are showing. */
+    private Rectangle visibleTradeRowsBounds(Component target) {
+        if (tradeScroll == null || !tradeScroll.isShowing() || tradeTable == null
+                || tradeTable.getRowCount() == 0 || tradeScroll.getViewport() == null) {
+            return null;
+        }
+        Rectangle viewport = SwingUtilities.convertRectangle(
+                tradeScroll, tradeScroll.getViewport().getBounds(), target);
+        // The table fills the viewport, so its own bounds include the empty space under the rows.
+        Rectangle last = tradeTable.getCellRect(tradeTable.getRowCount() - 1, 0, true);
+        Rectangle table = SwingUtilities.convertRectangle(tradeTable,
+                new Rectangle(0, 0, tradeTable.getWidth(), last.y + last.height), target);
+        Rectangle rows = viewport.intersection(table);
+        return rows.isEmpty() ? null : rows;
     }
 
     /** True when the pointer is over a visible split divider (orange bar), with a little slack. */
@@ -2581,7 +2721,9 @@ public class EngineeringTabPanel extends JPanel {
                 || type == EliteEventType.MATERIAL_TRADE
                 || type == EliteEventType.ENGINEER_CRAFT
                 || type == EliteEventType.ENGINEER_CONTRIBUTION
-                || type == EliteEventType.STATISTICS) {
+                || type == EliteEventType.STATISTICS
+                || type == EliteEventType.LOAD_GAME
+                || type == EliteEventType.GAME_MODE_CHANGE) {
             inventoryTracker.applyEvent(event);
             scheduleRefresh();
             if (type == EliteEventType.MATERIAL_TRADE && event instanceof MaterialTradeEvent tradeEvent) {
@@ -2620,6 +2762,10 @@ public class EngineeringTabPanel extends JPanel {
             LoadoutEvent patchedLoadout = EliteOverlayTabbedPane.getLatestLoadout();
             if (patchedLoadout != null
                     && EngineeringGoalProgress.applyLoadout(goals, patchedLoadout, database)) {
+                goalsChanged = true;
+            }
+            if (shipId >= 0
+                    && EngineeringGoalProgress.rebuildMultiUnitGoalsFromStore(goals, clientKey, database)) {
                 goalsChanged = true;
             }
             if (loadoutPatched || goalsChanged) {
@@ -2885,7 +3031,7 @@ public class EngineeringTabPanel extends JPanel {
             }
             if (goalsShipFilterId == null
                     || (g.hasShip() && g.getShipId() == goalsShipFilterId.longValue())) {
-                if (isMercCoinGoalIncluded(g, database)
+                if (isMercCoinGoalIncluded(g, database, includeMercCoinGoalsSelected())
                         && (database == null || database.engineerCanWorkGoal(g, goalsEngineerFilter))) {
                     visible.add(GoalUiRow.blueprint(g, i));
                 }
@@ -2952,6 +3098,14 @@ public class EngineeringTabPanel extends JPanel {
 
     static boolean isMercCoinGoalIncluded(EngineeringGoal goal, EngineeringDatabase database) {
         return isMercCoinGoalIncluded(goal, database, OverlayPreferences.isEngineeringIncludeMercCoinGoals());
+    }
+
+    /** Checkbox state when the tab is showing; prefs when the control has not been built. */
+    private boolean includeMercCoinGoalsSelected() {
+        if (includeMercCoinGoalsCheckBox != null) {
+            return includeMercCoinGoalsCheckBox.isSelected();
+        }
+        return OverlayPreferences.isEngineeringIncludeMercCoinGoals();
     }
 
     /** Merc Coin recipes are omitted when the Include Merc Coin goals checkbox is off. */
@@ -3607,11 +3761,48 @@ public class EngineeringTabPanel extends JPanel {
         SwingUtilities.invokeLater(this::refreshUi);
     }
 
+    private Map<EngineeringGoal, List<EngineeringGoal>> cachedFittedUnitPlans(
+            List<EngineeringGoal> planningGoals) {
+        String clientKey = EliteDangerousOverlay.clientKey;
+        long revision = EngineeringCraftStore.revision();
+        List<EngineeringGoal> goalsKey = List.copyOf(planningGoals);
+        if (revision != fittedPlansRevision
+                || !Objects.equals(clientKey, fittedPlansClientKey)
+                || !goalsKey.equals(fittedPlansGoals)) {
+            Map<EngineeringGoal, List<EngineeringGoal>> computed =
+                    EngineeringGoalProgress.materialUnitsByGoal(planningGoals, clientKey, database);
+            List<List<EngineeringGoal>> byIndex = new ArrayList<>(planningGoals.size());
+            for (EngineeringGoal goal : planningGoals) {
+                byIndex.add(computed.get(goal));
+            }
+            fittedPlansRevision = revision;
+            fittedPlansClientKey = clientKey;
+            fittedPlansGoals = goalsKey;
+            fittedPlansByIndex = byIndex;
+        }
+        // Planner and Status look plans up by goal identity; equal goals may be new instances.
+        Map<EngineeringGoal, List<EngineeringGoal>> out = new IdentityHashMap<>();
+        for (int i = 0; i < planningGoals.size() && i < fittedPlansByIndex.size(); i++) {
+            List<EngineeringGoal> units = fittedPlansByIndex.get(i);
+            if (units != null) {
+                out.put(planningGoals.get(i), units);
+            }
+        }
+        return out;
+    }
+
     private void refreshUi() {
         Map<String, Integer> inv = inventoryTracker.snapshot();
         List<GoalUiRow> visibleGoals = goalsForUi();
         // Always plan against every included goal so priorities / reservations stay global.
         List<EngineeringGoal> planningGoals = activeGoalsForPlanning();
+        if (planFromFittedUnits) {
+            fittedUnitPlans = cachedFittedUnitPlans(planningGoals);
+            planner.setUnitMaterialPlans(fittedUnitPlans);
+        } else {
+            fittedUnitPlans = Map.of();
+            planner.setUnitMaterialPlans(Map.of());
+        }
         List<MaterialsGoal> planningMats = activeMaterialsGoalsForPlanning();
         // Display + trade suggestions may be scoped to one ship without dropping other ships
         // from the priority/reservation plan.
@@ -3672,7 +3863,9 @@ public class EngineeringTabPanel extends JPanel {
         boolean hasGoals = !goals.isEmpty() || !materialsGoals.isEmpty();
         boolean hasActiveGoals = !displayGoals.isEmpty() || !displayMats.isEmpty();
         boolean showShopping = hasActiveGoals && !shopping.isEmpty();
-        boolean showTrades = !trades.isEmpty();
+        // Merc Coins (and other untradeable needs) produce rows with no TradeSuggestion.
+        // Keep Trade Suggestions visible so that remainder is still listed.
+        boolean showTrades = tradeModel.hasDataRows();
         materialsEmptyLabel.setVisible(!showShopping);
         tradeEmptyLabel.setVisible(!showTrades);
         if (shoppingScroll != null) {
@@ -3685,7 +3878,7 @@ public class EngineeringTabPanel extends JPanel {
         revalidate();
         repaint();
         if (!materialsSectionVisible) {
-            // Trade content may have grown/shrunk; keep the Show button hugging it.
+            // Keep Trade Suggestions filling the lower split after the row list changes.
             SwingUtilities.invokeLater(this::pinCollapsedLowerSplitDivider);
         }
 
@@ -3704,10 +3897,10 @@ public class EngineeringTabPanel extends JPanel {
         } else {
             materialsEmptyLabel.setText("");
         }
-        if (hasGoals && trades.isEmpty() && !shortfalls.isEmpty()) {
+        if (hasGoals && !showTrades && !shortfalls.isEmpty()) {
             tradeEmptyLabel.setText("<html><body style='color:" + EdoUi.htmlHex(EdoUi.Internal.EMPTY_STATE_INK)
                     + "'>No material-trader swaps found from current inventory.</body></html>");
-        } else if (hasGoals && trades.isEmpty()) {
+        } else if (hasGoals && !showTrades) {
             tradeEmptyLabel.setForeground(EdoUi.User.MAIN_TEXT);
             tradeEmptyLabel.setText("No trades required");
         }
@@ -3720,7 +3913,8 @@ public class EngineeringTabPanel extends JPanel {
     private List<EngineeringGoal> activeGoalsForPlanning() {
         List<EngineeringGoal> out = new ArrayList<>();
         for (EngineeringGoal g : goals) {
-            if (g != null && g.isIncludeInPlanning() && isMercCoinGoalIncluded(g, database)) {
+            if (g != null && g.isIncludeInPlanning()
+                    && isMercCoinGoalIncluded(g, database, includeMercCoinGoalsSelected())) {
                 out.add(g);
             }
         }
@@ -3811,6 +4005,13 @@ public class EngineeringTabPanel extends JPanel {
                 MaterialTradePlanner.groupByTraderTypeAndTarget(trades, shortfalls);
         Map<String, List<TradeTableRow>> untradeable =
                 untradeableShortfallRows(grouped, shortfalls, uncoveredShortfalls);
+        // Merc Coins and other currency sit above trader sections so a long swap list cannot hide them.
+        for (String type : List.copyOf(untradeable.keySet())) {
+            if (!pinnedUntradeableSection(type)) {
+                continue;
+            }
+            appendUntradeableSection(rows, type, untradeable.remove(type));
+        }
         for (Map.Entry<String, List<TradeTargetGroup>> entry : grouped.entrySet()) {
             List<TradeTargetGroup> targets = entry.getValue();
             if (targets == null || targets.isEmpty()) {
@@ -3852,15 +4053,7 @@ public class EngineeringTabPanel extends JPanel {
         // Short materials with no trade options at all get their own (red) rows, so the user can
         // see what "Short" refers to even when nothing is tradeable toward it.
         for (Map.Entry<String, List<TradeTableRow>> entry : untradeable.entrySet()) {
-            if (entry.getValue().isEmpty()) {
-                continue;
-            }
-            if (!rows.isEmpty()) {
-                rows.add(TradeTableRow.gap());
-            }
-            rows.add(TradeTableRow.section(traderTypeSectionTitle(entry.getKey())));
-            rows.add(TradeTableRow.columnHeaders());
-            rows.addAll(entry.getValue());
+            appendUntradeableSection(rows, entry.getKey(), entry.getValue());
         }
         // Sort red groups to the top within each section already happens in groupByTarget using
         // option-sum coverage; re-sort here using post-trade shortfall so priority-planned rows match.
@@ -3901,8 +4094,8 @@ public class EngineeringTabPanel extends JPanel {
             Map<String, Integer> shortfalls,
             Map<String, Integer> uncoveredShortfalls) {
         Map<String, List<TradeTableRow>> out = new LinkedHashMap<>();
-        if (uncoveredShortfalls == null || uncoveredShortfalls.isEmpty()) {
-            return out;
+        if (uncoveredShortfalls == null) {
+            uncoveredShortfalls = Map.of();
         }
         Set<String> suggested = new HashSet<>();
         for (List<TradeTargetGroup> targets : grouped.values()) {
@@ -3910,32 +4103,17 @@ public class EngineeringTabPanel extends JPanel {
                 suggested.add(EngineeringMaterialKeys.canonicalKey(group.getToKey()));
             }
         }
+        Set<String> listed = new HashSet<>();
         // Prefer uncovered (plan remaining / after trades); fall back to initial Need for display.
         for (Map.Entry<String, Integer> e : uncoveredShortfalls.entrySet()) {
-            String key = e.getKey();
-            int need = e.getValue() != null ? e.getValue() : 0;
-            if (key == null || need <= 0
-                    || suggested.contains(EngineeringMaterialKeys.canonicalKey(key))) {
-                continue;
+            addUntradeableShortfall(out, listed, suggested, shortfalls, e.getKey(),
+                    e.getValue() != null ? e.getValue() : 0);
+        }
+        if (shortfalls != null) {
+            for (Map.Entry<String, Integer> e : shortfalls.entrySet()) {
+                addUntradeableShortfall(out, listed, suggested, null, e.getKey(),
+                        e.getValue() != null ? e.getValue() : 0);
             }
-            if (shortfalls != null) {
-                int initial = shortfallRemaining(shortfalls, key);
-                if (initial > need) {
-                    need = initial;
-                }
-            }
-            String traderType = database.material(key)
-                    .map(m -> m.getType())
-                    .orElse("");
-            out.computeIfAbsent(traderType, k -> new ArrayList<>())
-                    .add(TradeTableRow.data(
-                            database.materialDisplayName(key),
-                            Integer.valueOf(need),
-                            "No trades available",
-                            0,
-                            true,
-                            true,
-                            null));
         }
         for (List<TradeTableRow> list : out.values()) {
             list.sort(Comparator.comparing(TradeTableRow::materialName, String.CASE_INSENSITIVE_ORDER));
@@ -4009,6 +4187,58 @@ public class EngineeringTabPanel extends JPanel {
         return out;
     }
 
+    private static boolean pinnedUntradeableSection(String type) {
+        return "Currency".equals(type);
+    }
+
+    private static void appendUntradeableSection(List<TradeTableRow> rows,
+                                                 String type,
+                                                 List<TradeTableRow> sectionRows) {
+        if (sectionRows == null || sectionRows.isEmpty()) {
+            return;
+        }
+        if (!rows.isEmpty()) {
+            rows.add(TradeTableRow.gap());
+        }
+        rows.add(TradeTableRow.section(traderTypeSectionTitle(type)));
+        rows.add(TradeTableRow.columnHeaders());
+        rows.addAll(sectionRows);
+    }
+
+    private void addUntradeableShortfall(Map<String, List<TradeTableRow>> out,
+                                         Set<String> listed,
+                                         Set<String> suggested,
+                                         Map<String, Integer> shortfalls,
+                                         String key,
+                                         int need) {
+        if (key == null || need <= 0) {
+            return;
+        }
+        String canonical = EngineeringMaterialKeys.canonicalKey(key);
+        if (canonical.isBlank() || listed.contains(canonical) || suggested.contains(canonical)) {
+            return;
+        }
+        if (shortfalls != null) {
+            int initial = shortfallRemaining(shortfalls, key);
+            if (initial > need) {
+                need = initial;
+            }
+        }
+        String traderType = database.material(key)
+                .map(m -> m.getType())
+                .orElse("");
+        listed.add(canonical);
+        out.computeIfAbsent(traderType, k -> new ArrayList<>())
+                .add(TradeTableRow.data(
+                        database.materialDisplayName(key),
+                        Integer.valueOf(need),
+                        "No trades available",
+                        0,
+                        true,
+                        true,
+                        null));
+    }
+
     private static String traderTypeSectionTitle(String type) {
         if (type == null || type.isBlank()) {
             return "Material trader";
@@ -4017,6 +4247,7 @@ public class EngineeringTabPanel extends JPanel {
             case "Raw" -> "Raw";
             case "Manufactured" -> "Manufactured";
             case "Encoded" -> "Encoded";
+            case "Currency" -> "Not tradeable";
             default -> type;
         };
     }
@@ -4601,13 +4832,19 @@ public class EngineeringTabPanel extends JPanel {
                     && !goalRow.blueprint().isComplete()) {
                 EngineeringGoal goal = goalRow.blueprint();
                 LoadoutEvent loadout = EliteOverlayTabbedPane.getLatestLoadout();
-                if (EngineeringGoalProgress.hasDisplayCraftProgress(goal, loadout, database)) {
-                    int rank = bestEngineerRankForGoal(goal);
-                    barFill = EngineeringGoalProgress.displayCompletionFraction(
-                            goal, loadout, database, rank);
+                int rank = bestEngineerRankForGoal(goal);
+                List<Double> fittedFills = EngineeringGoalProgress.completionFractionsForUnits(
+                        goal, fittedUnitPlans.get(goal), rank);
+                if (!fittedFills.isEmpty()
+                        || EngineeringGoalProgress.hasDisplayCraftProgress(goal, loadout, database)) {
+                    List<Double> fills = fittedFills.isEmpty()
+                            ? EngineeringGoalProgress.displayCompletionFractions(
+                                    goal, loadout, database, rank)
+                            : fittedFills;
+                    barFill = EngineeringGoalProgress.averageCompletionFraction(fills);
                     barColor = readinessColor(readiness, text);
                     progressBar.setProgress(
-                            EngineeringGoalProgress.displayCompletionFractions(goal, loadout, database, rank),
+                            fills,
                             readiness == GoalReadiness.STILL_SHORT || STATUS_SHORT.equals(text));
                     statusCards.show(this, STATUS_CARD_PROGRESS);
                     label.setText("");
@@ -5293,6 +5530,37 @@ public class EngineeringTabPanel extends JPanel {
         }
     }
 
+    private boolean isEstimatedMercShoppingRow(JTable table, int viewRow) {
+        if (!inventoryTracker.isMercCoinBalanceEstimated()) {
+            return false;
+        }
+        ShoppingListRow r = shoppingModel.rowAt(table.convertRowIndexToModel(viewRow));
+        return r != null && EngineeringMaterialKeys.isMercCoins(r.getMaterialKey());
+    }
+
+    private boolean isEstimatedMercTradeRow(int modelRow) {
+        if (!inventoryTracker.isMercCoinBalanceEstimated()) {
+            return false;
+        }
+        String name = tradeModel.materialNameAt(modelRow);
+        return name != null
+                && name.equals(database.materialDisplayName(EngineeringMaterialKeys.MERC_COINS));
+    }
+
+    /** Why the Merc Coin number carries a "~". */
+    private String mercEstimateTooltip() {
+        int ops = inventoryTracker.mercCoinPendingOperations();
+        int coins = inventoryTracker.mercCoinPendingEstimate();
+        Instant reported = inventoryTracker.mercCoinLastReportedAt();
+        String when = reported != null
+                ? DateTimeFormatter.ofPattern("h:mm a").withZone(ZoneId.systemDefault()).format(reported)
+                : "unknown";
+        return "Estimated: includes about " + coins + " Merc Coins from " + ops
+                + (ops == 1 ? " Operation" : " Operations")
+                + " since the game last reported your balance (" + when
+                + "). The real balance is logged when you load back into the main game.";
+    }
+
     private final class ShoppingCellRenderer extends EdoTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
@@ -5300,6 +5568,14 @@ public class EngineeringTabPanel extends JPanel {
             Component c = super.getTableCellRendererComponent(table, value, false, false, row, column);
             if (c instanceof JLabel label) {
                 if (column == COL_NEED || column == COL_HAVE || column == COL_SHORT) {
+                    label.setToolTipText(null);
+                    boolean approximate = (column == COL_HAVE
+                            || (column == COL_SHORT && value instanceof Integer s && s > 0))
+                            && isEstimatedMercShoppingRow(table, row);
+                    if (approximate) {
+                        label.setText("~" + label.getText().trim());
+                        label.setToolTipText(mercEstimateTooltip());
+                    }
                     applyCenteredRightNumberPadding(label, table, column);
                 } else {
                     // Shared renderer: reset after number columns so Material/Type stay left-aligned.
@@ -5414,8 +5690,21 @@ public class EngineeringTabPanel extends JPanel {
             return rowIndex >= 0 && rowIndex < rows.size() && rows.get(rowIndex).columnHeader();
         }
 
+        boolean hasDataRows() {
+            for (TradeTableRow row : rows) {
+                if (!row.section() && !row.gapRow() && !row.columnHeader()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         boolean isShortfallUncovered(int rowIndex) {
             return rowIndex >= 0 && rowIndex < rows.size() && rows.get(rowIndex).shortfallUncovered();
+        }
+
+        String materialNameAt(int rowIndex) {
+            return rowIndex >= 0 && rowIndex < rows.size() ? rows.get(rowIndex).materialName() : null;
         }
 
         /** True on the last trade option for a material — draw a full-width rule under this row. */
@@ -5601,12 +5890,17 @@ public class EngineeringTabPanel extends JPanel {
                     label.setToolTipText(text.isBlank() ? null : text);
                     label.setBorder(new EmptyBorder(2, 6, 2, 6));
                 } else if (column == COL_TRADE_NEED || column == COL_TRADE_RECEIVE) {
+                    label.setToolTipText(null);
                     if (value == null || (value instanceof String s && s.isBlank())) {
                         label.setText("");
                         clearCenteredRightNumberPaint(label);
                         label.setHorizontalAlignment(SwingConstants.RIGHT);
                         label.setBorder(new EmptyBorder(2, NUMBER_COL_EDGE_PAD, 2, NUMBER_COL_EDGE_PAD));
                     } else {
+                        if (column == COL_TRADE_NEED && isEstimatedMercTradeRow(modelRow)) {
+                            label.setText("~" + label.getText().trim());
+                            label.setToolTipText(mercEstimateTooltip());
+                        }
                         applyCenteredRightNumberPadding(label, table, column);
                     }
                 } else if (column == COL_TRADE_GIVE) {
