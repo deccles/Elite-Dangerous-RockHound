@@ -80,6 +80,28 @@ class AutoTabJumpLogicTest {
     }
 
     @Test
+    void startJumpHyperspaceWhileDocked_returnsFleetCarrier() {
+        StartJumpEvent sj = parseStartJump("Hyperspace");
+        StatusEvent docked = parseStatusWithFlags(DOCKED);
+        assertEquals(AutoTabJumpLogic.JumpKind.FLEET_CARRIER,
+                AutoTabJumpLogic.classifyForAutoTabSwitch(false, false, false, docked, sj));
+    }
+
+    @Test
+    void startJumpHyperspaceWhileAboard_returnsFleetCarrier() {
+        StartJumpEvent sj = parseStartJump("Hyperspace");
+        assertEquals(AutoTabJumpLogic.JumpKind.FLEET_CARRIER,
+                AutoTabJumpLogic.classifyForAutoTabSwitch(true, false, true, null, sj));
+    }
+
+    @Test
+    void retainFleetCarrierTab_whenShownAndAboard() {
+        assertTrue(AutoTabJumpLogic.retainFleetCarrierTab(true, false, false, true));
+        assertFalse(AutoTabJumpLogic.retainFleetCarrierTab(false, true, true, true));
+        assertFalse(AutoTabJumpLogic.retainFleetCarrierTab(true, false, false, false));
+    }
+
+    @Test
     void isHyperspaceJumpActivity_fsdJumpFlag() {
         StatusEvent inJump = parseStatusWithFlags(0x40000000L);
         assertTrue(AutoTabJumpLogic.isHyperspaceJumpActivity(inJump, null));

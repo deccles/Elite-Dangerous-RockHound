@@ -359,15 +359,44 @@ private final JLayer<JTable> cargoLayer;
 	}
 
 	/**
-	 * When Google Sheets fails for auth/setup reasons, offer a reconnect dialog (throttled) so the user is not
-	 * stuck with only the status-bar line.
+	 * True when the Mining table is reading Google Sheets (Google-only, or Both with Google as the display source).
+	 * Both mode with Local CSV selected still mirrors writes, but those failures must not look like the log failed.
+	 */
+	private static boolean displayedProspectorSourceIsGoogle() {
+		String backend = OverlayPreferences.getMiningLogBackend();
+		if ("google".equals(backend)) {
+			return true;
+		}
+		if ("both".equals(backend)) {
+			return !"local".equals(OverlayPreferences.getMiningLogBothPrimary());
+		}
+		return false;
+	}
+
+	/**
+	 * Status bar for a prospector write. A Google mirror failure is only an error when the table is showing
+	 * Google Sheets. Local CSV as the display source already stored the row; the mirror miss stays off the bar.
+	 */
+	private static void reportProspectorWriteStatus(ProspectorLogBackend backend, ProspectorWriteResult wr) {
+		boolean ok = wr != null && wr.isOk();
+		if (!ok) {
+			applyMiningSheetsStatusError(formatBackendErrorForStatus(backend, wr));
+		} else if (wr.hasMirrorWarning() && displayedProspectorSourceIsGoogle()) {
+			applyMiningSheetsStatusError(wr.getMirrorWarning());
+		} else {
+			applyMiningSheetsStatusClear();
+		}
+	}
+
+	/**
+	 * When the displayed log is Google Sheets and it fails for auth/setup reasons, offer a reconnect dialog
+	 * (throttled) so the user is not stuck with only the status-bar line. Local CSV display does not prompt.
 	 */
 	private void maybeOfferGoogleSheetsReconnectDialog(String detailMessage) {
 		if (miningSheetsStatusErrorSinkForTests != null) {
 			return;
 		}
-		String backend = OverlayPreferences.getMiningLogBackend();
-		if (!"google".equals(backend) && !"both".equals(backend)) {
+		if (!displayedProspectorSourceIsGoogle()) {
 			return;
 		}
 		long now = System.currentTimeMillis();
@@ -2068,15 +2097,8 @@ return EdoUi.User.MAIN_TEXT;
 			ProspectorLogBackend backend = prospectorBackendSupplier.get();
 			ProspectorWriteResult wr = backend.upsertRowsResult(rows);
 			boolean ok = wr != null && wr.isOk();
-			if (!ok) {
-				applyMiningSheetsStatusError(formatBackendErrorForStatus(backend, wr));
-			} else if (wr.hasMirrorWarning()) {
-				applyMiningSheetsStatusError(wr.getMirrorWarning());
-			}
+			reportProspectorWriteStatus(backend, wr);
 			if (ok) {
-				if (!wr.hasMirrorWarning()) {
-					applyMiningSheetsStatusClear();
-				}
 				invalidateRunResolutionCache();
 				scheduleSpreadsheetRefreshAfterMiningWrite();
 				wroteRowsThisRun = true;
@@ -2248,15 +2270,8 @@ return EdoUi.User.MAIN_TEXT;
 				ProspectorLogBackend backend = prospectorBackendSupplier.get();
 				ProspectorWriteResult wr = backend.updateRunEndTimeResult(commander, activeRun, Instant.now());
 				boolean ok = wr != null && wr.isOk();
-				if (!ok) {
-					applyMiningSheetsStatusError(formatBackendErrorForStatus(backend, wr));
-				} else if (wr.hasMirrorWarning()) {
-					applyMiningSheetsStatusError(wr.getMirrorWarning());
-				}
+				reportProspectorWriteStatus(backend, wr);
 				if (ok) {
-					if (!wr.hasMirrorWarning()) {
-						applyMiningSheetsStatusClear();
-					}
 					invalidateRunResolutionCache();
 					scheduleSpreadsheetRefreshAfterMiningWrite();
 				}
@@ -2686,15 +2701,8 @@ return EdoUi.User.MAIN_TEXT;
 		ProspectorLogBackend backend = prospectorBackendSupplier.get();
 		ProspectorWriteResult wr = backend.upsertRowsResult(rows);
 		boolean ok = wr != null && wr.isOk();
-		if (!ok) {
-			applyMiningSheetsStatusError(formatBackendErrorForStatus(backend, wr));
-		} else if (wr.hasMirrorWarning()) {
-			applyMiningSheetsStatusError(wr.getMirrorWarning());
-		}
+		reportProspectorWriteStatus(backend, wr);
 		if (ok) {
-			if (!wr.hasMirrorWarning()) {
-				applyMiningSheetsStatusClear();
-			}
 			invalidateRunResolutionCache();
 			scheduleSpreadsheetRefreshAfterMiningWrite();
 			wroteRowsThisRun = true;

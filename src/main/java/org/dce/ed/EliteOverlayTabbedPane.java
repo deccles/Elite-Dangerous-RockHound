@@ -279,7 +279,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 				new TtsSprintf(new PollyTtsCached()),
 				ProspectorLogBackendFactory::create,
 				systemTab::getState,
-				() -> CARD_MINING.equals(visibleCardName));
+				this::isMiningLogViewShowing);
 		LoadoutEvent initialLoadout = getLatestLoadout();
 		if (initialLoadout != null && initialLoadout.getShip() != null && !initialLoadout.getShip().isBlank()) {
 			miningTab.updateCurrentShipType(initialLoadout.getShip());
@@ -1051,12 +1051,12 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 		if (event instanceof FsdJumpEvent e) {
 			if (e.getDocked() == null || e.getDocked()) {
-				if (OverlayPreferences.isAutoSwitchSystemTabOnJumpOrScan()) {
+				if (OverlayPreferences.isAutoSwitchSystemTabOnJumpOrScan() && !retainFleetCarrierTab()) {
 					showSystemTabFromStatusWatcher();
 				}
 			}
 		} else if (event instanceof FssDiscoveryScanEvent) {
-			if (OverlayPreferences.isAutoSwitchSystemTabOnJumpOrScan()) {
+			if (OverlayPreferences.isAutoSwitchSystemTabOnJumpOrScan() && !retainFleetCarrierTab()) {
 				showSystemTabFromStatusWatcher();
 			}
 		}
@@ -1096,13 +1096,17 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 
 	/**
 	 * Fleet Carrier tab for owned-carrier jumps; System tab when Status shows a body/station target; Route tab
-	 * for system-only ship hyperspace. Does not cross-switch (FC jump stays on FC tab; ship jump stays on Route).
+	 * for system-only ship hyperspace. If the Fleet Carrier tab is already showing during a carrier jump
+	 * (or while aboard), this does not leave it.
 	 *
 	 * @param startJumpOrNull journal {@code StartJump} when this decision is tied to that event; otherwise null
 	 */
 	private void onFsdTargetTabFromStatus(StatusEvent status, Long jumpTargetSystemAddress,
 			StartJumpEvent startJumpOrNull) {
 		if (!OverlayPreferences.isAutoSwitchTabOnFsdTarget()) {
+			return;
+		}
+		if (retainFleetCarrierTab()) {
 			return;
 		}
 		boolean fcPending = fleetCarrierTab != null && fleetCarrierTab.isOwnedCarrierJumpPending();
@@ -1521,15 +1525,7 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 			// Do NOT touch visibleCardName here: it tracks the MAIN dock's visible card and drives
 			// the main overlay's Selective hit testing / wheel routing. Overwriting it with a
 			// float-hosted card killed hybrid clicks on the tab main was actually showing.
-			if (CARD_MINING.equals(cardName)) {
-				miningTab.onMiningTabBecameVisible();
-			}
-            if (CARD_CONTROL_PANEL.equals(cardName) && controlPanelTab != null) {
-				controlPanelTab.refreshButtons();
-			}
-			if (CARD_COMBAT.equals(cardName) && combatTab != null) {
-				combatTab.reloadCombatCommandBindings();
-			}
+			// selectInDock notifies the card (mining log load, and so on).
 			return;
 		}
 		selectTabInMain(cardName, selectedButton);
@@ -1551,7 +1547,24 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 		applyTabSelectionStyles(cardName);
 		cardLayout.show(cardPanel, cardName);
 		visibleCardName = cardName;
-		if (CARD_MINING.equals(cardName)) {
+		notifyCardBecameVisible(cardName);
+	}
+
+	/**
+	 * Mining log loads only while the Mining card is the one on screen. That includes a floating
+	 * window: {@link #visibleCardName} is the main dock only, so a detached Mining tab used to
+	 * stay empty even though the CSV on disk had rows.
+	 */
+	private boolean isMiningLogViewShowing() {
+		if (tabDockingController != null) {
+			return tabDockingController.isSelectedCard(CARD_MINING);
+		}
+		return CARD_MINING.equals(visibleCardName);
+	}
+
+	/** Side effects when a card becomes the selected tab in its dock (main or float). */
+	public void notifyCardBecameVisible(String cardName) {
+		if (CARD_MINING.equals(cardName) && miningTab != null) {
 			miningTab.onMiningTabBecameVisible();
 		}
 		if (CARD_CONTROL_PANEL.equals(cardName) && controlPanelTab != null) {
@@ -1845,7 +1858,25 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 	}
 
 	private boolean isFleetCarrierTabCurrentlyShown() {
-		return CARD_FLEET_CARRIER.equals(visibleCardName);
+		if (CARD_FLEET_CARRIER.equals(visibleCardName)) {
+			return true;
+		}
+		// Floated Fleet Carrier window: the main dock's card name stays put, but the FC button
+		// is the selected tab in that strip.
+		return fleetCarrierButton != null && fleetCarrierButton.isSelected();
+	}
+
+	/**
+	 * On the Fleet Carrier tab during an owned-carrier jump, or while aboard that carrier.
+	 * Arrival honks, map focus, and hyperspace charging must not leave for Route or System.
+	 */
+	private boolean retainFleetCarrierTab() {
+		boolean fcPending = fleetCarrierTab != null && fleetCarrierTab.isOwnedCarrierJumpPending();
+		boolean fcCountdown = OverlayFrame.overlayFrame != null && OverlayFrame.overlayFrame.hasCarrierJumpCountdown();
+		boolean aboard = systemTab != null && systemTab.getState() != null
+				&& systemTab.getState().isCommanderAboardFleetCarrier();
+		return AutoTabJumpLogic.retainFleetCarrierTab(
+				isFleetCarrierTabCurrentlyShown(), fcPending, fcCountdown, aboard);
 	}
 
 	/**
@@ -2012,9 +2043,9 @@ public class EliteOverlayTabbedPane extends JPanel implements TabDockHost {
 					parent.showRouteTabFromStatusWatcher();
 				}
 			}
-			// 7 = System Map -> System tab
+			// 7 = System Map -> System tab, unless a carrier jump sequence is already on the Fleet Carrier tab
 			else if (guiFocus == 7) {
-				if (OverlayPreferences.isAutoSwitchSystemOnSystemMap()) {
+				if (OverlayPreferences.isAutoSwitchSystemOnSystemMap() && !parent.retainFleetCarrierTab()) {
 					parent.showSystemTabFromStatusWatcher();
 				}
 			}

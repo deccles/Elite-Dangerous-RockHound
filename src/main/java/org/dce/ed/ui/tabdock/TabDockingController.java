@@ -152,6 +152,22 @@ public final class TabDockingController {
         return OverlayTabId.MAIN_DOCK_ID.equals(dockIdForTab(cardName));
     }
 
+    /**
+     * True when {@code cardName} is the selected tab of the dock that holds it (main overlay or a float).
+     * A card that lives in a floating window is not reflected by the main dock's visible card.
+     */
+    public boolean isSelectedCard(String cardName) {
+        if (cardName == null || cardName.isBlank()) {
+            return false;
+        }
+        String dockId = tabToDock.get(cardName);
+        if (dockId == null || OverlayTabId.MAIN_DOCK_ID.equals(dockId)) {
+            return cardName.equals(tabbedPane.getVisibleCardName());
+        }
+        FloatingTabFrame frame = floats.get(dockId);
+        return frame != null && cardName.equals(frame.getSelectedCardName());
+    }
+
     void schedulePersist() {
         if (restoring || disposed) {
             return;
@@ -579,6 +595,7 @@ public final class TabDockingController {
             if (host instanceof FloatingTabFrame floatHost) {
                 floatHost.setSelectedCardName(cardName);
             }
+            tabbedPane.notifyCardBecameVisible(cardName);
             Window w = host.getWindow();
             if (w != null) {
                 w.toFront();
